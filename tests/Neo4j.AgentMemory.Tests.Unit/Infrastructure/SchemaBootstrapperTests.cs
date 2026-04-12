@@ -42,8 +42,8 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 9 constraints + 3 fulltext + 5 vector + 9 property = 26
-        executedStatements.Should().HaveCount(26);
+        // 9 constraints + 3 fulltext + 6 vector + 9 property = 27
+        executedStatements.Should().HaveCount(27);
     }
 
     [Fact]
@@ -136,12 +136,13 @@ public class SchemaBootstrapperTests
         await bootstrapper.BootstrapAsync();
 
         var vectorIndexes = executedStatements.Where(s => s.StartsWith("CREATE VECTOR INDEX")).ToList();
-        vectorIndexes.Should().HaveCount(5);
+        vectorIndexes.Should().HaveCount(6);
         vectorIndexes.Should().Contain(s => s.Contains("message_embedding_idx"));
         vectorIndexes.Should().Contain(s => s.Contains("entity_embedding_idx"));
         vectorIndexes.Should().Contain(s => s.Contains("preference_embedding_idx"));
         vectorIndexes.Should().Contain(s => s.Contains("fact_embedding_idx"));
         vectorIndexes.Should().Contain(s => s.Contains("reasoning_step_embedding_idx"));
+        vectorIndexes.Should().Contain(s => s.Contains("task_embedding_idx"));
     }
 
     [Fact]
@@ -190,7 +191,7 @@ public class SchemaBootstrapperTests
     {
         var indexes = SchemaBootstrapper.BuildVectorIndexes(dimensions);
 
-        indexes.Should().HaveCount(5);
+        indexes.Should().HaveCount(6);
         indexes.Should().AllSatisfy(idx =>
             idx.Should().Contain($"`vector.dimensions`: {dimensions}"));
     }
@@ -210,7 +211,7 @@ public class SchemaBootstrapperTests
         var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
-            idx.Should().Contain("ON (n.embedding)"));
+            idx.Should().MatchRegex(@"ON \(n\.(embedding|taskEmbedding)\)"));
     }
 
     [Fact]
@@ -255,7 +256,7 @@ public class SchemaBootstrapperTests
         await bootstrapper.BootstrapAsync();
 
         var vectorIndexes = executedStatements.Where(s => s.StartsWith("CREATE VECTOR INDEX")).ToList();
-        vectorIndexes.Should().HaveCount(5);
+        vectorIndexes.Should().HaveCount(6);
         vectorIndexes.Should().AllSatisfy(idx =>
             idx.Should().Contain($"`vector.dimensions`: {customDimensions}"));
     }

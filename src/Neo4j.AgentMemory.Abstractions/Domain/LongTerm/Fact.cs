@@ -56,6 +56,12 @@ public sealed record Fact
     public required DateTimeOffset CreatedAtUtc { get; init; }
 
     /// <summary>
+    /// Optional category for grouping facts (e.g., "personal", "professional", "preferences").
+    /// Used for index-based retrieval and schema bootstrapping.
+    /// </summary>
+    public string? Category { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =
