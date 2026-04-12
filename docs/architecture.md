@@ -223,9 +223,38 @@ CREATE FULLTEXT INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, 
 CREATE FULLTEXT INDEX fact_content IF NOT EXISTS FOR (f:Fact) ON EACH [f.subject, f.predicate, f.object]
 ```
 
-### 4.5 Vector Indexes (Phase 1 — Pending)
+### 4.5 Vector Indexes (Implemented in SchemaBootstrapper)
 
-Vector indexes for semantic search will be created for: messages.embedding, entities.embedding, preferences.embedding, facts.embedding, and reasoningTrace.taskEmbedding. *(Plan §9.3)*
+Vector indexes for semantic search, using cosine similarity with configurable dimensions (default 1536). *(Plan §9.3)*
+
+```cypher
+CREATE VECTOR INDEX message_embedding_idx IF NOT EXISTS FOR (n:Message) ON (n.embedding)
+  OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}
+CREATE VECTOR INDEX entity_embedding_idx IF NOT EXISTS FOR (n:Entity) ON (n.embedding)
+  OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}
+CREATE VECTOR INDEX preference_embedding_idx IF NOT EXISTS FOR (n:Preference) ON (n.embedding)
+  OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}
+CREATE VECTOR INDEX fact_embedding_idx IF NOT EXISTS FOR (n:Fact) ON (n.embedding)
+  OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}
+CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningStep) ON (n.embedding)
+  OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}
+```
+
+> **Known Gap:** A `task_embedding_idx` for `ReasoningTrace.taskEmbedding` is needed for `SearchByTaskVectorAsync` but not yet created. Will be added during Epic 6 (Reasoning Memory Repositories).
+
+### 4.6 Property Indexes (Implemented in SchemaBootstrapper)
+
+```cypher
+CREATE INDEX message_session_id IF NOT EXISTS FOR (m:Message) ON (m.sessionId)
+CREATE INDEX message_timestamp IF NOT EXISTS FOR (m:Message) ON (m.timestamp)
+CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)
+CREATE INDEX entity_name_prop IF NOT EXISTS FOR (e:Entity) ON (e.name)
+CREATE INDEX fact_category IF NOT EXISTS FOR (f:Fact) ON (f.category)
+CREATE INDEX preference_category IF NOT EXISTS FOR (p:Preference) ON (p.category)
+CREATE INDEX reasoning_trace_session_id IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.sessionId)
+CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)
+CREATE INDEX tool_call_status IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
+```
 
 ---
 
@@ -350,7 +379,7 @@ The existing neo4j-maf-provider was built for **MAF 0.3** (pre-GA). MAF is now *
 
 ### Current Test Inventory (Phase 1)
 
-- **Unit tests (20):** SystemClock, GuidIdGenerator, StubEmbeddingProvider, StubExtractionPipeline
+- **Unit tests (21):** SystemClock, GuidIdGenerator, StubEmbeddingProvider, StubExtractionPipeline
 - **Integration tests (2):** Neo4j connectivity smoke test, basic node CRUD
 - **Test infrastructure:** Neo4jTestFixture, IntegrationTestBase, TestDataSeeders, MockFactory, Neo4jTestCollection
 
@@ -380,7 +409,7 @@ The existing neo4j-maf-provider was built for **MAF 0.3** (pre-GA). MAF is now *
 | Core service implementations (3 services) | 🔲 Not Started |
 | Context assembler | 🔲 Not Started |
 | Memory service facade | 🔲 Not Started |
-| Schema constraints + vector indexes | 🔲 Partially (constraints done, vector indexes pending) |
+| Schema constraints + indexes | ✅ Complete (9 constraints, 3 fulltext, 5 vector, 9 property) |
 | DI wiring (full registration) | 🔲 Not Started |
 | Unit tests for services | 🔲 Not Started |
 | Integration tests for repositories | 🔲 Not Started |
