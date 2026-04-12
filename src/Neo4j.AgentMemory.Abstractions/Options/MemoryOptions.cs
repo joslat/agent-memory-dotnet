@@ -25,4 +25,7 @@ public sealed record MemoryOptions
 
     /// <summary>Whether to enable automatic extraction after message save.</summary>
     public bool EnableAutoExtraction { get; init; } = true;
+
+    /// <summary>Extraction pipeline configuration.</summary>
+    public ExtractionOptions Extraction { get; init; } = new();
 }

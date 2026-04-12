@@ -169,6 +169,129 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Entity>> SearchByNameAsync(string name, string? type = null, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Searching entities by name '{Name}', type={Type}", name, type);
+
+        var cypher = type is null
+            ? "MATCH (e:Entity) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonicalName) CONTAINS toLower($name) RETURN e"
+            : "MATCH (e:Entity {type: $type}) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonicalName) CONTAINS toLower($name) RETURN e";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { name, type });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                return MapToEntity(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task AddMentionAsync(string messageId, string entityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Adding MENTIONS: Message {MessageId} -> Entity {EntityId}", messageId, entityId);
+
+        const string cypher = @"
+            MATCH (m:Message {id: $messageId})
+            MATCH (e:Entity {id: $entityId})
+            MERGE (m)-[:MENTIONS]->(e)";
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(cypher, new { messageId, entityId });
+        }, cancellationToken);
+    }
+
+    public async Task AddMentionsBatchAsync(string messageId, IReadOnlyList<string> entityIds, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Adding {Count} MENTIONS for Message {MessageId}", entityIds.Count, messageId);
+
+        const string cypher = @"
+            MATCH (m:Message {id: $messageId})
+            UNWIND $entityIds AS eid
+            MATCH (e:Entity {id: eid})
+            MERGE (m)-[:MENTIONS]->(e)";
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(cypher, new { messageId, entityIds = entityIds.ToList() });
+        }, cancellationToken);
+    }
+
+    public async Task AddSameAsRelationshipAsync(string entityId1, string entityId2, double confidence, string matchType, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Adding SAME_AS: {EntityId1} <-> {EntityId2} (confidence={Confidence}, matchType={MatchType})",
+            entityId1, entityId2, confidence, matchType);
+
+        const string cypher = @"
+            MATCH (e1:Entity {id: $entityId1})
+            MATCH (e2:Entity {id: $entityId2})
+            MERGE (e1)-[r:SAME_AS]->(e2)
+            SET r.confidence = $confidence, r.matchType = $matchType, r.createdAt = datetime()";
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(cypher, new { entityId1, entityId2, confidence, matchType });
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<(Entity Entity, double Confidence, string MatchType)>> GetSameAsEntitiesAsync(string entityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting SAME_AS entities for {EntityId}", entityId);
+
+        const string cypher = @"
+            MATCH (e:Entity {id: $entityId})-[r:SAME_AS]-(other:Entity)
+            RETURN other, r.confidence AS confidence, r.matchType AS matchType";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { entityId });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node       = r["other"].As<INode>();
+                var confidence = r["confidence"].As<double>();
+                var matchType  = r["matchType"].As<string>();
+                return (MapToEntity(node, ReadEmbedding(node)), confidence, matchType);
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Merging entity {SourceId} into {TargetId}", sourceEntityId, targetEntityId);
+
+        const string cypher = @"
+            MATCH (source:Entity {id: $sourceEntityId})
+            MATCH (target:Entity {id: $targetEntityId})
+            CALL (source, target) {
+                MATCH (source)<-[:MENTIONS]-(m:Message)
+                WHERE NOT (m)-[:MENTIONS]->(target)
+                MERGE (m)-[:MENTIONS]->(target)
+                RETURN count(*) AS mentionsTransferred
+            }
+            CALL (source, target) {
+                MATCH (source)-[r:SAME_AS]-(other:Entity)
+                WHERE other <> target AND NOT (target)-[:SAME_AS]-(other)
+                MERGE (target)-[:SAME_AS {confidence: r.confidence, matchType: r.matchType, createdAt: datetime()}]-(other)
+                RETURN count(*) AS sameAsTransferred
+            }
+            SET source.mergedInto = target.id, source.mergedAt = datetime()
+            SET target.aliases = CASE
+                WHEN target.aliases IS NULL THEN [source.name]
+                WHEN NOT source.name IN target.aliases THEN target.aliases + source.name
+                ELSE target.aliases
+            END
+            RETURN source, target";
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId });
+        }, cancellationToken);
+    }
+
     private static Entity MapToEntity(INode node, float[]? embedding) =>
         new()
         {

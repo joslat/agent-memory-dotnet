@@ -86,7 +86,42 @@
 
 **Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 34 passed, 0 failed.
 
-### Epics 4, 5, 6 — All 9 Neo4j Repository Implementations (2025-07-14)
+### Epic — Phase 2 Entity Resolution Persistence (2025-07-15)
+
+**Objective:** Add Neo4j support for MENTIONS, SAME_AS, and entity merge operations needed by the LLM Extraction Pipeline.
+
+**IEntityRepository changes (Abstractions):**
+- Added `SearchByNameAsync(string name, string? type, CancellationToken)` — case-insensitive partial match on `name` and `canonicalName`; optional type filter
+- Added `AddMentionAsync(string messageId, string entityId, CancellationToken)` — single MENTIONS MERGE
+- Added `AddMentionsBatchAsync(string messageId, IReadOnlyList<string> entityIds, CancellationToken)` — UNWIND batch
+- Added `AddSameAsRelationshipAsync(string e1, string e2, double confidence, string matchType, CancellationToken)` — MERGE + SET on SAME_AS rel
+- Added `GetSameAsEntitiesAsync(string entityId, CancellationToken)` — returns `(Entity, double, string)` tuples
+- Added `MergeEntitiesAsync(string sourceEntityId, string targetEntityId, CancellationToken)` — full merge Cypher with CALL subqueries
+
+**Neo4jEntityRepository new methods:**
+- `SearchByNameAsync` — uses `toLower(e.name) CONTAINS toLower($name)` query; branches on type param
+- `AddMentionAsync` — single `MERGE (m)-[:MENTIONS]->(e)` after `MATCH` of both nodes
+- `AddMentionsBatchAsync` — `UNWIND $entityIds AS eid` pattern for efficiency
+- `AddSameAsRelationshipAsync` — `MERGE (e1)-[r:SAME_AS]->(e2) SET r.confidence...`
+- `GetSameAsEntitiesAsync` — bidirectional `(e)-[r:SAME_AS]-(other)` query
+- `MergeEntitiesAsync` — uses CALL subquery syntax (Neo4j 5+) to transfer MENTIONS and SAME_AS in one statement, then sets `mergedInto`, `mergedAt`, and `aliases`
+
+**SchemaBootstrapper change:**
+- Added `entity_merged_into_idx` property index on `Entity.mergedInto` for fast merged-entity lookups
+- Statement count: 27 → 28
+
+**Tests:** 15 new unit tests in `Neo4jEntityRepositoryExtensionsTests.cs` covering all 7 new methods.
+
+**Key technical insight — NSubstitute + Neo4j.Driver generics:**
+- `IResultCursor.ToListAsync()` is a static extension method and cannot be mocked with NSubstitute
+- Mock `cursor.FetchAsync().Returns(Task.FromResult(false))` instead — the `ToListAsync()` extension calls this in a loop and returns `[]` when false
+- `ReadAsync<T>` type inference: `.ToList()` inside the lambda makes T = `List<Entity>`, NOT `IReadOnlyList<Entity>` — mock must match `Func<IAsyncQueryRunner, Task<List<Entity>>>` exactly
+
+**Pre-existing issues (not my changes):**
+- `FuzzySharp` NuGet package missing from `Neo4j.AgentMemory.Core` — causes 1 test failure in `FuzzyMatchEntityMatcherTests` (Phase 2 scaffold from another agent)
+
+**Build status (unit tests only):** `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 162 passed, 1 failed (pre-existing FuzzySharp). My 15 new tests: all passed.
+
 
 **9 repository classes created** in `src/Neo4j.AgentMemory.Neo4j/Repositories/`:
 - `Neo4jConversationRepository` — MERGE upsert, session queries, DETACH DELETE

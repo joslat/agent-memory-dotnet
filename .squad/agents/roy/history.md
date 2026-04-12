@@ -9,7 +9,49 @@
 
 ## Learnings
 
-### 2025-07-14: Epics 4–7 — Core Service Implementations
+### 2025-07-14: Phase 2 Sprint 1 — Entity Resolution Chain + Entity Validation
+
+**Task:** Implemented the full entity resolution pipeline for Phase 2 as specified in the charter. All tasks 1–7 completed.
+
+**Files Created:**
+
+*Abstractions:*
+1. `src/Neo4j.AgentMemory.Abstractions/Domain/Extraction/EntityResolutionResult.cs` — sealed record with ResolvedEntity, MatchType ("exact"/"fuzzy"/"semantic"/"new"), Confidence, MergedFromEntityId, SourceMessageIds
+2. `src/Neo4j.AgentMemory.Abstractions/Options/ExtractionOptions.cs` — ExtractionOptions, EntityResolutionOptions, EntityValidationOptions
+3. `src/Neo4j.AgentMemory.Abstractions/Options/MemoryOptions.cs` — added `ExtractionOptions Extraction { get; init; }` property
+
+*Core:*
+4. `src/Neo4j.AgentMemory.Core/Validation/EntityValidator.cs` — static utility class; ~221 stopwords; IsValid() and ValidateEntities() methods; rejects empty/short/numeric-only/punctuation-only/stopword names
+5. `src/Neo4j.AgentMemory.Core/Resolution/IEntityMatcher.cs` — internal interface; MatchType + TryMatchAsync
+6. `src/Neo4j.AgentMemory.Core/Resolution/ExactMatchEntityMatcher.cs` — case-insensitive equality on Name, CanonicalName, Aliases; confidence = 1.0
+7. `src/Neo4j.AgentMemory.Core/Resolution/FuzzyMatchEntityMatcher.cs` — FuzzySharp.Fuzz.TokenSortRatio; threshold configurable; compares Name + CanonicalName + Aliases
+8. `src/Neo4j.AgentMemory.Core/Resolution/SemanticMatchEntityMatcher.cs` — IEmbeddingProvider; cosine similarity helper; skips entities without embeddings
+9. `src/Neo4j.AgentMemory.Core/Resolution/CompositeEntityResolver.cs` — IEntityResolver implementation; Exact→Fuzzy→Semantic→New chain; auto-merge >= AutoMergeThreshold; SAME_AS range detection; type-strict filtering via GetByTypeAsync
+10. `src/Neo4j.AgentMemory.Core/Properties/AssemblyInfo.cs` — InternalsVisibleTo("Neo4j.AgentMemory.Tests.Unit") for unit testing internal classes
+11. `src/Neo4j.AgentMemory.Core/ServiceCollectionExtensions.cs` — updated to register CompositeEntityResolver as IEntityResolver; bridge ExtractionOptions from MemoryOptions; keep StubEntityResolver available for explicit fallback
+
+*Tests (47 new tests):*
+12. `tests/.../Validation/EntityValidatorTests.cs` — 32 tests covering stopwords, length, numeric, punctuation, bulk validation
+13. `tests/.../Resolution/ExactMatchEntityMatcherTests.cs` — 7 tests
+14. `tests/.../Resolution/FuzzyMatchEntityMatcherTests.cs` — 7 tests
+15. `tests/.../Resolution/SemanticMatchEntityMatcherTests.cs` — 8 tests including CosineSimilarity helpers
+16. `tests/.../Resolution/CompositeEntityResolverTests.cs` — 10 tests covering chain, type filtering, auto-merge, SAME_AS range, FindPotentialDuplicates
+
+**NuGet added:** `FuzzySharp 2.0.2` to Core csproj
+
+**Key Design Decisions:**
+1. **EntityResolutionResult is internal to resolution chain** — IEntityResolver still returns `Entity` per the existing contract; EntityResolutionResult is used internally to carry metadata through the Exact→Fuzzy→Semantic chain.
+2. **IsNumericOnly requires at least one digit** — Prevents "..." (all dots) from being classified as numeric. Dots/commas/dashes are allowed alongside digits (e.g., "3.14", "1,000", "-5").
+3. **GetByTypeAsync used for all candidate fetching** — IEntityRepository already has GetByTypeAsync. Without TypeStrictFiltering, the implementation still uses GetByTypeAsync with the same type as best-effort (a future GetAllAsync would be ideal).
+4. **CosineSimilarity is internal static** — Accessed from tests via InternalsVisibleTo rather than making it public. Keeps it testable without polluting the public API.
+5. **FuzzySharp threshold is a double (0–1)** but FuzzySharp returns int (0–100); division by 100 converts. The threshold comparison uses `(int)(threshold * 100)` as integer cutoff.
+
+**Build Outcome:** `dotnet build` — 0 errors, 0 warnings
+**Test Outcome:** 156 passing (all new tests pass). 7 pre-existing failures in `Neo4jEntityRepositoryExtensionsTests` added by Deckard (concurrent Neo4j adapter work), unrelated to entity resolution.
+
+---
+
+
 
 **Task:** Implemented all Core service classes for Epics 4, 5, 6, and 7 in `src/Neo4j.AgentMemory.Core/Services/`.
 
