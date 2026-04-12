@@ -1,8 +1,8 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2025-07-12 (Phase 1 — In Progress)  
+**Last Updated:** 2025-07-13 (Phase 1 — In Progress)  
 **Author:** Deckard (Lead Architect)  
-**Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)  
+**Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)
 **Implementation Plan:** [Agent-memory-for-dotnet-implementation-plan.md](../Agent-memory-for-dotnet-implementation-plan.md)
 
 ---
