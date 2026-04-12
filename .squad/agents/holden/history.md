@@ -13,6 +13,11 @@
 - `Neo4j.Driver` and `FluentAssertions` both expose `.As<T>()` extension methods causing CS0121 ambiguity — use `global::Neo4j.Driver.ValueExtensions.As<T>(value)` to be explicit.
 - Domain models live in `Neo4j.AgentMemory.Abstractions.Domain` namespace. Avoid using fully-qualified names starting with `Neo4j.` at the call site to prevent conflicts with the `Neo4j.Driver` package namespace.
 - The `Neo4j.AgentMemory.Neo4j` project (infrastructure) had no `.cs` files when Epic 9 was run — the test harness is built ahead of that implementation.
+- `IIdGenerator` uses `GenerateId()` (not `NewId()`); `IEmbeddingProvider` uses `GenerateEmbeddingAsync(string, CancellationToken)` (not `GenerateAsync()`). Always verify abstract method names against the interface before mocking.
+- `ReasoningMemoryService` does NOT take `IOptions<ReasoningMemoryOptions>` in its constructor (Roy's Wave 4 implementation). Budget enforcement logic lives in `MemoryContextAssembler`, not in individual services.
+- `MemoryService` constructor order: `(shortTerm, assembler, extraction, IOptions<MemoryOptions>, clock, idGenerator, logger)` — options come before clock/idGenerator.
+- `MemoryContextAssembler` uses character-based estimation (`EstimateItemChars`) for budget enforcement: messages use `Content.Length`, facts use `Subject+Predicate+Object+4`, entities use `Name+Description+10`, traces use `Task+Outcome+10`.
+- For `TruncationStrategy.OldestFirst`, items are sorted descending by timestamp THEN `FitWithinBudget` removes from the end of each list in round-robin (facts first, then entities, relevant messages, traces, preferences, recent messages).
 
 ## Work Log
 
@@ -27,3 +32,14 @@
 - Created `tests/Neo4j.AgentMemory.Tests.Unit/TestHelpers/MockFactory.cs` — `CreateFixedClock`, `CreateSequentialIdGenerator`, `CreateStubEmbeddingProvider` using NSubstitute
 - Added explicit `Neo4j.Driver Version="6.0.0"` reference to integration test project
 - `dotnet build` — **Build succeeded** (0 errors)
+
+### 2025-01-28 — Wave 4: Core Service Unit Tests
+
+**Completed:**
+- Created `tests/Neo4j.AgentMemory.Tests.Unit/Services/` directory
+- Created `ShortTermMemoryServiceTests.cs` — 12 tests covering conversation creation, embedding generation/skipping, message persistence, limit capping, score stripping, session clearing
+- Created `LongTermMemoryServiceTests.cs` — 14 tests covering entity/fact/preference/relationship add+search, embedding conditional generation, score stripping for all search methods
+- Created `ReasoningMemoryServiceTests.cs` — 10 tests covering trace start, step add, tool call record, trace completion, parallel GetTraceWithSteps, list and search with score stripping
+- Created `MemoryContextAssemblerTests.cs` — 10 tests covering embedding generation, all-layer retrieval, GraphRAG enable/disable/null, assembled timestamp, budget enforcement (OldestFirst + LowestScoreFirst), token count estimation
+- Created `MemoryServiceTests.cs` — 5 tests covering recall wrapping, message creation via IIdGenerator+IClock, batch delegate, extraction pipeline delegate, session clear delegate
+- **Total unit tests: 85 passing (0 failures)**

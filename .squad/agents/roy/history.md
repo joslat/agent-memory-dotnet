@@ -9,6 +9,32 @@
 
 ## Learnings
 
+### 2025-07-14: Epics 4–7 — Core Service Implementations
+
+**Task:** Implemented all Core service classes for Epics 4, 5, 6, and 7 in `src/Neo4j.AgentMemory.Core/Services/`.
+
+**Files Created:**
+1. `ShortTermMemoryService` — implements `IShortTermMemoryService`; embedding generation, capped limits via `ShortTermMemoryOptions`, conversation/message lifecycle
+2. `LongTermMemoryService` — implements `ILongTermMemoryService`; conditional embedding for entities/facts/preferences, delegates to 4 repos
+3. `ReasoningMemoryService` — implements `IReasoningMemoryService`; trace start/step/tool-call/complete lifecycle with `IClock` + `IIdGenerator`
+4. `MemoryContextAssembler` — implements `IMemoryContextAssembler`; full parallel recall, optional GraphRAG, 4-strategy context budget enforcement
+5. `MemoryService` — facade implementing `IMemoryService`; delegates to shortTerm + assembler + extraction pipeline
+6. `ServiceCollectionExtensions` — `AddAgentMemoryCore(Action<MemoryOptions>)` with sub-option bridging via factory `IOptions<T>`
+
+**Also:** Added `Category` property (`string?`) to `Fact` domain model in Abstractions (needed for SchemaBootstrapper index on `f.category`).
+
+**Key Design Decisions:**
+1. **`IEmbeddingProvider` method name** — Interface uses `GenerateEmbeddingAsync` (not `GenerateAsync`); verified from source
+2. **Sub-option bridging** — `MemoryOptions` sub-records are `init`-only, so DI `Configure<T>(Action<T>)` cannot mutate them at call sites. Used factory-based `IOptions<T>` registration that reads from parent `IOptions<MemoryOptions>` to bridge sub-options to services
+3. **Budget enforcement** — 4 strategies: `OldestFirst` (sort by timestamp desc), `LowestScoreFirst` (trim from end), `Proportional` (ratio-based), `Fail` (throw)
+4. **GraphRAG is optional** — `IGraphRagContextSource?`; only called when `!= null && options.EnableGraphRag`. Errors are non-fatal (logged as warnings)
+5. **Pre-existing test failures** — `SchemaBootstrapperTests` had 7 failing tests before this work; confirmed via `git stash` + test run
+
+**Build Outcome:** `dotnet build` — 0 errors, 0 warnings
+**Test Outcome:** 27 passing, 7 pre-existing failures in `SchemaBootstrapperTests`
+
+
+
 ### 2025-01-27: Phase 1 Domain Model Design
 
 **Task:** Designed complete domain model and interfaces for Neo4j.AgentMemory.Abstractions package.

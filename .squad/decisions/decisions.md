@@ -521,3 +521,112 @@ Created `docs/python-agent-memory-analysis.md` — a 13-section reference docume
 - Action items identified for schema gaps (vector indexes, property indexes)
 - Phase 2 planning has concrete targets (extraction prompt templates, resolution algorithms)
 - Phase 6 MCP planning has tool definitions and profiles documented
+
+---
+
+## Decision: Specification & Implementation Plan Update
+
+**Author:** Deckard (Lead Architect)  
+**Type:** Documentation update  
+**Scope:** Specification + Implementation Plan
+
+### Summary
+
+Updated both the specification (`Agent-Memory-for-DotNet-Specification.md`) and implementation plan (`Agent-memory-for-dotnet-implementation-plan.md`) with findings from the Python reference analysis, architecture documentation, and implementation status review. These documents are now living sources of truth that reflect what we've learned and built.
+
+### Changes Made
+
+#### Specification (7 changes)
+
+1. **Message linking pattern** (§3.1) — Documented FIRST_MESSAGE + NEXT_MESSAGE linked list pattern for O(1) latest-message access
+2. **Fact.Category field** (§3.1) — Added optional `Category` field to Fact, matching Python reference and existing property index
+3. **Entity resolution complexity** (§3.1) — Added note about Python's 4-strategy resolution chain (exact → fuzzy → semantic → type-aware)
+4. **Metadata serialization** (§3.3) — Documented that Metadata dictionaries must be serialized as JSON strings in Neo4j
+5. **Cross-memory relationships** (§3.4) — Documented INITIATED_BY, TRIGGERED_BY, HAS_TRACE relationships
+6. **Neo4j schema requirements** (§3.5) — NEW section with complete index tables (6 vector, 9 property, 3 fulltext)
+7. **Neo4j 5.11+ requirement** (§3.5) — Documented minimum Neo4j version for vector index support
+
+#### Implementation Plan (7 changes)
+
+1. **Phase 0 status** — Marked COMPLETE with all deliverables checked off
+2. **Phase 1 status** — Marked IN PROGRESS (~50%) with per-task status indicators
+3. **Schema section** — Complete rewrite documenting all 27 schema objects with exact names and implementation status
+4. **Phase 2 entity resolution** — Added task and complexity note from Python analysis
+5. **Build/test commands** — Added verified commands (34 unit tests, Docker for integration)
+6. **Runtime requirements** — Documented .NET 9, Neo4j 5.11+, Docker
+7. **Package versions** — Documented Neo4j.Driver 6.0.0, M.E.* 10.0.5
+
+### Rationale
+
+Jose explicitly requested these updates: "if there is something which is invalid or not up to date in the spec/impl-plan docs... we should update the impl plan and specs to have it become a better source of truth." All changes are sourced from verified analysis and confirmed against actual code.
+
+### Impact
+
+- No code changes required
+- No architectural decisions changed
+- Spec and impl plan now accurately reflect implemented state and known complexity
+- Future implementers have better guidance for Phase 1 completion and Phase 2 planning
+
+---
+
+## Decision: RELATES_TO Relationship ID Storage Pattern
+
+**Filed by:** Gaff  
+**Date:** 2025-07-14  
+**Status:** Implemented
+
+### Context
+
+The `Relationship` domain model has `SourceEntityId` and `TargetEntityId` properties that need to be recoverable when reading back a `[:RELATES_TO]` Neo4j relationship. The schema constraint for `relationship_id` is defined on a `(:MemoryRelationship)` node label, but the task specification calls for storing relationships as actual Neo4j relationship edges (`[:RELATES_TO {id: $id}]`).
+
+### Decision
+
+Store `sourceEntityId` and `targetEntityId` as **properties on the RELATES_TO relationship** itself (redundantly alongside the graph topology). This allows `MapToRelationship(IRelationship r)` to work without returning both source and target nodes in every query.
+
+### Tradeoff
+
+- ✅ Simpler mapping code — any query returning only `r` can reconstruct the full domain object
+- ✅ Consistent with how the other "provenance" fields (sourceMessageIds, createdAtUtc) are stored
+- ⚠️ Minor redundancy — the same IDs are encoded in the graph edges AND in the relationship properties
+
+### Impact on Queries
+
+Any query that returns `r` (a RELATES_TO relationship) can be mapped to `Relationship` without also returning `s.id` and `t.id`. This was chosen for consistency and simplicity.
+
+### Note on Constraint
+
+The existing `CREATE CONSTRAINT relationship_id IF NOT EXISTS FOR (r:MemoryRelationship) REQUIRE r.id IS UNIQUE` targets a `MemoryRelationship` *node* label which is never created by the repositories. This constraint is harmless but unused. A future decision could align it (either change to relationship constraint syntax or remove it).
+
+---
+
+## Decision: Sub-Option Bridging Pattern for IOptions<T>
+
+**Author:** Roy  
+**Date:** 2025-07-14  
+**Status:** Proposed
+
+### Context
+
+`MemoryOptions` and its sub-options (`ShortTermMemoryOptions`, `LongTermMemoryOptions`, `ReasoningMemoryOptions`) are defined as C# records with `init`-only properties. This means they cannot be mutated via `services.Configure<T>(Action<T>)` at the call site (compile-time restriction).
+
+However, the Core service constructors take `IOptions<ShortTermMemoryOptions>`, `IOptions<LongTermMemoryOptions>`, and `IOptions<ReasoningMemoryOptions>` separately (per the spec), while the public API (`AddAgentMemoryCore`) accepts `Action<MemoryOptions>`.
+
+### Decision
+
+In `ServiceCollectionExtensions.AddAgentMemoryCore`, register sub-options as factory-based `IOptions<T>` singletons that bridge from the parent `IOptions<MemoryOptions>`:
+
+```csharp
+services.TryAddSingleton<IOptions<ShortTermMemoryOptions>>(sp =>
+    Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.ShortTerm));
+```
+
+This allows:
+1. The public API to remain `Action<MemoryOptions>` as specified
+2. Sub-options to be configured via the parent (e.g., when binding from `appsettings.json`)
+3. Services to accept typed `IOptions<T>` in their constructors
+
+### Implications
+
+- The `Action<MemoryOptions>` configure callback only works for non-init properties or via programmatic `Options.Create` patterns.
+- For production use, callers should prefer configuration binding via `services.Configure<MemoryOptions>(config.GetSection("Memory"))` which uses reflection to set init properties.
+- Phase 2 may want to revisit making options classes mutable POCOs instead of records, or providing a builder pattern.

@@ -85,3 +85,35 @@
 **Key decision:** `BuildVectorIndexes` made `public static` (not `internal`) so unit tests in a separate assembly can call it directly without `InternalsVisibleTo` setup.
 
 **Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 34 passed, 0 failed.
+
+### Epics 4, 5, 6 — All 9 Neo4j Repository Implementations (2025-07-14)
+
+**9 repository classes created** in `src/Neo4j.AgentMemory.Neo4j/Repositories/`:
+- `Neo4jConversationRepository` — MERGE upsert, session queries, DETACH DELETE
+- `Neo4jMessageRepository` — CREATE + linked list (HAS_MESSAGE, NEXT_MESSAGE), UNWIND batch, vector search with optional sessionId filter
+- `Neo4jEntityRepository` — MERGE upsert preserving aliases as Neo4j list, vector search, name+alias lookup
+- `Neo4jFactRepository` — MERGE upsert with optional date fields, vector search
+- `Neo4jPreferenceRepository` — MERGE upsert, category queries, vector search
+- `Neo4jRelationshipRepository` — MERGE on RELATES_TO relationship (stores sourceEntityId/targetEntityId as rel properties for easy mapping back), bidirectional entity queries
+- `Neo4jReasoningTraceRepository` — CREATE/UPDATE pattern, session listing, task vector search with optional success filter
+- `Neo4jReasoningStepRepository` — CREATE + HAS_STEP link, trace ordering by stepNumber
+- `Neo4jToolCallRepository` — CREATE + USED_TOOL link, ToolCallStatus stored as string
+
+**SchemaBootstrapper updated:** Added `task_embedding_idx` vector index targeting `ReasoningTrace.taskEmbedding` — now 6 total vector indexes.
+
+**ServiceCollectionExtensions updated:** All 9 repositories registered via `TryAddTransient`.
+
+**Unit test updates:** SchemaBootstrapper tests updated: total statements 26→27, vector count 5→6, `AllIndexesTargetEmbeddingProperty` test updated to use regex matching `(embedding|taskEmbedding)`.
+
+**Key implementation patterns:**
+- Metadata (IReadOnlyDictionary) serialized to JSON string via System.Text.Json (Neo4j doesn't support Map properties)
+- Arrays (aliases, sourceMessageIds) stored as Neo4j native lists; read back via `.As<IList<object>>()` + `.Select(v => v.ToString()!)`
+- Embeddings stored in a separate `SET` query after the node CREATE/MERGE (avoids null parameter complexity)
+- DateTimeOffset stored as ISO 8601 "O" format strings, parsed back with `DateTimeStyles.RoundtripKind`
+- Nullable node properties accessed via `node.Properties.TryGetValue()` — avoids KeyNotFoundException
+- `RELATES_TO` relationships store both `sourceEntityId` and `targetEntityId` as relationship properties for mapping without needing to traverse source/target nodes on read
+- IRelationship has `.Properties` dictionary same as INode — same mapping pattern works
+- ToolCallStatus enum round-tripped via `.ToString()` / `Enum.Parse<ToolCallStatus>()`
+- ReasoningTrace `success` stored as nullable bool in Neo4j; read carefully with `TryGetValue` + `As<bool?>()`
+
+**Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 34 passed, 0 failed.
