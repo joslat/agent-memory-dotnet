@@ -457,35 +457,47 @@ SAME_AS
 
 ## 9.3 Constraints and indexes
 
-### Required constraints
-- unique conversation id
-- unique message id
-- unique entity id
-- unique preference id
-- unique fact id
-- unique trace id
-- unique step id
-- unique tool call id
+The schema bootstrapper creates **27 schema objects** on startup: 9 uniqueness constraints, 3 fulltext indexes, 6 vector indexes, and 9 property indexes.
 
-### Required vector indexes
-- messages.embedding
-- entities.embedding
-- preferences.embedding
-- facts.embedding
-- reasoningTrace.taskEmbedding
-- reasoningStep.embedding (optional, phase 2)
+### Required constraints (9)
+- unique conversation id (`Conversation.id`)
+- unique message id (`Message.id`)
+- unique entity id (`Entity.id`)
+- unique preference id (`Preference.id`)
+- unique fact id (`Fact.id`)
+- unique relationship id (`MemoryRelationship.id`)
+- unique trace id (`ReasoningTrace.id`)
+- unique step id (`ReasoningStep.id`)
+- unique tool call id (`ToolCall.id`)
 
-### Required fulltext indexes
-- messages.text
-- entities.name/canonicalName/description
-- preferences.preference/context
-- facts.subject/predicate/object
+### Required vector indexes (6)
 
-### Optional indexes
-- session id
-- created/updated timestamps
-- entity type
-- tool name
+All vector indexes use cosine similarity with configurable dimensions (default: 1536). Requires Neo4j 5.11+.
+
+| Index | Label | Property | Status |
+|---|---|---|---|
+| `message_embedding_idx` | `Message` | `embedding` | ✅ Implemented |
+| `entity_embedding_idx` | `Entity` | `embedding` | ✅ Implemented |
+| `preference_embedding_idx` | `Preference` | `embedding` | ✅ Implemented |
+| `fact_embedding_idx` | `Fact` | `embedding` | ✅ Implemented |
+| `reasoning_step_embedding_idx` | `ReasoningStep` | `embedding` | ✅ Implemented |
+| `task_embedding_idx` | `ReasoningTrace` | `taskEmbedding` | ⏳ To add to SchemaBootstrapper |
+
+### Required fulltext indexes (3)
+- `message_content` — `Message` on `[content]`
+- `entity_name` — `Entity` on `[name, description]`
+- `fact_content` — `Fact` on `[subject, predicate, object]`
+
+### Required property indexes (9)
+- `message_session_id` — `Message.sessionId`
+- `message_timestamp` — `Message.timestamp`
+- `entity_type` — `Entity.type`
+- `entity_name_prop` — `Entity.name`
+- `fact_category` — `Fact.category`
+- `preference_category` — `Preference.category`
+- `reasoning_trace_session_id` — `ReasoningTrace.sessionId`
+- `reasoning_step_timestamp` — `ReasoningStep.timestamp`
+- `tool_call_status` — `ToolCall.status`
 
 ---
 
@@ -877,69 +889,73 @@ The assembler must enforce a token/character budget.
 
 ## 15. Exact Deliverables by Phase
 
-## Phase 0 — Discovery and design lock
+## Phase 0 — Discovery and design lock ✅
+
+> **Status: COMPLETE** — Architecture decisions frozen, package boundaries locked, interface contracts defined.
 
 ### Objective
 Freeze architecture and non-goals.
 
 ### Deliverables
-- architecture decision records
-- solution structure
-- naming conventions
-- package boundaries
-- coding standards
-- provider configuration model
+- ✅ architecture decision records (D1–D6)
+- ✅ solution structure
+- ✅ naming conventions (`Neo4j.AgentMemory.*`)
+- ✅ package boundaries (Abstractions → Core → Neo4j)
+- ✅ coding standards (.NET 9, nullable, immutable records)
+- ✅ provider configuration model (IOptions pattern)
 
 ### Tasks
-1. define package map
-2. define domain model
-3. define interface contracts
-4. define graph schema
-5. define test strategy
-6. define CI expectations
+1. ✅ define package map
+2. ✅ define domain model
+3. ✅ define interface contracts
+4. ✅ define graph schema
+5. ✅ define test strategy
+6. ✅ define CI expectations
 
 ### Exit criteria
-- architecture signed off
-- interfaces and package boundaries frozen
+- ✅ architecture signed off
+- ✅ interfaces and package boundaries frozen
 
 ---
 
-## Phase 1 — Core memory engine
+## Phase 1 — Core memory engine 🔧
+
+> **Status: IN PROGRESS** (~50% complete) — Foundation work done (Epics 1–3, 8, 9). Repository and service implementations pending (Epics 4–7).
 
 ### Objective
 Implement the framework-agnostic memory core and Neo4j persistence.
 
 ### Deliverables
-- abstractions package
-- core package
-- Neo4j persistence package
-- schema bootstrapper
-- short-term memory
-- long-term memory
-- reasoning memory
+- ✅ abstractions package (15 service interfaces, 10 repository interfaces, ~29 domain records, 6 enums)
+- ✅ core package (9 stub implementations, system clock, GUID generator)
+- ✅ Neo4j persistence package (driver factory, session factory, tx runner, schema bootstrapper, migration runner)
+- ✅ schema bootstrapper (9 constraints, 3 fulltext indexes, 5 vector indexes, 9 property indexes)
+- ⏳ short-term memory (repositories and service pending)
+- ⏳ long-term memory (repositories and service pending)
+- ⏳ reasoning memory (repositories and service pending)
 
 ### Tasks
 
-#### 1. Abstractions
-- create domain contracts
-- create options contracts
-- create core service interfaces
+#### 1. Abstractions ✅
+- ✅ create domain contracts
+- ✅ create options contracts
+- ✅ create core service interfaces
 
-#### 2. Neo4j infrastructure
-- driver factory
-- session factory
-- transaction runner
-- schema installer
-- migration runner
+#### 2. Neo4j infrastructure ✅
+- ✅ driver factory
+- ✅ session factory
+- ✅ transaction runner
+- ✅ schema installer
+- ✅ migration runner
 
-#### 3. Short-term memory
+#### 3. Short-term memory ⏳
 - create conversation
 - add message
 - list conversation
 - semantic message search
 - recent context formatting
 
-#### 4. Long-term memory
+#### 4. Long-term memory ⏳
 - add/update entity
 - add preference
 - add fact
@@ -947,14 +963,14 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 - search entities/preferences/facts
 - dedup hooks
 
-#### 5. Reasoning memory
+#### 5. Reasoning memory ⏳
 - start trace
 - add step
 - record tool call
 - complete trace
 - find similar traces
 
-#### 6. Context assembly
+#### 6. Context assembly ⏳
 - implement `MemoryContextAssembler`
 - implement token/size budgets
 - implement configurable section inclusion
@@ -962,6 +978,37 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 ### Exit criteria
 - in-process memory engine works without Agent Framework
 - all repositories and services have unit and integration tests
+
+### Build and test commands
+
+```bash
+# Build (verified: 0 errors, 0 warnings)
+dotnet build
+
+# Unit tests (34 tests passing)
+dotnet test tests/Neo4j.AgentMemory.Tests.Unit
+
+# Integration tests (require Docker + Testcontainers — auto-provisions Neo4j)
+dotnet test tests/Neo4j.AgentMemory.Tests.Integration
+
+# All tests
+dotnet test
+```
+
+### Runtime requirements
+
+- **.NET 9 SDK** for build and test
+- **Neo4j 5.11+** for vector index support (`CREATE VECTOR INDEX`)
+- **Docker** for integration tests (Testcontainers auto-provisions Neo4j)
+
+### Package versions (verified)
+
+| Package | Version | Used By |
+|---|---|---|
+| `Neo4j.Driver` | 6.0.0 | Neo4j package, Integration tests |
+| `Microsoft.Extensions.DependencyInjection.Abstractions` | 10.0.5 | Core, Neo4j |
+| `Microsoft.Extensions.Logging.Abstractions` | 10.0.5 | Core, Neo4j |
+| `Microsoft.Extensions.Options` | 10.0.5 | Core, Neo4j |
 
 ---
 
@@ -985,6 +1032,9 @@ Implement a .NET-native structured extraction pipeline.
 6. implement preference/fact inference logic
 7. integrate extraction into post-message workflow
 8. implement provenance storage hooks
+9. implement entity resolution chain (see complexity note below)
+
+> **Entity resolution complexity note:** Analysis of the Python reference implementation reveals that entity resolution is significantly more complex than initially scoped. The Python project uses a **4-strategy resolution chain**: ExactMatchResolver (case-insensitive string equality, confidence: 1.0) → FuzzyMatchResolver (RapidFuzz `token_sort_ratio` ≥ 0.85) → SemanticMatchResolver (embedding cosine similarity ≥ 0.8) → type-aware filtering (PERSON "John" must not merge with LOCATION "John"). Post-resolution actions include auto-merge at ≥ 0.95 confidence, `SAME_AS` relationship flagging at 0.85–0.95, and new entity creation below 0.85. Phase 2 planning should allocate adequate time for this 4-strategy `CompositeEntityResolver` implementation. Consider using the `FuzzySharp` NuGet package for fuzzy matching (C# port of fuzzywuzzy).
 
 ### Exit criteria
 - user message and assistant output can update long-term graph memory

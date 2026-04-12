@@ -298,6 +298,8 @@ Required behaviors:
 - clear session
 - preserve session isolation
 
+> **Implementation note — message linking pattern:** The graph model shall use a `FIRST_MESSAGE` relationship from `Conversation` to its first `Message`, plus `NEXT_MESSAGE` relationships between consecutive messages, forming a linked list. This enables O(1) access to the latest message and efficient ordered traversal without relying solely on timestamp ordering. This pattern is proven in the Python reference implementation.
+
 #### Long-term memory
 Purpose:
 - represent durable knowledge extracted from interactions
@@ -324,6 +326,7 @@ Required `Fact` fields:
 - `Subject`
 - `Predicate`
 - `Object`
+- `Category` optional — classifies the fact (e.g., "personal", "technical", "temporal"). Enables category-based filtering and indexing.
 - `Confidence`
 - `ValidFrom` optional
 - `ValidUntil` optional
@@ -358,6 +361,8 @@ Required behaviors:
 - semantic search over long-term memory
 - support deduplication hooks
 - support provenance hooks
+
+> **Implementation note — entity resolution complexity:** The Python reference implementation uses a 4-strategy entity resolution chain: exact match → fuzzy match (token sort ratio ≥ 0.85) → semantic match (embedding cosine ≥ 0.8) → type-aware filtering. Post-resolution actions include auto-merge at ≥ 0.95 confidence, `SAME_AS` flagging at 0.85–0.95, and new entity creation below 0.85. Our Phase 2 implementation should match this complexity level. The `IEntityResolver` interface supports this design.
 
 #### Reasoning memory
 Purpose:
@@ -423,10 +428,63 @@ The chosen strategy must be deterministic and testable.
 - Retrieval may blend the layers, but storage responsibilities must stay separated.
 - Writes should be idempotent where practical, or explicitly documented where not.
 
+> **Implementation note — metadata serialization:** Neo4j does not natively support `Map` properties on nodes. All `Metadata` dictionaries (`IReadOnlyDictionary<string, object>`) must be serialized as JSON strings when persisted and deserialized on read. This applies to every domain type that carries `Metadata` (Message, Entity, Fact, Preference, ReasoningTrace, etc.). The Python reference uses the same approach.
+
 ### 3.4 Provenance principle
 
 Derived long-term memory should be traceable to source messages when practical.
 Reasoning traces should be linkable to the messages that initiated them when practical.
+
+The graph model shall support cross-memory-layer relationships for provenance and traceability:
+
+- `INITIATED_BY` — links a `ReasoningTrace` to the `Message` that triggered the reasoning
+- `TRIGGERED_BY` — links a `ToolCall` to the `Message` that caused the tool invocation
+- `HAS_TRACE` — links a `Conversation` to its associated `ReasoningTrace` nodes
+
+These cross-layer relationships enable tracing from reasoning outcomes back to their conversational origins and are essential for debugging, auditing, and future explainability features.
+
+### 3.5 Neo4j schema requirements
+
+The Neo4j persistence layer requires specific indexes for query performance, semantic search, and fulltext search. These are created by the schema bootstrapper on startup.
+
+#### 3.5.1 Vector indexes
+
+Six vector indexes are required for semantic search across all memory types. All use cosine similarity with configurable dimensions (default: 1536). Neo4j 5.11+ is required for vector index support.
+
+| Index Name | Node Label | Property | Purpose |
+|---|---|---|---|
+| `message_embedding_idx` | `Message` | `embedding` | Semantic message search |
+| `entity_embedding_idx` | `Entity` | `embedding` | Entity similarity search |
+| `preference_embedding_idx` | `Preference` | `embedding` | Preference search |
+| `fact_embedding_idx` | `Fact` | `embedding` | Fact search |
+| `reasoning_step_embedding_idx` | `ReasoningStep` | `embedding` | Reasoning step similarity |
+| `task_embedding_idx` | `ReasoningTrace` | `taskEmbedding` | Similar reasoning task search |
+
+#### 3.5.2 Property indexes
+
+Nine property indexes are required for efficient filtering and lookup:
+
+| Index Name | Node Label | Property | Purpose |
+|---|---|---|---|
+| `message_session_id` | `Message` | `sessionId` | Session-scoped message queries |
+| `message_timestamp` | `Message` | `timestamp` | Temporal ordering |
+| `entity_type` | `Entity` | `type` | Entity type filtering |
+| `entity_name_prop` | `Entity` | `name` | Entity name lookup |
+| `fact_category` | `Fact` | `category` | Fact category filtering |
+| `preference_category` | `Preference` | `category` | Preference category filtering |
+| `reasoning_trace_session_id` | `ReasoningTrace` | `sessionId` | Session-scoped trace queries |
+| `reasoning_step_timestamp` | `ReasoningStep` | `timestamp` | Step temporal ordering |
+| `tool_call_status` | `ToolCall` | `status` | Tool call status filtering |
+
+#### 3.5.3 Fulltext indexes
+
+Three fulltext indexes are required for text-based search:
+
+| Index Name | Node Label | Properties | Purpose |
+|---|---|---|---|
+| `message_content` | `Message` | `content` | Message text search |
+| `entity_name` | `Entity` | `name`, `description` | Entity text search |
+| `fact_content` | `Fact` | `subject`, `predicate`, `object` | Fact text search |
 
 ## 4. Microsoft Agent Framework integration specification
 

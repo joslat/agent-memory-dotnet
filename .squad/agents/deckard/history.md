@@ -160,3 +160,30 @@
 - 4 epics pending (Epics 4, 5, 6, 7 — the actual repository and service implementations)
 - 21 unit tests + 2 integration tests passing, build clean (0 warnings, 0 errors)
 - No deviations from spec or impl plan
+
+### 2025-07-13 — Specification & Implementation Plan Living Document Update
+
+**Trigger:** Jose requested that spec and impl plan be updated with findings from Python analysis, architecture docs, and implementation status tracker. "If there is something which is invalid or not up to date in the spec/impl-plan docs, and a detailed analysis clarifies that, then we should update the impl plan and specs to have it become a better source of truth."
+
+**Specification Updates (Agent-Memory-for-DotNet-Specification.md):**
+1. **§3.1 Short-term memory** — Added message linking pattern note (FIRST_MESSAGE + NEXT_MESSAGE for O(1) latest-message access)
+2. **§3.1 Long-term memory — Fact fields** — Added `Category` optional field (from Python reference, already has property index in SchemaBootstrapper)
+3. **§3.1 Long-term memory — behaviors** — Added entity resolution complexity note (4-strategy chain: exact → fuzzy → semantic → type-aware)
+4. **§3.3 Storage principles** — Added metadata serialization note (Metadata dictionaries serialized as JSON strings in Neo4j)
+5. **§3.4 Provenance principle** — Expanded with cross-memory relationships (INITIATED_BY, TRIGGERED_BY, HAS_TRACE)
+6. **§3.5 Neo4j schema requirements** — NEW section documenting all 6 vector indexes, 9 property indexes, and 3 fulltext indexes with tables
+
+**Implementation Plan Updates (Agent-memory-for-dotnet-implementation-plan.md):**
+1. **§15 Phase 0** — Marked as COMPLETE with ✅ status on all deliverables and tasks
+2. **§15 Phase 1** — Marked as IN PROGRESS (~50%) with ✅/⏳ status indicators on all deliverables and tasks
+3. **§9.3 Constraints and indexes** — Complete rewrite: now documents all 27 schema objects (9 constraints + 3 fulltext + 6 vector + 9 property) with exact index names and implementation status
+4. **§15 Phase 2** — Added task #9 (entity resolution chain) and entity resolution complexity note documenting 4-strategy chain from Python analysis
+5. **Phase 1 Build and test commands** — Added verified commands section (dotnet build, dotnet test, integration test requirements)
+6. **Phase 1 Runtime requirements** — Added Neo4j 5.11+ requirement and Docker requirement
+7. **Phase 1 Package versions** — Added verified package version table (Neo4j.Driver 6.0.0, M.E.* 10.0.5)
+
+**Verification:**
+- Both documents read coherently with no contradictions
+- All added information is sourced from verified analysis (python-agent-memory-analysis.md, implementation-status.md, SchemaBootstrapper.cs, .csproj files)
+- 34 unit tests confirmed passing, build confirmed clean (0 warnings, 0 errors)
+- Existing content preserved — all changes are additions/amendments, not rewrites
