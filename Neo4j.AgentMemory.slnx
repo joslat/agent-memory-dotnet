@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Neo4j.AgentMemory.Abstractions/Neo4j.AgentMemory.Abstractions.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.AgentFramework/Neo4j.AgentMemory.AgentFramework.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Core/Neo4j.AgentMemory.Core.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Neo4j/Neo4j.AgentMemory.Neo4j.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Extraction.Llm/Neo4j.AgentMemory.Extraction.Llm.csproj" />

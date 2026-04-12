@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.1.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="FluentAssertions" Version="8.9.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
@@ -26,6 +27,7 @@
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Abstractions\Neo4j.AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Neo4j\Neo4j.AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Extraction.Llm\Neo4j.AgentMemory.Extraction.Llm.csproj" />
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.AgentFramework\Neo4j.AgentMemory.AgentFramework.csproj" />
   </ItemGroup>
 
 </Project>
