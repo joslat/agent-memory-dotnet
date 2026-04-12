@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "assignments": [
+    {
+      "assignment_id": "blade-runner-2026-04-12",
+      "universe": "blade-runner",
+      "created_at": "2026-04-12T17:30:00Z",
+      "agents": [
+        { "name": "Deckard", "role": "Lead / Solution Architect" },
+        { "name": "Roy", "role": "Core Memory Domain Engineer" },
+        { "name": "Gaff", "role": "Neo4j Persistence Engineer" },
+        { "name": "Rachael", "role": "MAF Integration Engineer" },
+        { "name": "Sebastian", "role": "GraphRAG Interop Engineer" },
+        { "name": "Holden", "role": "Testing & Harness Engineer" },
+        { "name": "Joi", "role": "Docs / DevX Engineer" }
+      ]
+    }
+  ]
+}

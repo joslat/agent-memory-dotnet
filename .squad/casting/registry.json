@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "names": {
+    "deckard": {
+      "persistent_name": "Deckard",
+      "universe": "blade-runner",
+      "role": "Lead / Solution Architect",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "roy": {
+      "persistent_name": "Roy",
+      "universe": "blade-runner",
+      "role": "Core Memory Domain Engineer",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "gaff": {
+      "persistent_name": "Gaff",
+      "universe": "blade-runner",
+      "role": "Neo4j Persistence Engineer",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "rachael": {
+      "persistent_name": "Rachael",
+      "universe": "blade-runner",
+      "role": "MAF Integration Engineer",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "sebastian": {
+      "persistent_name": "Sebastian",
+      "universe": "blade-runner",
+      "role": "GraphRAG Interop Engineer",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "holden": {
+      "persistent_name": "Holden",
+      "universe": "blade-runner",
+      "role": "Testing & Harness Engineer",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "joi": {
+      "persistent_name": "Joi",
+      "universe": "blade-runner",
+      "role": "Docs / DevX Engineer",
+      "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}
