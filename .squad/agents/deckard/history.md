@@ -62,3 +62,38 @@
 - No MAF or GraphRAG dependencies in Core or Abstractions
 - Schema bootstrap creates all constraints and indexes
 - Docker Compose harness functional
+
+### 2025-01-28 — Formal Architecture Review (Gate)
+
+**Trigger:** Jose requested formal review before Phase 1 continuation. Five explicit directives received.
+
+**Review Outcome:** APPROVED WITH FINDINGS — 10/10 alignment checklist passes.
+
+**Key Findings:**
+1. **Package boundaries verified clean.** Abstractions: zero deps. Core: Abstractions + M.E.* only. Neo4j: Abstractions + Core + Neo4j.Driver + M.E.* only.
+2. **No MAF/GraphRAG leakage.** Grep confirms zero `Microsoft.Agents.*` or `Microsoft.Extensions.AI` references in `src/`.
+3. **No speculative features.** Every type traces to a spec section.
+4. **GraphRag domain types correctly placed in Abstractions** — pure contracts, zero SDK imports. DI principle correctly applied.
+5. **Roy's domain design (v1) is spec-compliant.** All 5 open questions answered with architectural decisions.
+
+**neo4j-maf-provider Analysis:**
+- Retriever layer (`IRetriever`, `VectorRetriever`, `FulltextRetriever`, `HybridRetriever`) is well-designed and production-quality.
+- Cypher patterns (`db.index.vector.queryNodes`, `db.index.fulltext.queryNodes`) are the primary reuse target.
+- **Decision: ADAPT patterns, don't fork or wrap.** Copy Cypher query structures into our typed repositories. The existing package remains separate — referenced only by the future GraphRAG adapter.
+- `Neo4jContextProvider : AIContextProvider` is MAF-specific — NOT reusable in core. Built for MAF 0.3; MAF is now 1.1.0.
+
+**Roy's Open Questions — Decisions Made:**
+1. No `SessionRepository` in Phase 1 — sessions are implicit via SessionId.
+2. No embedding dimension validation in interfaces — implementation concern.
+3. Batch limits are implementation-specific, not in Abstractions.
+4. No `IMemoryMergeService` — `IEntityResolver` covers Phase 1 needs.
+5. GraphRAG types stay in Abstractions — already correct per D6.7.
+
+**ADR-7 Published:** Package dependency graph, boundary enforcement rules, adapter strategy, test strategy, Phase 1 scope, deferred features.
+
+**Standing Directives (Jose, reinforced):**
+- MAF stays separate adapter — no MAF types in core packages, ever.
+- GraphRAG stays separate adapter — no GraphRAG SDK in core packages, ever.
+- Tests first (TDD) — every repo/service gets tests before or during implementation.
+- No feature creep — only what the spec requires.
+- neo4j-maf-provider is reference material, not a dependency for core.

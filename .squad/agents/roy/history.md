@@ -115,3 +115,39 @@
 **Artifacts:**
 - `src/Neo4j.AgentMemory.Abstractions/` — 56 source files, fully compiled
 
+---
+
+### 2025-01-28: Epic 8 — Stub Implementations
+
+**Task:** Created Phase 1 stub/default implementations in `src/Neo4j.AgentMemory.Core/Stubs/` and unit tests in `tests/Neo4j.AgentMemory.Tests.Unit/Stubs/`.
+
+**Stubs Created (9 files):**
+1. `SystemClock` — implements IClock, returns DateTimeOffset.UtcNow
+2. `GuidIdGenerator` — implements IIdGenerator, returns Guid.NewGuid().ToString("N")
+3. `StubEmbeddingProvider` — implements IEmbeddingProvider, deterministic random vectors via text hash seed (configurable dimension, default 1536)
+4. `StubEntityExtractor` — implements IEntityExtractor, returns empty list
+5. `StubFactExtractor` — implements IFactExtractor, returns empty list
+6. `StubPreferenceExtractor` — implements IPreferenceExtractor, returns empty list
+7. `StubRelationshipExtractor` — implements IRelationshipExtractor, returns empty list
+8. `StubExtractionPipeline` — implements IMemoryExtractionPipeline, orchestrates all four extractors, respects ExtractionTypes flags, populates SourceMessageIds
+9. `StubEntityResolver` — implements IEntityResolver, returns entity unchanged (no dedup), uses IClock + IIdGenerator for new Entity creation
+
+**Unit Tests Created (4 files, 21 tests total):**
+- `SystemClockTests` — 3 tests: UTC time, UTC offset, advances
+- `GuidIdGeneratorTests` — 4 tests: non-empty, uniqueness, no hyphens, 32-char length
+- `StubEmbeddingProviderTests` — 7 tests: dimension, default 1536, determinism, different inputs → different vectors, batch count, batch dimensions, configurable dimension
+- `StubExtractionPipelineTests` — 7 tests: empty entities/facts/preferences/relationships, source message IDs populated, extraction type flags respected, metadata stub flag
+
+**Build Outcome:** `dotnet build` — succeeded, 0 errors, 0 warnings
+**Test Outcome:** `dotnet test` — 21/21 passed ✅
+
+**Key Learnings:**
+- FluentAssertions v8 `NotBeEquivalentTo` on large (1536-element) float arrays hangs the test host — use `SequenceEqual(...).Should().BeFalse(...)` instead for large collection inequality checks.
+- `StubEmbeddingProvider` uses `string.GetHashCode()` as seed for `Random` — deterministic within a process run, which is sufficient for Phase 1 testing.
+- `StubEntityResolver` depends on IClock and IIdGenerator to construct a proper `Entity` record with all required fields satisfied.
+
+**Artifacts:**
+- `src/Neo4j.AgentMemory.Core/Stubs/` — 9 stub implementation files
+- `tests/Neo4j.AgentMemory.Tests.Unit/Stubs/` — 4 test files, 21 passing tests
+
+
