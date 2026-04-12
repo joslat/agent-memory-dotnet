@@ -228,8 +228,8 @@ The `SchemaBootstrapper` currently creates 5 vector indexes:
 | Phase | Name | Objective | Status | Key Deliverables |
 |---|---|---|---|---|
 | **0** | Discovery & Design Lock | Freeze architecture, interfaces, graph schema | ✅ Complete | Spec, impl plan, decisions D1–D6, Squad team |
-| **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | 🔧 **In Progress** | Abstractions, Core, Neo4j packages; all repositories + services; context assembler |
-| **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ⏳ Not Started | Extraction.Abstractions, Extraction.Llm; entity resolution; vector indexes |
+| **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | ✅ **Complete** | Abstractions, Core, Neo4j packages; all repositories + services; context assembler |
+| **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | 🔧 **In Progress** | Extraction.Abstractions, Extraction.Llm; entity resolution; vector indexes |
 | **3** | MAF Adapter | Microsoft Agent Framework integration | ⏳ Not Started | AgentFramework package; context provider, chat store, memory tools, trace recorder |
 | **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ⏳ Not Started | GraphRagAdapter package; blend policies; Observability package |
 | **5** | Advanced Extraction | Azure Language, ONNX, optional enrichment | ⏳ Not Started | Additional extraction backends; geocoding; enrichment services |

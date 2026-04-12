@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Core\Neo4j.AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Abstractions\Neo4j.AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Neo4j\Neo4j.AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Extraction.Llm\Neo4j.AgentMemory.Extraction.Llm.csproj" />
   </ItemGroup>
 
 </Project>

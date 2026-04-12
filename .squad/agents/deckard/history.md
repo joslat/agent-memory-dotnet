@@ -187,3 +187,32 @@
 - All added information is sourced from verified analysis (python-agent-memory-analysis.md, implementation-status.md, SchemaBootstrapper.cs, .csproj files)
 - 34 unit tests confirmed passing, build confirmed clean (0 warnings, 0 errors)
 - Existing content preserved — all changes are additions/amendments, not rewrites
+
+### 2026-04-12 — Phase 2 Scaffolding & Architecture Setup
+
+**Trigger:** Jose requested Phase 2 kickoff — scaffold Extraction.Llm project, add FuzzySharp dependency, update solution and test references.
+
+**Deliverables:**
+1. **`src/Neo4j.AgentMemory.Extraction.Llm/`** — New class library project with Microsoft.Extensions.AI.Abstractions 10.4.1 for IChatClient-based LLM extraction. References Abstractions + Core.
+2. **FuzzySharp 2.0.2** added to Core.csproj for entity resolution fuzzy matching.
+3. **Solution file** updated with new project entry.
+4. **Unit test project** updated with reference to Extraction.Llm.
+5. **InternalsVisibleTo** added to Core.csproj for unit test access to internal resolution classes.
+6. **Architecture decisions D7–D10** recorded in `.squad/decisions/inbox/deckard-phase2-architecture.md`.
+7. **Phase roadmap** updated: Phase 1 → Complete, Phase 2 → In Progress.
+
+**Key Decisions:**
+- D7: Extraction.Llm uses M.E.AI.Abstractions (IChatClient) — vendor-neutral LLM integration
+- D8: FuzzySharp for fuzzy entity name matching (C# equivalent of Python's RapidFuzz)
+- D9: Entity resolution chain lives in Core (business logic, not persistence)
+- D10: EntityResolutionResult record in Abstractions captures match_type, confidence, merged_from metadata
+
+**Build Verification:**
+- Solution builds clean (0 errors, 0 warnings) across all 6 projects
+- 117/118 unit tests pass (1 pre-existing failure in Roy's EntityValidatorTests)
+- All original Phase 1 tests unaffected
+
+**Concurrent Work Note:**
+- Roy was actively creating Phase 2 entity resolution code during this scaffolding session
+- Files observed: EntityResolutionResult.cs, ExtractionOptions.cs, EntityValidator.cs, Resolution/ matchers, test files
+- Some of Roy's in-progress test files had compilation errors (duplicate methods, inaccessible types) — not related to scaffolding changes
