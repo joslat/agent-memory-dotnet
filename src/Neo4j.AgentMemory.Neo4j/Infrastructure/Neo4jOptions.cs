@@ -9,4 +9,10 @@ public class Neo4jOptions
     public int MaxConnectionPoolSize { get; set; } = 100;
     public TimeSpan ConnectionAcquisitionTimeout { get; set; } = TimeSpan.FromSeconds(60);
     public bool EncryptionEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Dimensionality of embedding vectors. Must match the model used to generate embeddings.
+    /// Default is 1536 (OpenAI text-embedding-ada-002 / text-embedding-3-small).
+    /// </summary>
+    public int EmbeddingDimensions { get; set; } = 1536;
 }

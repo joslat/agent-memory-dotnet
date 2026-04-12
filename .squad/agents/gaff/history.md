@@ -55,3 +55,33 @@
 - FluentAssertions `As<T>` vs `Neo4j.Driver.ValueExtensions.As<T>` ambiguity — fixed with `global::Neo4j.Driver.ValueExtensions.As<T>()` static invocation
 
 **Build status:** `dotnet build` → 0 errors, 0 warnings (all 5 projects).
+
+### Epic 4 — Vector & Property Indexes (2025-07-14)
+
+**Problem:** SchemaBootstrapper was missing 5 vector indexes and 9 property indexes required for production-quality search performance. Any `SearchByVectorAsync` call would have fallen back to full node scans.
+
+**Changes made:**
+- `Neo4jOptions.cs` — added `EmbeddingDimensions` (default: 1536); controls vector index dimensionality at configuration time
+- `SchemaBootstrapper.cs` — injected `IOptions<Neo4jOptions>`; split index arrays into `FulltextIndexes`, `PropertyIndexes` (static), and `_vectorIndexes` (built in constructor from options); added `public static BuildVectorIndexes(int)` helper for testability; bootstrap log now reports all 4 categories
+- `SchemaBootstrapperTests.cs` (new) — 12 unit tests covering constraint count, fulltext count, vector count (5), property count (9), cosine function, embedding property target, IF NOT EXISTS idempotency, configurable dimensions, and default option value
+- Unit test `.csproj` — added `ProjectReference` to `Neo4j.AgentMemory.Neo4j`
+
+**Vector index targets (all cosine, configurable dimensions):**
+- `message_embedding_idx` → Message.embedding
+- `entity_embedding_idx` → Entity.embedding
+- `preference_embedding_idx` → Preference.embedding
+- `fact_embedding_idx` → Fact.embedding
+- `reasoning_step_embedding_idx` → ReasoningStep.embedding
+
+**Property index targets:**
+- Message: `sessionId`, `timestamp`
+- Entity: `type`, `name`
+- Fact: `category` (future property, harmless to index now)
+- Preference: `category`
+- ReasoningTrace: `sessionId`
+- ReasoningStep: `timestamp` (future property)
+- ToolCall: `status`
+
+**Key decision:** `BuildVectorIndexes` made `public static` (not `internal`) so unit tests in a separate assembly can call it directly without `InternalsVisibleTo` setup.
+
+**Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 34 passed, 0 failed.

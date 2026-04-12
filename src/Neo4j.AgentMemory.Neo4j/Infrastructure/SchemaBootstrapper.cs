@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Infrastructure;
@@ -7,6 +8,7 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
 {
     private readonly INeo4jTransactionRunner _txRunner;
     private readonly ILogger<SchemaBootstrapper> _logger;
+    private readonly string[] _vectorIndexes;
 
     private static readonly string[] Constraints =
     [
@@ -21,23 +23,44 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
         "CREATE CONSTRAINT tool_call_id IF NOT EXISTS FOR (tc:ToolCall) REQUIRE tc.id IS UNIQUE"
     ];
 
-    private static readonly string[] Indexes =
+    private static readonly string[] FulltextIndexes =
     [
         "CREATE FULLTEXT INDEX message_content IF NOT EXISTS FOR (m:Message) ON EACH [m.content]",
         "CREATE FULLTEXT INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, e.description]",
         "CREATE FULLTEXT INDEX fact_content IF NOT EXISTS FOR (f:Fact) ON EACH [f.subject, f.predicate, f.object]"
     ];
 
-    public SchemaBootstrapper(INeo4jTransactionRunner txRunner, ILogger<SchemaBootstrapper> logger)
+    private static readonly string[] PropertyIndexes =
+    [
+        "CREATE INDEX message_session_id IF NOT EXISTS FOR (m:Message) ON (m.sessionId)",
+        "CREATE INDEX message_timestamp IF NOT EXISTS FOR (m:Message) ON (m.timestamp)",
+        "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)",
+        "CREATE INDEX entity_name_prop IF NOT EXISTS FOR (e:Entity) ON (e.name)",
+        "CREATE INDEX fact_category IF NOT EXISTS FOR (f:Fact) ON (f.category)",
+        "CREATE INDEX preference_category IF NOT EXISTS FOR (p:Preference) ON (p.category)",
+        "CREATE INDEX reasoning_trace_session_id IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.sessionId)",
+        "CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)",
+        "CREATE INDEX tool_call_status IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)"
+    ];
+
+    public SchemaBootstrapper(
+        INeo4jTransactionRunner txRunner,
+        IOptions<Neo4jOptions> options,
+        ILogger<SchemaBootstrapper> logger)
     {
         _txRunner = txRunner;
         _logger = logger;
+
+        var dims = options.Value.EmbeddingDimensions;
+        _vectorIndexes = BuildVectorIndexes(dims);
     }
 
     public async Task BootstrapAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Running schema bootstrap: {ConstraintCount} constraints, {IndexCount} indexes.",
-            Constraints.Length, Indexes.Length);
+        _logger.LogInformation(
+            "Running schema bootstrap: {ConstraintCount} constraints, {FulltextCount} fulltext indexes, " +
+            "{VectorCount} vector indexes, {PropertyCount} property indexes.",
+            Constraints.Length, FulltextIndexes.Length, _vectorIndexes.Length, PropertyIndexes.Length);
 
         foreach (var constraint in Constraints)
         {
@@ -45,7 +68,19 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
             await RunStatementAsync(constraint, cancellationToken);
         }
 
-        foreach (var index in Indexes)
+        foreach (var index in FulltextIndexes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await RunStatementAsync(index, cancellationToken);
+        }
+
+        foreach (var index in _vectorIndexes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await RunStatementAsync(index, cancellationToken);
+        }
+
+        foreach (var index in PropertyIndexes)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await RunStatementAsync(index, cancellationToken);
@@ -53,6 +88,15 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
 
         _logger.LogInformation("Schema bootstrap complete.");
     }
+
+    public static string[] BuildVectorIndexes(int dimensions) =>
+    [
+        $"CREATE VECTOR INDEX message_embedding_idx IF NOT EXISTS FOR (n:Message) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+        $"CREATE VECTOR INDEX entity_embedding_idx IF NOT EXISTS FOR (n:Entity) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+        $"CREATE VECTOR INDEX preference_embedding_idx IF NOT EXISTS FOR (n:Preference) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+        $"CREATE VECTOR INDEX fact_embedding_idx IF NOT EXISTS FOR (n:Fact) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+        $"CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningStep) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}"
+    ];
 
     private async Task RunStatementAsync(string cypher, CancellationToken cancellationToken)
     {
