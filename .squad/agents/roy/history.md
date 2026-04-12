@@ -91,3 +91,27 @@
 - Address any feedback on interface boundaries or patterns
 - Scaffold Neo4j.AgentMemory.Abstractions package
 - Begin Core layer design (orchestration services)
+
+---
+
+### 2025-01-27: Epic 2 — Abstractions Package Scaffolded
+
+**Task:** Created all C# source files for `Neo4j.AgentMemory.Abstractions`.
+
+**Final Type Counts:**
+- **Domain types:** 26 types across 6 subdirectories (ShortTerm: 3, LongTerm: 4, Reasoning: 4, Context: 4, Extraction: 7, GraphRag: 4)
+- **Service interfaces:** 15 interfaces (IMemoryService, IShortTermMemoryService, ILongTermMemoryService, IReasoningMemoryService, IMemoryContextAssembler, IMemoryExtractionPipeline, IEntityExtractor, IRelationshipExtractor, IPreferenceExtractor, IFactExtractor, IEmbeddingProvider, IEntityResolver, IGraphRagContextSource, IClock, IIdGenerator)
+- **Repository interfaces:** 10 interfaces (Conversation, Message, Entity, Preference, Fact, Relationship, ReasoningTrace, ReasoningStep, ToolCall, Schema)
+- **Options types:** 9 types (MemoryOptions, ShortTermMemoryOptions, LongTermMemoryOptions, ReasoningMemoryOptions, RecallOptions, ContextBudget, SessionStrategy, RetrievalBlendMode, TruncationStrategy)
+- **Total source files:** 56 `.cs` files
+
+**Design Refinements During Implementation:**
+1. Discovered Gaff had pre-created some Options files with combined types (enums co-located with records). Separated enums into dedicated files per the directory structure spec while keeping the records clean — removed duplicates from pre-existing combined files.
+2. All types build cleanly under `net9.0` with zero warnings or errors.
+3. `RecallRequest.cs` required explicit `using Neo4j.AgentMemory.Abstractions.Options;` since `RecallOptions` is in a different namespace — the only cross-namespace using in Domain types.
+
+**Build Outcome:** `dotnet build` — `Build succeeded in 0.8s`, zero errors, zero warnings.
+
+**Artifacts:**
+- `src/Neo4j.AgentMemory.Abstractions/` — 56 source files, fully compiled
+

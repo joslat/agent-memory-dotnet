@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Neo4j.AgentMemory.Abstractions/Neo4j.AgentMemory.Abstractions.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.Core/Neo4j.AgentMemory.Core.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.Neo4j/Neo4j.AgentMemory.Neo4j.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Neo4j.AgentMemory.Tests.Integration/Neo4j.AgentMemory.Tests.Integration.csproj" />
+    <Project Path="tests/Neo4j.AgentMemory.Tests.Unit/Neo4j.AgentMemory.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

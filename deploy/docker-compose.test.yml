@@ -1,0 +1,12 @@
+services:
+  neo4j:
+    image: neo4j:5.26
+    container_name: agent-memory-neo4j-test
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+    environment:
+      NEO4J_AUTH: neo4j/testpassword
+      NEO4J_PLUGINS: '["apoc"]'
+    tmpfs:
+      - /data

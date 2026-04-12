@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Neo4j.AgentMemory.Abstractions</RootNamespace>
+    <AssemblyName>Neo4j.AgentMemory.Abstractions</AssemblyName>
+    <Description>Abstractions and domain models for the Neo4j Agent Memory library. Zero external dependencies.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
