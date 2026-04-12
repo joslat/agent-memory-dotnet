@@ -344,3 +344,180 @@ The foundation is solid. Package boundaries are correct. No leakage. No speculat
 3. **Tests first.** Every repository and service gets tests before or during implementation, not after.
 4. **No feature creep.** If it's not in the spec, don't build it.
 5. **The existing neo4j-maf-provider is a reference** — we adapt its Cypher patterns, we don't absorb its code.
+
+---
+
+## Decision: Vector and Property Indexes in SchemaBootstrapper
+
+**Author:** Gaff  
+**Date:** 2025-07-14  
+**Status:** Implemented
+
+### Context
+
+The Python agent-memory analysis (`docs/python-agent-memory-analysis.md`) revealed that the SchemaBootstrapper only created 9 unique constraints and 3 fulltext indexes. Five vector indexes (essential for `SearchByVectorAsync`) and 9 property indexes (essential for query performance on filtered lookups) were missing entirely. Without vector indexes, any embedding-based search would scan all nodes — unacceptable for production.
+
+### Decision
+
+**Add 5 vector indexes and 9 property indexes to `SchemaBootstrapper`, and make embedding dimensions configurable via `Neo4jOptions`.**
+
+#### Vector indexes (cosine similarity, configurable dimensions, default 1536)
+
+| Index name | Node label | Property |
+|---|---|---|
+| `message_embedding_idx` | Message | embedding |
+| `entity_embedding_idx` | Entity | embedding |
+| `preference_embedding_idx` | Preference | embedding |
+| `fact_embedding_idx` | Fact | embedding |
+| `reasoning_step_embedding_idx` | ReasoningStep | embedding |
+
+#### Property indexes (for filtered queries)
+
+| Index name | Node label | Property |
+|---|---|---|
+| `message_session_id` | Message | sessionId |
+| `message_timestamp` | Message | timestamp |
+| `entity_type` | Entity | type |
+| `entity_name_prop` | Entity | name |
+| `fact_category` | Fact | category |
+| `preference_category` | Preference | category |
+| `reasoning_trace_session_id` | ReasoningTrace | sessionId |
+| `reasoning_step_timestamp` | ReasoningStep | timestamp |
+| `tool_call_status` | ToolCall | status |
+
+### Configuration
+
+`Neo4jOptions.EmbeddingDimensions` (int, default 1536) controls the `vector.dimensions` in all 5 vector index definitions. This allows operators to switch to 3072-dim models (OpenAI text-embedding-3-large) or 768-dim models without rewriting schema.
+
+### Rationale
+
+1. **Correctness:** Neo4j vector search requires a vector index — without one, `db.index.vector.queryNodes()` returns nothing. The repositories being built in the next epic depend on these indexes existing.
+2. **Performance:** Property indexes on high-cardinality filter fields (sessionId, type, status) prevent full label scans on common query patterns.
+3. **Idempotency:** All statements use `IF NOT EXISTS` — safe to re-run on every startup.
+4. **Configurability:** Hardcoding 1536 would break deployments using different embedding models. `EmbeddingDimensions` in options follows the existing options pattern in the codebase.
+
+### Impact
+
+- `SchemaBootstrapper` now executes 26 statements total (9 constraints + 3 fulltext + 5 vector + 9 property) instead of 12.
+- `Neo4jOptions` gains one new property (`EmbeddingDimensions`), backward-compatible default.
+- Unit test project now references `Neo4j.AgentMemory.Neo4j` — required for testing schema infrastructure directly.
+
+---
+
+## Decision: Consolidated Architecture Documentation
+
+**Author:** Deckard (Lead Architect)  
+**Date:** 2025-07-12  
+**Status:** Implemented  
+**Requested by:** Jose Luis Latorre Millas
+
+### Context
+
+Architecture knowledge was scattered across internal Squad files (`.squad/decisions/inbox/deckard-architecture-review.md`, `.squad/agents/roy/domain-design-v1.md`, `.squad/decisions.md`). Jose needed proper project-level documentation that:
+- Can be reviewed by anyone (not just Squad agents)
+- Is traceable to the canonical specification
+- Is accurate to what's actually implemented
+- Can be shared with stakeholders
+
+### Decision
+
+Created three project-level documents under `docs/`:
+
+1. **`docs/architecture.md`** — Architecture overview (package dependencies, graph model, boundary rules, neo4j-maf-provider relationship, test strategy, phase roadmap)
+2. **`docs/design.md`** — Software design (domain model, memory layers, context assembly, extraction pipeline, service/repository catalogs, configuration model, design decisions)
+3. **`docs/neo4j-maf-provider-analysis.md`** — Reuse strategy (code inventory, Cypher patterns, what we don't take, Phase 4 integration plan, MAF version gap)
+
+### Rationale
+
+- Consolidates scattered Squad-internal knowledge into canonical, shareable documents
+- All claims verified against actual .csproj files and source code
+- References specific specification sections for traceability
+- Includes "Last Updated" and "Phase 1 Status" for temporal context
+- Uses Mermaid diagrams (GitHub-renderable) where appropriate
+
+### Impact
+
+- Stakeholders can now review architecture without reading Squad internal files
+- New contributors have a clear onboarding path
+- Boundary rules are documented in a single authoritative location
+- neo4j-maf-provider reuse strategy is formally documented and not just tribal knowledge
+
+---
+
+## Decision: Document Alignment Review Results
+
+**Author:** Deckard (Lead Architect)  
+**Date:** 2025-07-13  
+**Status:** Implemented  
+**Scope:** Documentation alignment and status tracking
+
+### Decision
+
+Created `docs/implementation-status.md` as the single status reference for the project. Updated `docs/architecture.md` to fix 3 stale sections (vector indexes, property indexes, Phase 1 status).
+
+### Findings
+
+1. **No contradictions** between the specification, implementation plan, and docs/ files.
+2. **No spec-level gaps** requiring changes to the read-only specification.
+3. **5 staleness issues** found and addressed (3 fixed in architecture.md, 2 documented as known-stale in python analysis).
+4. **1 schema gap** identified: missing `task_embedding_idx` for `ReasoningTrace.taskEmbedding`. Should be added during Epic 6.
+
+### Rationale
+
+Jose needs a single document to understand project status without reading all 6+ documents. The implementation-status.md serves this purpose and also provides a document alignment audit trail.
+
+### Impact
+
+- `docs/implementation-status.md` is now the canonical status reference
+- `docs/architecture.md` is now current as of 2025-07-13
+- `docs/python-agent-memory-analysis.md` has known-stale sections (index comparison) documented in the status tracker
+- The spec and impl plan remain untouched (read-only source of truth)
+
+---
+
+## Decision: Python agent-memory Reference Analysis
+
+**Author:** Deckard (Lead Architect)  
+**Date:** 2025-07-12  
+**Status:** Implemented  
+**Requested by:** Jose Luis Latorre Millas
+
+### Context
+
+The Python `neo4j-labs/agent-memory` is the conceptual reference for our .NET implementation. The team needed a comprehensive analysis that maps every Python module to our .NET solution, identifies what we take, what we skip, and what we do differently — with verified claims against actual source code.
+
+### Decision
+
+Created `docs/python-agent-memory-analysis.md` — a 13-section reference document covering:
+
+1. **Architecture comparison** — Python flat modules vs .NET layered ports-and-adapters
+2. **Module-by-module analysis** — 15 modules with ADAPT/SKIP/DEFER/REFERENCE strategy
+3. **Neo4j graph model comparison** — node types, relationships, constraints, indexes
+4. **Cypher pattern catalog** — 60+ queries mapped to .NET repositories
+5. **Extraction pipeline deep dive** — 3-stage pipeline, merge strategies, LLM prompts
+6. **Entity resolution deep dive** — 4-strategy chain with type-strict filtering
+7. **Configuration, test, and dependency comparisons**
+8. **Phase mapping** — Python features to our Phases 1–6
+9. **Risk assessment** with specific action items
+
+### Key Findings Requiring Action
+
+1. **Vector indexes missing** — SchemaBootstrapper needs 5 vector indexes (HIGH priority)
+2. **Property indexes missing** — 9 regular indexes needed for query performance (MEDIUM)
+3. **Cross-memory relationships undefined** — INITIATED_BY, TRIGGERED_BY, HAS_TRACE (MEDIUM)
+4. **Cypher query centralization** — recommend moving inline queries to centralized constants (LOW)
+
+### Rationale
+
+- Analysis verified against actual source: 7/7 claims PASS
+- Honest about gaps — document says what Python does that we don't, and why
+- Honest about improvements — document says where our .NET design is better
+- References spec sections for traceability
+- Phase-mapped so the team knows what's Phase 1 vs future
+
+### Impact
+
+- Team has a single reference document for understanding the Python → .NET adaptation
+- Action items identified for schema gaps (vector indexes, property indexes)
+- Phase 2 planning has concrete targets (extraction prompt templates, resolution algorithms)
+- Phase 6 MCP planning has tool definitions and profiles documented
