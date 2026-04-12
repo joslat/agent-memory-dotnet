@@ -97,3 +97,40 @@
 - Tests first (TDD) — every repo/service gets tests before or during implementation.
 - No feature creep — only what the spec requires.
 - neo4j-maf-provider is reference material, not a dependency for core.
+
+### 2025-07-12 — Consolidated Architecture Documentation
+
+**Trigger:** Jose requested proper project-level documentation that consolidates scattered Squad-internal architecture knowledge into shareable, spec-traceable documents.
+
+**Deliverables Created:**
+1. **`docs/architecture.md`** — Architecture overview covering vision, layered package diagram, package responsibilities with exact dependencies, Neo4j graph model (nodes, relationships, constraints, indexes), boundary enforcement rules (B1–B8), relationship to neo4j-maf-provider (adapt-not-fork strategy), test strategy, and phase roadmap with current status.
+2. **`docs/design.md`** — Software design document covering the full domain model (31 types across 3 memory layers), context assembly flow, extraction pipeline design, service interface catalog (15 interfaces), repository interface catalog (10 interfaces), configuration model hierarchy, and design decision rationale.
+3. **`docs/neo4j-maf-provider-analysis.md`** — Dedicated reuse strategy for the existing neo4j-maf-provider codebase: file-by-file code inventory (10 files), specific Cypher patterns to adapt (vector, fulltext, hybrid merge, read routing, parameterization), components we don't reuse (AIContextProvider, RetrieverResult, IEmbeddingGenerator), Phase 4 GraphRAG adapter integration plan, and MAF version gap analysis (0.3 → 1.1.0).
+
+**Verification:**
+- All dependency claims verified against actual .csproj files
+- All boundary rules verified via grep across src/
+- All type counts verified against filesystem
+- All Cypher patterns verified against SchemaBootstrapper.cs and existing retriever source
+- Documents reference specific spec sections for traceability
+
+### 2025-07-12 — Python agent-memory Reference Analysis
+
+**Trigger:** Jose requested comprehensive analysis mapping the Python `neo4j-labs/agent-memory` reference implementation to our .NET solution.
+
+**Deliverable Created:**
+- **`docs/python-agent-memory-analysis.md`** — 13-section reference analysis covering architecture comparison, module-by-module mapping (15 Python modules → .NET equivalents with ADAPT/SKIP/DEFER/REFERENCE strategy), Neo4j graph model comparison (node types, relationships, constraints, indexes), Cypher pattern catalog (60+ queries mapped to .NET repositories), extraction pipeline deep dive (3-stage pipeline, merge strategies, LLM prompts), entity resolution deep dive (4-strategy chain with type-strict filtering), configuration comparison, test strategy comparison, dependency analysis, gain/skip/differ summary table, phase mapping (Phases 1–6), and risk assessment.
+
+**Key Findings:**
+1. **CRITICAL GAP:** Our SchemaBootstrapper is missing 5 vector indexes and 9 property indexes that Python creates. Vector indexes are required for embedding search to work.
+2. **Entity resolution is more complex than our stub suggests.** Python chains Exact → Fuzzy → Semantic with type-strict filtering and dedup thresholds (0.95 auto-merge, 0.85 flag, below = new entity).
+3. **Cross-memory relationships are missing.** Python links traces to messages (`INITIATED_BY`), tool calls to messages (`TRIGGERED_BY`), conversations to traces (`HAS_TRACE`).
+4. **Python's centralized query pattern** (`graph/queries.py` with 60+ constants) is worth adopting — our queries are inline in repositories.
+5. **Metadata serialization** needed: Python serializes `dict` metadata as JSON strings because Neo4j doesn't support Map properties.
+6. **Message linking pattern** (FIRST_MESSAGE + NEXT_MESSAGE) gives O(1) latest-message access vs ORDER BY timestamp.
+
+**Verification:**
+- 7/7 source code claims verified against actual .cs and .py files
+- All Python module paths verified to exist
+- All .NET type references verified against actual source
+- Cypher patterns verified against queries.py and schema.py
