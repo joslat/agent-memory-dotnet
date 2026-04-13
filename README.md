@@ -155,9 +155,9 @@ Instead, the .NET version will prioritize:
 
 ## Project status
 
-Phase 4 (GraphRAG + Observability) complete. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM integration, Microsoft Agent Framework adapter, GraphRAG blended retrieval adapter, and OpenTelemetry observability — all ready for deployment.
+Phase 5 (Advanced Extraction & Enrichment) complete. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, GraphRAG blended retrieval adapter, OpenTelemetry observability, geocoding and entity enrichment services — all ready for deployment.
 
-The solution now ships 7 packages:
+The solution now ships 9 packages:
 
 | Package | Phase | Purpose |
 |---------|-------|---------|
@@ -165,11 +165,13 @@ The solution now ships 7 packages:
 | `Neo4j.AgentMemory.Core` | 1 | Memory services, extraction pipeline, context assembly, stubs |
 | `Neo4j.AgentMemory.Neo4j` | 1 | Neo4j repository implementations, Cypher queries, schema bootstrap |
 | `Neo4j.AgentMemory.Extraction.Llm` | 2 | LLM-driven entity/fact/preference/relationship extractors (Microsoft.Extensions.AI) |
+| `Neo4j.AgentMemory.Extraction.AzureLanguage` | 5 | Azure Text Analytics extractors — NER, key phrases, PII |
 | `Neo4j.AgentMemory.AgentFramework` | 3 | Microsoft Agent Framework adapter — facade, context provider, chat store, memory tools, trace recorder |
 | `Neo4j.AgentMemory.GraphRagAdapter` | 4 | GraphRAG adapter — `IGraphRagContextSource` via Neo4j vector/fulltext/hybrid/graph retrieval |
+| `Neo4j.AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
 | `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory + GraphRAG operations |
 
-**295 unit tests passing.**
+**349 unit tests passing.**
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 

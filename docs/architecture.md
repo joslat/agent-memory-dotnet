@@ -38,7 +38,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        ADAPTERS (Phase 3–4)                         │
+│                        ADAPTERS (Phase 3–6)                         │
 │                                                                     │
 │  ┌─────────────────────┐  ┌──────────────────────┐  ┌───────────┐  │
 │  │ AgentMemory.MAF     │  │ AgentMemory.          │  │ AgentMem. │  │
@@ -52,17 +52,19 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                         │  depends inward                            │
 │                         ▼                                            │
 ├─────────────────────────────────────────────────────────────────────┤
-│                 CROSS-CUTTING (Phase 4)                              │
+│                 EXTENSIONS & CROSS-CUTTING (Phase 4–5)               │
 │                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Neo4j.AgentMemory.Observability                            │   │
-│  │  (OTel decorator — wraps IMemoryService + IGraphRagContext  │   │
-│  │   Source with ActivitySource spans and Meter metrics)        │   │
-│  │                                                              │   │
-│  │  + OpenTelemetry.Api 1.12.0                                  │   │
-│  └──────────────────────┬───────────────────────────────────────┘   │
-│                         │  decorates                                │
-│                         ▼                                           │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌───────────┐ │
+│  │ Observability        │  │ Extraction.          │  │Enrichment │ │
+│  │ (OTel decorators)    │  │ AzureLanguage        │  │(Geocoding)│ │
+│  │                      │  │ (Azure Text Analytics│  │           │ │
+│  │ + OpenTelemetry.Api  │  │                      │  │ + Nominat │ │
+│  │   1.12.0             │  │ + Azure.AI.TextAnal) │  │ + Wikimed │ │
+│  └──────────┬───────────┘  └──────────┬───────────┘  └─────┬─────┘ │
+│             │                         │                    │         │
+│             └─────────────┬───────────┘────────────────────┘         │
+│                           │  decorates / extends                     │
+│                           ▼                                          │
 ├─────────────────────────────────────────────────────────────────────┤
 │                    INFRASTRUCTURE (Phase 1)                          │
 │                                                                     │
@@ -92,7 +94,8 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  Neo4j.AgentMemory.Abstractions                             │   │
 │  │  (domain models, service interfaces, repository interfaces, │   │
-│  │   configuration options)                                    │   │
+│  │   configuration options — IGeocodingService,                │   │
+│  │   IEnrichmentService added Phase 5)                         │   │
 │  │                                                              │   │
 │  │  ZERO external dependencies — .NET 9 BCL only               │   │
 │  └──────────────────────────────────────────────────────────────┘   │
@@ -233,7 +236,57 @@ Neo4j.AgentMemory.GraphRagAdapter.Internal    — adapter retrievers (vector, fu
 Neo4j.AgentMemory.Observability    — all types (decorators, metrics, activity source, DI)
 ```
 
-#### 3.4.4 Future Adapter Packages
+#### 3.4.4 Neo4j.AgentMemory.Extraction.AzureLanguage (Phase 5 ✅ COMPLETE)
+
+| Attribute | Value |
+|---|---|
+| **Purpose** | Alternative extraction backend using Azure Cognitive Services (Text Analytics) |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Azure.AI.TextAnalytics 13.0.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.5 |
+| **MUST NOT reference** | Business logic — extraction only, no memory persistence |
+| **Key types** | `AzureEntityExtractor : IEntityExtractor`, `AzureKeyPhraseExtractor : IFactExtractor`, `AzurePiiExtractor : IEntityExtractor` |
+
+**Key Patterns:**
+
+1. **Azure Text Analytics wrapper** — Uses Azure Cognitive Services for NER, key phrase extraction, and PII detection
+2. **IEntityExtractor implementations** — Named entities (NER) and PII detection as entity extractors
+3. **IFactExtractor implementation** — Key phrases extracted as facts
+4. **Language-agnostic** — Supports 100+ languages via Azure's language detection
+5. **Async design** — All extractors use `async/await` for non-blocking service calls
+
+**Namespace structure:**
+```
+Neo4j.AgentMemory.Extraction.AzureLanguage    — Azure-backed extractors and DI
+```
+
+#### 3.4.5 Neo4j.AgentMemory.Enrichment (Phase 5 ✅ COMPLETE)
+
+| Attribute | Value |
+|---|---|
+| **Purpose** | Geocoding and entity enrichment services with caching and rate limiting |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Microsoft.Extensions.DI/Logging/Caching.Abstractions 10.0.5 |
+| **MUST NOT reference** | Neo4j.Driver (repositories handle persistence) |
+| **Key types** | `IGeocodingService`, `IEnrichmentService` (interfaces in Abstractions), `NominatimGeocodingService`, `WikimediaEntityEnrichmentService`, `CachedGeocodingService`, `RateLimitedGeocodingService` |
+
+**Key Patterns:**
+
+1. **Decorator chain** — Pluggable layers: Cache → RateLimiter → Backend service
+   - `CachedGeocodingService` wraps the backend, checks cache first
+   - `RateLimitedGeocodingService` enforces request throttling (by default Nominatim: 1 request/sec)
+   - Backend: `NominatimGeocodingService` (OSM geocoding) or `WikimediaEntityEnrichmentService`
+2. **Geocoding** — NominatimGeocodingService converts addresses to coordinates
+3. **Entity enrichment** — WikimediaEntityEnrichmentService augments entities with Wikipedia descriptions and links
+4. **Async design** — All services use `async/await` for non-blocking external API calls
+5. **Configurable** — Rate limits, cache TTL, and backend selection via options
+
+**Namespace structure:**
+```
+Neo4j.AgentMemory.Enrichment                           — services and DI
+Neo4j.AgentMemory.Enrichment.Geocoding                 — Nominatim geocoding impl
+Neo4j.AgentMemory.Enrichment.EntityEnrichment          — Wikimedia enrichment impl
+Neo4j.AgentMemory.Enrichment.Decorators                — Cache/RateLimit decorators
+```
+
+#### 3.4.6 Future Adapter Packages
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|

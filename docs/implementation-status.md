@@ -1,6 +1,6 @@
 # Implementation Status — Agent Memory for .NET
 
-**Last Updated:** 2026-04-13  
+**Last Updated:** 2026-04-14  
 **Author:** Deckard (Lead Architect)  
 **For:** Jose Luis Latorre Millas (Project Owner)
 
@@ -8,18 +8,18 @@
 
 ## 1. Executive Summary
 
-**Current Phase:** Phase 4 — GraphRAG + Observability (✅ COMPLETE)
+**Current Phase:** Phase 5 — Advanced Extraction & Enrichment (✅ COMPLETE)
 
-**Phase 4 Status: 100% COMPLETE** — GraphRAG adapter and OpenTelemetry observability packages are fully implemented with 295 unit tests passing (Phase 1 + Phase 2 + Phase 3 + Phase 4 combined).
+**Phase 5 Status: 100% COMPLETE** — Azure Language extraction and enrichment (geocoding + entity enrichment) packages are fully implemented with 349 unit tests passing (Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 combined).
 
 **What's Done:**
 - **Phase 1:** Core memory engine with all repositories, services, context assembly, 85 tests
 - **Phase 2:** Entity resolution chain (4 strategies: ExactMatch → FuzzyMatch → SemanticMatch → CreateNew), Entity validation, LLM extraction package (4 extractors), real MemoryExtractionPipeline, Neo4j extraction support, FuzzySharp 2.0.2 integration, Microsoft.Extensions.AI IChatClient, DI infrastructure, 210 tests total
 - **Phase 3:** Neo4jMemoryContextProvider (AIContextProvider), Neo4jChatMessageStore (MAF-compatible), Neo4jMicrosoftMemoryFacade, MafTypeMapper (bidirectional mapping), MemoryToolFactory (6 tools), AgentTraceRecorder, DI: AddAgentMemoryFramework(), 265 tests total
 - **Phase 4:** Neo4jGraphRagContextSource (IGraphRagContextSource via IRetriever delegation), 4 search modes (Vector/Fulltext/Hybrid/Graph), GraphRagAdapterOptions, InstrumentedMemoryService + InstrumentedGraphRagContextSource (OTel decorators), MemoryActivitySource, MemoryMetrics (12 instruments), DI: AddGraphRagAdapter() + AddAgentMemoryObservability(), 295 tests total
+- **Phase 5:** Extraction.AzureLanguage (Azure Text Analytics extractors), Enrichment package (Nominatim geocoding + Wikimedia entity enrichment, decorator chain: Cache → RateLimiter → Nominatim), DI: AddAzureLanguageExtraction() + AddEnrichment(), 349 tests total
 
 **What's Next:**
-- Phase 5: Advanced extraction backends (Azure Language, ONNX)
 - Phase 6: MCP Server
 
 ---
@@ -112,9 +112,19 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 | 31 | DI Infrastructure Phase 4 | AddGraphRagAdapter() + AddAgentMemoryObservability() | ✅ Done | Phase 4 | Registration order enforced |
 | 32 | BlendedAgent Sample | Combined Memory + GraphRAG sample app with OTel console output | ✅ Done | Phase 4 | 3 retrieval modes demonstrated |
 
----
+## 3.4 Phase 5 Epic Status
 
-## 4. Phase 1 Detailed Progress
+| # | Epic | Description | Status | Commit | Notes |
+|---|---|---|---|---|---|
+| 33 | Azure Language Extraction Package | Neo4j.AgentMemory.Extraction.AzureLanguage project | ✅ Done | Phase 5 | Azure.AI.TextAnalytics integration |
+| 34 | Azure Extractors | Entity, Key Phrase, PII extractors using Azure Text Analytics | ✅ Done | Phase 5 | IEntityExtractor, IFactExtractor implementations |
+| 35 | Enrichment Package | Neo4j.AgentMemory.Enrichment project | ✅ Done | Phase 5 | Geocoding + entity enrichment services |
+| 36 | Geocoding Service | NominatimGeocodingService with caching and rate limiting | ✅ Done | Phase 5 | IGeocodingService implementation |
+| 37 | Entity Enrichment Service | WikimediaEntityEnrichmentService for augmenting entities | ✅ Done | Phase 5 | IEnrichmentService implementation |
+| 38 | Decorator Chain | Cache → RateLimiter → Backend services | ✅ Done | Phase 5 | Cross-cutting enrichment concerns |
+| 39 | DI Infrastructure Phase 5 | AddAzureLanguageExtraction() + AddEnrichment() extensions | ✅ Done | Phase 5 | Service registration |
+
+---
 
 ### Completed Epics
 
@@ -273,7 +283,7 @@ The `SchemaBootstrapper` currently creates 5 vector indexes:
 | **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ✅ **Complete** | Extraction.Llm; entity resolution (4-strategy chain); vector indexes; 210 unit tests |
 | **3** | MAF Adapter | Microsoft Agent Framework integration | ✅ **Complete** | AgentFramework package; context provider, chat store, memory tools, trace recorder; 265 unit tests |
 | **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ✅ **Complete** | GraphRagAdapter package; 4 search modes; Observability package; OTel decorators; 295 unit tests |
-| **5** | Advanced Extraction | Azure Language, ONNX, optional enrichment | ⏳ Not Started | Additional extraction backends; geocoding; enrichment services |
+| **5** | Advanced Extraction & Enrichment | Azure Language extraction, geocoding, entity enrichment | ✅ **Complete** | Extraction.AzureLanguage + Enrichment packages; decorator chain; 349 unit tests |
 | **6** | MCP Server | External access via Model Context Protocol | ⏳ Not Started | Mcp package; stdio/HTTP transport; core + extended tool profiles |
 
 ### Phase 1 Exit Criteria (from Impl Plan)
@@ -346,7 +356,7 @@ Connects at `bolt://localhost:7687` with credentials `neo4j/password`.
 ### Current Test Results
 
 ```
-Passed!  - Failed: 0, Passed: 295, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
+Passed!  - Failed: 0, Passed: 349, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
 ```
 
 **Test breakdown by phase:**
@@ -354,7 +364,8 @@ Passed!  - Failed: 0, Passed: 295, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
 - Phase 2: 125 additional tests (extraction pipeline + entity resolution)
 - Phase 3: 55 additional tests (MAF adapter + tools + persistence)
 - Phase 4: 30 additional tests (GraphRAG adapter + observability)
-- **Total: 295 unit tests passing**
+- Phase 5: 54 additional tests (Azure Language extraction + enrichment)
+- **Total: 349 unit tests passing**
 
 ---
 
