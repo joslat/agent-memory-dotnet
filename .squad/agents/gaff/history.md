@@ -152,3 +152,43 @@
 - ReasoningTrace `success` stored as nullable bool in Neo4j; read carefully with `TryGetValue` + `As<bool?>()`
 
 **Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 34 passed, 0 failed.
+
+### Epic — Cross-Memory Relationships & Batch Operations (session: cross-memory-fix)
+
+**Objective:** Achieve full relationship coverage. Audit found only 6/15 relationship types implemented (40%). Fixed all missing gaps.
+
+**Interfaces updated (Abstractions):**
+- `IPreferenceRepository` — added `CreateConversationPreferenceRelationshipAsync`
+- `IFactRepository` — added `CreateConversationFactRelationshipAsync`
+- `IReasoningTraceRepository` — added `CreateInitiatedByRelationshipAsync`, `CreateConversationTraceRelationshipsAsync`
+- `IToolCallRepository` — added `CreateTriggeredByRelationshipAsync`
+- NOTE: `DeleteAsync`, `CreateAboutRelationshipAsync`, `CreateExtractedFromRelationshipAsync`, `UpsertBatchAsync` already existed as stubs (added in a prior session); I replaced those stubs with working implementations.
+
+**Neo4j repository implementations — new relationships:**
+
+| Relationship | Type | Where Created |
+|---|---|---|
+| `FIRST_MESSAGE` | Conversation→Message | `Neo4jMessageRepository.AddAsync` — MERGE after CREATE, WHERE NOT EXISTS |
+| `EXTRACTED_FROM` | Entity/Fact/Preference→Message | Auto-created in `UpsertAsync` + `UpsertBatchAsync` via UNWIND over `SourceMessageIds`; explicit `CreateExtractedFromRelationshipAsync` also available |
+| `ABOUT` | Preference/Fact→Entity | Explicit `CreateAboutRelationshipAsync` in Preference and Fact repos |
+| `INITIATED_BY` | ReasoningTrace→Message | Explicit `CreateInitiatedByRelationshipAsync` in trace repo |
+| `HAS_TRACE` + `IN_SESSION` | Conversation↔ReasoningTrace | Both created together in `CreateConversationTraceRelationshipsAsync` (single Cypher) |
+| `TRIGGERED_BY` | ToolCall→Message | Explicit `CreateTriggeredByRelationshipAsync` in tool call repo (was a no-op stub, now real Cypher) |
+| `CALLS` | ToolCall→Tool | Auto-created in `Neo4jToolCallRepository.AddAsync` — MERGE `:Tool {name}` + increment `totalCalls` |
+| `HAS_PREFERENCE` | Conversation→Preference | Explicit `CreateConversationPreferenceRelationshipAsync` |
+| `HAS_FACT` | Conversation→Fact | Explicit `CreateConversationFactRelationshipAsync` |
+
+**Batch operations (Task 2):**
+- `Neo4jEntityRepository.UpsertBatchAsync` — UNWIND MERGE for all entity fields; separate loop for embeddings; auto-creates EXTRACTED_FROM per entity
+- `Neo4jFactRepository.UpsertBatchAsync` — same UNWIND pattern for facts
+
+**Key patterns:**
+- FIRST_MESSAGE uses `WHERE NOT EXISTS { MATCH (conv)-[:FIRST_MESSAGE]->() }` before MERGE — idempotent
+- CALLS creates `:Tool {name}` node on first encounter and increments `totalCalls` counter
+- HAS_TRACE + IN_SESSION created in a SINGLE Cypher statement for atomicity
+- All explicit methods use MERGE (not CREATE) to be idempotent, except INITIATED_BY and TRIGGERED_BY which use MERGE too
+- EXTRACTED_FROM auto-wires provenance during UpsertAsync when SourceMessageIds is non-empty
+
+**Pre-existing stubs found:** Several methods (`CreateTriggeredByRelationshipAsync`, `CreateInitiatedByRelationshipAsync`, `CreateConversationTraceRelationshipsAsync`, `UpsertBatchAsync` for entities) already existed as TODO stubs with `return Task.CompletedTask`. Always check for stubs before adding new methods to avoid CS0111 duplicate errors.
+
+**Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 419 passed, 0 failed.

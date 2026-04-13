@@ -345,7 +345,254 @@ Documented comprehensive MAF 1.1.0 API surface analysis covering primary extensi
 
 ---
 
+### D16: Cross-Memory Relationships Implementation (Gaff, 2026-04-13)
+
+**Status:** Implemented  
+**Scope:** Phase 2 (Extraction & Resolution) — Relationship Completion
+
+All 9 missing cross-memory relationship types from audit finding F1 are now implemented across Neo4j repositories.
+
+#### D-G6: All 9 Missing Relationship Types
+
+| Type | Auto-Wired | Method | Purpose |
+|---|---|---|---|
+| FIRST_MESSAGE | ✅ | - | Conversation → first message |
+| EXTRACTED_FROM | ✅ | via UpsertAsync | Entity/fact/preference provenance |
+| CALLS | ✅ | via AddAsync | Tool invocation tracking |
+| ABOUT | ❌ | CreateAboutRelationshipAsync | Preference → entity association |
+| INITIATED_BY | ❌ | CreateInitiatedByRelationshipAsync | Trace → initiating message |
+| TRIGGERED_BY | ❌ | CreateTriggeredByRelationshipAsync | Tool call → source message |
+| HAS_TRACE | ❌ | CreateHasTraceRelationshipAsync | Conversation → reasoning trace |
+| IN_SESSION | ❌ | (paired with HAS_TRACE) | Trace ↔ conversation bidirectional |
+| HAS_PREFERENCE | ❌ | CreateConversationPreferenceRelationshipAsync | Conversation → preference |
+| HAS_FACT | ❌ | CreateConversationFactRelationshipAsync | Conversation → fact |
+
+Auto-wired relationships are derived from node properties (SourceMessageIds, ToolName, ConversationId) and created during UpsertAsync/AddAsync. Explicit relationships require caller context and are invoked by the extraction pipeline/service layer.
+
+**Rationale:** Relationships that can be inferred from node data are automatic. Relationships requiring external knowledge (entity association, triggering message, conversation linkage) are explicit methods, giving the pipeline full control over when they fire.
+
+---
+
+#### D-G7: CALLS Creates and Tracks Tool Nodes
+
+`Neo4jToolCallRepository.AddAsync` auto-creates `:Tool {name}` nodes on first encounter and increments `tool.totalCalls` counter via:
+
+```cypher
+MERGE (tool:Tool {name: $toolName}) ON CREATE SET tool.createdAtUtc = $now
+MERGE (tc)-[:CALLS]->(tool)
+SET tool.totalCalls = COALESCE(tool.totalCalls, 0) + 1
+```
+
+Enables tool usage analytics without separate infrastructure.
+
+---
+
+#### D-G8: UpsertBatchAsync Uses UNWIND for Efficiency
+
+Batch upserts for Entity and Fact use `UNWIND $items AS item` pattern for single round-trip per batch. Embeddings set individually (Neo4j vector property constraints). EXTRACTED_FROM relationships created per-entity within transaction.
+
+---
+
+#### D-G9: FIRST_MESSAGE Idempotent via WHERE NOT EXISTS
+
+`(conv)-[:FIRST_MESSAGE]->()` created with:
+
+```cypher
+WHERE NOT EXISTS { MATCH (conv)-[:FIRST_MESSAGE]->() }
+```
+
+Safe to call multiple times; relationship created only for the actual first message.
+
+---
+
+#### D-G10: HAS_TRACE and IN_SESSION Atomic
+
+Both directions created in single Cypher statement:
+
+```cypher
+MERGE (c)-[:HAS_TRACE]->(t)
+MERGE (t)-[:IN_SESSION]->(c)
+```
+
+Ensures consistency — either both exist or neither.
+
+---
+
+### D17: Repository Interface Additions and Service-Layer Completion (Roy, 2026-04-13)
+
+**Status:** Implemented  
+**Scope:** Phase 2 (Extraction & Resolution) — Service Facade Completion
+
+Added 9 interface methods across 4 repositories and 1 service to complete CRUD contract and enable extraction pipeline wiring.
+
+#### D-R1: UpsertBatchAsync Added to Entity and Fact Repositories
+
+```csharp
+Task<IReadOnlyList<Entity>> UpsertBatchAsync(IReadOnlyList<Entity>, CancellationToken);
+Task<IReadOnlyList<Fact>> UpsertBatchAsync(IReadOnlyList<Fact>, CancellationToken);
+```
+
+Needed for efficient extraction pipeline bulk writes. Neo4j implementations use UNWIND for single round-trip per batch.
+
+**Rationale:** Batch operations critical for throughput at scale. Interface contract enables mocking and testing; Neo4j implementation can evolve independently.
+
+---
+
+#### D-R2: DeleteAsync Added to Preference Repository
+
+```csharp
+Task DeleteAsync(string preferenceId, CancellationToken = default);
+```
+
+Preferences must be deletable for user revocation and conflict resolution. `Neo4jPreferenceRepository` implements via `DETACH DELETE`.
+
+**Rationale:** Without delete, preferences are write-only. Contradictory preferences accumulate and inject conflicting facts into context.
+
+---
+
+#### D-R3: Cross-Memory Relationship Methods
+
+Added to entity, fact, and preference repositories:
+
+- `CreateExtractedFromRelationshipAsync(entityId/factId/preferenceId, messageId)` — provenance edges
+- `CreateAboutRelationshipAsync(preferenceId/factId, entityId)` — semantic linkage
+
+Completes EXTRACTED_FROM and ABOUT relationship graph edges identified in finding F1. All Neo4j implementations pre-existed; interfaces now declare contracts.
+
+---
+
+#### D-R4: Conditional Re-Embedding After Entity Merge
+
+In `CompositeEntityResolver`, after auto-merge (confidence ≥ threshold), re-embed **only if aliases list changed**:
+
+```csharp
+if (aliasesChanged) {
+    var reEmbedded = entity with {
+        Embedding = await _embeddingProvider.GenerateEmbeddingAsync(
+            $"{entity.Name} {string.Join(" ", entity.Aliases)}", ...)
+    };
+    return reEmbedded;
+}
+```
+
+Preserves existing test contract: exact matches (no new aliases) don't trigger embedding provider re-calls. Conditional re-embedding fixes bug where merged aliases weren't reflected in embedding vector.
+
+**Rationale:** Keeps embedding semantics correct without breaking test invariants.
+
+---
+
+#### D-R5: EXTRACTED_FROM Wired in MemoryExtractionPipeline
+
+After upserting each entity, fact, and preference, pipeline calls `CreateExtractedFromRelationshipAsync` for every source message ID. Failures logged as warnings (non-fatal) to preserve pipeline resilience.
+
+Closes provenance gap where graph edges from memory nodes to source messages were never created.
+
+---
+
+#### D-R6: DeletePreferenceAsync Added to Service Facade
+
+Added to `ILongTermMemoryService`:
+
+```csharp
+Task DeletePreferenceAsync(string preferenceId, CancellationToken);
+```
+
+Service-layer callers should not inject repository interfaces directly. Service facade exposes all CRUD operations. Preferences were the only long-term memory type without a delete path.
+
+---
+
+### D18: MAF Post-Run Integration and Advanced MCP Tools (Rachael, 2026-04-13)
+
+**Status:** Implemented  
+**Scope:** Phase 3 (MAF Adapter) + Phase 4 (MCP Tools)
+
+Completed spec §4.4 auto-extraction compliance via `StoreAIContextAsync` hook and added 4 advanced memory operations to MCP tooling.
+
+#### D-R1: StoreAIContextAsync Is the Canonical Post-Run Hook
+
+`Neo4jMemoryContextProvider.StoreAIContextAsync(InvokedContext)` is the spec §4.4 extraction trigger (not middleware).
+
+```csharp
+public override async Task StoreAIContextAsync(InvokedContext context, CancellationToken cancellationToken = default)
+{
+    try
+    {
+        if (_options.AutoExtractOnPersist) {
+            // Persist ResponseMessages
+            // Trigger MemoryExtractionPipeline
+        }
+    }
+    catch (Exception ex) {
+        _logger.LogWarning(...); // Non-fatal
+    }
+}
+```
+
+MAF's designed post-run lifecycle hook. No custom middleware needed. Implementation entirely in AgentFramework adapter.
+
+---
+
+#### D-R2: Auto-Extraction Is Opt-Out (Default ON)
+
+`AgentFrameworkOptions.AutoExtractOnPersist = true` controls post-run extraction (default enabled).
+
+**Rationale:** Spec §4.4 says extraction SHALL happen automatically. Opt-out satisfies SHALL while allowing consumers to disable. Extraction failures never break agent response — logged as warnings only.
+
+---
+
+#### D-R3: StoreAIContextAsync Persists ResponseMessages Only
+
+Hook persists only `context.ResponseMessages` (assistant outputs), not request messages.
+
+**Rationale:** Request messages are either already in memory from prior turns or were injected by `ProvideAIContextAsync` and should not be double-stored. Only net-new assistant responses warrant persistence.
+
+---
+
+#### D-R4: AdvancedMemoryTools File Pattern
+
+Four new MCP tools live in `AdvancedMemoryTools.cs`:
+
+| Tool | Purpose |
+|---|---|
+| memory_record_tool_call | Persist tool invocation with result |
+| memory_export_graph | Export entire Neo4j graph |
+| memory_find_duplicates | Detect potential duplicate entities |
+| extract_and_persist | Run extraction on arbitrary text |
+
+Registered via `.WithTools<AdvancedMemoryTools>()` in `ServiceCollectionExtensions.AddAgentMemoryMcpTools()`.
+
+**Rationale:** Grouping by concern (not service dependency) keeps files manageable. Extends existing 5-file pattern with 6th for advanced/cross-cutting ops. Total: 18 tools registered.
+
+---
+
+#### D-R5: Graph Query Tools Gate Behind EnableGraphQuery
+
+Both `memory_export_graph` and `memory_find_duplicates` gate behind `McpServerOptions.EnableGraphQuery = true`. Use `IGraphQueryService` with raw Cypher, same security model as `graph_query` tool.
+
+**Rationale:** Execute raw Cypher against Neo4j — same trust boundary as existing `graph_query`. Reusing gate avoids new option surface.
+
+---
+
+#### D-R6: memory_find_duplicates Uses Name Containment + Length Ratio
+
+Duplicate detection uses Cypher:
+
+```cypher
+MATCH (e1:Entity), (e2:Entity) WHERE e1.id <> e2.id
+AND toLower(e1.name) CONTAINS toLower(e2.name)
+WITH e1, e2, min(len(e1.name), len(e2.name)) / max(len(e1.name), len(e2.name)) AS similarity
+WHERE similarity >= $threshold
+```
+
+**Rationale:** Semantic similarity requires embeddings (not always available). FuzzySharp in Core, not available in McpServer (only references Abstractions). Name containment with length ratio in pure Cypher catches "John" vs "John Smith"-style duplicates reliably, transparent to operators.
+
+---
+
 ## Governance
+
+- All meaningful changes require team consensus
+- Document architectural decisions here
+- Keep history focused on work, decisions focused on direction
 
 - All meaningful changes require team consensus
 - Document architectural decisions here

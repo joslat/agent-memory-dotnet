@@ -118,3 +118,48 @@ Key insight: `Neo4jGraphRagContextSource` references `IRetriever` and `Retriever
 - Boundary is clean with minimal coupling to reference package
 - Full write capability implemented and verified
 - Ready for production use with identified improvements tracked
+
+### 2026-07-12 — Full Forensic Trace (Jose Luis Request)
+
+**Full report written to:** `.squad/decisions/inbox/sebastian-maf-provider-trace.md`
+
+**Key forensic findings (confirmed from source):**
+
+#### Q1: Neo4jContextProvider anatomy
+- File: `Neo4j/neo4j-maf-provider/dotnet/src/Neo4j.AgentFramework.GraphRAG/Neo4jContextProvider.cs`
+- Extends `AIContextProvider` (MAF) + `IAsyncDisposable`
+- Fields: `IDriver`, `bool _ownsDriver`, `Neo4jContextProviderOptions`, `IRetriever`
+- `ProvideAIContextAsync`: concatenates last N User+Assistant messages → `_retriever.SearchAsync()` → formats to `ChatMessage` list in `AIContext`
+- Dual construction: takes existing driver OR factory `Create(uri, user, pass)` with driver ownership
+
+#### Q2: Neo4jMemoryContextProvider vs reference — REIMPLEMENTED
+- Same: `AIContextProvider` base class, `ProvideAIContextAsync` hook, `AIContext { Messages }` output
+- Different: constructor injects `IMemoryService + IEmbeddingProvider` (not IDriver); searches via `RecallAsync()` (full memory stack) not direct index; extracts session/conversationId; three try/catch layers for graceful degradation; also implements post-run store via `StoreAIContextAsync`
+- Classification: REIMPLEMENTED — same MAF pattern, completely different internals
+
+#### Q3: Compile-time dependency confirmed
+- **NOT a NuGet package** — `GraphRagAdapter.csproj` has a `<ProjectReference>` to local source tree
+- Types used from reference: only `IRetriever`, `RetrieverResult`, `RetrieverResultItem`
+- Zero dependency in AgentFramework, Core, Abstractions, Neo4j packages
+
+#### Q4: Class-by-class status
+- `IRetriever`, `RetrieverResult`, `RetrieverResultItem` → **REUSED** (compile-time dep, 3 types only)
+- `StopWords` → **COPIED** verbatim as `StopWordFilter` (same 107 words, same regex, different namespace/name)
+- `VectorRetriever`, `FulltextRetriever`, `HybridRetriever` → **REIMPLEMENTED** (near-verbatim Cypher and logic; internal; use `StopWordFilter` instead of `StopWords`)
+- `Neo4jContextProvider`, `Neo4jContextProviderOptions`, `Neo4jSettings` → **IGNORED** entirely
+- `IndexType` → **REIMPLEMENTED** as `GraphRagSearchMode` (+ added `Graph` mode)
+
+#### Q5: Write-layer gap analysis (forensic)
+
+**Gap 1 — No UpsertBatchAsync:**
+- Pipeline does: `foreach entity → UpsertAsync()` → 2 DB round-trips per entity
+- 1000 messages × 10 entities = 20,000 DB trips. Fix: UNWIND batch Cypher. Priority: MEDIUM-HIGH.
+
+**Gap 2 — No DeleteAsync for preferences:**
+- Every extraction creates NEW Preference node via GUID (no overwrite). Contradicting preferences accumulate.
+- No workaround exists via API. Priority: MEDIUM (correctness bug).
+
+**Gap 3 — No re-embedding after merge:**
+- `MergeEntitiesAsync` Cypher never touches `target.embedding`. Alias added to target but embedding not refreshed.
+- Embeddings are based on `entity.Name` only. Alias-form queries may miss merged entity.
+- Fix: re-embed in `CompositeEntityResolver` after auto-merge, using `name + aliases` text. Priority: LOW-MEDIUM.

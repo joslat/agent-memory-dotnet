@@ -219,3 +219,48 @@
 - `tests/Neo4j.AgentMemory.Tests.Unit/Stubs/` — 4 test files, 21 passing tests
 
 
+
+---
+
+### 2025-07-15: Write-Layer Gap Audit — Interface Additions + Re-Embedding Fix
+
+**Tasks:** Six tasks from the audit findings. All in Abstractions (contracts) and Core (business logic).
+
+**Task 1 — UpsertBatchAsync on IEntityRepository and IFactRepository:**
+- Added Task<IReadOnlyList<Entity>> UpsertBatchAsync(IReadOnlyList<Entity>, CancellationToken) to IEntityRepository
+- Added Task<IReadOnlyList<Fact>> UpsertBatchAsync(IReadOnlyList<Fact>, CancellationToken) to IFactRepository
+- Gaff's Neo4j repos already had real implementations; interface contracts were the gap.
+
+**Task 2 — DeleteAsync on IPreferenceRepository:**
+- Added Task DeleteAsync(string preferenceId, CancellationToken) to IPreferenceRepository
+- Neo4jPreferenceRepository already had a real Cypher implementation.
+
+**Task 3 — Cross-memory relationship methods:**
+- Added CreateExtractedFromRelationshipAsync to IEntityRepository, IFactRepository, IPreferenceRepository
+- Added CreateAboutRelationshipAsync to IFactRepository and IPreferenceRepository
+- All Neo4j repos already had real Cypher implementations from Gaff; again only the interface contracts were missing.
+
+**Task 4 — Fix re-embedding after entity merge in CompositeEntityResolver:**
+- Added conditional re-embed: only regenerates embedding when liasesChanged (new aliases were genuinely added)
+- Combined text = Name + Aliases (space-joined, trimmed)
+- Unconditional re-embed broke the exact-match test (which asserts embedding provider is NOT called on same-name match)
+
+**Task 5 — Wire EXTRACTED_FROM in MemoryExtractionPipeline:**
+- After upserting each entity, fact, and preference, now calls CreateExtractedFromRelationshipAsync for every source message ID
+- Failures caught and logged as warnings (non-fatal) to maintain pipeline resilience
+
+**Task 6 — DeletePreferenceAsync on ILongTermMemoryService:**
+- Added Task DeletePreferenceAsync(string preferenceId, CancellationToken) to ILongTermMemoryService
+- Implemented in LongTermMemoryService as delegation to _prefRepo.DeleteAsync
+
+**Build Outcome:** dotnet build — succeeded, 0 errors, 0 warnings  
+**Test Outcome:** dotnet test — 419/419 passed ✅
+
+**Key Learnings:**
+- Always run a full dotnet build (not --no-restore) after adding interface members. Cached compiled assemblies can hide CS0535 errors during incremental builds.
+- Gaff had pre-implemented many Neo4j-side methods before the interface contracts were formally declared. The write-layer "gaps" were mostly interface contract gaps, not missing Neo4j Cypher.
+- Conditional re-embedding (only when aliases change) is the correct semantic: if an exact-name match merges with no new alias added, the embedding remains valid and regenerating it is wasteful and breaks existing test expectations.
+- MemoryExtractionPipeline already held both repository references and sourceMessageIds, so wiring EXTRACTED_FROM was purely additive — no new dependencies required.
+
+**Artifacts:**
+- .squad/decisions/inbox/roy-interface-additions.md — decision record for all 6 tasks

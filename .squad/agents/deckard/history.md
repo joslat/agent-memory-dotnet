@@ -369,3 +369,24 @@
 **Decisions Merged:** All inbox files merged into `.squad/decisions.md`, inbox directory cleared.
 
 **Overall Assessment:** Project in excellent shape. All 6 phases delivered. 419 unit tests passing. Architecture sound. Cross-memory relationships (F1) are single most impactful improvement to pursue next.
+
+### 2026-07-16 — Comprehensive Gap Audit (Jose-Requested)
+
+**Trigger:** Jose asked for thorough gap assessment: Python parity, spec compliance, plan deliverables, cross-memory relationships.
+
+**Methodology:** Full source-level audit — all Python files in neo4j-agent-memory, all .NET files across 10 packages, spec and plan line-by-line.
+
+**Critical Findings:**
+1. Cross-memory relationships: 6/15 implemented (40%). Spec §3.4 SHALL requirements (INITIATED_BY, TRIGGERED_BY, HAS_TRACE) missing.
+2. FIRST_MESSAGE relationship missing (Spec §3.1 SHALL).
+3. Post-run auto-extraction not wired (Spec §4.4 SHALL).
+4. MCP tools: 14/18 (78%). Missing record_tool_call, export_graph, find_duplicates, extract_and_persist.
+5. Test tiers: No E2E, Performance, or Contract test projects despite plan listing them.
+6. Fulltext indexes created in schema but no repository methods use them.
+7. No :Tool node with aggregated stats (Python has it).
+
+**Strengths Confirmed:** Architecture clean, entity resolution complete, extraction pipeline solid, all 27 schema objects, 3 samples, observability working.
+
+**Overall Grade:** B — strong foundation, cross-memory relationships are the single highest-impact gap.
+
+**Full report:** .squad/decisions/inbox/deckard-gap-audit.md
