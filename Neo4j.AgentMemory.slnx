@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/Neo4j/" />
+  <Folder Name="/Neo4j/neo4j-maf-provider/" />
+  <Folder Name="/Neo4j/neo4j-maf-provider/dotnet/" />
+  <Folder Name="/Neo4j/neo4j-maf-provider/dotnet/src/">
+    <Project Path="Neo4j/neo4j-maf-provider/dotnet/src/Neo4j.AgentFramework.GraphRAG/Neo4j.AgentFramework.GraphRAG.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Neo4j.AgentMemory.Sample.MinimalAgent/Neo4j.AgentMemory.Sample.MinimalAgent.csproj" />
   </Folder>
@@ -6,8 +12,10 @@
     <Project Path="src/Neo4j.AgentMemory.Abstractions/Neo4j.AgentMemory.Abstractions.csproj" />
     <Project Path="src/Neo4j.AgentMemory.AgentFramework/Neo4j.AgentMemory.AgentFramework.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Core/Neo4j.AgentMemory.Core.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.GraphRagAdapter/Neo4j.AgentMemory.GraphRagAdapter.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Neo4j/Neo4j.AgentMemory.Neo4j.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Extraction.Llm/Neo4j.AgentMemory.Extraction.Llm.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.Observability/Neo4j.AgentMemory.Observability.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Neo4j.AgentMemory.Tests.Integration/Neo4j.AgentMemory.Tests.Integration.csproj" />

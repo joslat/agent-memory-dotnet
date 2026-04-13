@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Neo4j.AgentMemory.Abstractions\Neo4j.AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="..\..\Neo4j\neo4j-maf-provider\dotnet\src\Neo4j.AgentFramework.GraphRAG\Neo4j.AgentFramework.GraphRAG.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Neo4j.AgentMemory.Tests.Unit" />
+  </ItemGroup>
+</Project>
