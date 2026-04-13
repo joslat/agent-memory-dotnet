@@ -155,7 +155,7 @@ Instead, the .NET version will prioritize:
 
 ## Project status
 
-Early design / implementation phase.
+Phase 3 (MAF Adapter) complete. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM integration, and Microsoft Agent Framework adapter ready for deployment.
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 

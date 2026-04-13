@@ -1,6 +1,6 @@
 # Implementation Status — Agent Memory for .NET
 
-**Last Updated:** 2026-04-12  
+**Last Updated:** 2026-04-13  
 **Author:** Deckard (Lead Architect)  
 **For:** Jose Luis Latorre Millas (Project Owner)
 
@@ -8,22 +8,19 @@
 
 ## 1. Executive Summary
 
-**Current Phase:** Phase 1 — Core Memory Engine (✅ COMPLETE)
+**Current Phase:** Phase 3 — MAF Adapter (✅ COMPLETE)
 
-**Phase 1 Status: 100% COMPLETE** — All Phase 1 epics (1–9) are finished. The foundation memory engine is fully implemented with all Neo4j repositories, core services, and 85 unit tests passing.
+**Phase 3 Status: 100% COMPLETE** — All Phase 3 epics are finished. The Microsoft Agent Framework adapter is fully implemented with context injection, memory tools, message storage, and 265 unit tests passing (Phase 1 + Phase 2 + Phase 3 combined).
 
 **What's Done:**
-- Abstractions package: 15 service interfaces, 10 repository interfaces, ~29 domain records, 6 enums, 8 configuration types
-- Core package: 9 stub implementations (embedding, extraction, resolution), system clock, GUID generator, 5 core services (ShortTermMemory, LongTermMemory, ReasoningMemory, MemoryContextAssembler, MemoryService)
-- Neo4j package: 9 repository implementations (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall), driver factory, session factory, transaction runner, schema bootstrapper (9 constraints, 3 fulltext indexes, 5 vector indexes, 9 property indexes), migration runner, DI wiring
-- Test harness: Testcontainers fixture, integration test base, test data seeders, mock factory
-- 85 unit tests passing
-- Build: clean (0 warnings, 0 errors)
+- **Phase 1:** Core memory engine with all repositories, services, context assembly, 85 tests
+- **Phase 2:** Entity resolution chain (4 strategies: ExactMatch → FuzzyMatch → SemanticMatch → CreateNew), Entity validation, LLM extraction package (4 extractors), real MemoryExtractionPipeline, Neo4j extraction support, FuzzySharp 2.0.2 integration, Microsoft.Extensions.AI IChatClient, DI infrastructure, 210 tests total
+- **Phase 3:** Neo4jMemoryContextProvider (AIContextProvider), Neo4jChatMessageStore (MAF-compatible), Neo4jMicrosoftMemoryFacade, MafTypeMapper (bidirectional mapping), MemoryToolFactory (6 tools), AgentTraceRecorder, DI: AddAgentMemoryFramework(), 265 tests total
 
 **What's Next:**
-- Phase 2: Entity resolution algorithms, extraction pipeline with LLM integration, advanced recall patterns
-- Phase 3: MAF adapter, GraphRAG integration
-- Phase 4+: MCP protocol, advanced features
+- Phase 4: GraphRAG adapter + Observability (OpenTelemetry)
+- Phase 5: Advanced extraction backends (Azure Language, ONNX)
+- Phase 6: MCP Server
 
 ---
 
@@ -70,6 +67,34 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 | 7 | Context Assembly | MemoryContextAssembler, MemoryService facade, recall orchestration | ✅ Done | `4a30a0e` | Full test coverage (85/85 passing) |
 | 8 | Stubs | StubEmbeddingProvider, StubExtractionPipeline, Stub*Extractors, StubEntityResolver | ✅ Done | `ade9590` | 9 stubs in Core/Stubs/ |
 | 9 | Test Harness | Testcontainers fixture, integration base, test data seeders, mock factory | ✅ Done | `ade9590` | 85 unit tests passing |
+
+---
+
+## 3.1 Phase 2 Epic Status
+
+| # | Epic | Description | Status | Commit | Notes |
+|---|---|---|---|---|---|
+| 10 | Entity Resolution Chain | ExactMatch → FuzzyMatch → SemanticMatch → CreateNew (4-strategy resolver) | ✅ Done | Phase 2 | FuzzySharp 2.0.2 integration |
+| 11 | Entity Validation | EntityValidator, IEntityValidator interface, constraint enforcement | ✅ Done | Phase 2 | Validation rules for entities |
+| 12 | LLM Extraction Package | Extraction.Llm with 4 extractors: Entity, Fact, Preference, Relationship | ✅ Done | Phase 2 | Microsoft.Extensions.AI IChatClient |
+| 13 | Extraction Pipeline | Real MemoryExtractionPipeline: extract → validate → resolve → embed → persist | ✅ Done | Phase 2 | Full orchestration with all steps |
+| 14 | Neo4j Extraction Support | SAME_AS relationships, MENTIONS relationships, entity merging, schema updates | ✅ Done | Phase 2 | Graph relationships for extraction |
+| 15 | DI Infrastructure Phase 2 | AddAgentMemoryCore(), AddLlmExtraction() extensions | ✅ Done | Phase 2 | Service registration |
+
+---
+
+## 3.2 Phase 3 Epic Status
+
+| # | Epic | Description | Status | Commit | Notes |
+|---|---|---|---|---|---|
+| 16 | Neo4j Agent Framework Package | Neo4j.AgentMemory.AgentFramework project | ✅ Done | Phase 3 | Microsoft.Agents.AI.Abstractions 1.1.0 |
+| 17 | Context Provider | Neo4jMemoryContextProvider extends AIContextProvider | ✅ Done | Phase 3 | Pre-run context injection |
+| 18 | Chat Message Store | Neo4jChatMessageStore MAF-compatible persistence | ✅ Done | Phase 3 | Session/conversation storage |
+| 19 | Convenience Facade | Neo4jMicrosoftMemoryFacade (pre-run + post-run orchestration) | ✅ Done | Phase 3 | Simplified integration API |
+| 20 | Type Mapping | MafTypeMapper bidirectional ChatMessage ↔ internal Message mapping | ✅ Done | Phase 3 | Type conversion |
+| 21 | Memory Tools | MemoryToolFactory with 6 tools: search_memory, remember_preference, remember_fact, recall_preferences, search_knowledge, find_similar_tasks | ✅ Done | Phase 3 | Agent tool definitions |
+| 22 | Trace Recorder | AgentTraceRecorder captures reasoning traces from agent activity | ✅ Done | Phase 3 | Execution trace storage |
+| 23 | DI Infrastructure Phase 3 | AddAgentMemoryFramework() extension | ✅ Done | Phase 3 | Service registration |
 
 ---
 
@@ -172,18 +197,18 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 | Path | Purpose | Last Updated | Aligned with Spec? |
 |---|---|---|---|
-| `Agent-Memory-for-DotNet-Specification.md` | Canonical specification — source of truth | 2026-04-12 | **N/A** (this IS the spec) |
-| `Agent-memory-for-dotnet-implementation-plan.md` | Execution guide — phased build order, deliverables | 2026-04-12 | ✅ Yes (updated for Phase 1 completion) |
-| `docs/architecture.md` | Architecture overview — packages, graph model, boundaries, test strategy | 2026-04-12 | ✅ Yes |
-| `docs/design.md` | Software design — domain model, context assembly, extraction pipeline, service catalog | 2026-04-12 | ✅ Yes |
-| `docs/neo4j-maf-provider-analysis.md` | Reuse strategy for existing Neo4j GraphRAG provider | 2026-04-12 | ✅ Yes |
-| `docs/python-agent-memory-analysis.md` | Reference analysis mapping Python agent-memory to .NET | 2026-04-12 | ✅ Yes |
-| `docs/implementation-status.md` | **This document** — status tracker | 2026-04-12 | ✅ Yes |
-| `.squad/decisions.md` | Team decisions log (all decisions merged, deduped) | 2026-04-12 | ✅ Yes |
+| `Agent-Memory-for-DotNet-Specification.md` | Canonical specification — source of truth | 2026-04-13 | **N/A** (this IS the spec) |
+| `Agent-memory-for-dotnet-implementation-plan.md` | Execution guide — phased build order, deliverables | 2026-04-13 | ✅ Yes (updated for Phase 1–3 completion) |
+| `docs/architecture.md` | Architecture overview — packages, graph model, boundaries, test strategy | 2026-04-13 | ✅ Yes |
+| `docs/design.md` | Software design — domain model, context assembly, extraction pipeline, service catalog | 2026-04-13 | ✅ Yes |
+| `docs/neo4j-maf-provider-analysis.md` | Reuse strategy for existing Neo4j GraphRAG provider | 2026-04-13 | ✅ Yes |
+| `docs/python-agent-memory-analysis.md` | Reference analysis mapping Python agent-memory to .NET | 2026-04-13 | ✅ Yes |
+| `docs/implementation-status.md` | **This document** — status tracker | 2026-04-13 | ✅ Yes |
+| `.squad/decisions.md` | Team decisions log (all decisions merged, deduped) | 2026-04-13 | ✅ Yes |
 
 ### 5.1 Document Alignment
 
-All documents are current as of 2026-04-12. Phase 1 completion has been reflected across all documentation.
+All documents are current as of 2026-04-13. Phase 1–3 completion has been reflected across all documentation.
 
 ---
 
@@ -229,8 +254,8 @@ The `SchemaBootstrapper` currently creates 5 vector indexes:
 |---|---|---|---|---|
 | **0** | Discovery & Design Lock | Freeze architecture, interfaces, graph schema | ✅ Complete | Spec, impl plan, decisions D1–D6, Squad team |
 | **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | ✅ **Complete** | Abstractions, Core, Neo4j packages; all repositories + services; context assembler |
-| **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | 🔧 **In Progress** | Extraction.Abstractions, Extraction.Llm; entity resolution; vector indexes |
-| **3** | MAF Adapter | Microsoft Agent Framework integration | ⏳ Not Started | AgentFramework package; context provider, chat store, memory tools, trace recorder |
+| **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ✅ **Complete** | Extraction.Llm; entity resolution (4-strategy chain); vector indexes; 210 unit tests |
+| **3** | MAF Adapter | Microsoft Agent Framework integration | ✅ **Complete** | AgentFramework package; context provider, chat store, memory tools, trace recorder; 265 unit tests |
 | **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ⏳ Not Started | GraphRagAdapter package; blend policies; Observability package |
 | **5** | Advanced Extraction | Azure Language, ONNX, optional enrichment | ⏳ Not Started | Additional extraction backends; geocoding; enrichment services |
 | **6** | MCP Server | External access via Model Context Protocol | ⏳ Not Started | Mcp package; stdio/HTTP transport; core + extended tool profiles |
@@ -305,9 +330,14 @@ Connects at `bolt://localhost:7687` with credentials `neo4j/password`.
 ### Current Test Results
 
 ```
-Passed!  - Failed: 0, Passed: 21, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
-Passed!  - Failed: 0, Passed:  2, Skipped: 0 - Neo4j.AgentMemory.Tests.Integration.dll
+Passed!  - Failed: 0, Passed: 265, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
 ```
+
+**Test breakdown by phase:**
+- Phase 1: 85 unit tests (core memory engine)
+- Phase 2: 125 additional tests (extraction pipeline + entity resolution)
+- Phase 3: 55 additional tests (MAF adapter + tools + persistence)
+- **Total: 265 unit tests passing**
 
 ---
 

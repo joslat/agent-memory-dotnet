@@ -1,6 +1,6 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2025-07-13 (Phase 1 — In Progress)  
+**Last Updated:** 2026-04-13 (Phase 3 — Complete)  
 **Author:** Deckard (Lead Architect)  
 **Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)
 **Implementation Plan:** [Agent-memory-for-dotnet-implementation-plan.md](../Agent-memory-for-dotnet-implementation-plan.md)
@@ -141,11 +141,44 @@ Neo4j.AgentMemory.Abstractions.Options       — configuration records
 | **MUST NOT reference** | Microsoft.Agents.*, Neo4j.AgentFramework.GraphRAG, any GraphRAG SDK |
 | **Key types** | Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions |
 
-### 3.4 Future Adapter Packages
+### 3.4 Adapter Packages
+
+#### 3.4.1 Neo4j.AgentMemory.AgentFramework (Phase 3 ✅ COMPLETE)
+
+| Attribute | Value |
+|---|---|
+| **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.1.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
+| **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
+| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder` |
+| **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
+
+**Key Patterns:**
+
+1. **Pre-run Context Injection** — `Neo4jMemoryContextProvider : AIContextProvider` fetches relevant memory from Neo4j before agent execution begins
+2. **Post-run Persistence** — `Neo4jMicrosoftMemoryFacade` orchestrates message storage and trace recording after execution
+3. **Type Mapping** — `MafTypeMapper` handles bidirectional conversion between MAF's `ChatMessage` and internal `Message` types
+4. **Memory Tools** — `MemoryToolFactory` creates 6 tools for agent use:
+   - `search_memory` — semantic search across all memory layers
+   - `remember_preference` — store user preferences
+   - `remember_fact` — store facts
+   - `recall_preferences` — retrieve stored preferences
+   - `search_knowledge` — search entities and facts
+   - `find_similar_tasks` — retrieve similar prior executions
+5. **Trace Capture** — `AgentTraceRecorder` records agent reasoning steps and tool calls to Neo4j for future analysis
+
+**Namespace structure:**
+```
+Neo4j.AgentMemory.AgentFramework.Integration     — context provider, message store, facade
+Neo4j.AgentMemory.AgentFramework.Tools            — memory tool definitions and factory
+Neo4j.AgentMemory.AgentFramework.Mapping          — MAF type mapping
+Neo4j.AgentMemory.AgentFramework.Tracing          — reasoning trace recording
+```
+
+#### 3.4.2 Future Adapter Packages
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|
-| `Neo4j.AgentMemory.AgentFramework` | 3 | Microsoft.Agents.AI.* | MAF context provider, chat store, memory tools |
 | `Neo4j.AgentMemory.GraphRagAdapter` | 4 | Neo4j.AgentFramework.GraphRAG | `IGraphRagContextSource` via `IRetriever` delegation |
 | `Neo4j.AgentMemory.Mcp` | 6 | C# MCP SDK | MCP tool server exposing memory operations |
 

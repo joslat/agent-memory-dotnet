@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Neo4j.AgentMemory.Sample.MinimalAgent/Neo4j.AgentMemory.Sample.MinimalAgent.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Neo4j.AgentMemory.Abstractions/Neo4j.AgentMemory.Abstractions.csproj" />
     <Project Path="src/Neo4j.AgentMemory.AgentFramework/Neo4j.AgentMemory.AgentFramework.csproj" />

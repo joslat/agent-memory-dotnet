@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.AgentFramework\Neo4j.AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Neo4j\Neo4j.AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Core\Neo4j.AgentMemory.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="*" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
