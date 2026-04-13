@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "neo4j-agent-memory": {
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "path/to/samples/Neo4j.AgentMemory.Sample.McpHost"
+      ],
+      "env": {
+        "Neo4j__Uri": "bolt://localhost:7687",
+        "Neo4j__Username": "neo4j",
+        "Neo4j__Password": "your-password-here",
+        "Neo4j__Database": "neo4j"
+      }
+    }
+  }
+}

@@ -8,9 +8,9 @@
 
 ## 1. Executive Summary
 
-**Current Phase:** Phase 5 — Advanced Extraction & Enrichment (✅ COMPLETE)
+**Current Phase:** Phase 6 — MCP Server (✅ COMPLETE)
 
-**Phase 5 Status: 100% COMPLETE** — Azure Language extraction and enrichment (geocoding + entity enrichment) packages are fully implemented with 349 unit tests passing (Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 combined).
+**Phase 6 Status: 100% COMPLETE** — MCP Server package with 14 tools, stdio transport, sample host, and Claude Desktop config. All 6 implementation phases are now complete with 398 unit tests passing.
 
 **What's Done:**
 - **Phase 1:** Core memory engine with all repositories, services, context assembly, 85 tests
@@ -18,9 +18,9 @@
 - **Phase 3:** Neo4jMemoryContextProvider (AIContextProvider), Neo4jChatMessageStore (MAF-compatible), Neo4jMicrosoftMemoryFacade, MafTypeMapper (bidirectional mapping), MemoryToolFactory (6 tools), AgentTraceRecorder, DI: AddAgentMemoryFramework(), 265 tests total
 - **Phase 4:** Neo4jGraphRagContextSource (IGraphRagContextSource via IRetriever delegation), 4 search modes (Vector/Fulltext/Hybrid/Graph), GraphRagAdapterOptions, InstrumentedMemoryService + InstrumentedGraphRagContextSource (OTel decorators), MemoryActivitySource, MemoryMetrics (12 instruments), DI: AddGraphRagAdapter() + AddAgentMemoryObservability(), 295 tests total
 - **Phase 5:** Extraction.AzureLanguage (Azure Text Analytics extractors), Enrichment package (Nominatim geocoding + Wikimedia entity enrichment, decorator chain: Cache → RateLimiter → Nominatim), DI: AddAzureLanguageExtraction() + AddEnrichment(), 349 tests total
+- **Phase 6:** MCP Server with 14 tools (6 core + 8 extended), ModelContextProtocol SDK 1.2.0, stdio transport, IGraphQueryService interface + Neo4j implementation, sample McpHost app, Claude Desktop config, DI: AddAgentMemoryMcpTools(), 398 tests total
 
-**What's Next:**
-- Phase 6: MCP Server
+**All Phases Complete.** The project is a full-featured .NET Neo4j Memory Provider with 10 packages.
 
 ---
 
@@ -123,6 +123,21 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 | 37 | Entity Enrichment Service | WikimediaEntityEnrichmentService for augmenting entities | ✅ Done | Phase 5 | IEnrichmentService implementation |
 | 38 | Decorator Chain | Cache → RateLimiter → Backend services | ✅ Done | Phase 5 | Cross-cutting enrichment concerns |
 | 39 | DI Infrastructure Phase 5 | AddAzureLanguageExtraction() + AddEnrichment() extensions | ✅ Done | Phase 5 | Service registration |
+
+---
+
+## 3.5 Phase 6 Epic Status
+
+| # | Epic | Description | Status | Commit | Notes |
+|---|---|---|---|---|---|
+| 40 | IGraphQueryService Interface | New interface in Abstractions for raw Cypher query execution | ✅ Done | Phase 6 | Clean architecture boundary |
+| 41 | Neo4jGraphQueryService | IGraphQueryService implementation using INeo4jTransactionRunner | ✅ Done | Phase 6 | Node/Relationship/Path conversion |
+| 42 | MCP Server Package | Neo4j.AgentMemory.McpServer project with ModelContextProtocol 1.2.0 | ✅ Done | Phase 6 | 10th src package |
+| 43 | Core MCP Tools (6) | memory_search, memory_get_context, memory_store_message, memory_add_entity, memory_add_preference, memory_add_fact | ✅ Done | Phase 6 | Delegates to IMemoryService, ILongTermMemoryService |
+| 44 | Extended MCP Tools (8) | memory_get_conversation, memory_list_sessions, memory_get_entity, memory_create_relationship, memory_start_trace, memory_record_step, memory_complete_trace, graph_query | ✅ Done | Phase 6 | Delegates to all service layers |
+| 45 | MCP Server DI | AddAgentMemoryMcpTools() extension on IMcpServerBuilder | ✅ Done | Phase 6 | Registers all 5 tool classes |
+| 46 | Sample McpHost App | Console app with stdio transport, Claude Desktop config | ✅ Done | Phase 6 | Ready for Claude Desktop integration |
+| 47 | MCP Contract Tests | 49 unit tests covering all 14 tools + options defaults | ✅ Done | Phase 6 | 398 total tests |
 
 ---
 

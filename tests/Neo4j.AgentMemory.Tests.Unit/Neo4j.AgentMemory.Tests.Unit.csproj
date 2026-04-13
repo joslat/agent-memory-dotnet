@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
     <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.1.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="FluentAssertions" Version="8.9.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
@@ -32,6 +33,7 @@
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.GraphRagAdapter\Neo4j.AgentMemory.GraphRagAdapter.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Extraction.AzureLanguage\Neo4j.AgentMemory.Extraction.AzureLanguage.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Enrichment\Neo4j.AgentMemory.Enrichment.csproj" />
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.McpServer\Neo4j.AgentMemory.McpServer.csproj" />
   </ItemGroup>
 
 </Project>

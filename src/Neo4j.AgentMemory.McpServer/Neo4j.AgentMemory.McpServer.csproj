@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Neo4j.AgentMemory.McpServer</RootNamespace>
+    <Description>MCP Server for Neo4j Agent Memory — exposes memory tools via Model Context Protocol</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Neo4j.AgentMemory.Abstractions\Neo4j.AgentMemory.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

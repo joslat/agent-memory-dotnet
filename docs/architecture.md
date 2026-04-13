@@ -1,6 +1,6 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-04-13 (Phase 4 — Complete)  
+**Last Updated:** 2026-04-14 (Phase 6 — Complete)  
 **Author:** Deckard (Lead Architect)  
 **Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)
 **Implementation Plan:** [Agent-memory-for-dotnet-implementation-plan.md](../Agent-memory-for-dotnet-implementation-plan.md)
@@ -25,7 +25,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 ### What It Does NOT Do
 
 - **No Python runtime** — purely .NET, no Python bridge or subprocess *(Spec §1.4)*
-- **No MCP server yet** — MCP is Phase 6, not in current scope *(Plan §Phase 6)*
+- **MCP Server** — Phase 6, exposes 14 memory tools via Model Context Protocol *(Plan §Phase 6)*
 - **No bundled LLM** — extraction and embedding providers are pluggable interfaces, stubbed in Phase 1 *(Decision D5)*
 - **No fork of upstream Python agent-memory** — inspired by its architecture, not a port *(Spec §0.1)*
 - **Not an official Neo4j product** — independent community project *(Spec §1.1)*

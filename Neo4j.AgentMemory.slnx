@@ -8,6 +8,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/Neo4j.AgentMemory.Sample.BlendedAgent/Neo4j.AgentMemory.Sample.BlendedAgent.csproj" />
     <Project Path="samples/Neo4j.AgentMemory.Sample.MinimalAgent/Neo4j.AgentMemory.Sample.MinimalAgent.csproj" />
+    <Project Path="samples/Neo4j.AgentMemory.Sample.McpHost/Neo4j.AgentMemory.Sample.McpHost.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Neo4j.AgentMemory.Abstractions/Neo4j.AgentMemory.Abstractions.csproj" />
@@ -19,6 +20,7 @@
     <Project Path="src/Neo4j.AgentMemory.Extraction.AzureLanguage/Neo4j.AgentMemory.Extraction.AzureLanguage.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Extraction.Llm/Neo4j.AgentMemory.Extraction.Llm.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Observability/Neo4j.AgentMemory.Observability.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.McpServer/Neo4j.AgentMemory.McpServer.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Neo4j.AgentMemory.Tests.Integration/Neo4j.AgentMemory.Tests.Integration.csproj" />

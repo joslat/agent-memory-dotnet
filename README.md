@@ -89,7 +89,7 @@ A separate adapter that composes with the existing .NET Neo4j GraphRAG provider 
 - combined memory + GraphRAG scenarios
 
 ### 5. MCP layer
-A future optional .NET MCP server for exposing memory capabilities to external MCP clients.
+A .NET MCP server exposing 14 memory tools to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
 
 ## Planned capabilities
 
@@ -132,7 +132,7 @@ The first implementation focus is:
 2. **Microsoft Agent Framework adapter**
 3. **GraphRAG adapter using the existing .NET provider**
 4. **Tests and validation harness**
-5. **Optional MCP layer later**
+5. **MCP server for external client access**
 
 ## Non-goals for the first version
 
@@ -155,9 +155,9 @@ Instead, the .NET version will prioritize:
 
 ## Project status
 
-Phase 5 (Advanced Extraction & Enrichment) complete. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, GraphRAG blended retrieval adapter, OpenTelemetry observability, geocoding and entity enrichment services — all ready for deployment.
+All 6 implementation phases complete. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, GraphRAG blended retrieval adapter, OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 14 tools — all ready for deployment.
 
-The solution now ships 9 packages:
+The solution ships 10 packages:
 
 | Package | Phase | Purpose |
 |---------|-------|---------|
@@ -170,8 +170,9 @@ The solution now ships 9 packages:
 | `Neo4j.AgentMemory.GraphRagAdapter` | 4 | GraphRAG adapter — `IGraphRagContextSource` via Neo4j vector/fulltext/hybrid/graph retrieval |
 | `Neo4j.AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
 | `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory + GraphRAG operations |
+| `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 14 tools (search, context, store, entities, facts, preferences, reasoning traces, graph query) via Model Context Protocol |
 
-**349 unit tests passing.**
+**398 unit tests passing.**
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 

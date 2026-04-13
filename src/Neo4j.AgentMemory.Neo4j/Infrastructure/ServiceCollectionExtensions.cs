@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neo4j.AgentMemory.Abstractions.Repositories;
+using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Neo4j.Repositories;
+using Neo4j.AgentMemory.Neo4j.Services;
 
 namespace Neo4j.AgentMemory.Neo4j.Infrastructure;
 
@@ -37,6 +39,9 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IReasoningTraceRepository, Neo4jReasoningTraceRepository>();
         services.TryAddTransient<IReasoningStepRepository, Neo4jReasoningStepRepository>();
         services.TryAddTransient<IToolCallRepository, Neo4jToolCallRepository>();
+
+        // Graph query service
+        services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();
 
         return services;
     }
