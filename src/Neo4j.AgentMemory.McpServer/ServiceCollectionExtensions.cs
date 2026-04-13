@@ -11,7 +11,7 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Adds all Agent Memory MCP tools to the MCP server.
-    /// Call this after <c>AddMcpServer()</c> to register the 14 memory tools.
+    /// Call this after <c>AddMcpServer()</c> to register the 18 memory tools.
     /// </summary>
     public static IMcpServerBuilder AddAgentMemoryMcpTools(this IMcpServerBuilder builder)
     {
@@ -20,7 +20,8 @@ public static class ServiceCollectionExtensions
             .WithTools<ConversationTools>()
             .WithTools<EntityTools>()
             .WithTools<ReasoningTools>()
-            .WithTools<GraphQueryTools>();
+            .WithTools<GraphQueryTools>()
+            .WithTools<AdvancedMemoryTools>();
     }
 
     /// <summary>

@@ -72,7 +72,100 @@ public sealed class Neo4jFactRepository : IFactRepository
                     new { id = fact.FactId, embedding = fact.Embedding.ToList() });
             }
 
+            // Auto-create EXTRACTED_FROM relationships for all source messages
+            if (fact.SourceMessageIds.Count > 0)
+            {
+                await runner.RunAsync(@"
+                    MATCH (f:Fact {id: $id})
+                    UNWIND $sourceMessageIds AS msgId
+                    MATCH (m:Message {id: msgId})
+                    MERGE (f)-[:EXTRACTED_FROM]->(m)",
+                    new { id = fact.FactId, sourceMessageIds = fact.SourceMessageIds.ToList() });
+            }
+
             return MapToFact(node, fact.Embedding);
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Fact>> UpsertBatchAsync(IReadOnlyList<Fact> facts, CancellationToken cancellationToken = default)
+    {
+        if (facts.Count == 0) return Array.Empty<Fact>();
+
+        _logger.LogDebug("Batch upserting {Count} facts", facts.Count);
+
+        const string mergeCypher = @"
+            UNWIND $items AS item
+            MERGE (f:Fact {id: item.id})
+            ON CREATE SET
+                f.subject          = item.subject,
+                f.predicate        = item.predicate,
+                f.object           = item.object,
+                f.confidence       = item.confidence,
+                f.validFrom        = item.validFrom,
+                f.validUntil       = item.validUntil,
+                f.sourceMessageIds = item.sourceMessageIds,
+                f.createdAtUtc     = item.createdAtUtc,
+                f.metadata         = item.metadata
+            ON MATCH SET
+                f.subject          = item.subject,
+                f.predicate        = item.predicate,
+                f.object           = item.object,
+                f.confidence       = item.confidence,
+                f.validFrom        = item.validFrom,
+                f.validUntil       = item.validUntil,
+                f.sourceMessageIds = item.sourceMessageIds,
+                f.metadata         = item.metadata
+            RETURN f";
+
+        var items = facts.Select(f => new Dictionary<string, object?>
+        {
+            ["id"]               = f.FactId,
+            ["subject"]          = f.Subject,
+            ["predicate"]        = f.Predicate,
+            ["object"]           = f.Object,
+            ["confidence"]       = f.Confidence,
+            ["validFrom"]        = (object?)(f.ValidFrom?.ToString("O")),
+            ["validUntil"]       = (object?)(f.ValidUntil?.ToString("O")),
+            ["sourceMessageIds"] = f.SourceMessageIds.ToList(),
+            ["createdAtUtc"]     = f.CreatedAtUtc.ToString("O"),
+            ["metadata"]         = SerializeMetadata(f.Metadata)
+        }).ToList();
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(mergeCypher, new { items });
+            var records = await cursor.ToListAsync();
+
+            // Set embeddings individually
+            foreach (var fact in facts.Where(f => f.Embedding is not null))
+            {
+                await runner.RunAsync(
+                    "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding",
+                    new { id = fact.FactId, embedding = fact.Embedding!.ToList() });
+            }
+
+            // Auto-create EXTRACTED_FROM relationships
+            var factsWithSources = facts.Where(f => f.SourceMessageIds.Count > 0).ToList();
+            if (factsWithSources.Count > 0)
+            {
+                foreach (var fact in factsWithSources)
+                {
+                    await runner.RunAsync(@"
+                        MATCH (f:Fact {id: $id})
+                        UNWIND $sourceMessageIds AS msgId
+                        MATCH (m:Message {id: msgId})
+                        MERGE (f)-[:EXTRACTED_FROM]->(m)",
+                        new { id = fact.FactId, sourceMessageIds = fact.SourceMessageIds.ToList() });
+                }
+            }
+
+            var embeddingMap = facts.ToDictionary(f => f.FactId, f => f.Embedding);
+            return records.Select(r =>
+            {
+                var node = r["f"].As<INode>();
+                var id   = node["id"].As<string>();
+                return MapToFact(node, embeddingMap.TryGetValue(id, out var emb) ? emb : null);
+            }).ToList();
         }, cancellationToken);
     }
 
@@ -140,6 +233,45 @@ public sealed class Neo4jFactRepository : IFactRepository
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task CreateExtractedFromRelationshipAsync(string factId, string messageId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating EXTRACTED_FROM: Fact {FactId} -> Message {MessageId}", factId, messageId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (f:Fact {id: $factId}), (m:Message {id: $messageId})
+                MERGE (f)-[:EXTRACTED_FROM]->(m)",
+                new { factId, messageId });
+        }, cancellationToken);
+    }
+
+    public async Task CreateAboutRelationshipAsync(string factId, string entityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating ABOUT: Fact {FactId} -> Entity {EntityId}", factId, entityId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (f:Fact {id: $factId}), (e:Entity {id: $entityId})
+                MERGE (f)-[:ABOUT]->(e)",
+                new { factId, entityId });
+        }, cancellationToken);
+    }
+
+    public async Task CreateConversationFactRelationshipAsync(string conversationId, string factId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating HAS_FACT: Conversation {ConversationId} -> Fact {FactId}", conversationId, factId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (c:Conversation {id: $conversationId}), (f:Fact {id: $factId})
+                MERGE (c)-[:HAS_FACT]->(f)",
+                new { conversationId, factId });
         }, cancellationToken);
     }
 

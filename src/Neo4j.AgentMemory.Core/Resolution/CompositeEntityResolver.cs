@@ -82,6 +82,8 @@ public sealed class CompositeEntityResolver : IEntityResolver
                 .Where(a => !string.Equals(a, matched.Name, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
+            var aliasesChanged = mergedAliases.Count != matched.Aliases.Count;
+
             var mergedEntity = matched with
             {
                 Aliases = mergedAliases,
@@ -89,6 +91,15 @@ public sealed class CompositeEntityResolver : IEntityResolver
                     .Distinct()
                     .ToList()
             };
+
+            // Re-embed only when new aliases were added, so the vector captures combined name + aliases.
+            if (aliasesChanged)
+            {
+                var combinedText = $"{mergedEntity.Name} {string.Join(" ", mergedAliases)}".Trim();
+                var freshEmbedding = await _embeddingProvider.GenerateEmbeddingAsync(combinedText, cancellationToken)
+                    .ConfigureAwait(false);
+                mergedEntity = mergedEntity with { Embedding = freshEmbedding };
+            }
 
             return await _entityRepository.UpsertAsync(mergedEntity, cancellationToken)
                 .ConfigureAwait(false);

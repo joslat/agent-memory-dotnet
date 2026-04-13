@@ -292,4 +292,39 @@ public sealed class LongTermMemoryServiceTests
         Confidence = 0.9,
         CreatedAtUtc = DateTimeOffset.UtcNow
     };
+
+    // ── DeletePreferenceAsync tests ──
+
+    [Fact]
+    public async Task DeletePreferenceAsync_DelegatesToRepositoryWithCorrectId()
+    {
+        var sut = CreateSut();
+        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+
+        await sut.DeletePreferenceAsync("pref-123");
+
+        await _prefRepo.Received(1).DeleteAsync("pref-123", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeletePreferenceAsync_DelegatesToRepositoryWithAnyId()
+    {
+        var sut = CreateSut();
+        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+
+        await sut.DeletePreferenceAsync("any-id-value");
+
+        await _prefRepo.Received(1).DeleteAsync("any-id-value", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeletePreferenceAsync_RepositoryIsCalled()
+    {
+        var sut = CreateSut();
+        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+
+        await sut.DeletePreferenceAsync("pref-to-delete");
+
+        await _prefRepo.Received(1).DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
 }

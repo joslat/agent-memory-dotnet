@@ -66,6 +66,17 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
                     new { id = preference.PreferenceId, embedding = preference.Embedding.ToList() });
             }
 
+            // Auto-create EXTRACTED_FROM relationships for all source messages
+            if (preference.SourceMessageIds.Count > 0)
+            {
+                await runner.RunAsync(@"
+                    MATCH (p:Preference {id: $id})
+                    UNWIND $sourceMessageIds AS msgId
+                    MATCH (m:Message {id: msgId})
+                    MERGE (p)-[:EXTRACTED_FROM]->(m)",
+                    new { id = preference.PreferenceId, sourceMessageIds = preference.SourceMessageIds.ToList() });
+            }
+
             return MapToPreference(node, preference.Embedding);
         }, cancellationToken);
     }
@@ -134,6 +145,57 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task DeleteAsync(string preferenceId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting preference {Id}", preferenceId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                "MATCH (p:Preference {id: $id}) DETACH DELETE p",
+                new { id = preferenceId });
+        }, cancellationToken);
+    }
+
+    public async Task CreateExtractedFromRelationshipAsync(string preferenceId, string messageId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating EXTRACTED_FROM: Preference {PreferenceId} -> Message {MessageId}", preferenceId, messageId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (p:Preference {id: $preferenceId}), (m:Message {id: $messageId})
+                MERGE (p)-[:EXTRACTED_FROM]->(m)",
+                new { preferenceId, messageId });
+        }, cancellationToken);
+    }
+
+    public async Task CreateAboutRelationshipAsync(string preferenceId, string entityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating ABOUT: Preference {PreferenceId} -> Entity {EntityId}", preferenceId, entityId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (p:Preference {id: $preferenceId}), (e:Entity {id: $entityId})
+                MERGE (p)-[:ABOUT]->(e)",
+                new { preferenceId, entityId });
+        }, cancellationToken);
+    }
+
+    public async Task CreateConversationPreferenceRelationshipAsync(string conversationId, string preferenceId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating HAS_PREFERENCE: Conversation {ConversationId} -> Preference {PreferenceId}", conversationId, preferenceId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (c:Conversation {id: $conversationId}), (p:Preference {id: $preferenceId})
+                MERGE (c)-[:HAS_PREFERENCE]->(p)",
+                new { conversationId, preferenceId });
         }, cancellationToken);
     }
 

@@ -123,4 +123,154 @@ public sealed class Neo4jMemoryContextProviderTests
 
         result.Messages.Should().BeNullOrEmpty();
     }
+
+    // ── PerformStoreAsync (internal, tested via InternalsVisibleTo) ────────
+
+    private static readonly DateTimeOffset FixedTime = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+    private Neo4jMemoryContextProvider CreateSut(AgentFrameworkOptions? agentOptions = null) =>
+        new(
+            _memoryService,
+            _embeddingProvider,
+            Options.Create(new ContextFormatOptions()),
+            Options.Create(agentOptions ?? new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance);
+
+    [Fact]
+    public async Task PerformStoreAsync_PersistsResponseMessages()
+    {
+        var sut = CreateSut();
+        var responseMessages = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, "I remember you like dark mode.")
+        };
+
+        var storedMessage = new Message
+        {
+            MessageId = "m-store-1", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "I remember you like dark mode.",
+            TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+
+        await sut.PerformStoreAsync(responseMessages, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).AddMessageAsync(
+            "s1", "c1", Arg.Any<string>(), "I remember you like dark mode.",
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_SkipsEmptyTextMessages()
+    {
+        var sut = CreateSut();
+        var responseMessages = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, (string?)null),
+            new(ChatRole.Assistant, "   ")
+        };
+
+        await sut.PerformStoreAsync(responseMessages, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.DidNotReceive().AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_AutoExtractEnabled_CallsExtractAndPersistAsync()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Paris is the capital of France.") };
+        var storedMessage = new Message
+        {
+            MessageId = "m-ae-1", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Paris is the capital of France.",
+            TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+        _memoryService
+            .ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = new[] { "m-ae-1" }
+            });
+
+        await sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r => r.SessionId == "s1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_AutoExtractDisabled_DoesNotCallExtractAndPersistAsync()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = false });
+        var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Some content.") };
+        var storedMessage = new Message
+        {
+            MessageId = "m-no-ae", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Some content.",
+            TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+
+        await sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.DidNotReceive().ExtractAndPersistAsync(
+            Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_ExceptionInAddMessage_IsCaughtGracefully()
+    {
+        var sut = CreateSut();
+        var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Boom!") };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("DB down"));
+
+        var act = () => sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_AutoExtractEnabled_ExceptionInExtraction_IsCaughtGracefully()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Important data.") };
+        var storedMessage = new Message
+        {
+            MessageId = "m-ext-err", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Important data.",
+            TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+        _memoryService
+            .ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("Extraction engine failed"));
+
+        var act = () => sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+    }
 }

@@ -78,6 +78,17 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, embedding = entity.Embedding.ToList() });
             }
 
+            // Auto-create EXTRACTED_FROM relationships for all source messages
+            if (entity.SourceMessageIds.Count > 0)
+            {
+                await runner.RunAsync(@"
+                    MATCH (e:Entity {id: $id})
+                    UNWIND $sourceMessageIds AS msgId
+                    MATCH (m:Message {id: msgId})
+                    MERGE (e)-[:EXTRACTED_FROM]->(m)",
+                    new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
+            }
+
             return MapToEntity(node, entity.Embedding);
         }, cancellationToken);
     }
@@ -256,6 +267,103 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 var matchType  = r["matchType"].As<string>();
                 return (MapToEntity(node, ReadEmbedding(node)), confidence, matchType);
             }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Entity>> UpsertBatchAsync(IReadOnlyList<Entity> entities, CancellationToken cancellationToken = default)
+    {
+        if (entities.Count == 0) return Array.Empty<Entity>();
+
+        _logger.LogDebug("Batch upserting {Count} entities", entities.Count);
+
+        const string mergeCypher = @"
+            UNWIND $items AS item
+            MERGE (e:Entity {id: item.id})
+            ON CREATE SET
+                e.name             = item.name,
+                e.canonicalName    = item.canonicalName,
+                e.type             = item.type,
+                e.subtype          = item.subtype,
+                e.description      = item.description,
+                e.confidence       = item.confidence,
+                e.aliases          = item.aliases,
+                e.attributes       = item.attributes,
+                e.sourceMessageIds = item.sourceMessageIds,
+                e.createdAtUtc     = item.createdAtUtc,
+                e.metadata         = item.metadata
+            ON MATCH SET
+                e.name             = item.name,
+                e.canonicalName    = item.canonicalName,
+                e.type             = item.type,
+                e.subtype          = item.subtype,
+                e.description      = item.description,
+                e.confidence       = item.confidence,
+                e.aliases          = item.aliases,
+                e.attributes       = item.attributes,
+                e.sourceMessageIds = item.sourceMessageIds,
+                e.metadata         = item.metadata
+            RETURN e";
+
+        var items = entities.Select(e => new Dictionary<string, object?>
+        {
+            ["id"]               = e.EntityId,
+            ["name"]             = e.Name,
+            ["canonicalName"]    = (object?)e.CanonicalName,
+            ["type"]             = e.Type,
+            ["subtype"]          = (object?)e.Subtype,
+            ["description"]      = (object?)e.Description,
+            ["confidence"]       = e.Confidence,
+            ["aliases"]          = e.Aliases.ToList(),
+            ["attributes"]       = SerializeMetadata(e.Attributes),
+            ["sourceMessageIds"] = e.SourceMessageIds.ToList(),
+            ["createdAtUtc"]     = e.CreatedAtUtc.ToString("O"),
+            ["metadata"]         = SerializeMetadata(e.Metadata)
+        }).ToList();
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(mergeCypher, new { items });
+            var records = await cursor.ToListAsync();
+
+            // Set embeddings individually
+            foreach (var entity in entities.Where(e => e.Embedding is not null))
+            {
+                await runner.RunAsync(
+                    "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
+                    new { id = entity.EntityId, embedding = entity.Embedding!.ToList() });
+            }
+
+            // Auto-create EXTRACTED_FROM relationships
+            foreach (var entity in entities.Where(e => e.SourceMessageIds.Count > 0))
+            {
+                await runner.RunAsync(@"
+                    MATCH (e:Entity {id: $id})
+                    UNWIND $sourceMessageIds AS msgId
+                    MATCH (m:Message {id: msgId})
+                    MERGE (e)-[:EXTRACTED_FROM]->(m)",
+                    new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
+            }
+
+            var embeddingMap = entities.ToDictionary(e => e.EntityId, e => e.Embedding);
+            return records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                var id   = node["id"].As<string>();
+                return MapToEntity(node, embeddingMap.TryGetValue(id, out var emb) ? emb : null);
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task CreateExtractedFromRelationshipAsync(string entityId, string messageId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating EXTRACTED_FROM: Entity {EntityId} -> Message {MessageId}", entityId, messageId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (e:Entity {id: $entityId}), (m:Message {id: $messageId})
+                MERGE (e)-[:EXTRACTED_FROM]->(m)",
+                new { entityId, messageId });
         }, cancellationToken);
     }
 

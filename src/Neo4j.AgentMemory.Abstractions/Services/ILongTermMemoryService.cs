@@ -90,4 +90,11 @@ public interface ILongTermMemoryService
     Task<IReadOnlyList<Relationship>> GetEntityRelationshipsAsync(
         string entityId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a preference by identifier.
+    /// </summary>
+    Task DeletePreferenceAsync(
+        string preferenceId,
+        CancellationToken cancellationToken = default);
 }

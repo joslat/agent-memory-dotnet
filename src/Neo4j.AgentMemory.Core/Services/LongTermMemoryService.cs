@@ -147,4 +147,12 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     {
         return _relRepo.GetByEntityAsync(entityId, cancellationToken);
     }
+
+    public Task DeletePreferenceAsync(
+        string preferenceId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting preference {PreferenceId}", preferenceId);
+        return _prefRepo.DeleteAsync(preferenceId, cancellationToken);
+    }
 }

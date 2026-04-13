@@ -43,7 +43,18 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
             var parameters = BuildToolCallParameters(toolCall);
             var cursor = await runner.RunAsync(cypher, parameters);
             var record = await cursor.SingleAsync();
-            return MapToToolCall(record["tc"].As<INode>());
+            var tcNode = record["tc"].As<INode>();
+
+            // Create CALLS relationship to a Tool node (auto-created on first encounter)
+            await runner.RunAsync(@"
+                MATCH (tc:ToolCall {id: $id})
+                MERGE (tool:Tool {name: $toolName})
+                ON CREATE SET tool.createdAtUtc = $now
+                MERGE (tc)-[:CALLS]->(tool)
+                SET tool.totalCalls = COALESCE(tool.totalCalls, 0) + 1",
+                new { id = toolCall.ToolCallId, toolName = toolCall.ToolName, now = DateTimeOffset.UtcNow.ToString("O") });
+
+            return MapToToolCall(tcNode);
         }, cancellationToken);
     }
 
@@ -140,4 +151,20 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         => string.IsNullOrEmpty(json)
             ? new Dictionary<string, object>()
             : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
+
+    public async Task CreateTriggeredByRelationshipAsync(
+        string toolCallId,
+        string messageId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating TRIGGERED_BY: ToolCall {ToolCallId} -> Message {MessageId}", toolCallId, messageId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (tc:ToolCall {id: $toolCallId}), (m:Message {id: $messageId})
+                MERGE (tc)-[:TRIGGERED_BY]->(m)",
+                new { toolCallId, messageId });
+        }, cancellationToken);
+    }
 }

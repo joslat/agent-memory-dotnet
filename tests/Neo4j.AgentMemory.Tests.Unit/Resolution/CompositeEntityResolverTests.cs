@@ -241,4 +241,126 @@ public sealed class CompositeEntityResolverTests
 
         duplicates.Should().BeEmpty();
     }
+
+    // ── Auto-merge re-embedding tests ──
+
+    [Fact]
+    public async Task ResolveEntityAsync_AutoMerge_AliasAdded_RegeneratesEmbedding()
+    {
+        var unitVec = new float[] { 1.0f, 0.0f, 0.0f, 0.0f };
+        var existing = new[]
+        {
+            MakeEntity("e1", "Alice", embedding: unitVec)
+        };
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+
+        // Semantic matcher will compute cosine similarity = 1.0 (above AutoMergeThreshold)
+        _embeddingProvider
+            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
+
+        var opts = new ExtractionOptions
+        {
+            AutoMergeThreshold = 0.95,
+            SameAsThreshold = 0.5,
+            EntityResolution = new EntityResolutionOptions
+            {
+                EnableExactMatch = false,
+                EnableFuzzyMatch = false,
+                EnableSemanticMatch = true,
+                SemanticMatchThreshold = 0.9,
+                TypeStrictFiltering = true
+            }
+        };
+
+        var sut = CreateSut(opts);
+        // "Alicia" is NOT in existing aliases → alias will be added → re-embedding triggered
+        await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
+
+        // Two calls: 1 for semantic match query, 1 for re-embedding with combined name + aliases
+        await _embeddingProvider.Received(2)
+            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_AutoMerge_AliasAlreadyPresent_DoesNotRegenerateEmbedding()
+    {
+        var unitVec = new float[] { 1.0f, 0.0f, 0.0f, 0.0f };
+        var existing = new[]
+        {
+            new Entity
+            {
+                EntityId = "e1", Name = "Alice", Type = "Person",
+                Confidence = 1.0, Embedding = unitVec,
+                Aliases = new[] { "Alicia" },
+                CreatedAtUtc = FixedTime
+            }
+        };
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+
+        _embeddingProvider
+            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
+
+        var opts = new ExtractionOptions
+        {
+            AutoMergeThreshold = 0.95,
+            SameAsThreshold = 0.5,
+            EntityResolution = new EntityResolutionOptions
+            {
+                EnableExactMatch = false,
+                EnableFuzzyMatch = false,
+                EnableSemanticMatch = true,
+                SemanticMatchThreshold = 0.9,
+                TypeStrictFiltering = true
+            }
+        };
+
+        var sut = CreateSut(opts);
+        // "Alicia" IS already in aliases → no alias change → no re-embedding
+        await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
+
+        // Only 1 call: for semantic match query
+        await _embeddingProvider.Received(1)
+            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_AutoMerge_EmbeddingTextContainsNameAndNewAlias()
+    {
+        var unitVec = new float[] { 1.0f, 0.0f, 0.0f, 0.0f };
+        var existing = new[]
+        {
+            MakeEntity("e1", "Alice", embedding: unitVec)
+        };
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+
+        _embeddingProvider
+            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
+
+        var opts = new ExtractionOptions
+        {
+            AutoMergeThreshold = 0.95,
+            SameAsThreshold = 0.5,
+            EntityResolution = new EntityResolutionOptions
+            {
+                EnableExactMatch = false,
+                EnableFuzzyMatch = false,
+                EnableSemanticMatch = true,
+                SemanticMatchThreshold = 0.9,
+                TypeStrictFiltering = true
+            }
+        };
+
+        var sut = CreateSut(opts);
+        await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
+
+        // The re-embedding call uses combined text: "{name} {aliases}" = "Alice Alicia"
+        await _embeddingProvider.Received(1)
+            .GenerateEmbeddingAsync("Alice Alicia", Arg.Any<CancellationToken>());
+    }
 }

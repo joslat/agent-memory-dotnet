@@ -72,6 +72,13 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                     new { id = message.MessageId, embedding = message.Embedding.ToList() });
             }
 
+            // Create FIRST_MESSAGE if this is the first message in the conversation
+            await runner.RunAsync(@"
+                MATCH (conv:Conversation {id: $conversationId}), (m:Message {id: $id})
+                WHERE NOT EXISTS { MATCH (conv)-[:FIRST_MESSAGE]->() }
+                MERGE (conv)-[:FIRST_MESSAGE]->(m)",
+                new { conversationId = message.ConversationId, id = message.MessageId });
+
             // Establish NEXT_MESSAGE link from the previous last message
             await runner.RunAsync(linkedListCypher, new { conversationId = message.ConversationId, id = message.MessageId });
 

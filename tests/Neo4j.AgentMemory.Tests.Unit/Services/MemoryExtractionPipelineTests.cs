@@ -399,4 +399,92 @@ public sealed class MemoryExtractionPipelineTests
         // Both were attempted despite the first failure
         await _entityRepo.Received(2).UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
     }
+
+    // ── EXTRACTED_FROM relationship tests ──
+
+    [Fact]
+    public async Task ExtractAsync_Entity_CreatesExtractedFromRelationshipForEachSourceMessage()
+    {
+        var entity = MakeExtractedEntity("Alice");
+        _entityExtractor
+            .ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ExtractedEntity>>(new[] { entity }));
+        _entityResolver
+            .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MakeResolvedEntity("e-alice", "Alice")));
+
+        var sut = CreateSut();
+        var request = MakeRequest(ExtractionTypes.Entities);
+
+        await sut.ExtractAsync(request);
+
+        // MakeRequest creates 2 messages (msg-1, msg-2)
+        await _entityRepo.Received(request.Messages.Count).CreateExtractedFromRelationshipAsync(
+            "e-alice", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_Fact_CreatesExtractedFromRelationshipForEachSourceMessage()
+    {
+        var fact = new ExtractedFact
+        {
+            Subject = "Alice", Predicate = "works_at", Object = "Acme",
+            Confidence = 0.9
+        };
+        _factExtractor
+            .ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ExtractedFact>>(new[] { fact }));
+        _idGen.GenerateId().Returns("fact-rel-1");
+
+        var sut = CreateSut();
+        var request = MakeRequest(ExtractionTypes.Facts);
+
+        await sut.ExtractAsync(request);
+
+        await _factRepo.Received(request.Messages.Count).CreateExtractedFromRelationshipAsync(
+            "fact-rel-1", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_Preference_CreatesExtractedFromRelationshipForEachSourceMessage()
+    {
+        var pref = new ExtractedPreference
+        {
+            Category = "style", PreferenceText = "dark mode",
+            Confidence = 0.9
+        };
+        _preferenceExtractor
+            .ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ExtractedPreference>>(new[] { pref }));
+        _idGen.GenerateId().Returns("pref-rel-1");
+
+        var sut = CreateSut();
+        var request = MakeRequest(ExtractionTypes.Preferences);
+
+        await sut.ExtractAsync(request);
+
+        await _prefRepo.Received(request.Messages.Count).CreateExtractedFromRelationshipAsync(
+            "pref-rel-1", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ExtractedFromFailure_DoesNotFailExtraction()
+    {
+        var entity = MakeExtractedEntity("Bob");
+        _entityExtractor
+            .ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ExtractedEntity>>(new[] { entity }));
+        _entityResolver
+            .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(MakeResolvedEntity("e-bob", "Bob")));
+        _entityRepo
+            .CreateExtractedFromRelationshipAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new Exception("DB connection failed")));
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest(ExtractionTypes.Entities));
+
+        result.Should().NotBeNull();
+        result.Entities.Should().ContainSingle();
+    }
 }

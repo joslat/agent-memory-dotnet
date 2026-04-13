@@ -44,4 +44,19 @@ public interface IEntityRepository
     Task<IReadOnlyList<Entity>> GetByTypeAsync(
         string type,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds or updates a batch of entities atomically.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> UpsertBatchAsync(
+        IReadOnlyList<Entity> entities,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates an EXTRACTED_FROM relationship from an entity to a source message.
+    /// </summary>
+    Task CreateExtractedFromRelationshipAsync(
+        string entityId,
+        string messageId,
+        CancellationToken cancellationToken = default);
 }

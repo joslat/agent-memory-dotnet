@@ -143,6 +143,23 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
 
                 entity = await _entityRepository.UpsertAsync(entity, cancellationToken);
                 resolvedEntityMap[extracted.Name] = entity;
+
+                // Wire EXTRACTED_FROM relationships for provenance.
+                foreach (var msgId in sourceMessageIds)
+                {
+                    try
+                    {
+                        await _entityRepository.CreateExtractedFromRelationshipAsync(
+                            entity.EntityId, msgId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to create EXTRACTED_FROM for entity '{Id}' → message '{MsgId}'.",
+                            entity.EntityId, msgId);
+                    }
+                }
+
                 _logger.LogDebug("Persisted entity '{Name}' (id={Id}).", entity.Name, entity.EntityId);
             }
             catch (Exception ex)
@@ -183,6 +200,23 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                 };
 
                 await _factRepository.UpsertAsync(fact, cancellationToken);
+
+                // Wire EXTRACTED_FROM relationships for provenance.
+                foreach (var msgId in sourceMessageIds)
+                {
+                    try
+                    {
+                        await _factRepository.CreateExtractedFromRelationshipAsync(
+                            fact.FactId, msgId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to create EXTRACTED_FROM for fact '{Id}' → message '{MsgId}'.",
+                            fact.FactId, msgId);
+                    }
+                }
+
                 persistedFactCount++;
                 _logger.LogDebug(
                     "Persisted fact '{Subject} {Predicate} {Object}'.",
@@ -226,6 +260,23 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                 };
 
                 await _preferenceRepository.UpsertAsync(preference, cancellationToken);
+
+                // Wire EXTRACTED_FROM relationships for provenance.
+                foreach (var msgId in sourceMessageIds)
+                {
+                    try
+                    {
+                        await _preferenceRepository.CreateExtractedFromRelationshipAsync(
+                            preference.PreferenceId, msgId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to create EXTRACTED_FROM for preference '{Id}' → message '{MsgId}'.",
+                            preference.PreferenceId, msgId);
+                    }
+                }
+
                 persistedPrefCount++;
                 _logger.LogDebug("Persisted preference in category '{Category}'.", preference.Category);
             }

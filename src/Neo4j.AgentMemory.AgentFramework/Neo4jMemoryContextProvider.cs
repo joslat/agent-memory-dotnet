@@ -110,14 +110,92 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         }
     }
 
+    /// <summary>
+    /// Post-run hook: persists response messages and optionally triggers extraction.
+    /// Skipped if the invocation raised an exception. Failures are logged but never re-thrown.
+    /// </summary>
+    protected override async ValueTask StoreAIContextAsync(
+        InvokedContext context,
+        CancellationToken cancellationToken = default)
+    {
+        if (context.InvokeException is not null)
+        {
+            _logger.LogDebug("Skipping memory persistence: invocation failed with exception.");
+            return;
+        }
+
+        var responseMessages = context.ResponseMessages ?? Enumerable.Empty<ChatMessage>();
+        var (sessionId, conversationId) = ExtractSessionIds(context);
+
+        await PerformStoreAsync(responseMessages, sessionId, conversationId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Internal helper exposed for unit testing.</summary>
+    internal async Task PerformStoreAsync(
+        IEnumerable<ChatMessage> responseMessages,
+        string sessionId,
+        string conversationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var storedMessages = new List<Message>();
+            foreach (var msg in responseMessages)
+            {
+                if (string.IsNullOrWhiteSpace(msg.Text)) continue;
+
+                var stored = await _memoryService
+                    .AddMessageAsync(
+                        sessionId, conversationId,
+                        MafTypeMapper.ToInternalRole(msg.Role),
+                        msg.Text,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                storedMessages.Add(stored);
+            }
+
+            if (_agentOptions.AutoExtractOnPersist && storedMessages.Count > 0)
+            {
+                try
+                {
+                    await _memoryService.ExtractAndPersistAsync(
+                        new ExtractionRequest
+                        {
+                            Messages = storedMessages,
+                            SessionId = sessionId
+                        }, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to persist messages after run for session {SessionId}.", sessionId);
+        }
+    }
+
     private (string sessionId, string conversationId) ExtractSessionIds(InvokingContext context)
+        => ExtractIds(context.Session, context.Agent);
+
+    private (string sessionId, string conversationId) ExtractSessionIds(InvokedContext context)
+        => ExtractIds(context.Session, context.Agent);
+
+    private (string sessionId, string conversationId) ExtractIds(
+        AgentSession? session,
+        AIAgent? agent)
     {
         string? sessionId = null;
         string? conversationId = null;
 
         try
         {
-            var bag = context.Session?.StateBag;
+            var bag = session?.StateBag;
             if (bag is not null)
             {
                 bag.TryGetValue(_agentOptions.DefaultSessionIdHeader, out sessionId,
@@ -131,7 +209,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             _logger.LogDebug(ex, "Could not extract session IDs from state bag.");
         }
 
-        sessionId ??= context.Agent?.Id ?? Guid.NewGuid().ToString("N");
+        sessionId ??= agent?.Id ?? Guid.NewGuid().ToString("N");
         conversationId ??= Guid.NewGuid().ToString("N");
 
         return (sessionId, conversationId);

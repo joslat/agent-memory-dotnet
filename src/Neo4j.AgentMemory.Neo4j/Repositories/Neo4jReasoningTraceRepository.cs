@@ -165,6 +165,33 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
+    public async Task CreateInitiatedByRelationshipAsync(string traceId, string messageId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating INITIATED_BY: Trace {TraceId} -> Message {MessageId}", traceId, messageId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (t:ReasoningTrace {id: $traceId}), (m:Message {id: $messageId})
+                MERGE (t)-[:INITIATED_BY]->(m)",
+                new { traceId, messageId });
+        }, cancellationToken);
+    }
+
+    public async Task CreateConversationTraceRelationshipsAsync(string conversationId, string traceId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Creating HAS_TRACE + IN_SESSION: Conversation {ConversationId} <-> Trace {TraceId}", conversationId, traceId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(@"
+                MATCH (c:Conversation {id: $conversationId}), (t:ReasoningTrace {id: $traceId})
+                MERGE (c)-[:HAS_TRACE]->(t)
+                MERGE (t)-[:IN_SESSION]->(c)",
+                new { conversationId, traceId });
+        }, cancellationToken);
+    }
+
     private static ReasoningTrace MapToTrace(INode node, float[]? taskEmbedding) =>
         new()
         {
