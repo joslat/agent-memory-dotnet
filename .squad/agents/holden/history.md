@@ -23,6 +23,13 @@
 - `Neo4jGraphQueryService.ReadAsync<T>` uses the full generic type `IReadOnlyList<IReadOnlyDictionary<string, object?>>` in the NSubstitute mock setup — Arg matching requires exact type match.
 - When `dotnet test` fails with MSB3492 cache file error, run with `--no-build` after a successful `dotnet build` to work around the stale cache check.
 
+- `WriteAsync<T>` vs `WriteAsync` (void): NSubstitute must match the exact generic overload. Void-returning repository methods (`CreateXxxRelationshipAsync`, `DeleteAsync`) use `WriteAsync(Func<IAsyncQueryRunner, Task>)`. Data-returning batch methods (`UpsertBatchAsync`) use `WriteAsync<List<T>>(...)` — T is inferred as `List<T>` (not `IReadOnlyList<T>`) because the lambda ends with `.ToList()`.
+- Repository `UpsertBatchAsync` methods return early (skip WriteAsync entirely) when the input collection is empty — test this case without any mock setup.
+- Testing `protected override` methods on abstract base class adapters (e.g., `StoreAIContextAsync` on `AIContextProvider`): extract the core logic into an `internal` method (e.g., `PerformStoreAsync`) and call it from the override. This mirrors the `BuildContextAsync` pattern already used for `ProvideAIContextAsync`.
+- `CompositeEntityResolver` re-embedding logic: when aliases change after merge, `GenerateEmbeddingAsync` is called a second time with `"{name} {alias1} {alias2}"` combined text. The total call count for `GenerateEmbeddingAsync` in a SemanticMatch path is 2 (one for the semantic query, one for re-embedding) when aliases change; 1 when they don't.
+- `MemoryExtractionPipeline.ExtractAsync` wraps each `CreateExtractedFromRelationshipAsync` call in try/catch — failures are logged and don't abort extraction. Tests for fault tolerance should verify the extraction result is still returned after repository exceptions.
+- For `AdvancedMemoryTools.MemoryExportGraph` and `MemoryFindDuplicates`: when `EnableGraphQuery = false`, they throw `McpException` before calling any service. Match `.WithMessage("*EnableGraphQuery*")`.
+
 ## Work Log
 
 ### 2025-01-28 — Epic 9: Test Harness Bootstrap
@@ -106,3 +113,28 @@ Critical gaps requiring Testcontainers (live Neo4j):
 **Recommendation:** Prioritize repository integration tests (9 classes × ~5 tests each ≈ 45 tests). Framework ready; ~2-week sprint to complete. Highest-confidence test coverage of persistence layer.
 
 **Standing Decision:** Integration test coverage is non-negotiable per Jose's TDD directive ("Tests first before/during implementation"). Current gap is documented and tracked.
+
+### 2026-07-xx — Wave 5 New Feature Tests (Cross-Memory Relationships, Batch, MCP Tools)
+
+**Baseline:** 421 unit tests (from Wave 5 implementation, 0 failures).
+
+**Scope:** Wrote 52 new unit tests covering all new functionality added in the Wave 5 feature wave.
+
+**Test breakdown:**
+
+| File | New Tests | Coverage Focus |
+|------|-----------|----------------|
+| `Repositories/Neo4jPreferenceRepositoryTests.cs` | 6 | DeleteAsync, CreateAboutRelationshipAsync, CreateExtractedFromRelationshipAsync |
+| `Repositories/Neo4jFactRepositoryTests.cs` | 8 | CreateAboutRelationshipAsync, CreateExtractedFromRelationshipAsync, UpsertBatchAsync |
+| `Repositories/Neo4jEntityRepositoryBatchTests.cs` | 5 | CreateExtractedFromRelationshipAsync, UpsertBatchAsync |
+| `Repositories/Neo4jReasoningTraceRepositoryTests.cs` | 5 | CreateInitiatedByRelationshipAsync, CreateConversationTraceRelationshipsAsync |
+| `Repositories/Neo4jToolCallRepositoryTests.cs` | 2 | CreateTriggeredByRelationshipAsync |
+| `McpServer/AdvancedMemoryToolsTests.cs` | 12 | memory_record_tool_call, memory_export_graph, memory_find_duplicates, extract_and_persist |
+| `AgentFramework/Neo4jMemoryContextProviderTests.cs` | +6 | PerformStoreAsync (AutoExtract behavior) |
+| `Resolution/CompositeEntityResolverTests.cs` | +3 | Re-embedding after merge, combined text format |
+| `Services/MemoryExtractionPipelineTests.cs` | +4 | EXTRACTED_FROM wiring, fault tolerance |
+| `Services/LongTermMemoryServiceTests.cs` | +2 | DeletePreferenceAsync delegation |
+
+**Source change:** `Neo4jMemoryContextProvider.cs` — extracted `PerformStoreAsync` internal method from `StoreAIContextAsync`. Identical behavior, improved testability (mirrors `BuildContextAsync` pattern).
+
+**Final result: 473 unit tests, 0 failures (+52 new tests)**

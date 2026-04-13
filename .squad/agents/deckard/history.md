@@ -390,3 +390,30 @@
 **Overall Grade:** B — strong foundation, cross-memory relationships are the single highest-impact gap.
 
 **Full report:** .squad/decisions/inbox/deckard-gap-audit.md
+
+### 2026-07-17 — Package Strategy Analysis & Feature Roadmap
+
+**Trigger:** Jose asked whether Neo4jMemoryContextProvider should be a separate NuGet package and whether GraphRAG capabilities should be separated. Also requested creative new feature proposals.
+
+**Package Strategy Findings:**
+1. **AgentFramework as separate NuGet: YES.** Boundary is correct. MAF dependency (`Microsoft.Agents.AI 1.1.0`) must not pollute non-MAF consumers. Independent versioning enables MAF tracking while Core evolves.
+2. **GraphRAG separation: TWO-PHASE.** Keep GraphRagAdapter (bridge to neo4j-maf-provider). Future: create `Neo4j.AgentMemory.Retrieval` for standalone search without full memory engine. Current ProjectReference to neo4j-maf-provider source is a NuGet publishing blocker.
+3. **Meta-package recommended:** `Neo4j.AgentMemory` = Abstractions + Core + Neo4j + Extraction.Llm for convenience.
+4. **10 packages total, all cleanly layered.** Use case matrix created for 8 persona types.
+
+**Feature Roadmap Created (26 proposals across 7 categories):**
+- **Tier 1 (Do Next):** Batch Operations, Health Checks, Conversation Summarization, Fluent Config Builder, Semantic Kernel Adapter
+- **Tier 2 (Do Soon):** Memory Decay, PII Detection, Embedding Cache, Parallel Recall, Schema Migration Runner
+- **Tier 3 (Do When Ready):** Auto-Cleanup, Graph Export/Import, AutoGen Adapter, Google ADK Adapter, Memory CLI
+- **Tier 4 (Backlog):** Temporal Resolution, Relationship Mining, Multi-Tenant, Access Control, Encryption
+
+**Python Parity Analysis:**
+- 8 of 21 open Python agent-memory issues map to our Tier 1–2 proposals
+- Key Python issues addressed: #91 (health), #44 (summarization), #42 (decay), #13 (security), #11 (CLI)
+- Implementing Tiers 1–2 would position .NET as the more mature agent memory implementation
+
+**Deliverables:**
+- `docs/package-strategy-and-features.md` — comprehensive analysis + feature proposals
+- `.squad/decisions/inbox/deckard-package-strategy.md` — 6 decisions (D-PKG1 through D-FEAT2)
+
+**Key Dependency Insight:** GraphRagAdapter's ProjectReference to neo4j-maf-provider source code is the single biggest NuGet publishing blocker. Must be resolved (either neo4j-maf-provider publishes to NuGet, or we internalize retriever patterns) before any NuGet release.

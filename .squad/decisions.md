@@ -588,11 +588,191 @@ WHERE similarity >= $threshold
 
 ---
 
-## Governance
+### SC-1: Multi-Stage Extraction Pipeline — HIGH PRIORITY
 
-- All meaningful changes require team consensus
-- Document architectural decisions here
-- Keep history focused on work, decisions focused on direction
+**Finding:** Python's `ExtractionPipeline` chains spaCy → GLiNER → LLM with 5 configurable merge strategies. .NET runs exactly one extractor per type. For production cost control, combining a cheap fast extractor with LLM fallback is critical.
+
+**Recommendation:** Add `IExtractionPipeline` composition to `MemoryExtractionPipeline`:
+- Accept `IReadOnlyList<IEntityExtractor>` instead of a single `IEntityExtractor`.
+- Implement at least `CONFIDENCE` and `FIRST_SUCCESS` merge strategies.
+- Short-circuit on `FIRST_SUCCESS` to avoid unnecessary LLM calls.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-2: Fact Deduplication — HIGH PRIORITY
+
+**Finding:** Python has `fact_deduplication_enabled` config. .NET writes a new `Fact` node on every extraction without checking for semantic duplicates. Contradicting or stale facts silently accumulate.
+
+**Recommendation:** Add deduplication in `IFactRepository.UpsertAsync`:
+- Compute fact hash (subject + predicate + object, normalized).
+- Check existing fact by hash before insert; update confidence if hash matches.
+- Optional: vector-similarity fallback for semantically equivalent facts above threshold.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-3: Background Enrichment Queue — MEDIUM PRIORITY
+
+**Finding:** Python's `BackgroundEnrichmentQueue` is non-blocking. .NET's `WikimediaEnrichmentService` is synchronous and blocks the ingestion path.
+
+**Recommendation:** Introduce `IBackgroundEnrichmentQueue` backed by `Channel<EnrichmentTask>`. Register as `IHostedService`. Extraction pipeline enqueues; hosted service dequeues and calls `IEnrichmentService.EnrichAsync()`. Enables non-blocking enrichment without changing the pipeline interface.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-4: MCP Resources and Prompts — MEDIUM PRIORITY
+
+**Finding:** Python exposes 4 MCP resources (`memory://context/{id}`, `memory://entities`, etc.) and 3 MCP prompts (memory-conversation, memory-reasoning, memory-review). These provide Claude Desktop with auto-injected context and slash-command workflows.
+
+**Recommendation:** Add `[McpServerResource]` handlers in `McpServer` for at minimum `memory://context/{sessionId}`. Add `[McpServerPrompt]` for `memory-conversation`. Both are low-effort and improve end-user DX significantly.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-5: Streaming Extraction — MEDIUM PRIORITY
+
+**Finding:** Python's `StreamingExtractor` splits large texts into overlapping chunks and yields `ExtractionResult` via async generator. Needed for transcripts, long documents, RAG inputs.
+
+**Recommendation:** Add `ExtractStreamingAsync(IAsyncEnumerable<string> chunks)` overload to `IMemoryExtractionPipeline`. Use `IAsyncEnumerable<ExtractionResult>` return type.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-6: .NET Exclusive Features to Document
+
+**Finding:** The following .NET features have no Python equivalent and should be highlighted in README:
+
+- **GraphRAG adapter** (`Neo4jGraphRagContextSource`): reads external Neo4j KGs via vector/fulltext/hybrid.
+- **Abstractions package**: enables clean test substitution and consumer packages.
+- **Azure Language extraction**: enterprise cloud NLP without local ML models.
+- **`DeletePreferenceAsync`**: preference retraction — Python API lacks this entirely.
+- **`UpsertBatchAsync`** on entities and facts: UNWIND-based bulk persistence.
+- **`extract_and_persist` MCP tool**: explicit extraction trigger; Python has no equivalent.
+
+**Recommendation:** Update README.md to highlight these differentiators in the "Why .NET" section.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-7: Geocoding + Geospatial Index — LOW PRIORITY
+
+**Finding:** Python adds a `Neo4j Point` property to Location entities via Nominatim/Google geocoding and creates a point index (`entity_location_idx`). Enables radius queries.
+
+**Recommendation:** Low priority unless location-based query use cases are confirmed. If needed: `IGeocodingService` → `HttpClient` → `IEntityRepository` update → one Cypher point index creation in `ISchemaRepository.SetupAsync()`.
+
+**Status:** Proposed  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### SC-8: Python Framework Integrations — NOT A PRIORITY
+
+**Finding:** Python supports LangChain, OpenAI Agents, Pydantic AI, LlamaIndex, CrewAI, Google ADK, AWS AgentCore. These are Python-ecosystem frameworks.
+
+**Recommendation:** No action required for .NET. The equivalent integration surface is MAF (already implemented). If .NET ecosystem equivalents are requested (e.g., Semantic Kernel), treat as separate integration packages.
+
+**Status:** Acknowledged  
+**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
+
+---
+
+### D-PKG1: Publish AgentFramework as Separate NuGet Package
+
+**Status:** Approved  
+**Scope:** NuGet Packaging Topology
+
+**Decision:** `Neo4j.AgentMemory.AgentFramework` SHOULD be published as its own NuGet package.
+
+**Rationale:** The MAF dependency (`Microsoft.Agents.AI.Abstractions 1.1.0`) must not pollute non-MAF consumers. The boundary is architecturally correct. Independent versioning lets the adapter track MAF releases while Core evolves separately.
+
+**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
+
+---
+
+### D-PKG2: GraphRAG Retrieval Separation Strategy
+
+**Status:** Approved  
+**Scope:** NuGet Packaging Topology
+
+**Decision:** Keep `Neo4j.AgentMemory.GraphRagAdapter` as-is for the neo4j-maf-provider bridge. Future: create `Neo4j.AgentMemory.Retrieval` for standalone read-only search without full memory engine.
+
+**Rationale:** The GraphRagAdapter serves a specific bridge role. A separate Retrieval package would serve users who want vector/fulltext/hybrid search without committing to the full memory engine. The current ProjectReference to neo4j-maf-provider source needs resolution before NuGet publishing.
+
+**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
+
+---
+
+### D-PKG3: Meta-Package Strategy
+
+**Status:** Proposed  
+**Scope:** NuGet Packaging Topology
+
+**Decision:** Consider publishing `Neo4j.AgentMemory` meta-package (Abstractions + Core + Neo4j + Extraction.Llm) for convenience.
+
+**Rationale:** Reduces onboarding friction. Users install one package for the common case. Power users can pick individual packages.
+
+**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
+
+---
+
+### D-PKG4: NuGet Publish Order
+
+**Status:** Approved  
+**Scope:** NuGet Packaging Topology
+
+**Decision:** Publish in dependency order: Abstractions → Core → Neo4j → Extension packages → Adapter packages → Meta-package.
+
+**Rationale:** Each tier depends only on previously published tiers. Prevents circular dependency issues.
+
+**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
+
+---
+
+### D-FEAT1: Tier 1 Feature Priorities
+
+**Status:** Proposed  
+**Scope:** Feature Roadmap (Next 6 months)
+
+**Decision:** The next features to implement are (in order):
+1. Batch Operations (P1)
+2. Health Checks (O1)
+3. Conversation Summarization (I1)
+4. Fluent Configuration Builder (D1)
+5. Semantic Kernel Adapter (F1)
+
+**Rationale:** These address production readiness (P1, O1), user demand aligned with Python community (I1), developer experience (D1), and market reach (F1). All are High impact with Medium or smaller effort.
+
+**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
+
+---
+
+### D-FEAT2: Python Parity Targets
+
+**Status:** Proposed  
+**Scope:** Feature Roadmap (Python Alignment)
+
+**Decision:** Prioritize features that address open Python agent-memory issues (#91, #44, #42, #13) to position .NET as the more mature implementation.
+
+**Rationale:** 8 of 21 open Python issues map to our Tier 1–2 proposals. Implementing them first demonstrates .NET leadership in the agent memory space.
+
+**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
+
+---
+
+## Governance
 
 - All meaningful changes require team consensus
 - Document architectural decisions here

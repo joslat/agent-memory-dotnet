@@ -163,3 +163,48 @@ Key insight: `Neo4jGraphRagContextSource` references `IRetriever` and `Retriever
 - `MergeEntitiesAsync` Cypher never touches `target.embedding`. Alias added to target but embedding not refreshed.
 - Embeddings are based on `entity.Name` only. Alias-form queries may miss merged entity.
 - Fix: re-embed in `CompositeEntityResolver` after auto-merge, using `name + aliases` text. Priority: LOW-MEDIUM.
+
+### 2025-07-12 — Python vs .NET Comprehensive Comparison
+
+**Full comparison document written to:** `docs/python-dotnet-comparison.md`
+
+**Key findings:**
+
+#### Python project structure
+- Located at `Neo4j/agent-memory/src/neo4j_agent_memory/`
+- Modules: `core/`, `memory/short_term.py`, `memory/long_term.py`, `memory/reasoning.py`,
+  `extraction/`, `resolution/`, `enrichment/`, `graph/`, `schema/`, `config/settings.py`,
+  `mcp/`, `observability/`, `integrations/`, `embeddings/`, `services/geocoder.py`, `cli/`
+- Entry point: `MemoryClient` context manager + `MemorySettings` (pydantic-settings, `NAM_*` env vars)
+- Schema model: POLE+O (`POLEOEntityType`) with subtypes, custom YAML/JSON schema support
+
+#### Extraction gap (major)
+- Python has 3 extractor types: LLM, GLiNER2, spaCy. .NET has 2: LLM + Azure Language.
+- Python `ExtractionPipeline` chains extractors with 5 merge strategies (UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS).
+- .NET runs a single extractor per type in `Task.WhenAll` — no multi-extractor merging yet.
+- Streaming extraction (`extraction/streaming.py`) for chunked large-doc processing: Python only.
+
+#### MCP surface differences
+- Python: 15 tools (core 6 + extended 9) + 4 MCP resources + 3 MCP prompts.
+- .NET: 13 tools (core 6 + extended 7) + 0 resources + 0 prompts.
+- Python lacks: `memory_record_tool_call`, `memory_find_duplicates`, `extract_and_persist` (these are .NET additions).
+- .NET lacks: `memory_get_observations` (token-budget observation compression).
+
+#### Enrichment gap
+- Python: `BackgroundEnrichmentQueue` — async, non-blocking, retry, Wikipedia + Diffbot.
+- .NET: `WikimediaEnrichmentService` — synchronous, no queue, Wikipedia only.
+
+#### .NET exclusive features
+- `Neo4j.AgentMemory.Abstractions` (interface-only package — Python has no equivalent)
+- `Neo4jGraphRagContextSource` (GraphRAG adapter for external knowledge graphs)
+- `UpsertBatchAsync` on entity and fact repositories
+- `DeletePreferenceAsync` (preference retraction — Python API has no delete)
+- Granular extractors: `LlmEntityExtractor`, `LlmFactExtractor`, `LlmPreferenceExtractor`, `LlmRelationshipExtractor` as 4 separate classes
+- `extract_and_persist`, `memory_record_tool_call`, `memory_find_duplicates` MCP tools
+
+#### Top gaps to consider
+1. Multi-stage pipeline with merge strategies (High priority)
+2. Fact deduplication (High priority)  
+3. Background enrichment queue (Medium priority)
+4. MCP resources + prompts (Medium priority)
+5. Streaming extraction (Medium priority)

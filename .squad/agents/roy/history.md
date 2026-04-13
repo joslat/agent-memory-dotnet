@@ -264,3 +264,60 @@
 
 **Artifacts:**
 - .squad/decisions/inbox/roy-interface-additions.md — decision record for all 6 tasks
+
+---
+
+### 2025-07-16: Exhaustive Gap Hunt — Python agent-memory vs .NET agent-memory-dotnet
+
+**Task:** Performed a full method-by-method, file-by-file comparison between the Python `neo4j-agent-memory` and our .NET implementation. Read every Python source file in `Neo4j/agent-memory/src/neo4j_agent_memory/` and every .NET source file in `src/`.
+
+**Findings Summary:** 42 total gaps — 5 Critical, 16 Major, 21 Minor. 14 .NET advantages identified.
+
+**Critical Gaps (must address):**
+1. **No observational memory / context compression** — Python has a 3-tier `MemoryObserver` (reflections → observations → recent messages) that compresses context at 30,000 tokens. .NET has no equivalent; long sessions will hit LLM context limits.
+2. **No MCP prompts or agent instructions** — Python provides 3 MCP prompt templates (`memory-conversation`, `memory-reasoning`, `memory-review`) and detailed system instruction sets. .NET MCP server has none.
+3. **No geospatial storage/search** — .NET `NominatimGeocodingService` exists but never persists coordinates on Entity nodes. Python stores `location = point(...)`, creates `entity_location_idx`, and has spatial Cypher queries (`SEARCH_LOCATIONS_NEAR`, `SEARCH_LOCATIONS_IN_BOUNDING_BOX`).
+4. **No pattern-based preference detection** — Python `PreferenceDetector` uses regex across 7 categories (food, music, tech, entertainment, travel, communication, work). .NET relies entirely on LLM extraction.
+5. **No retroactive extraction** — Python: `extract_entities_from_session()`, `generate_embeddings_batch()`. .NET cannot process historical data.
+
+**Major Gaps:**
+- No batch progress callbacks (`on_progress`, `on_batch_complete`) in message/entity batch operations
+- No metadata filter operators ($eq, $ne, $gt, $in, etc.) on message search
+- No single-message delete (only `ClearSessionAsync`)
+- No conversation summarization
+- No entity/fact deletion (IEntityRepository, IFactRepository have no DeleteAsync)
+- No spaCy extractor, no GLiNER extractor — .NET only has LLM + Azure Language
+- No extraction merge strategies (UNION/INTERSECTION/CONFIDENCE/CASCADE)
+- Google Maps geocoding support (Python) vs Nominatim-only (.NET)
+
+**Key Cypher Differences Found:**
+- Message creation: Python is single atomic query; .NET uses 3 separate queries (less atomic)
+- Entity upsert: Python MERGE on `{name, type}` (natural dedup); .NET MERGE on `{id}` (requires pre-resolved ID). Python uses COALESCE on MATCH; .NET overwrites all
+- Entity relationships: Python `RELATED_TO` / .NET `RELATES_TO` — schema mismatch
+- ToolCall creation: Python single atomic query with success/failure/duration stats; .NET uses 2 queries, only totalCalls tracked
+- Tool relationships: Python `USES_TOOL`/`INSTANCE_OF` vs .NET `USED_TOOL`/`CALLS` — schema mismatch
+
+**Configuration Differences:**
+- Default message limit: Python 50 vs .NET 10 (5x difference)
+- Max connection pool: Python 50 vs .NET 100
+- .NET has hardcoded default password `"password"` — security concern
+- Python `gpt-4o-mini` as default LLM; .NET leaves ModelId empty
+
+**Schema Incompatibilities (same Neo4j instance won't work for both):**
+- Relationship type names differ: `RELATED_TO` vs `RELATES_TO`, `USES_TOOL` vs `USED_TOOL`, `INSTANCE_OF` vs `CALLS`
+- Property naming: snake_case (Python) vs camelCase (.NET) throughout
+
+**.NET Advantages over Python:**
+- OpenTelemetry metrics (7 counters + 5 histograms) and activity tracing
+- GraphRAG adapter with Vector/Fulltext/Hybrid/Graph search modes
+- Azure Language Services extraction
+- Agent Framework integration (Microsoft.Extensions.AI)
+- 3 fulltext indexes (Python has none)
+- ReasoningStep vector index (Python only has task-level)
+- ContextBudget with 4 truncation strategies
+- `memory_find_duplicates` and `extract_and_persist` MCP tools
+- Conversation-level HAS_FACT and HAS_PREFERENCE relationships
+- Fact `Category` property
+
+**Artifacts:**
+- `.squad/decisions/inbox/roy-gap-hunt-results.md` — 400-line detailed report with per-category tables, Cypher comparisons, configuration diff table
