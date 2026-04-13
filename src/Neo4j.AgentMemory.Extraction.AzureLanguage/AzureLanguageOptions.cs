@@ -1,0 +1,27 @@
+namespace Neo4j.AgentMemory.Extraction.AzureLanguage;
+
+/// <summary>
+/// Configuration options for the Azure AI Language extraction services.
+/// </summary>
+public sealed class AzureLanguageOptions
+{
+    /// <summary>
+    /// Azure Cognitive Services endpoint URL.
+    /// </summary>
+    public required string Endpoint { get; set; }
+
+    /// <summary>
+    /// API key for authenticating with Azure Cognitive Services.
+    /// </summary>
+    public required string ApiKey { get; set; }
+
+    /// <summary>
+    /// Default language hint for text analysis. Defaults to "en".
+    /// </summary>
+    public string DefaultLanguage { get; set; } = "en";
+
+    /// <summary>
+    /// Maximum number of documents per batch request. Defaults to 25.
+    /// </summary>
+    public int MaxDocumentBatchSize { get; set; } = 25;
+}
