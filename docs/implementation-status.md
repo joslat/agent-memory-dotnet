@@ -8,17 +8,17 @@
 
 ## 1. Executive Summary
 
-**Current Phase:** Phase 3 — MAF Adapter (✅ COMPLETE)
+**Current Phase:** Phase 4 — GraphRAG + Observability (✅ COMPLETE)
 
-**Phase 3 Status: 100% COMPLETE** — All Phase 3 epics are finished. The Microsoft Agent Framework adapter is fully implemented with context injection, memory tools, message storage, and 265 unit tests passing (Phase 1 + Phase 2 + Phase 3 combined).
+**Phase 4 Status: 100% COMPLETE** — GraphRAG adapter and OpenTelemetry observability packages are fully implemented with 295 unit tests passing (Phase 1 + Phase 2 + Phase 3 + Phase 4 combined).
 
 **What's Done:**
 - **Phase 1:** Core memory engine with all repositories, services, context assembly, 85 tests
 - **Phase 2:** Entity resolution chain (4 strategies: ExactMatch → FuzzyMatch → SemanticMatch → CreateNew), Entity validation, LLM extraction package (4 extractors), real MemoryExtractionPipeline, Neo4j extraction support, FuzzySharp 2.0.2 integration, Microsoft.Extensions.AI IChatClient, DI infrastructure, 210 tests total
 - **Phase 3:** Neo4jMemoryContextProvider (AIContextProvider), Neo4jChatMessageStore (MAF-compatible), Neo4jMicrosoftMemoryFacade, MafTypeMapper (bidirectional mapping), MemoryToolFactory (6 tools), AgentTraceRecorder, DI: AddAgentMemoryFramework(), 265 tests total
+- **Phase 4:** Neo4jGraphRagContextSource (IGraphRagContextSource via IRetriever delegation), 4 search modes (Vector/Fulltext/Hybrid/Graph), GraphRagAdapterOptions, InstrumentedMemoryService + InstrumentedGraphRagContextSource (OTel decorators), MemoryActivitySource, MemoryMetrics (12 instruments), DI: AddGraphRagAdapter() + AddAgentMemoryObservability(), 295 tests total
 
 **What's Next:**
-- Phase 4: GraphRAG adapter + Observability (OpenTelemetry)
 - Phase 5: Advanced extraction backends (Azure Language, ONNX)
 - Phase 6: MCP Server
 
@@ -95,6 +95,22 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 | 21 | Memory Tools | MemoryToolFactory with 6 tools: search_memory, remember_preference, remember_fact, recall_preferences, search_knowledge, find_similar_tasks | ✅ Done | Phase 3 | Agent tool definitions |
 | 22 | Trace Recorder | AgentTraceRecorder captures reasoning traces from agent activity | ✅ Done | Phase 3 | Execution trace storage |
 | 23 | DI Infrastructure Phase 3 | AddAgentMemoryFramework() extension | ✅ Done | Phase 3 | Service registration |
+
+---
+
+## 3.3 Phase 4 Epic Status
+
+| # | Epic | Description | Status | Commit | Notes |
+|---|---|---|---|---|---|
+| 24 | GraphRAG Adapter Package | Neo4j.AgentMemory.GraphRagAdapter project | ✅ Done | Phase 4 | Neo4j.AgentFramework.GraphRAG delegation |
+| 25 | IGraphRagContextSource | Neo4jGraphRagContextSource with 4 search modes | ✅ Done | Phase 4 | Vector, Fulltext, Hybrid, Graph |
+| 26 | GraphRagAdapterOptions | IndexName, SearchMode, FulltextIndexName, TopK, FilterStopWords | ✅ Done | Phase 4 | Full configuration surface |
+| 27 | Observability Package | Neo4j.AgentMemory.Observability project | ✅ Done | Phase 4 | OpenTelemetry.Api 1.12.0 |
+| 28 | OTel Decorators | InstrumentedMemoryService + InstrumentedGraphRagContextSource | ✅ Done | Phase 4 | Decorator pattern, no Scrutor |
+| 29 | MemoryActivitySource | ActivitySource "Neo4j.AgentMemory" for distributed tracing | ✅ Done | Phase 4 | All memory + GraphRAG spans |
+| 30 | MemoryMetrics | Meter with 7 counters + 5 histograms | ✅ Done | Phase 4 | messages, entities, graphrag, recall/persist durations |
+| 31 | DI Infrastructure Phase 4 | AddGraphRagAdapter() + AddAgentMemoryObservability() | ✅ Done | Phase 4 | Registration order enforced |
+| 32 | BlendedAgent Sample | Combined Memory + GraphRAG sample app with OTel console output | ✅ Done | Phase 4 | 3 retrieval modes demonstrated |
 
 ---
 
@@ -256,7 +272,7 @@ The `SchemaBootstrapper` currently creates 5 vector indexes:
 | **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | ✅ **Complete** | Abstractions, Core, Neo4j packages; all repositories + services; context assembler |
 | **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ✅ **Complete** | Extraction.Llm; entity resolution (4-strategy chain); vector indexes; 210 unit tests |
 | **3** | MAF Adapter | Microsoft Agent Framework integration | ✅ **Complete** | AgentFramework package; context provider, chat store, memory tools, trace recorder; 265 unit tests |
-| **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ⏳ Not Started | GraphRagAdapter package; blend policies; Observability package |
+| **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ✅ **Complete** | GraphRagAdapter package; 4 search modes; Observability package; OTel decorators; 295 unit tests |
 | **5** | Advanced Extraction | Azure Language, ONNX, optional enrichment | ⏳ Not Started | Additional extraction backends; geocoding; enrichment services |
 | **6** | MCP Server | External access via Model Context Protocol | ⏳ Not Started | Mcp package; stdio/HTTP transport; core + extended tool profiles |
 
@@ -330,14 +346,15 @@ Connects at `bolt://localhost:7687` with credentials `neo4j/password`.
 ### Current Test Results
 
 ```
-Passed!  - Failed: 0, Passed: 265, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
+Passed!  - Failed: 0, Passed: 295, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
 ```
 
 **Test breakdown by phase:**
 - Phase 1: 85 unit tests (core memory engine)
 - Phase 2: 125 additional tests (extraction pipeline + entity resolution)
 - Phase 3: 55 additional tests (MAF adapter + tools + persistence)
-- **Total: 265 unit tests passing**
+- Phase 4: 30 additional tests (GraphRAG adapter + observability)
+- **Total: 295 unit tests passing**
 
 ---
 

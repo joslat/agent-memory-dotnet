@@ -6,6 +6,7 @@
     <Project Path="Neo4j/neo4j-maf-provider/dotnet/src/Neo4j.AgentFramework.GraphRAG/Neo4j.AgentFramework.GraphRAG.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/Neo4j.AgentMemory.Sample.BlendedAgent/Neo4j.AgentMemory.Sample.BlendedAgent.csproj" />
     <Project Path="samples/Neo4j.AgentMemory.Sample.MinimalAgent/Neo4j.AgentMemory.Sample.MinimalAgent.csproj" />
   </Folder>
   <Folder Name="/src/">

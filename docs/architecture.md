@@ -1,6 +1,6 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-04-13 (Phase 3 — Complete)  
+**Last Updated:** 2026-04-13 (Phase 4 — Complete)  
 **Author:** Deckard (Lead Architect)  
 **Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)
 **Implementation Plan:** [Agent-memory-for-dotnet-implementation-plan.md](../Agent-memory-for-dotnet-implementation-plan.md)
@@ -38,18 +38,30 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        FUTURE ADAPTERS (Phase 3+)                   │
+│                        ADAPTERS (Phase 3–4)                         │
 │                                                                     │
 │  ┌─────────────────────┐  ┌──────────────────────┐  ┌───────────┐  │
-│  │ AgentMemory.MAF     │  │ AgentMemory.         │  │ AgentMem. │  │
-│  │ (MAF adapter)       │  │ GraphRagAdapter      │  │ Mcp       │  │
-│  │                     │  │                      │  │           │  │
-│  │ + Microsoft.Agents  │  │ + Neo4j.AgentFW.     │  │ + MCP SDK │  │
-│  │   .AI.*             │  │   GraphRAG           │  │           │  │
-│  └────────┬────────────┘  └─────────┬────────────┘  └─────┬─────┘  │
-│           │                         │                      │        │
-│           └─────────────┬───────────┘──────────────────────┘        │
-│                         │  depends inward                           │
+│  │ AgentMemory.MAF     │  │ AgentMemory.          │  │ AgentMem. │  │
+│  │ (MAF adapter)       │  │ GraphRagAdapter       │  │ Mcp       │  │
+│  │                     │  │                       │  │           │  │
+│  │ + Microsoft.Agents  │  │ + Neo4j.AgentFW.      │  │ + MCP SDK │  │
+│  │   .AI.*             │  │   GraphRAG            │  │           │  │
+│  └────────┬────────────┘  └─────────┬─────────────┘  └─────┬─────┘  │
+│           │                         │                       │        │
+│           └─────────────┬───────────┘───────────────────────┘        │
+│                         │  depends inward                            │
+│                         ▼                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                 CROSS-CUTTING (Phase 4)                              │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  Neo4j.AgentMemory.Observability                            │   │
+│  │  (OTel decorator — wraps IMemoryService + IGraphRagContext  │   │
+│  │   Source with ActivitySource spans and Meter metrics)        │   │
+│  │                                                              │   │
+│  │  + OpenTelemetry.Api 1.12.0                                  │   │
+│  └──────────────────────┬───────────────────────────────────────┘   │
+│                         │  decorates                                │
 │                         ▼                                           │
 ├─────────────────────────────────────────────────────────────────────┤
 │                    INFRASTRUCTURE (Phase 1)                          │
@@ -95,11 +107,14 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 graph TD
     MAF["MAF Adapter<br/>(Phase 3)"] --> Core
     GRA["GraphRAG Adapter<br/>(Phase 4)"] --> Core
+    OBS["Observability<br/>(Phase 4)"] --> Core
     MCP["MCP Server<br/>(Phase 6)"] --> Core
     Neo4j["Neo4j.AgentMemory.Neo4j"] --> Core
     Neo4j --> Abs
     Core["Neo4j.AgentMemory.Core"] --> Abs
     Abs["Neo4j.AgentMemory.Abstractions<br/>(zero deps)"]
+    OBS -. decorates .-> MAF
+    OBS -. decorates .-> GRA
 ```
 
 ---
@@ -175,11 +190,53 @@ Neo4j.AgentMemory.AgentFramework.Mapping          — MAF type mapping
 Neo4j.AgentMemory.AgentFramework.Tracing          — reasoning trace recording
 ```
 
-#### 3.4.2 Future Adapter Packages
+#### 3.4.2 Neo4j.AgentMemory.GraphRagAdapter (Phase 4 ✅ COMPLETE)
+
+| Attribute | Value |
+|---|---|
+| **Purpose** | Thin adapter exposing the existing Neo4j GraphRAG retrieval pipeline as an `IGraphRagContextSource` |
+| **Dependencies** | Abstractions (project ref), Neo4j.AgentFramework.GraphRAG (project ref), Microsoft.Extensions.AI.Abstractions 10.4.1, Microsoft.Extensions.DI/Logging/Options 10.0.5 |
+| **MUST NOT reference** | Business logic — wraps a reference provider only |
+| **Key types** | `Neo4jGraphRagContextSource : IGraphRagContextSource`, `GraphRagAdapterOptions` |
+
+**Key Patterns:**
+
+1. **Provider delegation** — `Neo4jGraphRagContextSource` creates the appropriate `IRetriever` (vector, fulltext, hybrid, or graph-enriched) based on `GraphRagAdapterOptions.SearchMode` and delegates all retrieval to it.
+2. **Resilience** — Exceptions from the underlying retriever are caught and logged; an empty `GraphRagContextResult` is returned so the agent run is never blocked by a retrieval failure.
+3. **Search modes** — Supports `Vector`, `Fulltext`, `Hybrid` (vector + fulltext RRF fusion), and `Graph` (vector + multi-hop traversal).
+
+**Namespace structure:**
+```
+Neo4j.AgentMemory.GraphRagAdapter             — public surface (source, options, DI)
+Neo4j.AgentMemory.GraphRagAdapter.Internal    — adapter retrievers (vector, fulltext, hybrid)
+```
+
+#### 3.4.3 Neo4j.AgentMemory.Observability (Phase 4 ✅ COMPLETE)
+
+| Attribute | Value |
+|---|---|
+| **Purpose** | Opt-in OTel decorator that wraps `IMemoryService` and `IGraphRagContextSource` with distributed tracing spans and metrics |
+| **Dependencies** | Abstractions (project ref), Core (project ref), OpenTelemetry.Api 1.12.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.5 |
+| **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
+| **Key types** | `InstrumentedMemoryService`, `InstrumentedGraphRagContextSource`, `MemoryActivitySource`, `MemoryMetrics`, `ServiceCollectionExtensions` |
+
+**Key Patterns:**
+
+1. **Decorator pattern** — `AddAgentMemoryObservability()` finds the already-registered `IMemoryService` and `IGraphRagContextSource` descriptors, removes them, and re-registers them wrapped in instrumented decorators. No Scrutor dependency.
+2. **OTel API only** — Uses only the vendor-neutral `OpenTelemetry.Api` package. The actual exporter (OTLP, console, etc.) is wired up by the host application.
+3. **Registration order** — Must be called **after** `AddAgentMemoryCore()` and `AddGraphRagAdapter()`. If no `IGraphRagContextSource` is registered, the decorator step is silently skipped.
+4. **Metrics** — `MemoryMetrics` exposes counters (`messages.stored`, `entities.extracted`, `graphrag.queries`) and histograms (`recall.duration`, `persist.duration`, `graphrag.duration`).
+5. **Tracing** — All spans are emitted under `ActivitySource` name `"Neo4j.AgentMemory"` (version `1.0.0`).
+
+**Namespace structure:**
+```
+Neo4j.AgentMemory.Observability    — all types (decorators, metrics, activity source, DI)
+```
+
+#### 3.4.4 Future Adapter Packages
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|
-| `Neo4j.AgentMemory.GraphRagAdapter` | 4 | Neo4j.AgentFramework.GraphRAG | `IGraphRagContextSource` via `IRetriever` delegation |
 | `Neo4j.AgentMemory.Mcp` | 6 | C# MCP SDK | MCP tool server exposing memory operations |
 
 ---
