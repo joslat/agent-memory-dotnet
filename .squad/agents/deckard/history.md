@@ -216,3 +216,156 @@
 - Roy was actively creating Phase 2 entity resolution code during this scaffolding session
 - Files observed: EntityResolutionResult.cs, ExtractionOptions.cs, EntityValidator.cs, Resolution/ matchers, test files
 - Some of Roy's in-progress test files had compilation errors (duplicate methods, inaccessible types) — not related to scaffolding changes
+
+### 2025-07-20 — Comprehensive Project Review (All Phases)
+
+**Trigger:** Jose requested thorough review of entire project: architecture, spec compliance, Python alignment, implementation plan completion.
+
+**Review Scope:** All 4 review dimensions — architecture/dependencies, spec compliance, Python reference alignment, implementation plan completion.
+
+**Build & Test Verification:**
+- Build: ✅ Clean (0 errors, 0 warnings)
+- Unit tests: ✅ 419 passing (up from documented 398 — test count in docs/implementation-status.md is stale)
+- Integration tests: 2 passing (Testcontainers-based)
+
+**Architecture Review — PASS:**
+- All 10 source packages follow declared dependency hierarchy
+- Abstractions: ZERO external dependencies (verified)
+- Core: Abstractions + FuzzySharp + Microsoft.Extensions.* only (verified)
+- Neo4j: Abstractions + Core + Neo4j.Driver 6.0.0 (verified)
+- All adapters (AgentFramework, GraphRagAdapter, McpServer) depend inward only
+- Zero boundary violations detected — no MAF/GraphRAG/Neo4j.Driver leakage into Core or Abstractions
+- McpServer depends only on Abstractions (not Core) — correct for tool definition layer, runtime DI provides implementations
+
+**Spec Compliance — 98%:**
+- §1.6 Core capabilities: ✅ All 3 memory layers fully implemented
+- §2.1-2.5 Architecture: ✅ Layered ports-and-adapters, correct dependency direction
+- §3.1 Memory model: ✅ All 9+ domain types with full field coverage
+- §3.5 Neo4j schema: ✅ All 27 schema objects (9 constraints + 6 vector + 3 fulltext + 9 property indexes)
+- §4 MAF adapter: ⚠️ 95% — post-run extraction requires manual trigger (spec §4.4 says "trigger extraction")
+- §5 GraphRAG: ✅ Full reuse of existing provider, blended mode support
+- §7 Non-functional: ✅ All met (observability, security, testability, maintainability)
+
+**Python Reference Alignment — Critical Gaps Found:**
+1. ❌ Missing cross-memory relationships: INITIATED_BY, TRIGGERED_BY, HAS_TRACE, EXTRACTED_FROM, ABOUT (HIGH impact — limits context assembly traversal)
+2. ❌ Missing aggregate Tool node + INSTANCE_OF relationship (tool statistics)
+3. ❌ Missing Extractor provenance nodes (EXTRACTED_BY)
+4. ⚠️ Entity alias merging incomplete — SAME_AS exists but aliases array not updated during merge
+5. ⚠️ Cypher queries not centralized — scattered across 9 repositories (Python has centralized queries.py)
+6. ⚠️ Entity resolution thresholds not fully parameterized (0.95 auto-merge, 0.85 flag thresholds)
+7. ✅ Vector indexes: All 6 present (+ 1 extra: reasoning_step_embedding_idx)
+8. ✅ Message linking: FIRST_MESSAGE + NEXT_MESSAGE pattern implemented
+9. ✅ Metadata serialization: JSON string handling correct
+
+**Implementation Plan Completion — ALL 6 PHASES COMPLETE:**
+- Phase 0: ✅ Discovery & Design Lock
+- Phase 1: ✅ Core Memory Engine (85 tests)
+- Phase 2: ✅ Extraction & Resolution (+125 tests)
+- Phase 3: ✅ MAF Integration (+55 tests)
+- Phase 4: ✅ GraphRAG + Observability (+30 tests)
+- Phase 5: ✅ Azure Language + Enrichment (+54 tests)
+- Phase 6: ✅ MCP Server (14 tools, 6 core + 8 extended)
+- All deliverables verified present with implementations (not just stubs)
+- 3 sample apps: MinimalAgent, BlendedAgent, McpHost
+- 10 source packages, 197 implementation files, 57 test files
+
+**Stale Documentation Found:**
+- docs/implementation-status.md claims 398 tests — actual count is 419
+- docs/implementation-status.md §3 Phase 1 still shows "In Progress" in §2 reference but exec summary says complete
+
+### 2025-07-20 — Comprehensive Project Review (All Phases)
+
+**Trigger:** Jose requested thorough review of entire project: architecture, spec compliance, Python alignment, implementation plan completion.
+
+**Review Scope:** All 4 review dimensions — architecture/dependencies, spec compliance, Python reference alignment, implementation plan completion.
+
+**Build & Test Verification:**
+- Build: ✅ Clean (0 errors, 0 warnings)
+- Unit tests: ✅ 419 passing (up from documented 398 — test count in docs/implementation-status.md is stale)
+- Integration tests: 2 passing (Testcontainers-based)
+
+**Architecture Review — PASS:**
+- All 10 source packages follow declared dependency hierarchy
+- Abstractions: ZERO external dependencies (verified)
+- Core: Abstractions + FuzzySharp + Microsoft.Extensions.* only (verified)
+- Neo4j: Abstractions + Core + Neo4j.Driver 6.0.0 (verified)
+- All adapters (AgentFramework, GraphRagAdapter, McpServer) depend inward only
+- Zero boundary violations detected — no MAF/GraphRAG/Neo4j.Driver leakage into Core or Abstractions
+- McpServer depends only on Abstractions (not Core) — correct for tool definition layer, runtime DI provides implementations
+
+**Spec Compliance — 98%:**
+- §1.6 Core capabilities: ✅ All 3 memory layers fully implemented
+- §2.1-2.5 Architecture: ✅ Layered ports-and-adapters, correct dependency direction
+- §3.1 Memory model: ✅ All 9+ domain types with full field coverage
+- §3.5 Neo4j schema: ✅ All 27 schema objects (9 constraints + 6 vector + 3 fulltext + 9 property indexes)
+- §4 MAF adapter: ⚠️ 95% — post-run extraction requires manual trigger (spec §4.4 says "trigger extraction")
+- §5 GraphRAG: ✅ Full reuse of existing provider, blended mode support
+- §7 Non-functional: ✅ All met (observability, security, testability, maintainability)
+
+**Python Reference Alignment — Critical Gaps Found:**
+1. ❌ Missing cross-memory relationships: INITIATED_BY, TRIGGERED_BY, HAS_TRACE, EXTRACTED_FROM, ABOUT (HIGH impact — limits context assembly traversal)
+2. ❌ Missing aggregate Tool node + INSTANCE_OF relationship (tool statistics)
+3. ❌ Missing Extractor provenance nodes (EXTRACTED_BY)
+4. ⚠️ Entity alias merging incomplete — SAME_AS exists but aliases array not updated during merge
+5. ⚠️ Cypher queries not centralized — scattered across 9 repositories (Python has centralized queries.py)
+6. ⚠️ Entity resolution thresholds not fully parameterized (0.95 auto-merge, 0.85 flag thresholds)
+7. ✅ Vector indexes: All 6 present (+ 1 extra: reasoning_step_embedding_idx)
+8. ✅ Message linking: FIRST_MESSAGE + NEXT_MESSAGE pattern implemented
+9. ✅ Metadata serialization: JSON string handling correct
+
+**Implementation Plan Completion — ALL 6 PHASES COMPLETE:**
+- Phase 0: ✅ Discovery & Design Lock
+- Phase 1: ✅ Core Memory Engine (85 tests)
+- Phase 2: ✅ Extraction & Resolution (+125 tests)
+- Phase 3: ✅ MAF Integration (+55 tests)
+- Phase 4: ✅ GraphRAG + Observability (+30 tests)
+- Phase 5: ✅ Azure Language + Enrichment (+54 tests)
+- Phase 6: ✅ MCP Server (14 tools, 6 core + 8 extended)
+- All deliverables verified present with implementations (not just stubs)
+- 3 sample apps: MinimalAgent, BlendedAgent, McpHost
+- 10 source packages, 197 implementation files, 57 test files
+
+**Stale Documentation Found:**
+- docs/implementation-status.md claims 398 tests — actual count is 419
+- docs/implementation-status.md §3 Phase 1 still shows "In Progress" in §2 reference but exec summary says complete
+
+**Key Recommendations:**
+1. HIGH: Implement cross-memory relationships (INITIATED_BY, TRIGGERED_BY, HAS_TRACE) — required for full context assembly
+2. MEDIUM: Complete entity alias merging in Neo4jEntityRepository
+3. MEDIUM: Centralize Cypher queries into dedicated constants class
+4. LOW: Automate post-run extraction in MAF facade
+5. LOW: Update docs/implementation-status.md test counts
+
+### 2026-04-13 — Comprehensive Team Review Session (Orchestration)
+
+**Trigger:** Jose requested formal multi-agent project review with Deckard (architecture), Holden (testing), and Sebastian (GraphRAG integration).
+
+**Agent Results:**
+1. **Deckard** — Architecture & spec review: 98% compliance, 5 critical/medium findings documented, all 6 phases verified complete
+2. **Holden** — Test gap analysis: Added 21 unit tests (398→419), identified critical integration test gaps requiring Testcontainers
+3. **Sebastian** — neo4j-maf-provider analysis: Confirmed read-only nature, write layer complete, boundary clean
+
+**Decisions Recorded (D7–D15):**
+- D7–D10: Phase 2 architecture (LLM extraction, FuzzySharp, entity resolution chain, metadata)
+- D11–D13: Phase 3 MAF adapter (thin adapter layer, type mapping, dual lifecycle)
+- D14: Phase 4 observability (decorator pattern, OpenTelemetry API, semantic tags)
+- D15: MAF 1.1.0 API reference analysis (comprehensive integration blueprint)
+
+**Findings Consolidated (F1–F5 + others):**
+- F1: Cross-memory relationships missing (INITIATED_BY, TRIGGERED_BY, HAS_TRACE, EXTRACTED_FROM, ABOUT) — HIGH impact
+- F2: Entity alias merging incomplete — MEDIUM
+- F3: Cypher query centralization opportunity — MEDIUM
+- F4: Test documentation stale — LOW
+- F5: Post-run extraction not automated — LOW
+- G1–G5: Entity resolution persistence (Gaff) — all implemented
+- H1: Integration test framework ready (Holden) — 9 repositories need coverage
+
+**Orchestration Logs Created:**
+- `.squad/orchestration-log/2026-04-13T18-35-38Z-deckard.md`
+- `.squad/orchestration-log/2026-04-13T18-35-38Z-holden.md`
+- `.squad/orchestration-log/2026-04-13T18-35-38Z-sebastian.md`
+- `.squad/log/2026-04-13T18-35-38Z-comprehensive-review.md`
+
+**Decisions Merged:** All inbox files merged into `.squad/decisions.md`, inbox directory cleared.
+
+**Overall Assessment:** Project in excellent shape. All 6 phases delivered. 419 unit tests passing. Architecture sound. Cross-memory relationships (F1) are single most impactful improvement to pursue next.

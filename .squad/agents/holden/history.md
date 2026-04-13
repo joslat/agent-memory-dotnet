@@ -18,6 +18,10 @@
 - `MemoryService` constructor order: `(shortTerm, assembler, extraction, IOptions<MemoryOptions>, clock, idGenerator, logger)` — options come before clock/idGenerator.
 - `MemoryContextAssembler` uses character-based estimation (`EstimateItemChars`) for budget enforcement: messages use `Content.Length`, facts use `Subject+Predicate+Object+4`, entities use `Name+Description+10`, traces use `Task+Outcome+10`.
 - For `TruncationStrategy.OldestFirst`, items are sorted descending by timestamp THEN `FitWithinBudget` removes from the end of each list in round-robin (facts first, then entities, relevant messages, traces, preferences, recent messages).
+- `StopWordFilter` in `Neo4j.AgentMemory.GraphRagAdapter.Internal` is `internal` but exposed to tests via `<InternalsVisibleTo Include="Neo4j.AgentMemory.Tests.Unit" />` in the csproj (not via AssemblyInfo.cs).
+- `EnrichmentResult` record has `EntityName`, `Summary`, `Description`, `WikipediaUrl`, `ImageUrl`, `Properties`, `Provider`, `RetrievedAtUtc` — no `EntityType` field.
+- `Neo4jGraphQueryService.ReadAsync<T>` uses the full generic type `IReadOnlyList<IReadOnlyDictionary<string, object?>>` in the NSubstitute mock setup — Arg matching requires exact type match.
+- When `dotnet test` fails with MSB3492 cache file error, run with `--no-build` after a successful `dotnet build` to work around the stale cache check.
 
 ## Work Log
 
@@ -43,3 +47,62 @@
 - Created `MemoryContextAssemblerTests.cs` — 10 tests covering embedding generation, all-layer retrieval, GraphRAG enable/disable/null, assembled timestamp, budget enforcement (OldestFirst + LowestScoreFirst), token count estimation
 - Created `MemoryServiceTests.cs` — 5 tests covering recall wrapping, message creation via IIdGenerator+IClock, batch delegate, extraction pipeline delegate, session clear delegate
 - **Total unit tests: 85 passing (0 failures)**
+
+### 2025-07-16 — Test Gap Analysis & New Unit Tests
+
+**Baseline:** 398 unit tests across 48 test classes.
+
+**Gap analysis completed** — inventoried all 120+ source files against test coverage. Unit-testable gaps found and filled:
+
+- Created `GraphRagAdapter/StopWordFilterTests.cs` — 8 tests for the static keyword extractor (stop word removal, case insensitivity, single-char filtering, empty input)
+- Created `Enrichment/CachedEnrichmentServiceTests.cs` — 5 tests (cache miss delegates, cache hit short-circuits, null not cached, separate keys per entity type, case-insensitive key normalisation)
+- Created `Infrastructure/MigrationRunnerTests.cs` — 3 tests (no-folder path: no DB calls, no exception, pre-cancelled token)
+- Created `Services/Neo4jGraphQueryServiceTests.cs` — 5 tests (cypher forwarding, null params → empty dict, param forwarding, null param values, empty result set)
+
+**Result: 419 unit tests, 0 failures** (+21 new tests)
+
+### 2025-07-16 — Test Gap Analysis & New Unit Tests
+
+**Baseline:** 398 unit tests across 48 test classes.
+
+**Gap analysis completed** — inventoried all 120+ source files against test coverage. Unit-testable gaps found and filled:
+
+- Created `GraphRagAdapter/StopWordFilterTests.cs` — 8 tests for the static keyword extractor (stop word removal, case insensitivity, single-char filtering, empty input)
+- Created `Enrichment/CachedEnrichmentServiceTests.cs` — 5 tests (cache miss delegates, cache hit short-circuits, null not cached, separate keys per entity type, case-insensitive key normalisation)
+- Created `Infrastructure/MigrationRunnerTests.cs` — 3 tests (no-folder path: no DB calls, no exception, pre-cancelled token)
+- Created `Services/Neo4jGraphQueryServiceTests.cs` — 5 tests (cypher forwarding, null params → empty dict, param forwarding, null param values, empty result set)
+
+**Result: 419 unit tests, 0 failures** (+21 new tests)
+
+**Remaining gaps requiring integration tests (need live Neo4j):**
+- All 9 `Neo4j.AgentMemory.Neo4j` repositories (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall)
+- `Neo4jGraphQueryService` full record-mapping (INode/IRelationship/IPath ConvertValue logic)
+- `AdapterVectorRetriever`, `AdapterFulltextRetriever`, `AdapterHybridRetriever` (all hit IDriver directly)
+- `Neo4jTransactionRunner`, `Neo4jSessionFactory`, `Neo4jDriverFactory` (infrastructure wiring)
+
+### 2026-04-13 — Test Gap Analysis Consolidation & Integration Test Framework Assessment
+
+**Trigger:** Multi-agent review session (Deckard, Holden, Sebastian) requested assessment of test coverage gaps.
+
+**Test Count Update:** Previous 398 unit tests → confirmed 419 unit tests (+21 from 2025-07-16 session). All passing.
+
+**Integration Test Gap Analysis Results:**
+
+Critical gaps requiring Testcontainers (live Neo4j):
+
+| Category | Classes | Impact |
+|----------|---------|--------|
+| **Repositories (9)** | ConversationRepository, MessageRepository, EntityRepository, FactRepository, PreferenceRepository, RelationshipRepository, ReasoningTraceRepository, ReasoningStepRepository, ToolCallRepository | HIGH — persistence layer core functionality |
+| **Infrastructure (3)** | Neo4jTransactionRunner, Neo4jSessionFactory, Neo4jDriverFactory | MEDIUM — configuration and lifecycle |
+| **Services (1 partial)** | Neo4jGraphQueryService (ConvertValue branches: INode/IRelationship/IPath) | MEDIUM — record mapping with real graph data |
+| **Retrievers (3)** | AdapterVectorRetriever, AdapterFulltextRetriever, AdapterHybridRetriever | HIGH — GraphRAG integration verification |
+
+**Framework Readiness:** ✅ Complete
+- `IntegrationTestBase` abstract class with Fixture property, CreateDriver(), RunCypherAsync()
+- `TestDataSeeders` factory methods for all 9 domain types
+- `Neo4jTestCollection` collection definition ensuring single container per test run
+- `Neo4jConnectivityTests` smoke tests all passing
+
+**Recommendation:** Prioritize repository integration tests (9 classes × ~5 tests each ≈ 45 tests). Framework ready; ~2-week sprint to complete. Highest-confidence test coverage of persistence layer.
+
+**Standing Decision:** Integration test coverage is non-negotiable per Jose's TDD directive ("Tests first before/during implementation"). Current gap is documented and tracked.
