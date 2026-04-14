@@ -208,3 +208,19 @@ Key insight: `Neo4jGraphRagContextSource` references `IRetriever` and `Retriever
 3. Background enrichment queue (Medium priority)
 4. MCP resources + prompts (Medium priority)
 5. Streaming extraction (Medium priority)
+
+### 2025-07-13 — Feature Record Document (Comprehensive Audit)
+
+**Output:** `docs/feature-record.md`
+
+**Scope:** Full audit of all 10 source packages and 55 test files.
+
+**Key Findings:**
+- **20 features** cataloged with value scores 50–95
+- **~429 unit tests** across 55 test files — strong unit test coverage
+- **2 integration tests** — critical gap; no repository-level integration tests
+- **Top 3 critical gaps:** repository integration tests, fact deduplication, multi-extractor merge pipeline
+- **Architecture is clean:** Abstractions → Core → Neo4j dependency direction respected. All packages have DI registration. Options pattern used consistently.
+- **Highest-value features (95/100):** Short-Term Memory, Long-Term Memory
+- **Best-tested features:** MCP Server (59 tests), AgentFramework (58 tests), Services (72 tests), Resolution (33 tests)
+- **Weakest-tested areas:** Integration tests (2 total), Configuration options (no dedicated tests), Cross-memory relationships (tested via Cypher string verification only)

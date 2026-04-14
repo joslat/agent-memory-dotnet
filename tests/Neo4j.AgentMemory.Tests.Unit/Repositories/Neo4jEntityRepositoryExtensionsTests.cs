@@ -197,7 +197,7 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         calls[0].Cypher.Should().Contain("MATCH (e2:Entity {id: $entityId2})");
         calls[0].Cypher.Should().Contain("MERGE (e1)-[r:SAME_AS]->(e2)");
         calls[0].Cypher.Should().Contain("r.confidence = $confidence");
-        calls[0].Cypher.Should().Contain("r.matchType = $matchType");
+        calls[0].Cypher.Should().Contain("r.match_type = $matchType");
     }
 
     [Fact]
@@ -223,7 +223,7 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         calls.Should().HaveCount(1);
         calls[0].Cypher.Should().Contain("-[r:SAME_AS]-");
         calls[0].Cypher.Should().Contain("r.confidence AS confidence");
-        calls[0].Cypher.Should().Contain("r.matchType AS matchType");
+        calls[0].Cypher.Should().Contain("r.match_type AS matchType");
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         calls[0].Cypher.Should().Contain("MATCH (source:Entity {id: $sourceEntityId})");
         calls[0].Cypher.Should().Contain("MATCH (target:Entity {id: $targetEntityId})");
         calls[0].Cypher.Should().Contain("MERGE (m)-[:MENTIONS]->(target)");
-        calls[0].Cypher.Should().Contain("source.mergedInto = target.id");
+        calls[0].Cypher.Should().Contain("source.merged_into = target.id");
         calls[0].Cypher.Should().Contain("target.aliases");
     }
 

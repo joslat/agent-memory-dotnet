@@ -321,3 +321,31 @@
 
 **Artifacts:**
 - `.squad/decisions/inbox/roy-gap-hunt-results.md` — 400-line detailed report with per-category tables, Cypher comparisons, configuration diff table
+
+---
+
+### 2026-07: Architecture Assessment & Ecosystem Strategy
+
+**Task:** Full architecture audit of all 10 src projects + ecosystem strategy for .NET AI frameworks.
+
+**Key Findings:**
+
+1. **Architecture is clean** — Zero circular dependencies, zero boundary violations, zero framework leakage. Abstractions has zero external dependencies. Core has zero Neo4j/MAF imports. All dependency arrows flow strictly downward through the 5-layer stack.
+
+2. **Cross-reference matrix verified** — All 10 src projects examined. No project references anything it shouldn't. The ports-and-adapters pattern is consistently applied across all layers.
+
+3. **Issue A1: neo4j-maf-provider ProjectReference** — GraphRagAdapter references neo4j-maf-provider via source checkout (ProjectReference), blocking NuGet publishing. Must become PackageReference when upstream publishes to NuGet.
+
+4. **Issue A2: net8.0/net9.0 asymmetry** — neo4j-maf-provider targets net8.0 while all our projects target net9.0. Works via backward compat but worth tracking.
+
+5. **McpServer is properly thin** — References only Abstractions (not Core or Neo4j). Tools resolve services at runtime via DI. Host applications wire the full stack.
+
+6. **Ecosystem strategy: Semantic Kernel adapter is highest-impact new work** — SK has the largest .NET AI user base. Our architecture already supports building a thin SK adapter identical in pattern to AgentFramework.
+
+7. **M.E.AI bridge is lowest-effort, highest-value integration** — Single adapter class bridges IEmbeddingGenerator to IEmbeddingProvider. Benefits all consumers regardless of framework.
+
+8. **AutoGen and LangChain.NET are defer** — Too experimental (AutoGen) or too niche (LangChain.NET) to justify investment.
+
+**Artifacts:**
+- `docs/architecture-assessment.md` — Full architecture diagram, cross-reference matrix, boundary analysis, ecosystem strategy with 7 prioritized recommendations
+- `.squad/decisions/inbox/roy-architecture-assessment.md` — Decision proposals for team review

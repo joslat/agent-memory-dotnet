@@ -42,8 +42,8 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 9 constraints + 3 fulltext + 6 vector + 9 property = 27
-        executedStatements.Should().HaveCount(27);
+        // 10 constraints + 3 fulltext + 6 vector + 12 property = 31
+        executedStatements.Should().HaveCount(31);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class SchemaBootstrapperTests
         await bootstrapper.BootstrapAsync();
 
         var constraints = executedStatements.Where(s => s.StartsWith("CREATE CONSTRAINT")).ToList();
-        constraints.Should().HaveCount(9);
+        constraints.Should().HaveCount(10);
         constraints.Should().Contain(s => s.Contains("conversation_id"));
         constraints.Should().Contain(s => s.Contains("message_id"));
         constraints.Should().Contain(s => s.Contains("entity_id"));
@@ -80,6 +80,7 @@ public class SchemaBootstrapperTests
         constraints.Should().Contain(s => s.Contains("reasoning_trace_id"));
         constraints.Should().Contain(s => s.Contains("reasoning_step_id"));
         constraints.Should().Contain(s => s.Contains("tool_call_id"));
+        constraints.Should().Contain(s => s.Contains("tool_name"));
     }
 
     [Fact]
@@ -171,14 +172,17 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(9);
-        propertyIndexes.Should().Contain(s => s.Contains("message_session_id"));
+        propertyIndexes.Should().HaveCount(12);
+        propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
+        propertyIndexes.Should().Contain(s => s.Contains("message_role_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("entity_type"));
-        propertyIndexes.Should().Contain(s => s.Contains("entity_name_prop"));
+        propertyIndexes.Should().Contain(s => s.Contains("entity_name"));
+        propertyIndexes.Should().Contain(s => s.Contains("entity_canonical_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("fact_category"));
         propertyIndexes.Should().Contain(s => s.Contains("preference_category"));
-        propertyIndexes.Should().Contain(s => s.Contains("reasoning_trace_session_id"));
+        propertyIndexes.Should().Contain(s => s.Contains("trace_session_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("trace_success_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("reasoning_step_timestamp"));
         propertyIndexes.Should().Contain(s => s.Contains("tool_call_status"));
     }
@@ -211,7 +215,7 @@ public class SchemaBootstrapperTests
         var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
-            idx.Should().MatchRegex(@"ON \(n\.(embedding|taskEmbedding)\)"));
+            idx.Should().MatchRegex(@"ON \(n\.(embedding|task_embedding)\)"));
     }
 
     [Fact]

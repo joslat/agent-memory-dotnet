@@ -417,3 +417,28 @@
 - `.squad/decisions/inbox/deckard-package-strategy.md` — 6 decisions (D-PKG1 through D-FEAT2)
 
 **Key Dependency Insight:** GraphRagAdapter's ProjectReference to neo4j-maf-provider source code is the single biggest NuGet publishing blocker. Must be resolved (either neo4j-maf-provider publishes to NuGet, or we internalize retriever patterns) before any NuGet release.
+
+### 2025-07-21 — Schema Parity Crisis (Critical)
+
+**Trigger:** Jose discovered .NET schema diverged from Python: "we MUST USE THE SAME SCHEMA!!! WHY DID YOU CHANGE IT???"
+
+**Root Cause:** Spec said "concepts not code," never defined Neo4j property naming convention, and §3.5 index tables showed camelCase — misleading developers into using camelCase throughout. No schema contract tests existed. 45+ divergences found.
+
+**Key Findings:**
+1. **Property naming:** All .NET Neo4j properties use camelCase; Python uses snake_case. Every single multi-word property is wrong.
+2. **Relationship names:** 3 critical divergences: `RELATES_TO` vs `RELATED_TO`, `USED_TOOL` vs `USES_TOOL`, `CALLS` vs `INSTANCE_OF`.
+3. **Missing features:** No `Extractor` node, no `Schema` node, no POLE+O dynamic labels, no geospatial support, no point index.
+4. **Datetime handling:** .NET stores ISO strings; Python uses Neo4j native `datetime()`.
+5. **Missing indexes:** 4 property indexes and 1 point index absent from SchemaBootstrapper.
+6. **Missing constraint:** `tool_name` UNIQUE on Tool.name not present.
+7. **Relationship properties:** MENTIONS, HAS_STEP, EXTRACTED_FROM, SAME_AS all missing properties that Python includes.
+8. **ToolCall status values:** PascalCase enum names vs Python lowercase strings.
+
+**Deliverables:**
+- `docs/schema.md` — Exhaustive canonical schema reference + full difference map + fix plan
+- `docs/root-cause-analysis.md` — Brutally honest analysis of how this happened
+- `.squad/decisions/inbox/deckard-schema-parity.md` — Decision requiring snake_case and Python schema parity
+
+**Responsibility:** Primarily architectural (spec ambiguity, missing validation gate, no contract tests). The "concepts not code" directive was over-interpreted to include the database schema, which is a shared data contract.
+
+**Critical Lesson:** A database schema is a shared contract, not an implementation detail. Code can diverge; schema cannot.
