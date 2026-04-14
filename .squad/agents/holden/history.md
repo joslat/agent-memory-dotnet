@@ -138,3 +138,51 @@ Critical gaps requiring Testcontainers (live Neo4j):
 **Source change:** `Neo4jMemoryContextProvider.cs` — extracted `PerformStoreAsync` internal method from `StoreAIContextAsync`. Identical behavior, improved testability (mirrors `BuildContextAsync` pattern).
 
 **Final result: 473 unit tests, 0 failures (+52 new tests)**
+
+### 2026-07-xx — G8: Typed Exception Hierarchy + Options Validation Tests
+
+**Baseline:** 623 unit tests (from prior sessions, 0 failures).
+
+**Part 1: Typed Exception Hierarchy**
+
+Created `src/Neo4j.AgentMemory.Abstractions/Exceptions/` with 9 exception classes:
+
+| Exception | Base | Context Property |
+|-----------|------|-----------------|
+| `MemoryException` | `Exception` | — (base class) |
+| `EntityNotFoundException` | `MemoryException` | `EntityId` |
+| `FactNotFoundException` | `MemoryException` | `FactId` |
+| `SchemaInitializationException` | `MemoryException` | `SchemaOperation` |
+| `ExtractionException` | `MemoryException` | `ExtractionStep` |
+| `EmbeddingGenerationException` | `MemoryException` | `InputText` |
+| `EntityResolutionException` | `MemoryException` | `EntityName` |
+| `MemoryConfigurationException` | `MemoryException` | `OptionName` |
+| `GraphQueryException` | `MemoryException` | `CypherQuery` |
+
+All exceptions have 3 constructors (message-only, message+context, message+innerException) and full XML documentation (Abstractions project enforces CS1591).
+
+**Part 2: Options Validation Tests**
+
+Created `tests/Neo4j.AgentMemory.Tests.Unit/Options/` with 8 test classes:
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `MemoryOptionsTests.cs` | 10 | Nested non-null defaults, EnableAutoExtraction, EnableGraphRag, init overrides |
+| `ShortTermMemoryOptionsTests.cs` | 7 | SessionStrategy, GenerateEmbeddings, MessageLimits, all SessionStrategy enum values |
+| `LongTermMemoryOptionsTests.cs` | 7 | All embedding flags, EntityResolution, MinConfidenceThreshold range |
+| `ExtractionOptionsTests.cs` | 13 | EntityResolution sub-options, EntityValidation sub-options, thresholds, auto-merge ordering |
+| `RecallOptionsTests.cs` | 11 | All Max* values, BlendMode, MinSimilarityScore, static Default singleton, positivity |
+| `ContextBudgetTests.cs` | 7+4 | Nullable defaults, TruncationStrategy default, static Default, all 4 TruncationStrategy enum values via Theory |
+| `ReasoningMemoryOptionsTests.cs` | 5 | GenerateTaskEmbeddings, StoreToolCalls, MaxTracesPerSession nullable |
+| `ContextCompressionOptionsTests.cs` | 6 | TokenThreshold, RecentMessageCount, MaxObservations, EnableReflections, full override |
+
+**Part 3: Exception Hierarchy Tests**
+
+Created `tests/Neo4j.AgentMemory.Tests.Unit/Exceptions/MemoryExceptionTests.cs` — 28 tests covering:
+- All 9 exception types: construction, message, inner exception, inheritance chain
+- Context properties (EntityId, FactId, SchemaOperation, etc.)
+- Polymorphic catch-as-MemoryException verification for all 8 derived types
+
+**Namespace note:** Test namespace is `Neo4j.AgentMemory.Tests.Unit.OptionsTests` (not `.Options`) to avoid collision with `Microsoft.Extensions.Options.Options` used via unqualified `Options.Create()` in existing test code (e.g., CompositeEntityResolverTests).
+
+**Final result: 717 unit tests, 0 failures (+94 new tests)**

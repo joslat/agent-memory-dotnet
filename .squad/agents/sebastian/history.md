@@ -224,3 +224,37 @@ Key insight: `Neo4jGraphRagContextSource` references `IRetriever` and `Retriever
 - **Highest-value features (95/100):** Short-Term Memory, Long-Term Memory
 - **Best-tested features:** MCP Server (59 tests), AgentFramework (58 tests), Services (72 tests), Resolution (33 tests)
 - **Weakest-tested areas:** Integration tests (2 total), Configuration options (no dedicated tests), Cross-memory relationships (tested via Cypher string verification only)
+
+### 2025-07-13 — MCP Resources (G6), Observation Tool (G11), POLE+O Entity Types (G15)
+
+**Deliverables:**
+
+1. **MCP Resources (G6)** — 4 new resources in `src/Neo4j.AgentMemory.McpServer/Resources/`:
+   - `MemoryStatusResource` (`memory://status`) — entity/fact/preference/conversation/message counts
+   - `EntityListResource` (`memory://entities`) — paginated entity list with type filter
+   - `ConversationListResource` (`memory://conversations`) — recent conversations with message counts
+   - `SchemaInfoResource` (`memory://schema`) — graph schema introspection (labels, rel types, property keys)
+   - All use `[McpServerResourceType]` + `[McpServerResource]` pattern from MCP SDK 1.2.0
+   - Registered via `AddAgentMemoryMcpResources()` extension method
+
+2. **Observation Tool (G11)** — `memory_get_observations` in `ObservationTools.cs`:
+   - Token-budget-aware observation retrieval via `IContextCompressor`
+   - Respects include flags (entities, facts, preferences)
+   - Returns structured JSON + formatted markdown summary
+   - Handles empty sessions gracefully
+
+3. **POLE+O Entity Types (G15)** — `EntityType.cs` in Abstractions:
+   - Static class with `Person`, `Object`, `Location`, `Event`, `Organization`, `Unknown` constants
+   - `All` collection (5 POLE+O types, excludes Unknown)
+   - `IsKnownType()` — case-insensitive recognition
+   - `Normalize()` — canonical form normalization
+
+4. **Tests** — 58 new tests (target was 28+):
+   - `MemoryResourcesTests.cs` — 16 tests covering all 4 resources
+   - `ObservationToolsTests.cs` — 8 tests covering compression, flags, empty sessions
+   - `EntityTypeTests.cs` — 34 tests covering constants, All collection, IsKnownType, Normalize
+
+**Key decisions:**
+- Resources use `IGraphQueryService` with Cypher queries (same pattern as GraphQueryTools/AdvancedMemoryTools)
+- `EntityType.Unknown` excluded from `All` collection since it's not a POLE+O type
+- Resources registered separately via `AddAgentMemoryMcpResources()` — not bundled into existing methods to avoid breaking changes

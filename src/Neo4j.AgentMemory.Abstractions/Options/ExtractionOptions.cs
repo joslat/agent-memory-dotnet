@@ -1,3 +1,5 @@
+using Neo4j.AgentMemory.Abstractions.Domain;
+
 namespace Neo4j.AgentMemory.Abstractions.Options;
 
 /// <summary>Configuration for the extraction pipeline.</summary>
@@ -7,6 +9,8 @@ public sealed class ExtractionOptions
     public EntityResolutionOptions EntityResolution { get; set; } = new();
     /// <summary>Entity validation filter options.</summary>
     public EntityValidationOptions Validation { get; set; } = new();
+    /// <summary>Merge strategy when multiple extractors are registered.</summary>
+    public MergeStrategyType MergeStrategy { get; set; } = MergeStrategyType.Union;
     /// <summary>Minimum confidence to accept an extracted entity.</summary>
     public double MinConfidenceThreshold { get; set; } = 0.5;
     /// <summary>When true, entities above <see cref="AutoMergeThreshold"/> are automatically merged.</summary>

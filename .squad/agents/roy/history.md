@@ -9,6 +9,48 @@
 
 ## Learnings
 
+### 2025-07-15: Gap G3 — Multi-Extractor Pipeline with Merge Strategies
+
+**Task:** Implemented 5 merge strategies (Union, Intersection, Confidence, Cascade, FirstSuccess) and a MultiExtractorPipeline that runs N extractors per type in parallel, merges results via configurable strategy.
+
+**Files Created:**
+
+*Abstractions:*
+1. `src/Neo4j.AgentMemory.Abstractions/Domain/Extraction/MergeStrategyType.cs` — enum with 5 strategy types
+2. `src/Neo4j.AgentMemory.Abstractions/Services/IMergeStrategy.cs` — generic merge strategy interface
+
+*Core:*
+3. `src/Neo4j.AgentMemory.Core/Extraction/MergeStrategies/UnionMergeStrategy.cs` — combine all, dedup by key, highest confidence wins
+4. `src/Neo4j.AgentMemory.Core/Extraction/MergeStrategies/IntersectionMergeStrategy.cs` — only keep items found by 2+ extractors
+5. `src/Neo4j.AgentMemory.Core/Extraction/MergeStrategies/ConfidenceMergeStrategy.cs` — highest confidence per key
+6. `src/Neo4j.AgentMemory.Core/Extraction/MergeStrategies/CascadeMergeStrategy.cs` — first non-empty result list
+7. `src/Neo4j.AgentMemory.Core/Extraction/MergeStrategies/FirstSuccessMergeStrategy.cs` — error-tolerant cascade
+8. `src/Neo4j.AgentMemory.Core/Extraction/MergeStrategies/MergeStrategyFactory.cs` — static factory for all 4 extraction types × 5 strategies
+9. `src/Neo4j.AgentMemory.Core/Services/MultiExtractorPipeline.cs` — IMemoryExtractionPipeline that accepts IEnumerable<IXxxExtractor>, runs in parallel, merges
+
+*Modified:*
+10. `src/Neo4j.AgentMemory.Abstractions/Options/ExtractionOptions.cs` — added `MergeStrategy` property (default: Union)
+
+*Tests (72 new tests):*
+11. `tests/.../Extraction/MergeStrategies/UnionMergeStrategyTests.cs` — 8 tests
+12. `tests/.../Extraction/MergeStrategies/IntersectionMergeStrategyTests.cs` — 8 tests
+13. `tests/.../Extraction/MergeStrategies/ConfidenceMergeStrategyTests.cs` — 7 tests
+14. `tests/.../Extraction/MergeStrategies/CascadeMergeStrategyTests.cs` — 6 tests
+15. `tests/.../Extraction/MergeStrategies/FirstSuccessMergeStrategyTests.cs` — 6 tests
+16. `tests/.../Extraction/MergeStrategies/MergeStrategyFactoryTests.cs` — 23 tests (Theory × 4 factory methods + edge cases)
+17. `tests/.../Extraction/MultiExtractorPipelineTests.cs` — 14 tests (all strategies, error handling, type filtering, metadata)
+
+**Key Design Decisions:**
+1. **Generic merge strategies with key+confidence selectors** — `UnionMergeStrategy<T>` accepts `Func<T, string>` key and `Func<T, double>` confidence selectors rather than type-specific implementations. Factory wires correct selectors per extraction type.
+2. **Existing MemoryExtractionPipeline unchanged** — MultiExtractorPipeline is a new class alongside the existing single-extractor pipeline. Both implement `IMemoryExtractionPipeline`; DI registration determines which is used.
+3. **Confidence property already existed** — All 4 extraction models (ExtractedEntity, ExtractedFact, ExtractedPreference, ExtractedRelationship) already had `double Confidence { get; init; } = 1.0`, so no model changes needed.
+4. **Case-insensitive dedup keys** — Entity by Name, Fact by SPO triple, Preference by PreferenceText, Relationship by (source, type, target). All use `StringComparer.OrdinalIgnoreCase`.
+
+**Build Outcome:** `dotnet build` — 0 new errors (32 pre-existing CS1591 in Exceptions)
+**Test Outcome:** 72 new tests pass, 0 failures
+
+---
+
 ### 2025-07-14: Phase 2 Sprint 1 — Entity Resolution Chain + Entity Validation
 
 **Task:** Implemented the full entity resolution pipeline for Phase 2 as specified in the charter. All tasks 1–7 completed.

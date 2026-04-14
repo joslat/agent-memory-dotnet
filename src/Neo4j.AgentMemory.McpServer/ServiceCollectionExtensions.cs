@@ -1,18 +1,19 @@
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 using Neo4j.AgentMemory.McpServer.Prompts;
+using Neo4j.AgentMemory.McpServer.Resources;
 using Neo4j.AgentMemory.McpServer.Tools;
 
 namespace Neo4j.AgentMemory.McpServer;
 
 /// <summary>
-/// Extension methods for adding Agent Memory MCP tools and prompts to an MCP server builder.
+/// Extension methods for adding Agent Memory MCP tools, prompts, and resources to an MCP server builder.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Adds all Agent Memory MCP tools to the MCP server.
-    /// Call this after <c>AddMcpServer()</c> to register the 18 memory tools.
+    /// Call this after <c>AddMcpServer()</c> to register all memory tools.
     /// </summary>
     public static IMcpServerBuilder AddAgentMemoryMcpTools(this IMcpServerBuilder builder)
     {
@@ -22,7 +23,8 @@ public static class ServiceCollectionExtensions
             .WithTools<EntityTools>()
             .WithTools<ReasoningTools>()
             .WithTools<GraphQueryTools>()
-            .WithTools<AdvancedMemoryTools>();
+            .WithTools<AdvancedMemoryTools>()
+            .WithTools<ObservationTools>();
     }
 
     /// <summary>
@@ -35,6 +37,19 @@ public static class ServiceCollectionExtensions
             .WithPrompts<MemoryConversationPrompt>()
             .WithPrompts<MemoryReasoningPrompt>()
             .WithPrompts<MemoryReviewPrompt>();
+    }
+
+    /// <summary>
+    /// Adds the four Agent Memory MCP resources (status, entities, conversations, schema).
+    /// Call this after <c>AddMcpServer()</c>.
+    /// </summary>
+    public static IMcpServerBuilder AddAgentMemoryMcpResources(this IMcpServerBuilder builder)
+    {
+        return builder
+            .WithResources<MemoryStatusResource>()
+            .WithResources<EntityListResource>()
+            .WithResources<ConversationListResource>()
+            .WithResources<SchemaInfoResource>();
     }
 
     /// <summary>
