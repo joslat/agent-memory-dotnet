@@ -266,3 +266,27 @@
 **Existing test updated:** `MergeEntitiesAsync_SendsCorrectCypher` — changed `HaveCount(1)` → `HaveCountGreaterThanOrEqualTo(1)` to accommodate the second RunAsync call from the refresh hook.
 
 **Build status:** `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 847 passed, 0 failed.
+
+### G12 — Diffbot Enrichment Provider (2026-04-14)
+
+**Task:** Port Python nrichment/diffbot.py to .NET as DiffbotEnrichmentService.
+
+**Files created/modified:**
+- src/Neo4j.AgentMemory.Abstractions/Domain/Enrichment/EnrichmentStatus.cs — new enum (Success, NotFound, Skipped, RateLimited, Error)
+- src/Neo4j.AgentMemory.Abstractions/Domain/Enrichment/RelatedEntity.cs — new record with Name, Relation, DiffbotUri
+- src/Neo4j.AgentMemory.Abstractions/Domain/Enrichment/EnrichmentResult.cs — extended with optional Status, EntityType, Confidence, ErrorMessage, SourceUrl, DiffbotUri, Images, RelatedEntities (all backward-compatible defaults)
+- src/Neo4j.AgentMemory.Abstractions/Options/DiffbotEnrichmentOptions.cs — new options record (ApiKey, RateLimitSeconds, Timeout, BaseUrl)
+- src/Neo4j.AgentMemory.Enrichment/Enrichment/DiffbotEnrichmentService.cs — full service implementation
+- src/Neo4j.AgentMemory.Enrichment/ServiceCollectionExtensions.cs — added AddDiffbotEnrichment extension
+- 	ests/Neo4j.AgentMemory.Tests.Unit/Enrichment/DiffbotEnrichmentServiceTests.cs — 15 unit tests, all passing
+
+**Key design decisions:**
+- DiffbotEnrichmentOptions uses set (not init) properties to support Action<T> DI pattern; equired dropped in favour of default empty string for ApiKey.
+- Returns non-null EnrichmentResult with Status field even on error/not-found (richer error surface than Wikimedia which returns null). Backward-compatible since Wikimedia callers only check for null.
+- Rate limiting via SemaphoreSlim + Task.Delay on the service instance (matches Python's syncio.Lock pattern).
+- Type-specific metadata (Person/Org/Location fields) stored as JSON-serialized strings in the existing Properties dictionary.
+- The DiffbotEnrichmentService accepts HttpClient directly (typed client pattern) + DiffbotEnrichmentOptions singleton.
+- parent relation field handled as both array and single-object via JsonArray clone.
+
+**Build status:** dotnet build src/Neo4j.AgentMemory.Enrichment → 0 errors, 0 warnings.
+**Test status:** 15/15 Diffbot tests pass; 7/7 Wikimedia tests pass (no regression).

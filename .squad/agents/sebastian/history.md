@@ -1,5 +1,36 @@
 # Sebastian — History
 
+## Learnings
+
+### 2025-07-13 — G14: Custom YAML/JSON Schema Support
+
+**Deliverables (all in `Domain/Schema/`):**
+
+1. **`EntityTypeConfig`** — sealed record with Name, Description, Subtypes, Attributes, Color
+2. **`RelationTypeConfig`** — sealed record with Name, Description, SourceTypes, TargetTypes, Properties
+3. **`EntitySchemaConfig`** — sealed record with POLE+O defaults, `GetEntityTypeNames()`, `GetSubtypes()`, `IsValidType()`, `NormalizeType()`, `GetRelationTypeNames()`
+4. **`SchemaModel`** enum — Poleo, Legacy, Custom
+5. **`SchemaListItem`** — sealed record for schema listing
+6. **`DefaultSchemas`** — static class with `GetPoleoEntityTypes()` (5 types), `GetPoleoRelationTypes()` (16 relations), `GetLegacyEntityTypes()` (8 types), `LegacyToPoleoMapping` dictionary
+7. **`ISchemaManager`** — interface in Services with LoadSchemaAsync, SaveSchemaAsync, ListSchemasAsync, etc.
+8. **`SchemaLoader`** — static class in Core.Schema with JSON loading (path + stream overloads), `CreateForTypes()`, `GetDefaultSchema()`, `GetLegacySchema()`
+
+**Tests:** 91 passing tests across 6 test classes:
+- `EntityTypeConfigTests`, `RelationTypeConfigTests`, `SchemaListItemTests` — record property defaults and equality
+- `DefaultSchemasTests` — POLE+O entity/relation types, legacy mapping
+- `EntitySchemaConfigTests` — default schema validation, GetSubtypes, IsValidType, NormalizeType
+- `SchemaLoaderTests` — JSON loading (file/stream), CreateForTypes, GetDefaultSchema, GetLegacySchema
+
+**Key decisions:**
+- Used `#pragma warning disable CS1591` on all Abstractions types (consistent with SchemaConstants.cs pattern)
+- DTOs kept private inside `SchemaLoader` — no leakage of deserialization internals
+- YAML intentionally excluded (no third-party deps)
+- `SchemaListItem` placed in `Domain/Schema/` (not a separate Services namespace) for clean domain cohesion
+
+**Pre-existing fix:** `TextChunkerTests.cs` used `HaveCountGreaterOrEqualTo` (FluentAssertions 7 API) — replaced with `HaveCountGreaterThanOrEqualTo` (FA8+). This was blocking all test runs.
+
+---
+
 ## Project Context
 - **Project:** Agent Memory for .NET
 - **User:** Jose Luis Latorre Millas

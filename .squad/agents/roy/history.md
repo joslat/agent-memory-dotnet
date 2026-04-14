@@ -423,3 +423,42 @@
 
 **Build Outcome:** dotnet build — 0 errors, 0 warnings
 **Test Outcome:** dotnet test — 867/867 passed ✅ (20 new tests added)
+
+---
+
+### 2026-04-14: Gap G7 — Streaming Extraction Pipeline
+
+**Task:** Ported the Python streaming.py module to .NET, implementing a full streaming extraction pipeline for processing long documents efficiently with chunking, overlap, and deduplication.
+
+**Files Created:**
+
+*Abstractions:*
+1. `src/Neo4j.AgentMemory.Abstractions/Domain/Extraction/Streaming/ChunkInfo.cs` — sealed record with Index, StartChar, EndChar, Text, IsFirst, IsLast; computed CharCount and ApproxTokenCount (\S+ pattern)
+2. `src/Neo4j.AgentMemory.Abstractions/Domain/Extraction/Streaming/StreamingChunkResult.cs` — sealed record with Chunk, Result, Success, Error, DurationMs; computed EntityCount, RelationCount
+3. `src/Neo4j.AgentMemory.Abstractions/Domain/Extraction/Streaming/StreamingExtractionStats.cs` — sealed record with all aggregate counters
+4. `src/Neo4j.AgentMemory.Abstractions/Domain/Extraction/Streaming/StreamingExtractionResult.cs` — sealed record with Entities, Relationships, ChunkResults, Stats; ToExtractionResult() method
+5. `src/Neo4j.AgentMemory.Abstractions/Options/StreamingExtractionOptions.cs` — char/token defaults, ChunkByTokens flag, SplitOnSentences, ForTokens() factory
+6. `src/Neo4j.AgentMemory.Abstractions/Services/IStreamingExtractor.cs` — ChunkDocument, ExtractStreamingAsync (IAsyncEnumerable), ExtractAsync
+
+*Core:*
+7. `src/Neo4j.AgentMemory.Core/Extraction/Streaming/TextChunker.cs` — internal static class; ChunkByChars (sentence-boundary aware) and ChunkByTokens (\S+ tokeniser) matching Python logic exactly
+8. `src/Neo4j.AgentMemory.Core/Extraction/Streaming/EntityDeduplicator.cs` — internal static class; DeduplicateEntities (name+type key, highest confidence wins) and DeduplicateRelationships (source+type+target, case-insensitive)
+9. `src/Neo4j.AgentMemory.Core/Extraction/Streaming/StreamingExtractor.cs` — IStreamingExtractor implementation; IAsyncEnumerable with [EnumeratorCancellation]; per-chunk error isolation; Stopwatch timing; wraps chunk text in a synthetic Message for IEntityExtractor
+
+*Tests (54 new tests, all passing):*
+10. `tests/.../Extraction/Streaming/TextChunkerTests.cs` — 16 tests: empty, short, multi-chunk, sentence boundary, overlap, token-based, unicode, 1M chars, no-spaces
+11. `tests/.../Extraction/Streaming/EntityDeduplicatorTests.cs` — 10 tests: empty, no-dupes, with-dupes, same-name-different-types, case-insensitive, relationship dedup
+12. `tests/.../Extraction/Streaming/StreamingExtractorTests.cs` — 12 tests: single chunk, multi-chunk streaming, error isolation, sequential indices, dedup, stats accuracy, ToExtractionResult
+13. `tests/.../Extraction/Streaming/StreamingChunkResultTests.cs` — 4 tests: property accessors, defaults
+14. `tests/.../Extraction/Streaming/StreamingExtractionResultTests.cs` — 4 tests: ToExtractionResult, empty collections, stats defaults
+15. `tests/.../Extraction/Streaming/StreamingExtractionOptionsTests.cs` — 6 tests: default values, constant values, ForTokens factory
+
+**Key Design Decisions:**
+1. **IEntityExtractor wrapping** — IEntityExtractor takes IReadOnlyList<Message>, not raw text. StreamingExtractor synthesises a Message with a stable MessageId (GUID), ConversationId="streaming", SessionId="streaming" per chunk. This is clean and doesn't require interface changes.
+2. **IAsyncEnumerable with [EnumeratorCancellation]** — Proper .NET async streaming pattern. Errors on individual chunks are caught, logged, and emitted as failed StreamingChunkResult rather than propagating — matching Python's per-chunk error isolation.
+3. **Internal static helpers** — TextChunker and EntityDeduplicator are internal static classes accessible to tests via InternalsVisibleTo. Keeps the public surface minimal.
+4. **No IRelationshipExtractor integration** — IStreamingExtractor only wraps IEntityExtractor by design. Relationship extraction is separate concern; the ExtractionResult.Relationships collection remains empty unless the extractor populates it.
+5. **StreamingExtractionResult.Stats uses DeduplicatedEntities for post-dedup count** — TotalEntities = raw across all chunks, DeduplicatedEntities = count after dedup, matching Python's stats structure exactly.
+
+**Build Outcome:** `dotnet build` — 0 new errors
+**Test Outcome:** 1003/1003 tests pass (54 new tests for streaming pipeline) ✅

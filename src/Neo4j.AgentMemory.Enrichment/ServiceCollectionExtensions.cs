@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Services;
 
 namespace Neo4j.AgentMemory.Enrichment;
@@ -75,6 +76,27 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IMemoryCache>(),
             sp.GetRequiredService<IOptions<EnrichmentCacheOptions>>(),
             sp.GetRequiredService<ILogger<CachedEnrichmentService>>()));
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers <see cref="DiffbotEnrichmentService"/> as a typed HTTP client.
+    /// The service is available via <see cref="DiffbotEnrichmentService"/> directly.
+    /// </summary>
+    public static IServiceCollection AddDiffbotEnrichment(
+        this IServiceCollection services,
+        Action<DiffbotEnrichmentOptions> configure)
+    {
+        var options = new DiffbotEnrichmentOptions();
+        configure(options);
+
+        services.TryAddSingleton(options);
+
+        services.AddHttpClient<DiffbotEnrichmentService>((_, client) =>
+        {
+            client.Timeout = options.Timeout;
+        });
 
         return services;
     }
