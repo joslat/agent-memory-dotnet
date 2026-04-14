@@ -25,28 +25,28 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         const string cypher = @"
             MERGE (e:Entity {id: $id})
             ON CREATE SET
-                e.name             = $name,
-                e.canonicalName    = $canonicalName,
-                e.type             = $type,
-                e.subtype          = $subtype,
-                e.description      = $description,
-                e.confidence       = $confidence,
-                e.aliases          = $aliases,
-                e.attributes       = $attributes,
-                e.sourceMessageIds = $sourceMessageIds,
-                e.createdAtUtc     = $createdAtUtc,
-                e.metadata         = $metadata
+                e.name               = $name,
+                e.canonical_name     = $canonicalName,
+                e.type               = $type,
+                e.subtype            = $subtype,
+                e.description        = $description,
+                e.confidence         = $confidence,
+                e.aliases            = $aliases,
+                e.attributes         = $attributes,
+                e.source_message_ids = $sourceMessageIds,
+                e.created_at         = $createdAtUtc,
+                e.metadata           = $metadata
             ON MATCH SET
-                e.name             = $name,
-                e.canonicalName    = $canonicalName,
-                e.type             = $type,
-                e.subtype          = $subtype,
-                e.description      = $description,
-                e.confidence       = $confidence,
-                e.aliases          = $aliases,
-                e.attributes       = $attributes,
-                e.sourceMessageIds = $sourceMessageIds,
-                e.metadata         = $metadata
+                e.name               = $name,
+                e.canonical_name     = $canonicalName,
+                e.type               = $type,
+                e.subtype            = $subtype,
+                e.description        = $description,
+                e.confidence         = $confidence,
+                e.aliases            = $aliases,
+                e.attributes         = $attributes,
+                e.source_message_ids = $sourceMessageIds,
+                e.metadata           = $metadata
             RETURN e";
 
         return await _tx.WriteAsync(async runner =>
@@ -185,8 +185,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         _logger.LogDebug("Searching entities by name '{Name}', type={Type}", name, type);
 
         var cypher = type is null
-            ? "MATCH (e:Entity) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonicalName) CONTAINS toLower($name) RETURN e"
-            : "MATCH (e:Entity {type: $type}) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonicalName) CONTAINS toLower($name) RETURN e";
+            ? "MATCH (e:Entity) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name) RETURN e"
+            : "MATCH (e:Entity {type: $type}) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name) RETURN e";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -240,7 +240,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             MATCH (e1:Entity {id: $entityId1})
             MATCH (e2:Entity {id: $entityId2})
             MERGE (e1)-[r:SAME_AS]->(e2)
-            SET r.confidence = $confidence, r.matchType = $matchType, r.createdAt = datetime()";
+            SET r.confidence = $confidence, r.match_type = $matchType, r.created_at = datetime()";
 
         await _tx.WriteAsync(async runner =>
         {
@@ -254,7 +254,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         const string cypher = @"
             MATCH (e:Entity {id: $entityId})-[r:SAME_AS]-(other:Entity)
-            RETURN other, r.confidence AS confidence, r.matchType AS matchType";
+            RETURN other, r.confidence AS confidence, r.match_type AS matchType";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -280,44 +280,44 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             UNWIND $items AS item
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
-                e.name             = item.name,
-                e.canonicalName    = item.canonicalName,
-                e.type             = item.type,
-                e.subtype          = item.subtype,
-                e.description      = item.description,
-                e.confidence       = item.confidence,
-                e.aliases          = item.aliases,
-                e.attributes       = item.attributes,
-                e.sourceMessageIds = item.sourceMessageIds,
-                e.createdAtUtc     = item.createdAtUtc,
-                e.metadata         = item.metadata
+                e.name               = item.name,
+                e.canonical_name     = item.canonical_name,
+                e.type               = item.type,
+                e.subtype            = item.subtype,
+                e.description        = item.description,
+                e.confidence         = item.confidence,
+                e.aliases            = item.aliases,
+                e.attributes         = item.attributes,
+                e.source_message_ids = item.source_message_ids,
+                e.created_at         = item.created_at,
+                e.metadata           = item.metadata
             ON MATCH SET
-                e.name             = item.name,
-                e.canonicalName    = item.canonicalName,
-                e.type             = item.type,
-                e.subtype          = item.subtype,
-                e.description      = item.description,
-                e.confidence       = item.confidence,
-                e.aliases          = item.aliases,
-                e.attributes       = item.attributes,
-                e.sourceMessageIds = item.sourceMessageIds,
-                e.metadata         = item.metadata
+                e.name               = item.name,
+                e.canonical_name     = item.canonical_name,
+                e.type               = item.type,
+                e.subtype            = item.subtype,
+                e.description        = item.description,
+                e.confidence         = item.confidence,
+                e.aliases            = item.aliases,
+                e.attributes         = item.attributes,
+                e.source_message_ids = item.source_message_ids,
+                e.metadata           = item.metadata
             RETURN e";
 
         var items = entities.Select(e => new Dictionary<string, object?>
         {
-            ["id"]               = e.EntityId,
-            ["name"]             = e.Name,
-            ["canonicalName"]    = (object?)e.CanonicalName,
-            ["type"]             = e.Type,
-            ["subtype"]          = (object?)e.Subtype,
-            ["description"]      = (object?)e.Description,
-            ["confidence"]       = e.Confidence,
-            ["aliases"]          = e.Aliases.ToList(),
-            ["attributes"]       = SerializeMetadata(e.Attributes),
-            ["sourceMessageIds"] = e.SourceMessageIds.ToList(),
-            ["createdAtUtc"]     = e.CreatedAtUtc.ToString("O"),
-            ["metadata"]         = SerializeMetadata(e.Metadata)
+            ["id"]                = e.EntityId,
+            ["name"]              = e.Name,
+            ["canonical_name"]    = (object?)e.CanonicalName,
+            ["type"]              = e.Type,
+            ["subtype"]           = (object?)e.Subtype,
+            ["description"]       = (object?)e.Description,
+            ["confidence"]        = e.Confidence,
+            ["aliases"]           = e.Aliases.ToList(),
+            ["attributes"]        = SerializeMetadata(e.Attributes),
+            ["source_message_ids"] = e.SourceMessageIds.ToList(),
+            ["created_at"]        = e.CreatedAtUtc.ToString("O"),
+            ["metadata"]          = SerializeMetadata(e.Metadata)
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
@@ -383,10 +383,10 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             CALL (source, target) {
                 MATCH (source)-[r:SAME_AS]-(other:Entity)
                 WHERE other <> target AND NOT (target)-[:SAME_AS]-(other)
-                MERGE (target)-[:SAME_AS {confidence: r.confidence, matchType: r.matchType, createdAt: datetime()}]-(other)
+                MERGE (target)-[:SAME_AS {confidence: r.confidence, match_type: r.match_type, created_at: datetime()}]-(other)
                 RETURN count(*) AS sameAsTransferred
             }
-            SET source.mergedInto = target.id, source.mergedAt = datetime()
+            SET source.merged_into = target.id, source.merged_at = datetime()
             SET target.aliases = CASE
                 WHEN target.aliases IS NULL THEN [source.name]
                 WHEN NOT source.name IN target.aliases THEN target.aliases + source.name
@@ -405,7 +405,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         {
             EntityId       = node["id"].As<string>(),
             Name           = node["name"].As<string>(),
-            CanonicalName  = node.Properties.TryGetValue("canonicalName", out var cn) ? cn.As<string>() : null,
+            CanonicalName  = node.Properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
             Type           = node["type"].As<string>(),
             Subtype        = node.Properties.TryGetValue("subtype", out var st) ? st.As<string>() : null,
             Description    = node.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
@@ -415,10 +415,10 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                                 ? al.As<IList<object>>().Select(a => a.ToString()!).ToList()
                                 : Array.Empty<string>(),
             Attributes     = DeserializeMetadata(node.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
-            SourceMessageIds = node.Properties.TryGetValue("sourceMessageIds", out var sm)
+            SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc   = DateTimeOffset.Parse(node["createdAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc   = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

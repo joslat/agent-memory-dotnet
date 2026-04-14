@@ -26,28 +26,30 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
         const string cypher = @"
             MERGE (s:Entity {id: $sourceEntityId})
             MERGE (t:Entity {id: $targetEntityId})
-            MERGE (s)-[r:RELATES_TO {id: $id}]->(t)
+            MERGE (s)-[r:RELATED_TO {id: $id}]->(t)
             ON CREATE SET
-                r.relationshipType = $relationshipType,
-                r.sourceEntityId   = $sourceEntityId,
-                r.targetEntityId   = $targetEntityId,
-                r.confidence       = $confidence,
-                r.description      = $description,
-                r.validFrom        = $validFrom,
-                r.validUntil       = $validUntil,
-                r.attributes       = $attributes,
-                r.sourceMessageIds = $sourceMessageIds,
-                r.createdAtUtc     = $createdAtUtc,
-                r.metadata         = $metadata
+                r.relation_type      = $relationType,
+                r.source_entity_id   = $sourceEntityId,
+                r.target_entity_id   = $targetEntityId,
+                r.confidence         = $confidence,
+                r.description        = $description,
+                r.valid_from         = $validFrom,
+                r.valid_until        = $validUntil,
+                r.attributes         = $attributes,
+                r.source_message_ids = $sourceMessageIds,
+                r.created_at         = $createdAt,
+                r.updated_at         = $updatedAt,
+                r.metadata           = $metadata
             ON MATCH SET
-                r.relationshipType = $relationshipType,
-                r.confidence       = $confidence,
-                r.description      = $description,
-                r.validFrom        = $validFrom,
-                r.validUntil       = $validUntil,
-                r.attributes       = $attributes,
-                r.sourceMessageIds = $sourceMessageIds,
-                r.metadata         = $metadata
+                r.relation_type      = $relationType,
+                r.confidence         = $confidence,
+                r.description        = $description,
+                r.valid_from         = $validFrom,
+                r.valid_until        = $validUntil,
+                r.attributes         = $attributes,
+                r.source_message_ids = $sourceMessageIds,
+                r.updated_at         = $updatedAt,
+                r.metadata           = $metadata
             RETURN r";
 
         return await _tx.WriteAsync(async runner =>
@@ -57,14 +59,15 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
                 ["id"]               = relationship.RelationshipId,
                 ["sourceEntityId"]   = relationship.SourceEntityId,
                 ["targetEntityId"]   = relationship.TargetEntityId,
-                ["relationshipType"] = relationship.RelationshipType,
+                ["relationType"]     = relationship.RelationshipType,
                 ["confidence"]       = relationship.Confidence,
                 ["description"]      = (object?)relationship.Description,
                 ["validFrom"]        = (object?)(relationship.ValidFrom?.ToString("O")),
                 ["validUntil"]       = (object?)(relationship.ValidUntil?.ToString("O")),
                 ["attributes"]       = SerializeMetadata(relationship.Attributes),
                 ["sourceMessageIds"] = relationship.SourceMessageIds.ToList(),
-                ["createdAtUtc"]     = relationship.CreatedAtUtc.ToString("O"),
+                ["createdAt"]        = relationship.CreatedAtUtc.ToString("O"),
+                ["updatedAt"]        = DateTimeOffset.UtcNow.ToString("O"),
                 ["metadata"]         = SerializeMetadata(relationship.Metadata)
             };
 
@@ -78,7 +81,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting relationship {Id}", relationshipId);
 
-        const string cypher = "MATCH ()-[r:RELATES_TO {id: $id}]->() RETURN r";
+        const string cypher = "MATCH ()-[r:RELATED_TO {id: $id}]->() RETURN r";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -94,7 +97,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
         _logger.LogDebug("Getting relationships for entity {EntityId}", entityId);
 
         const string cypher = @"
-            MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
+            MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)
             WHERE s.id = $entityId OR t.id = $entityId
             RETURN r";
 
@@ -110,7 +113,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting outgoing relationships for entity {EntityId}", sourceEntityId);
 
-        const string cypher = "MATCH (s:Entity {id: $sourceEntityId})-[r:RELATES_TO]->() RETURN r";
+        const string cypher = "MATCH (s:Entity {id: $sourceEntityId})-[r:RELATED_TO]->() RETURN r";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -124,7 +127,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting incoming relationships for entity {EntityId}", targetEntityId);
 
-        const string cypher = "MATCH ()-[r:RELATES_TO]->(t:Entity {id: $targetEntityId}) RETURN r";
+        const string cypher = "MATCH ()-[r:RELATED_TO]->(t:Entity {id: $targetEntityId}) RETURN r";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -138,22 +141,22 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
         new()
         {
             RelationshipId   = r["id"].As<string>(),
-            SourceEntityId   = r["sourceEntityId"].As<string>(),
-            TargetEntityId   = r["targetEntityId"].As<string>(),
-            RelationshipType = r["relationshipType"].As<string>(),
+            SourceEntityId   = r["source_entity_id"].As<string>(),
+            TargetEntityId   = r["target_entity_id"].As<string>(),
+            RelationshipType = r["relation_type"].As<string>(),
             Confidence       = r["confidence"].As<double>(),
             Description      = r.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
-            ValidFrom        = r.Properties.TryGetValue("validFrom", out var vf) && vf.As<string>() is { } vfStr && !string.IsNullOrEmpty(vfStr)
+            ValidFrom        = r.Properties.TryGetValue("valid_from", out var vf) && vf.As<string>() is { } vfStr && !string.IsNullOrEmpty(vfStr)
                                 ? DateTimeOffset.Parse(vfStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
                                 : null,
-            ValidUntil       = r.Properties.TryGetValue("validUntil", out var vu) && vu.As<string>() is { } vuStr && !string.IsNullOrEmpty(vuStr)
+            ValidUntil       = r.Properties.TryGetValue("valid_until", out var vu) && vu.As<string>() is { } vuStr && !string.IsNullOrEmpty(vuStr)
                                 ? DateTimeOffset.Parse(vuStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
                                 : null,
             Attributes       = DeserializeMetadata(r.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
-            SourceMessageIds = r.Properties.TryGetValue("sourceMessageIds", out var sm)
+            SourceMessageIds = r.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = DateTimeOffset.Parse(r["createdAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc     = DateTimeOffset.Parse(r["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata         = DeserializeMetadata(r.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

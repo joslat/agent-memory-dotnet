@@ -25,14 +25,14 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         const string createCypher = @"
             MATCH (conv:Conversation {id: $conversationId})
             CREATE (m:Message {
-                id:             $id,
-                conversationId: $conversationId,
-                sessionId:      $sessionId,
-                role:           $role,
-                content:        $content,
-                timestamp:      $timestamp,
-                toolCallIds:    $toolCallIds,
-                metadata:       $metadata
+                id:              $id,
+                conversation_id: $conversationId,
+                session_id:      $sessionId,
+                role:            $role,
+                content:         $content,
+                timestamp:       $timestamp,
+                tool_call_ids:   $toolCallIds,
+                metadata:        $metadata
             })
             CREATE (conv)-[:HAS_MESSAGE]->(m)
             RETURN m";
@@ -95,30 +95,30 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         const string createCypher = @"
             UNWIND $messages AS msg
-            MATCH (conv:Conversation {id: msg.conversationId})
+            MATCH (conv:Conversation {id: msg.conversation_id})
             CREATE (m:Message {
-                id:             msg.id,
-                conversationId: msg.conversationId,
-                sessionId:      msg.sessionId,
-                role:           msg.role,
-                content:        msg.content,
-                timestamp:      msg.timestamp,
-                toolCallIds:    msg.toolCallIds,
-                metadata:       msg.metadata
+                id:              msg.id,
+                conversation_id: msg.conversation_id,
+                session_id:      msg.session_id,
+                role:            msg.role,
+                content:         msg.content,
+                timestamp:       msg.timestamp,
+                tool_call_ids:   msg.tool_call_ids,
+                metadata:        msg.metadata
             })
             CREATE (conv)-[:HAS_MESSAGE]->(m)
             RETURN m";
 
         var msgParams = ordered.Select(m => new Dictionary<string, object?>
         {
-            ["id"]             = m.MessageId,
-            ["conversationId"] = m.ConversationId,
-            ["sessionId"]      = m.SessionId,
-            ["role"]           = m.Role,
-            ["content"]        = m.Content,
-            ["timestamp"]      = m.TimestampUtc.ToString("O"),
-            ["toolCallIds"]    = m.ToolCallIds?.ToList() ?? new List<string>(),
-            ["metadata"]       = SerializeMetadata(m.Metadata)
+            ["id"]              = m.MessageId,
+            ["conversation_id"] = m.ConversationId,
+            ["session_id"]      = m.SessionId,
+            ["role"]            = m.Role,
+            ["content"]         = m.Content,
+            ["timestamp"]       = m.TimestampUtc.ToString("O"),
+            ["tool_call_ids"]   = m.ToolCallIds?.ToList() ?? new List<string>(),
+            ["metadata"]        = SerializeMetadata(m.Metadata)
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
@@ -218,7 +218,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         _logger.LogDebug("Getting {Limit} recent messages for session {SessionId}", limit, sessionId);
 
         const string cypher = @"
-            MATCH (m:Message {sessionId: $sessionId})
+            MATCH (m:Message {session_id: $sessionId})
             RETURN m
             ORDER BY m.timestamp DESC
             LIMIT $limit";
@@ -254,7 +254,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             : @"
                 CALL db.index.vector.queryNodes('message_embedding_idx', $limit, $embedding)
                 YIELD node, score
-                WHERE score >= $minScore AND node.sessionId = $sessionId
+                WHERE score >= $minScore AND node.session_id = $sessionId
                 RETURN node, score
                 ORDER BY score DESC";
 
@@ -283,7 +283,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Deleting messages for session {SessionId}", sessionId);
 
-        const string cypher = "MATCH (m:Message {sessionId: $sessionId}) DETACH DELETE m";
+        const string cypher = "MATCH (m:Message {session_id: $sessionId}) DETACH DELETE m";
 
         await _tx.WriteAsync(async runner =>
         {
@@ -295,13 +295,13 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         new()
         {
             MessageId      = node["id"].As<string>(),
-            ConversationId = node["conversationId"].As<string>(),
-            SessionId      = node["sessionId"].As<string>(),
+            ConversationId = node["conversation_id"].As<string>(),
+            SessionId      = node["session_id"].As<string>(),
             Role           = node["role"].As<string>(),
             Content        = node["content"].As<string>(),
             TimestampUtc   = DateTimeOffset.Parse(node["timestamp"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Embedding      = embedding,
-            ToolCallIds    = node.Properties.TryGetValue("toolCallIds", out var tc)
+            ToolCallIds    = node.Properties.TryGetValue("tool_call_ids", out var tc)
                                 ? tc.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : null,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)

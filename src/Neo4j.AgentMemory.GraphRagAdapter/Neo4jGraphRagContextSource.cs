@@ -129,7 +129,7 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
                 options.IndexName,
                 embeddingGenerator,
                 options.RetrievalQuery
-                    ?? "WITH node, score MATCH (node)-[:RELATES_TO*1..2]-(related) RETURN node.text + ' -> ' + related.text AS text, score"),
+                    ?? "WITH node, score MATCH (node)-[:RELATED_TO*1..2]-(related) RETURN node.text + ' -> ' + related.text AS text, score"),
 
             _ => throw new ArgumentOutOfRangeException(nameof(options.SearchMode),
                      $"Unsupported search mode: {options.SearchMode}")

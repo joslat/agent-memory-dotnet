@@ -25,24 +25,24 @@ public sealed class Neo4jFactRepository : IFactRepository
         const string cypher = @"
             MERGE (f:Fact {id: $id})
             ON CREATE SET
-                f.subject          = $subject,
-                f.predicate        = $predicate,
-                f.object           = $object,
-                f.confidence       = $confidence,
-                f.validFrom        = $validFrom,
-                f.validUntil       = $validUntil,
-                f.sourceMessageIds = $sourceMessageIds,
-                f.createdAtUtc     = $createdAtUtc,
-                f.metadata         = $metadata
+                f.subject            = $subject,
+                f.predicate          = $predicate,
+                f.object             = $object,
+                f.confidence         = $confidence,
+                f.valid_from         = $validFrom,
+                f.valid_until        = $validUntil,
+                f.source_message_ids = $sourceMessageIds,
+                f.created_at         = $createdAtUtc,
+                f.metadata           = $metadata
             ON MATCH SET
-                f.subject          = $subject,
-                f.predicate        = $predicate,
-                f.object           = $object,
-                f.confidence       = $confidence,
-                f.validFrom        = $validFrom,
-                f.validUntil       = $validUntil,
-                f.sourceMessageIds = $sourceMessageIds,
-                f.metadata         = $metadata
+                f.subject            = $subject,
+                f.predicate          = $predicate,
+                f.object             = $object,
+                f.confidence         = $confidence,
+                f.valid_from         = $validFrom,
+                f.valid_until        = $validUntil,
+                f.source_message_ids = $sourceMessageIds,
+                f.metadata           = $metadata
             RETURN f";
 
         return await _tx.WriteAsync(async runner =>
@@ -97,38 +97,38 @@ public sealed class Neo4jFactRepository : IFactRepository
             UNWIND $items AS item
             MERGE (f:Fact {id: item.id})
             ON CREATE SET
-                f.subject          = item.subject,
-                f.predicate        = item.predicate,
-                f.object           = item.object,
-                f.confidence       = item.confidence,
-                f.validFrom        = item.validFrom,
-                f.validUntil       = item.validUntil,
-                f.sourceMessageIds = item.sourceMessageIds,
-                f.createdAtUtc     = item.createdAtUtc,
-                f.metadata         = item.metadata
+                f.subject            = item.subject,
+                f.predicate          = item.predicate,
+                f.object             = item.object,
+                f.confidence         = item.confidence,
+                f.valid_from         = item.valid_from,
+                f.valid_until        = item.valid_until,
+                f.source_message_ids = item.source_message_ids,
+                f.created_at         = item.created_at,
+                f.metadata           = item.metadata
             ON MATCH SET
-                f.subject          = item.subject,
-                f.predicate        = item.predicate,
-                f.object           = item.object,
-                f.confidence       = item.confidence,
-                f.validFrom        = item.validFrom,
-                f.validUntil       = item.validUntil,
-                f.sourceMessageIds = item.sourceMessageIds,
-                f.metadata         = item.metadata
+                f.subject            = item.subject,
+                f.predicate          = item.predicate,
+                f.object             = item.object,
+                f.confidence         = item.confidence,
+                f.valid_from         = item.valid_from,
+                f.valid_until        = item.valid_until,
+                f.source_message_ids = item.source_message_ids,
+                f.metadata           = item.metadata
             RETURN f";
 
         var items = facts.Select(f => new Dictionary<string, object?>
         {
-            ["id"]               = f.FactId,
-            ["subject"]          = f.Subject,
-            ["predicate"]        = f.Predicate,
-            ["object"]           = f.Object,
-            ["confidence"]       = f.Confidence,
-            ["validFrom"]        = (object?)(f.ValidFrom?.ToString("O")),
-            ["validUntil"]       = (object?)(f.ValidUntil?.ToString("O")),
-            ["sourceMessageIds"] = f.SourceMessageIds.ToList(),
-            ["createdAtUtc"]     = f.CreatedAtUtc.ToString("O"),
-            ["metadata"]         = SerializeMetadata(f.Metadata)
+            ["id"]                = f.FactId,
+            ["subject"]           = f.Subject,
+            ["predicate"]         = f.Predicate,
+            ["object"]            = f.Object,
+            ["confidence"]        = f.Confidence,
+            ["valid_from"]        = (object?)(f.ValidFrom?.ToString("O")),
+            ["valid_until"]       = (object?)(f.ValidUntil?.ToString("O")),
+            ["source_message_ids"] = f.SourceMessageIds.ToList(),
+            ["created_at"]        = f.CreatedAtUtc.ToString("O"),
+            ["metadata"]          = SerializeMetadata(f.Metadata)
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
@@ -283,17 +283,17 @@ public sealed class Neo4jFactRepository : IFactRepository
             Predicate        = node["predicate"].As<string>(),
             Object           = node["object"].As<string>(),
             Confidence       = node["confidence"].As<double>(),
-            ValidFrom        = node.Properties.TryGetValue("validFrom", out var vf) && vf.As<string>() is { } vfStr && !string.IsNullOrEmpty(vfStr)
+            ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf) && vf.As<string>() is { } vfStr && !string.IsNullOrEmpty(vfStr)
                                 ? DateTimeOffset.Parse(vfStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
                                 : null,
-            ValidUntil       = node.Properties.TryGetValue("validUntil", out var vu) && vu.As<string>() is { } vuStr && !string.IsNullOrEmpty(vuStr)
+            ValidUntil       = node.Properties.TryGetValue("valid_until", out var vu) && vu.As<string>() is { } vuStr && !string.IsNullOrEmpty(vuStr)
                                 ? DateTimeOffset.Parse(vuStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
                                 : null,
             Embedding        = embedding,
-            SourceMessageIds = node.Properties.TryGetValue("sourceMessageIds", out var sm)
+            SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = DateTimeOffset.Parse(node["createdAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc     = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

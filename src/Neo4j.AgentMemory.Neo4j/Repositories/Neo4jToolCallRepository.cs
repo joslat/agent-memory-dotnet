@@ -25,17 +25,17 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         const string cypher = @"
             MATCH (s:ReasoningStep {id: $stepId})
             CREATE (tc:ToolCall {
-                id:            $id,
-                stepId:        $stepId,
-                toolName:      $toolName,
-                argumentsJson: $argumentsJson,
-                resultJson:    $resultJson,
-                status:        $status,
-                durationMs:    $durationMs,
-                error:         $error,
-                metadata:      $metadata
+                id:          $id,
+                step_id:     $stepId,
+                tool_name:   $toolName,
+                arguments:   $arguments,
+                result:      $result,
+                status:      $status,
+                duration_ms: $durationMs,
+                error:       $error,
+                metadata:    $metadata
             })
-            CREATE (s)-[:USED_TOOL]->(tc)
+            CREATE (s)-[:USES_TOOL]->(tc)
             RETURN tc";
 
         return await _tx.WriteAsync(async runner =>
@@ -45,13 +45,13 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
             var record = await cursor.SingleAsync();
             var tcNode = record["tc"].As<INode>();
 
-            // Create CALLS relationship to a Tool node (auto-created on first encounter)
+            // Create INSTANCE_OF relationship to a Tool node (auto-created on first encounter)
             await runner.RunAsync(@"
                 MATCH (tc:ToolCall {id: $id})
                 MERGE (tool:Tool {name: $toolName})
-                ON CREATE SET tool.createdAtUtc = $now
-                MERGE (tc)-[:CALLS]->(tool)
-                SET tool.totalCalls = COALESCE(tool.totalCalls, 0) + 1",
+                ON CREATE SET tool.created_at = $now
+                MERGE (tc)-[:INSTANCE_OF]->(tool)
+                SET tool.total_calls = COALESCE(tool.total_calls, 0) + 1",
                 new { id = toolCall.ToolCallId, toolName = toolCall.ToolName, now = DateTimeOffset.UtcNow.ToString("O") });
 
             return MapToToolCall(tcNode);
@@ -65,13 +65,13 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         const string cypher = @"
             MATCH (tc:ToolCall {id: $id})
             SET
-                tc.toolName      = $toolName,
-                tc.argumentsJson = $argumentsJson,
-                tc.resultJson    = $resultJson,
-                tc.status        = $status,
-                tc.durationMs    = $durationMs,
-                tc.error         = $error,
-                tc.metadata      = $metadata
+                tc.tool_name   = $toolName,
+                tc.arguments   = $arguments,
+                tc.result      = $result,
+                tc.status      = $status,
+                tc.duration_ms = $durationMs,
+                tc.error       = $error,
+                tc.metadata    = $metadata
             RETURN tc";
 
         return await _tx.WriteAsync(async runner =>
@@ -88,9 +88,9 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         _logger.LogDebug("Getting tool calls for step {StepId}", stepId);
 
         const string cypher = @"
-            MATCH (s:ReasoningStep {id: $stepId})-[:USED_TOOL]->(tc:ToolCall)
+            MATCH (s:ReasoningStep {id: $stepId})-[:USES_TOOL]->(tc:ToolCall)
             RETURN tc
-            ORDER BY tc.toolName";
+            ORDER BY tc.tool_name";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -119,12 +119,12 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         new()
         {
             ToolCallId    = node["id"].As<string>(),
-            StepId        = node["stepId"].As<string>(),
-            ToolName      = node["toolName"].As<string>(),
-            ArgumentsJson = node["argumentsJson"].As<string>(),
-            ResultJson    = node.Properties.TryGetValue("resultJson", out var rj) ? rj.As<string>() : null,
-            Status        = Enum.Parse<ToolCallStatus>(node["status"].As<string>()),
-            DurationMs    = node.Properties.TryGetValue("durationMs", out var dm) && dm is not null
+            StepId        = node["step_id"].As<string>(),
+            ToolName      = node["tool_name"].As<string>(),
+            ArgumentsJson = node["arguments"].As<string>(),
+            ResultJson    = node.Properties.TryGetValue("result", out var rj) ? rj.As<string>() : null,
+            Status        = Enum.Parse<ToolCallStatus>(node["status"].As<string>(), ignoreCase: true),
+            DurationMs    = node.Properties.TryGetValue("duration_ms", out var dm) && dm is not null
                                 ? dm.As<long?>()
                                 : null,
             Error         = node.Properties.TryGetValue("error", out var err) ? err.As<string>() : null,
@@ -133,15 +133,15 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
 
     private static Dictionary<string, object?> BuildToolCallParameters(ToolCall tc) => new()
     {
-        ["id"]            = tc.ToolCallId,
-        ["stepId"]        = tc.StepId,
-        ["toolName"]      = tc.ToolName,
-        ["argumentsJson"] = tc.ArgumentsJson,
-        ["resultJson"]    = (object?)tc.ResultJson,
-        ["status"]        = tc.Status.ToString(),
-        ["durationMs"]    = (object?)tc.DurationMs,
-        ["error"]         = (object?)tc.Error,
-        ["metadata"]      = SerializeMetadata(tc.Metadata)
+        ["id"]         = tc.ToolCallId,
+        ["stepId"]     = tc.StepId,
+        ["toolName"]   = tc.ToolName,
+        ["arguments"]  = tc.ArgumentsJson,
+        ["result"]     = (object?)tc.ResultJson,
+        ["status"]     = tc.Status.ToString().ToLowerInvariant(),
+        ["durationMs"] = (object?)tc.DurationMs,
+        ["error"]      = (object?)tc.Error,
+        ["metadata"]   = SerializeMetadata(tc.Metadata)
     };
 
     private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)

@@ -26,14 +26,14 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
             MATCH (t:ReasoningTrace {id: $traceId})
             CREATE (s:ReasoningStep {
                 id:          $id,
-                traceId:     $traceId,
-                stepNumber:  $stepNumber,
+                trace_id:    $traceId,
+                step_number: $stepNumber,
                 thought:     $thought,
                 action:      $action,
                 observation: $observation,
                 metadata:    $metadata
             })
-            CREATE (t)-[:HAS_STEP]->(s)
+            CREATE (t)-[:HAS_STEP {order: $stepNumber}]->(s)
             RETURN s";
 
         return await _tx.WriteAsync(async runner =>
@@ -71,7 +71,7 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
         const string cypher = @"
             MATCH (t:ReasoningTrace {id: $traceId})-[:HAS_STEP]->(s:ReasoningStep)
             RETURN s
-            ORDER BY s.stepNumber";
+            ORDER BY s.step_number";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -105,8 +105,8 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
         new()
         {
             StepId      = node["id"].As<string>(),
-            TraceId     = node["traceId"].As<string>(),
-            StepNumber  = node["stepNumber"].As<int>(),
+            TraceId     = node["trace_id"].As<string>(),
+            StepNumber  = node["step_number"].As<int>(),
             Thought     = node.Properties.TryGetValue("thought", out var th) ? th.As<string>() : null,
             Action      = node.Properties.TryGetValue("action", out var act) ? act.As<string>() : null,
             Observation = node.Properties.TryGetValue("observation", out var obs) ? obs.As<string>() : null,

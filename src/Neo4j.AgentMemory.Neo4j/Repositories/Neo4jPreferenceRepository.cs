@@ -25,20 +25,20 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         const string cypher = @"
             MERGE (p:Preference {id: $id})
             ON CREATE SET
-                p.category         = $category,
-                p.preferenceText   = $preferenceText,
-                p.context          = $context,
-                p.confidence       = $confidence,
-                p.sourceMessageIds = $sourceMessageIds,
-                p.createdAtUtc     = $createdAtUtc,
-                p.metadata         = $metadata
+                p.category           = $category,
+                p.preference         = $preferenceText,
+                p.context            = $context,
+                p.confidence         = $confidence,
+                p.source_message_ids = $sourceMessageIds,
+                p.created_at         = $createdAtUtc,
+                p.metadata           = $metadata
             ON MATCH SET
-                p.category         = $category,
-                p.preferenceText   = $preferenceText,
-                p.context          = $context,
-                p.confidence       = $confidence,
-                p.sourceMessageIds = $sourceMessageIds,
-                p.metadata         = $metadata
+                p.category           = $category,
+                p.preference         = $preferenceText,
+                p.context            = $context,
+                p.confidence         = $confidence,
+                p.source_message_ids = $sourceMessageIds,
+                p.metadata           = $metadata
             RETURN p";
 
         return await _tx.WriteAsync(async runner =>
@@ -204,14 +204,14 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             PreferenceId     = node["id"].As<string>(),
             Category         = node["category"].As<string>(),
-            PreferenceText   = node["preferenceText"].As<string>(),
+            PreferenceText   = node["preference"].As<string>(),
             Context          = node.Properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,
             Confidence       = node["confidence"].As<double>(),
             Embedding        = embedding,
-            SourceMessageIds = node.Properties.TryGetValue("sourceMessageIds", out var sm)
+            SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = DateTimeOffset.Parse(node["createdAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc     = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

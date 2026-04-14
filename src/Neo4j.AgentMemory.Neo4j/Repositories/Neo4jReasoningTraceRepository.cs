@@ -25,12 +25,12 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         const string cypher = @"
             CREATE (t:ReasoningTrace {
                 id:           $id,
-                sessionId:    $sessionId,
+                session_id:   $sessionId,
                 task:         $task,
                 outcome:      $outcome,
                 success:      $success,
-                startedAtUtc: $startedAtUtc,
-                completedAtUtc: $completedAtUtc,
+                started_at:   $startedAt,
+                completed_at: $completedAt,
                 metadata:     $metadata
             })
             RETURN t";
@@ -45,7 +45,7 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             if (trace.TaskEmbedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (t:ReasoningTrace {id: $id}) SET t.taskEmbedding = $taskEmbedding",
+                    "MATCH (t:ReasoningTrace {id: $id}) SET t.task_embedding = $taskEmbedding",
                     new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() });
             }
 
@@ -60,12 +60,12 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         const string cypher = @"
             MATCH (t:ReasoningTrace {id: $id})
             SET
-                t.task           = $task,
-                t.outcome        = $outcome,
-                t.success        = $success,
-                t.startedAtUtc   = $startedAtUtc,
-                t.completedAtUtc = $completedAtUtc,
-                t.metadata       = $metadata
+                t.task         = $task,
+                t.outcome      = $outcome,
+                t.success      = $success,
+                t.started_at   = $startedAt,
+                t.completed_at = $completedAt,
+                t.metadata     = $metadata
             RETURN t";
 
         return await _tx.WriteAsync(async runner =>
@@ -78,7 +78,7 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             if (trace.TaskEmbedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (t:ReasoningTrace {id: $id}) SET t.taskEmbedding = $taskEmbedding",
+                    "MATCH (t:ReasoningTrace {id: $id}) SET t.task_embedding = $taskEmbedding",
                     new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() });
             }
 
@@ -107,9 +107,9 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         _logger.LogDebug("Listing reasoning traces for session {SessionId}, limit={Limit}", sessionId, limit);
 
         const string cypher = @"
-            MATCH (t:ReasoningTrace {sessionId: $sessionId})
+            MATCH (t:ReasoningTrace {session_id: $sessionId})
             RETURN t
-            ORDER BY t.startedAtUtc DESC
+            ORDER BY t.started_at DESC
             LIMIT $limit";
 
         return await _tx.ReadAsync(async runner =>
@@ -196,15 +196,15 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         new()
         {
             TraceId        = node["id"].As<string>(),
-            SessionId      = node["sessionId"].As<string>(),
+            SessionId      = node["session_id"].As<string>(),
             Task           = node["task"].As<string>(),
             TaskEmbedding  = taskEmbedding,
             Outcome        = node.Properties.TryGetValue("outcome", out var out_) ? out_.As<string>() : null,
             Success        = node.Properties.TryGetValue("success", out var succ) && succ is not null
                                 ? succ.As<bool?>()
                                 : null,
-            StartedAtUtc   = DateTimeOffset.Parse(node["startedAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
-            CompletedAtUtc = node.Properties.TryGetValue("completedAtUtc", out var ca) && ca.As<string>() is { } caStr && !string.IsNullOrEmpty(caStr)
+            StartedAtUtc   = DateTimeOffset.Parse(node["started_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CompletedAtUtc = node.Properties.TryGetValue("completed_at", out var ca) && ca.As<string>() is { } caStr && !string.IsNullOrEmpty(caStr)
                                 ? DateTimeOffset.Parse(caStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
                                 : null,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
@@ -212,20 +212,20 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
     private static float[]? ReadEmbedding(INode node)
     {
-        if (!node.Properties.TryGetValue("taskEmbedding", out var ev) || ev is null) return null;
+        if (!node.Properties.TryGetValue("task_embedding", out var ev) || ev is null) return null;
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
 
     private static Dictionary<string, object?> BuildTraceParameters(ReasoningTrace trace) => new()
     {
-        ["id"]             = trace.TraceId,
-        ["sessionId"]      = trace.SessionId,
-        ["task"]           = trace.Task,
-        ["outcome"]        = (object?)trace.Outcome,
-        ["success"]        = (object?)trace.Success,
-        ["startedAtUtc"]   = trace.StartedAtUtc.ToString("O"),
-        ["completedAtUtc"] = (object?)(trace.CompletedAtUtc?.ToString("O")),
-        ["metadata"]       = SerializeMetadata(trace.Metadata)
+        ["id"]          = trace.TraceId,
+        ["sessionId"]   = trace.SessionId,
+        ["task"]        = trace.Task,
+        ["outcome"]     = (object?)trace.Outcome,
+        ["success"]     = (object?)trace.Success,
+        ["startedAt"]   = trace.StartedAtUtc.ToString("O"),
+        ["completedAt"] = (object?)(trace.CompletedAtUtc?.ToString("O")),
+        ["metadata"]    = SerializeMetadata(trace.Metadata)
     };
 
     private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)

@@ -25,16 +25,16 @@ public sealed class Neo4jConversationRepository : IConversationRepository
         const string cypher = @"
             MERGE (c:Conversation {id: $id})
             ON CREATE SET
-                c.sessionId    = $sessionId,
-                c.userId       = $userId,
-                c.createdAtUtc = $createdAtUtc,
-                c.updatedAtUtc = $updatedAtUtc,
-                c.metadata     = $metadata
+                c.session_id  = $sessionId,
+                c.user_id     = $userId,
+                c.created_at  = $createdAtUtc,
+                c.updated_at  = $updatedAtUtc,
+                c.metadata    = $metadata
             ON MATCH SET
-                c.sessionId    = $sessionId,
-                c.userId       = $userId,
-                c.updatedAtUtc = $updatedAtUtc,
-                c.metadata     = $metadata
+                c.session_id  = $sessionId,
+                c.user_id     = $userId,
+                c.updated_at  = $updatedAtUtc,
+                c.metadata    = $metadata
             RETURN c";
 
         var parameters = new
@@ -74,9 +74,9 @@ public sealed class Neo4jConversationRepository : IConversationRepository
         _logger.LogDebug("Getting conversations for session {SessionId}", sessionId);
 
         const string cypher = @"
-            MATCH (c:Conversation {sessionId: $sessionId})
+            MATCH (c:Conversation {session_id: $sessionId})
             RETURN c
-            ORDER BY c.updatedAtUtc DESC";
+            ORDER BY c.updated_at DESC";
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -102,10 +102,10 @@ public sealed class Neo4jConversationRepository : IConversationRepository
         new()
         {
             ConversationId = node["id"].As<string>(),
-            SessionId      = node["sessionId"].As<string>(),
-            UserId         = node.Properties.TryGetValue("userId", out var uid) ? uid.As<string>() : null,
-            CreatedAtUtc   = DateTimeOffset.Parse(node["createdAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
-            UpdatedAtUtc   = DateTimeOffset.Parse(node["updatedAtUtc"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            SessionId      = node["session_id"].As<string>(),
+            UserId         = node.Properties.TryGetValue("user_id", out var uid) ? uid.As<string>() : null,
+            CreatedAtUtc   = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            UpdatedAtUtc   = DateTimeOffset.Parse(node["updated_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
