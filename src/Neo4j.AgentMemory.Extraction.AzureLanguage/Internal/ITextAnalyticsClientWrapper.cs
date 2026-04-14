@@ -13,4 +13,7 @@ internal interface ITextAnalyticsClientWrapper
 
     Task<IReadOnlyList<AzureLinkedEntity>> RecognizeLinkedEntitiesAsync(
         string document, string? language, CancellationToken ct);
+
+    Task<AzureSentimentResult> AnalyzeSentimentAsync(
+        string document, string? language, CancellationToken ct);
 }

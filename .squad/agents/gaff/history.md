@@ -227,3 +227,42 @@
 - `Neo4jEntityRepositoryExtensionsTests` — 2 new tests (embedding cleared after merge, ordering verified)
 
 **Build status:** `dotnet build src/Neo4j.AgentMemory.Abstractions && dotnet build src/Neo4j.AgentMemory.Neo4j` → 0 errors. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 823 passed, 0 failed.
+
+### Epic G10 — Entity Index Refresh Hook After Merge (2025-07-16)
+
+**Objective:** Ensure fulltext index stays current after entity merge by absorbing source aliases/description into target and providing a dedicated `RefreshEntitySearchFieldsAsync` utility.
+
+**Interface change (Abstractions):**
+- `IEntityRepository` — added `RefreshEntitySearchFieldsAsync(string entityId, CancellationToken)` — no-throw guarantee if entity missing; triggers fulltext re-index via property update
+
+**Neo4jEntityRepository changes:**
+- `MergeEntitiesAsync` Cypher extended:
+  - Uses `WITH` to compute `mergedAliases` = existing aliases + source.name + source.aliases (dedup via `WHERE NOT x IN coalesce(target.aliases, [])` guard)
+  - Merges `source.description` into `target.description` conditionally (CASE: NULL / already-contained / concat with space)
+  - Sets `target.updated_at = datetime()` in the same SET block (all 4 target properties in one SET)
+  - Calls `RefreshEntitySearchFieldsAsync(targetEntityId)` after the merge Cypher completes
+- `RefreshEntitySearchFieldsAsync` — new public method:
+  - Cypher: `MATCH (e:Entity {id: $entityId}) SET e.updated_at = $updatedAt, e.aliases = [x IN coalesce(e.aliases, []) WHERE x IS NOT NULL AND size(toString(x)) > 0] RETURN e`
+  - Strips null/empty entries from aliases, stamps current UTC timestamp → fulltext auto-reindexes
+
+**Key technical insight — Cypher spacing matters for unit tests:**
+- Tests use `cypher.Should().Contain("target.embedding = null")` (single space around `=`)
+- Multi-space alignment (`target.embedding   = null`) causes `IndexOf` to return -1
+- Always use single-space `=` in SET clauses to keep test string-matching reliable
+
+**Tests added (11 new in Neo4jEntityRepositoryRefreshTests.cs):**
+- `RefreshEntitySearchFieldsAsync_SendsCorrectCypher`
+- `RefreshEntitySearchFieldsAsync_PassesEntityIdParameter`
+- `RefreshEntitySearchFieldsAsync_SetsUpdatedAtTimestamp`
+- `RefreshEntitySearchFieldsAsync_UsesWriteTransaction`
+- `RefreshEntitySearchFieldsAsync_DoesNotThrow_WhenEntityMissing`
+- `RefreshEntitySearchFieldsAsync_DeduplicatesAliasesInCypher`
+- `MergeEntitiesAsync_CallsRefreshAfterMerge`
+- `MergeEntitiesAsync_RefreshUsesTargetEntityId`
+- `MergeEntitiesAsync_CypherAbsorbsSourceAliases`
+- `MergeEntitiesAsync_CypherMergesDescription`
+- `MergeEntitiesAsync_SetsUpdatedAtOnTarget`
+
+**Existing test updated:** `MergeEntitiesAsync_SendsCorrectCypher` — changed `HaveCount(1)` → `HaveCountGreaterThanOrEqualTo(1)` to accommodate the second RunAsync call from the refresh hook.
+
+**Build status:** `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 847 passed, 0 failed.

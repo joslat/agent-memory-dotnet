@@ -15,3 +15,12 @@ internal sealed record AzureRecognizedEntity(
 internal sealed record AzureLinkedEntity(
     string Name,
     string? Url);
+
+/// <summary>
+/// Sentiment analysis result for a document returned from Azure Language services.
+/// </summary>
+internal sealed record AzureSentimentResult(
+    string Sentiment,
+    double PositiveScore,
+    double NegativeScore,
+    double NeutralScore);

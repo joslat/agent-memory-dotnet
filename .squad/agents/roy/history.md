@@ -391,3 +391,35 @@
 **Artifacts:**
 - `docs/architecture-assessment.md` — Full architecture diagram, cross-reference matrix, boundary analysis, ecosystem strategy with 7 prioritized recommendations
 - `.squad/decisions/inbox/roy-architecture-assessment.md` — Decision proposals for team review
+
+
+---
+
+### 2026-07: Gap G5 — Background Enrichment Queue
+
+**Task:** Implemented async, non-blocking background enrichment queue to decouple enrichment from the extraction pipeline.
+
+**What was built:**
+1. IBackgroundEnrichmentQueue interface in Abstractions/Services/ — EnqueueAsync, EnqueueBatchAsync, QueueDepth, IsProcessing
+2. EnrichmentQueueOptions record in Abstractions/Options/ — MaxConcurrency=3, MaxRetries=2, RetryDelay=5s, MaxQueueCapacity=1000, Enabled=true
+3. BackgroundEnrichmentQueue class in Core/Enrichment/ — full implementation
+4. EnrichmentItem internal record in same file — (string EntityId, int RetryCount = 0)
+5. 20 unit tests in Tests.Unit/Enrichment/BackgroundEnrichmentQueueTests.cs
+
+**Architecture decisions:**
+- Used System.Threading.Channels.Channel<T> (BCL, no extra NuGet) with BoundedChannelFullMode.DropOldest
+- Used a fixed pool of MaxConcurrency worker Tasks (Task.Run) instead of IHostedService to keep the implementation framework-agnostic
+- Workers independently compete to read from the channel — items stay in the channel until a worker is free, making QueueDepth = channel.Reader.Count accurate
+- Retry: failed items (all providers return null or throw) are re-queued with incremented RetryCount; dropped when RetryCount >= MaxRetries
+- Supports multiple IEnrichmentService providers: all are called per entity, any success triggers UpsertAsync
+- Implements both IDisposable and IAsyncDisposable; DisposeAsync awaits the worker pool with a 5s timeout
+
+**Key Learnings:**
+- With DropOldest BoundedChannel, TryWrite always succeeds (drops oldest when full). This keeps EnqueueAsync truly non-blocking.
+- Worker-per-concurrency pattern (vs single reader loop + semaphore) keeps items in the channel until processing starts, making QueueDepth a reliable observable.
+- When NSubstitute Returns lambda throws without returning a value, the compiler can't infer T. Use Task.FromException<T>() to make return type explicit and avoid CS0121 ambiguity.
+- FluentAssertions 8.x uses BeLessThanOrEqualTo / BeGreaterThanOrEqualTo (not BeLessOrEqualTo / BeGreaterOrEqualTo).
+- Tests for IsProcessing_FalseAfterProcessingCompletes must use MaxRetries=0 or a successful service; a null result triggers retry and the test will timeout waiting for IsProcessing=false with default RetryDelay=5s.
+
+**Build Outcome:** dotnet build — 0 errors, 0 warnings
+**Test Outcome:** dotnet test — 867/867 passed ✅ (20 new tests added)

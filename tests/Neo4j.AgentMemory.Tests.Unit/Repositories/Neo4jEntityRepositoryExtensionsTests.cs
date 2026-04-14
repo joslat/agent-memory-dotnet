@@ -242,7 +242,7 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         var calls = new List<(string Cypher, object? Parameters)>();
         var repo = CreateWriteCapture(calls);
         await repo.MergeEntitiesAsync("source-id", "target-id");
-        calls.Should().HaveCount(1);
+        calls.Should().HaveCountGreaterThanOrEqualTo(1);
         calls[0].Cypher.Should().Contain("MATCH (source:Entity {id: $sourceEntityId})");
         calls[0].Cypher.Should().Contain("MATCH (target:Entity {id: $targetEntityId})");
         calls[0].Cypher.Should().Contain("MERGE (m)-[:MENTIONS]->(target)");

@@ -395,17 +395,45 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 RETURN count(*) AS sameAsTransferred
             }
             SET source.merged_into = target.id, source.merged_at = datetime()
-            SET target.aliases = CASE
-                WHEN target.aliases IS NULL THEN [source.name]
-                WHEN NOT source.name IN target.aliases THEN target.aliases + source.name
-                ELSE target.aliases
-            END
-            SET target.embedding = null
+            WITH source, target,
+                 coalesce(target.aliases, []) +
+                 [x IN ([source.name] + coalesce(source.aliases, []))
+                  WHERE NOT x IN coalesce(target.aliases, [])] AS mergedAliases
+            SET target.aliases = mergedAliases,
+                target.description = CASE
+                    WHEN target.description IS NULL THEN source.description
+                    WHEN source.description IS NULL OR target.description CONTAINS source.description THEN target.description
+                    ELSE target.description + ' ' + source.description
+                END,
+                target.embedding = null,
+                target.updated_at = datetime()
             RETURN source, target";
 
         await _tx.WriteAsync(async runner =>
         {
             await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId });
+        }, cancellationToken);
+
+        await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken);
+    }
+
+    public async Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Refreshing search fields for entity {Id}", entityId);
+
+        const string cypher = @"
+            MATCH (e:Entity {id: $entityId})
+            SET e.updated_at = $updatedAt,
+                e.aliases    = [x IN coalesce(e.aliases, []) WHERE x IS NOT NULL AND size(toString(x)) > 0]
+            RETURN e";
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(cypher, new
+            {
+                entityId,
+                updatedAt = DateTimeOffset.UtcNow.ToString("O")
+            });
         }, cancellationToken);
     }
 

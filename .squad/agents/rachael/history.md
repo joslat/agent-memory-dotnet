@@ -26,3 +26,12 @@
 - `memory_find_duplicates` uses `toLower CONTAINS` + length ratio in Cypher for a practical, embedding-free duplicate heuristic.
 - Pre-existing duplicate method errors in `Neo4j.AgentMemory.Neo4j` are a known issue unrelated to MAF/MCP work.
 
+### Azure Language Preference Extraction (G4)
+
+- To add sentiment analysis to the `ITextAnalyticsClientWrapper`, extend the interface with `AnalyzeSentimentAsync` and add `AzureSentimentResult` to `AzureModels.cs`; the real wrapper delegates to `TextAnalyticsClient.AnalyzeSentimentAsync` mapping `TextSentiment` enum to lowercase string.
+- `AzureLanguagePreferenceExtractor` pairs sentiment analysis with key phrase extraction per message: if `PositiveScore >= threshold` → "like" preferences; if `NegativeScore >= threshold` → "dislike" preferences; neutral/mixed below threshold → returns empty.
+- `PreferenceSentimentThreshold` (default 0.7) lives in `AzureLanguageOptions`; this makes the sensitivity configurable per deployment without code changes.
+- The `ExtractedPreference.Category` field is used as the preference type ("like"/"dislike"), and `PreferenceText` is the human-readable statement ("likes C#").
+- 12 new xUnit tests cover: positive/negative/neutral sentiment, confidence mapping, empty input, Azure service errors, threshold customisation, and multiple-preference extraction from rich text.
+- Two pre-existing test failures in `Neo4jEntityRepositoryExtensionsTests` are unrelated to Azure extraction and were present before this work.
+

@@ -46,6 +46,11 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IOptions<AzureLanguageOptions>>(),
             sp.GetRequiredService<ILogger<AzureLanguageRelationshipExtractor>>()));
 
+        services.AddScoped<IPreferenceExtractor>(sp => new AzureLanguagePreferenceExtractor(
+            sp.GetRequiredService<ITextAnalyticsClientWrapper>(),
+            sp.GetRequiredService<IOptions<AzureLanguageOptions>>(),
+            sp.GetRequiredService<ILogger<AzureLanguagePreferenceExtractor>>()));
+
         return services;
     }
 }

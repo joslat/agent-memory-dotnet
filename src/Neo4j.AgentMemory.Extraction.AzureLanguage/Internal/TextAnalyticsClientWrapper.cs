@@ -35,4 +35,16 @@ internal sealed class TextAnalyticsClientWrapper : ITextAnalyticsClientWrapper
             .Select(e => new AzureLinkedEntity(e.Name, e.Url?.ToString()))
             .ToList();
     }
+
+    public async Task<AzureSentimentResult> AnalyzeSentimentAsync(
+        string document, string? language, CancellationToken ct)
+    {
+        var response = await _client.AnalyzeSentimentAsync(document, language, cancellationToken: ct);
+        var doc = response.Value;
+        return new AzureSentimentResult(
+            doc.Sentiment.ToString().ToLowerInvariant(),
+            doc.ConfidenceScores.Positive,
+            doc.ConfidenceScores.Negative,
+            doc.ConfidenceScores.Neutral);
+    }
 }

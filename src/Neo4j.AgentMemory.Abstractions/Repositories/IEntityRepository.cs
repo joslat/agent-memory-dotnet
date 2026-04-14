@@ -101,4 +101,10 @@ public interface IEntityRepository
 
     /// <summary>Deletes an entity and all its relationships.</summary>
     Task<bool> DeleteAsync(string entityId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Refreshes the search-indexed fields (name, description, aliases) for an entity.
+    /// Call after merge operations to ensure fulltext search returns current data.
+    /// </summary>
+    Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default);
 }

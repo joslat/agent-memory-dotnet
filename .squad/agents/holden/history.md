@@ -186,3 +186,36 @@ Created `tests/Neo4j.AgentMemory.Tests.Unit/Exceptions/MemoryExceptionTests.cs` 
 **Namespace note:** Test namespace is `Neo4j.AgentMemory.Tests.Unit.OptionsTests` (not `.Options`) to avoid collision with `Microsoft.Extensions.Options.Options` used via unqualified `Options.Create()` in existing test code (e.g., CompositeEntityResolverTests).
 
 **Final result: 717 unit tests, 0 failures (+94 new tests)**
+
+### 2026-04-14 — G1: Repository Integration Tests
+
+**Baseline:** 717 unit tests (all passing), 2 integration smoke tests (Neo4jConnectivityTests).
+
+**Task:** Create comprehensive Neo4j integration tests for all repositories using Testcontainers.
+
+**New files created:**
+- `tests/Neo4j.AgentMemory.Tests.Integration/Fixtures/Neo4jIntegrationFixture.cs` — IAsyncLifetime shared fixture: starts Neo4j 5.26 container, wires DirectSessionFactory → Neo4jTransactionRunner, runs SchemaBootstrapper with 4-dim embeddings, exposes CleanDatabaseAsync() and WaitForVectorIndexesAsync()
+- `tests/Neo4j.AgentMemory.Tests.Integration/Fixtures/Neo4jIntegrationCollection.cs` — `[CollectionDefinition("Neo4j Integration")]` for all new tests
+- `Repositories/ConversationRepositoryIntegrationTests.cs` — 8 tests: upsert, title persistence, get-by-id round-trip, null miss, session filtering, ordering, delete, upsert-update
+- `Repositories/MessageRepositoryIntegrationTests.cs` — 7 tests: add single, embedding persistence, add batch, recent-by-session limit+order, get-by-conversation, vector search, null miss
+- `Repositories/EntityRepositoryIntegrationTests.cs` — 10 tests: upsert all props, get-by-id round-trip, null miss, get-by-name, embedding persistence, vector search, batch upsert, delete, CreateExtractedFrom relationship, get-by-type
+- `Repositories/FactRepositoryIntegrationTests.cs` — 10 tests: upsert, get-by-id round-trip, null miss, get-by-subject, FindByTriple (case-insensitive), FindByTriple null, vector search, delete, CreateAbout relationship, CreateExtractedFrom relationship
+- `Repositories/PreferenceRepositoryIntegrationTests.cs` — 8 tests: upsert, get-by-id round-trip, null miss, delete, get-by-category, CreateAbout relationship, CreateExtractedFrom relationship, vector search
+- `Repositories/ReasoningTraceRepositoryIntegrationTests.cs` — 8 tests: add, get-by-id round-trip, null miss, list-by-session with ordering, update outcome/success, vector search, CreateConversationTraceRelationships (HAS_TRACE+IN_SESSION), CreateInitiatedBy
+- `Repositories/SchemaBootstrapperIntegrationTests.cs` — 18 tests: Theory for 8 unique constraints, Theory for 3 fulltext indexes, Theory for 5 vector indexes, idempotency (run twice no error), all vector indexes ONLINE
+
+**Total new integration tests: 69**
+
+**Key implementation decisions:**
+- `Neo4jIntegrationFixture` uses `DirectSessionFactory` (private nested class) to wire the test container driver to `Neo4jTransactionRunner` without DI
+- `EmbeddingDimensions = 4` in fixture options so test embeddings `[float, float, float, float]` match index dimension
+- `WaitForVectorIndexesAsync` polls `SHOW INDEXES WHERE type = 'VECTOR' AND state <> 'ONLINE'` until all indexes are ONLINE (up to 60s)
+- Each test class implements `IAsyncLifetime.InitializeAsync()` calling `fixture.CleanDatabaseAsync()` for per-test isolation
+- All tests tagged `[Trait("Category", "Integration")]` so `dotnet test --filter "Category!=Integration"` skips them (no Docker needed)
+- Unit tests remain at 847 passing (0 failures) — filter verified after creation
+
+**Learnings:**
+- When using `INeo4jTransactionRunner.ReadAsync<T>` in test helpers, the `runner` callback uses `IAsyncQueryRunner.RunAsync()` which returns `IResultCursor`. `SingleAsync()` is an extension method from `Neo4j.Driver` namespace — the `using Neo4j.Driver;` directive is required in test files that call it directly.
+- The `edit` tool replaces the first exact match; including class header in `old_str` with mismatched whitespace will corrupt the file. Use minimal unique context for `old_str`.
+- `Neo4jIntegrationFixture` should be a separate xUnit collection from the existing `Neo4jTestFixture` to avoid container sharing with smoke tests.
+- Vector indexes in Neo4j start in POPULATING state and must transition to ONLINE before `db.index.vector.queryNodes` works. Always call `WaitForVectorIndexesAsync` in fixture init.

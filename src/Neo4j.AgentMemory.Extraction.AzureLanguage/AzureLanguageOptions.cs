@@ -24,4 +24,9 @@ public sealed class AzureLanguageOptions
     /// Maximum number of documents per batch request. Defaults to 25.
     /// </summary>
     public int MaxDocumentBatchSize { get; set; } = 25;
+
+    /// <summary>
+    /// Minimum sentiment confidence score required to emit a preference. Defaults to 0.7.
+    /// </summary>
+    public double PreferenceSentimentThreshold { get; set; } = 0.7;
 }
