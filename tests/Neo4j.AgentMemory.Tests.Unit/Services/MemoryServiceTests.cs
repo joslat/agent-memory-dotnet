@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Options;
+using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Services;
 using NSubstitute;
@@ -14,6 +15,10 @@ public sealed class MemoryServiceTests
     private readonly IShortTermMemoryService _shortTerm;
     private readonly IMemoryContextAssembler _assembler;
     private readonly IMemoryExtractionPipeline _extractionPipeline;
+    private readonly IEntityRepository _entityRepository;
+    private readonly IFactRepository _factRepository;
+    private readonly IPreferenceRepository _preferenceRepository;
+    private readonly IEmbeddingProvider _embeddingProvider;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
@@ -23,6 +28,10 @@ public sealed class MemoryServiceTests
         _shortTerm = Substitute.For<IShortTermMemoryService>();
         _assembler = Substitute.For<IMemoryContextAssembler>();
         _extractionPipeline = Substitute.For<IMemoryExtractionPipeline>();
+        _entityRepository = Substitute.For<IEntityRepository>();
+        _factRepository = Substitute.For<IFactRepository>();
+        _preferenceRepository = Substitute.For<IPreferenceRepository>();
+        _embeddingProvider = Substitute.For<IEmbeddingProvider>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
@@ -52,6 +61,7 @@ public sealed class MemoryServiceTests
 
     private MemoryService CreateSut(IOptions<MemoryOptions>? options = null) =>
         new(_shortTerm, _assembler, _extractionPipeline,
+            _entityRepository, _factRepository, _preferenceRepository, _embeddingProvider,
             options ?? Options.Create(new MemoryOptions()),
             _clock, _idGenerator,
             NullLogger<MemoryService>.Instance);

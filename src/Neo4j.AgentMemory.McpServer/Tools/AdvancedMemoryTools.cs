@@ -187,4 +187,38 @@ public sealed class AdvancedMemoryTools
             preferences = result.Preferences.Select(p => new { p.Category, p.PreferenceText, p.Confidence })
         });
     }
+
+    [McpServerTool(Name = "memory_extract_session"), Description("Retroactively runs the extraction pipeline on all messages in a session and persists the resulting entities, facts, preferences, and relationships to long-term memory.")]
+    public static async Task<string> MemoryExtractSession(
+        IMemoryService memoryService,
+        IOptions<McpServerOptions> options,
+        [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var sid = sessionId ?? options.Value.DefaultSessionId;
+
+        await memoryService.ExtractFromSessionAsync(sid, cancellationToken);
+
+        return ToolJsonContext.Serialize(new
+        {
+            sessionId = sid,
+            status = "extraction_complete"
+        });
+    }
+
+    [McpServerTool(Name = "memory_generate_embeddings"), Description("Generates and persists embeddings for all nodes of the given label that currently have a null embedding. Supported labels: Entity, Fact, Preference.")]
+    public static async Task<string> MemoryGenerateEmbeddings(
+        IMemoryService memoryService,
+        [Description("Node label to process: Entity, Fact, or Preference")] string nodeLabel,
+        [Description("Number of nodes to process per batch (default: 100)")] int batchSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        var count = await memoryService.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken);
+
+        return ToolJsonContext.Serialize(new
+        {
+            nodeLabel,
+            nodesUpdated = count
+        });
+    }
 }

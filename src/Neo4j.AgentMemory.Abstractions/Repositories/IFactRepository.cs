@@ -34,4 +34,13 @@ public interface IFactRepository
 
     /// <summary>Creates a HAS_FACT relationship from a conversation to this fact.</summary>
     Task CreateConversationFactRelationshipAsync(string conversationId, string factId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns up to <paramref name="limit"/> facts that have no embedding set.
+    /// Used for batch back-fill operations.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> GetPageWithoutEmbeddingAsync(int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the embedding vector on an existing fact node.</summary>
+    Task UpdateEmbeddingAsync(string factId, float[] embedding, CancellationToken cancellationToken = default);
 }

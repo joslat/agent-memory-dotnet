@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Options;
+using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 
 namespace Neo4j.AgentMemory.Core.Services;
@@ -14,6 +15,10 @@ public sealed class MemoryService : IMemoryService
     private readonly IShortTermMemoryService _shortTerm;
     private readonly IMemoryContextAssembler _assembler;
     private readonly IMemoryExtractionPipeline _extraction;
+    private readonly IEntityRepository _entityRepository;
+    private readonly IFactRepository _factRepository;
+    private readonly IPreferenceRepository _preferenceRepository;
+    private readonly IEmbeddingProvider _embeddingProvider;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -23,6 +28,10 @@ public sealed class MemoryService : IMemoryService
         IShortTermMemoryService shortTerm,
         IMemoryContextAssembler assembler,
         IMemoryExtractionPipeline extraction,
+        IEntityRepository entityRepository,
+        IFactRepository factRepository,
+        IPreferenceRepository preferenceRepository,
+        IEmbeddingProvider embeddingProvider,
         IOptions<MemoryOptions> options,
         IClock clock,
         IIdGenerator idGenerator,
@@ -31,6 +40,10 @@ public sealed class MemoryService : IMemoryService
         _shortTerm = shortTerm;
         _assembler = assembler;
         _extraction = extraction;
+        _entityRepository = entityRepository;
+        _factRepository = factRepository;
+        _preferenceRepository = preferenceRepository;
+        _embeddingProvider = embeddingProvider;
         _options = options.Value;
         _clock = clock;
         _idGenerator = idGenerator;
@@ -116,5 +129,118 @@ public sealed class MemoryService : IMemoryService
     {
         _logger.LogDebug("Clearing session {SessionId}", sessionId);
         return _shortTerm.ClearSessionAsync(sessionId, cancellationToken);
+    }
+
+    public async Task ExtractFromSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Retroactive extraction for session {SessionId}", sessionId);
+
+        var messages = await _shortTerm.GetRecentMessagesAsync(sessionId, int.MaxValue, cancellationToken);
+        if (messages.Count == 0)
+        {
+            _logger.LogDebug("No messages found for session {SessionId} — skipping extraction.", sessionId);
+            return;
+        }
+
+        await _extraction.ExtractAsync(
+            new ExtractionRequest { Messages = messages, SessionId = sessionId },
+            cancellationToken);
+    }
+
+    public async Task ExtractFromConversationAsync(
+        string conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Retroactive extraction for conversation {ConversationId}", conversationId);
+
+        var messages = await _shortTerm.GetConversationMessagesAsync(conversationId, cancellationToken);
+        if (messages.Count == 0)
+        {
+            _logger.LogDebug("No messages found for conversation {ConversationId} — skipping extraction.", conversationId);
+            return;
+        }
+
+        var sessionId = messages[0].SessionId;
+        await _extraction.ExtractAsync(
+            new ExtractionRequest { Messages = messages, SessionId = sessionId },
+            cancellationToken);
+    }
+
+    public async Task<int> GenerateEmbeddingsBatchAsync(
+        string nodeLabel,
+        int batchSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Batch embedding generation for label '{NodeLabel}', batchSize={BatchSize}", nodeLabel, batchSize);
+
+        return nodeLabel switch
+        {
+            "Entity"     => await BackfillEntityEmbeddingsAsync(batchSize, cancellationToken),
+            "Fact"       => await BackfillFactEmbeddingsAsync(batchSize, cancellationToken),
+            "Preference" => await BackfillPreferenceEmbeddingsAsync(batchSize, cancellationToken),
+            _ => throw new ArgumentException(
+                $"Unsupported node label '{nodeLabel}'. Supported values: Entity, Fact, Preference.",
+                nameof(nodeLabel))
+        };
+    }
+
+    private async Task<int> BackfillEntityEmbeddingsAsync(int batchSize, CancellationToken ct)
+    {
+        int total = 0;
+        IReadOnlyList<Entity> page;
+        do
+        {
+            page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            foreach (var entity in page)
+            {
+                var embedding = await _embeddingProvider.GenerateEmbeddingAsync(entity.Name, ct);
+                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct);
+                total++;
+            }
+        } while (page.Count == batchSize);
+
+        _logger.LogInformation("Back-filled embeddings for {Count} Entity nodes.", total);
+        return total;
+    }
+
+    private async Task<int> BackfillFactEmbeddingsAsync(int batchSize, CancellationToken ct)
+    {
+        int total = 0;
+        IReadOnlyList<Fact> page;
+        do
+        {
+            page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            foreach (var fact in page)
+            {
+                var text = $"{fact.Subject} {fact.Predicate} {fact.Object}";
+                var embedding = await _embeddingProvider.GenerateEmbeddingAsync(text, ct);
+                await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct);
+                total++;
+            }
+        } while (page.Count == batchSize);
+
+        _logger.LogInformation("Back-filled embeddings for {Count} Fact nodes.", total);
+        return total;
+    }
+
+    private async Task<int> BackfillPreferenceEmbeddingsAsync(int batchSize, CancellationToken ct)
+    {
+        int total = 0;
+        IReadOnlyList<Preference> page;
+        do
+        {
+            page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            foreach (var pref in page)
+            {
+                var embedding = await _embeddingProvider.GenerateEmbeddingAsync(pref.PreferenceText, ct);
+                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct);
+                total++;
+            }
+        } while (page.Count == batchSize);
+
+        _logger.LogInformation("Back-filled embeddings for {Count} Preference nodes.", total);
+        return total;
     }
 }

@@ -45,4 +45,31 @@ public interface IMemoryService
     Task ClearSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retroactively runs the extraction pipeline on all messages in a session
+    /// and persists the resulting entities, facts, preferences, and relationships.
+    /// </summary>
+    Task ExtractFromSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retroactively runs the extraction pipeline on all messages in a conversation
+    /// and persists the resulting entities, facts, preferences, and relationships.
+    /// </summary>
+    Task ExtractFromConversationAsync(
+        string conversationId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Generates and persists embeddings for all nodes of the given label that
+    /// currently have a null embedding. Processes in batches of <paramref name="batchSize"/>.
+    /// Supported labels: <c>Entity</c>, <c>Fact</c>, <c>Preference</c>.
+    /// </summary>
+    /// <returns>Total number of nodes updated.</returns>
+    Task<int> GenerateEmbeddingsBatchAsync(
+        string nodeLabel,
+        int batchSize = 100,
+        CancellationToken cancellationToken = default);
 }

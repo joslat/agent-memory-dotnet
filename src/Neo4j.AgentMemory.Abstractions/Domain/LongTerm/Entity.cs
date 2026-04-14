@@ -67,6 +67,16 @@ public sealed record Entity
     public required DateTimeOffset CreatedAtUtc { get; init; }
 
     /// <summary>
+    /// Geographic latitude for LOCATION-type entities. Stored as a Neo4j point.
+    /// </summary>
+    public double? Latitude { get; init; }
+
+    /// <summary>
+    /// Geographic longitude for LOCATION-type entities. Stored as a Neo4j point.
+    /// </summary>
+    public double? Longitude { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

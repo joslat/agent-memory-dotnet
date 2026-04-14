@@ -34,4 +34,13 @@ public interface IPreferenceRepository
 
     /// <summary>Creates a HAS_PREFERENCE relationship from a conversation to this preference.</summary>
     Task CreateConversationPreferenceRelationshipAsync(string conversationId, string preferenceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns up to <paramref name="limit"/> preferences that have no embedding set.
+    /// Used for batch back-fill operations.
+    /// </summary>
+    Task<IReadOnlyList<Preference>> GetPageWithoutEmbeddingAsync(int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the embedding vector on an existing preference node.</summary>
+    Task UpdateEmbeddingAsync(string preferenceId, float[] embedding, CancellationToken cancellationToken = default);
 }

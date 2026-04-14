@@ -68,8 +68,16 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             };
 
             var cursor = await runner.RunAsync(cypher, parameters);
-            var record = await cursor.SingleAsync();
-            var node = record["e"].As<INode>();
+            var records = await cursor.ToListAsync();
+            var node = records.Count > 0 ? records[0]["e"].As<INode>() : null;
+
+            // Persist geospatial location if provided
+            if (entity.Latitude.HasValue && entity.Longitude.HasValue)
+            {
+                await runner.RunAsync(
+                    "MATCH (e:Entity {id: $id}) SET e.location = point({latitude: $lat, longitude: $lon})",
+                    new { id = entity.EntityId, lat = entity.Latitude.Value, lon = entity.Longitude.Value });
+            }
 
             if (entity.Embedding is not null)
             {
@@ -89,7 +97,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
             }
 
-            return MapToEntity(node, entity.Embedding);
+            return node is not null ? MapToEntity(node, entity.Embedding) : entity;
         }, cancellationToken);
     }
 
@@ -400,8 +408,18 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    private static Entity MapToEntity(INode node, float[]? embedding) =>
-        new()
+    private static Entity MapToEntity(INode node, float[]? embedding)
+    {
+        double? latitude = null;
+        double? longitude = null;
+        if (node.Properties.TryGetValue("location", out var locValue) && locValue is Point pt)
+        {
+            // WGS-84: X = longitude, Y = latitude
+            latitude  = pt.Y;
+            longitude = pt.X;
+        }
+
+        return new Entity
         {
             EntityId       = node["id"].As<string>(),
             Name           = node["name"].As<string>(),
@@ -411,6 +429,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             Description    = node.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
             Confidence     = node["confidence"].As<double>(),
             Embedding      = embedding,
+            Latitude       = latitude,
+            Longitude      = longitude,
             Aliases        = node.Properties.TryGetValue("aliases", out var al)
                                 ? al.As<IList<object>>().Select(a => a.ToString()!).ToList()
                                 : Array.Empty<string>(),
@@ -421,6 +441,110 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             CreatedAtUtc   = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
+    }
+
+    public async Task<IReadOnlyList<Entity>> SearchByLocationAsync(
+        double latitude,
+        double longitude,
+        double radiusKm,
+        int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Searching entities near ({Lat},{Lon}) radius={RadiusKm}km", latitude, longitude, radiusKm);
+
+        const string cypher = @"
+            MATCH (e:Entity)
+            WHERE e.location IS NOT NULL
+              AND point.distance(e.location, point({latitude: $lat, longitude: $lon})) < $radiusMeters
+            RETURN e
+            ORDER BY point.distance(e.location, point({latitude: $lat, longitude: $lon}))
+            LIMIT $limit";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new
+            {
+                lat = latitude,
+                lon = longitude,
+                radiusMeters = radiusKm * 1000.0,
+                limit
+            });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                return MapToEntity(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Entity>> SearchInBoundingBoxAsync(
+        double minLat,
+        double minLon,
+        double maxLat,
+        double maxLon,
+        int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Searching entities in bounding box ({MinLat},{MinLon})-({MaxLat},{MaxLon})",
+            minLat, minLon, maxLat, maxLon);
+
+        const string cypher = @"
+            MATCH (e:Entity)
+            WHERE e.location IS NOT NULL
+              AND point.withinBBox(
+                    e.location,
+                    point({longitude: $minLon, latitude: $minLat}),
+                    point({longitude: $maxLon, latitude: $maxLat}))
+            RETURN e
+            LIMIT $limit";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                return MapToEntity(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Entity>> GetPageWithoutEmbeddingAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting up to {Limit} entities without embeddings", limit);
+
+        const string cypher = "MATCH (e:Entity) WHERE e.embedding IS NULL RETURN e LIMIT $limit";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                return MapToEntity(node, null);
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task UpdateEmbeddingAsync(
+        string entityId,
+        float[] embedding,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Updating embedding for entity {Id}", entityId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
+                new { id = entityId, embedding = embedding.ToList() });
+        }, cancellationToken);
+    }
 
     private static float[]? ReadEmbedding(INode node)
     {

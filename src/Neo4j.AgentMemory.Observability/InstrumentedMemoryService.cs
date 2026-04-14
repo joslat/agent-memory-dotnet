@@ -140,4 +140,33 @@ internal sealed class InstrumentedMemoryService : IMemoryService
             throw;
         }
     }
+
+    public Task ExtractFromSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_session");
+        activity?.SetTag("memory.session_id", sessionId);
+        return _inner.ExtractFromSessionAsync(sessionId, cancellationToken);
+    }
+
+    public Task ExtractFromConversationAsync(
+        string conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_conversation");
+        activity?.SetTag("memory.conversation_id", conversationId);
+        return _inner.ExtractFromConversationAsync(conversationId, cancellationToken);
+    }
+
+    public Task<int> GenerateEmbeddingsBatchAsync(
+        string nodeLabel,
+        int batchSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = MemoryActivitySource.Instance.StartActivity("memory.generate_embeddings_batch");
+        activity?.SetTag("memory.node_label", nodeLabel);
+        activity?.SetTag("memory.batch_size", batchSize);
+        return _inner.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken);
+    }
 }

@@ -221,6 +221,41 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
 
+    public async Task<IReadOnlyList<Preference>> GetPageWithoutEmbeddingAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting up to {Limit} preferences without embeddings", limit);
+
+        const string cypher = "MATCH (p:Preference) WHERE p.embedding IS NULL RETURN p LIMIT $limit";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["p"].As<INode>();
+                return MapToPreference(node, null);
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task UpdateEmbeddingAsync(
+        string preferenceId,
+        float[] embedding,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Updating embedding for preference {Id}", preferenceId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                "MATCH (p:Preference {id: $id}) SET p.embedding = $embedding",
+                new { id = preferenceId, embedding = embedding.ToList() });
+        }, cancellationToken);
+    }
+
     private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
         => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
 

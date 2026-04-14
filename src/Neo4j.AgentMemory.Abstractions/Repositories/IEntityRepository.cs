@@ -59,4 +59,43 @@ public interface IEntityRepository
         string entityId,
         string messageId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches entities within a radius (km) of a geographic point.
+    /// Requires the entity_location_idx point index.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> SearchByLocationAsync(
+        double latitude,
+        double longitude,
+        double radiusKm,
+        int limit = 10,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches entities inside an axis-aligned geographic bounding box.
+    /// Requires the entity_location_idx point index.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> SearchInBoundingBoxAsync(
+        double minLat,
+        double minLon,
+        double maxLat,
+        double maxLon,
+        int limit = 10,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns up to <paramref name="limit"/> entities that have no embedding set.
+    /// Used for batch back-fill operations.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> GetPageWithoutEmbeddingAsync(
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the embedding vector on an existing entity node.
+    /// </summary>
+    Task UpdateEmbeddingAsync(
+        string entityId,
+        float[] embedding,
+        CancellationToken cancellationToken = default);
 }

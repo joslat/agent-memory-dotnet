@@ -303,6 +303,41 @@ public sealed class Neo4jFactRepository : IFactRepository
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
 
+    public async Task<IReadOnlyList<Fact>> GetPageWithoutEmbeddingAsync(
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting up to {Limit} facts without embeddings", limit);
+
+        const string cypher = "MATCH (f:Fact) WHERE f.embedding IS NULL RETURN f LIMIT $limit";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["f"].As<INode>();
+                return MapToFact(node, null);
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task UpdateEmbeddingAsync(
+        string factId,
+        float[] embedding,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Updating embedding for fact {Id}", factId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding",
+                new { id = factId, embedding = embedding.ToList() });
+        }, cancellationToken);
+    }
+
     private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
         => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
 
