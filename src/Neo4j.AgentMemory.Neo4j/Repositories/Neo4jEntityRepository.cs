@@ -400,6 +400,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 WHEN NOT source.name IN target.aliases THEN target.aliases + source.name
                 ELSE target.aliases
             END
+            SET target.embedding = null
             RETURN source, target";
 
         await _tx.WriteAsync(async runner =>
@@ -543,6 +544,23 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             await runner.RunAsync(
                 "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
                 new { id = entityId, embedding = embedding.ToList() });
+        }, cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(string entityId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting entity {Id}", entityId);
+
+        const string cypher = @"
+            MATCH (e:Entity {id: $entityId})
+            DETACH DELETE e
+            RETURN count(e) > 0 AS deleted";
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { entityId });
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["deleted"].As<bool>();
         }, cancellationToken);
     }
 

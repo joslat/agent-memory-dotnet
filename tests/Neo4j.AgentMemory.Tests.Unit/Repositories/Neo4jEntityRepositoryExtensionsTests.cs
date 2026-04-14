@@ -269,4 +269,27 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         param.GetType().GetProperty("sourceEntityId")!.GetValue(param).Should().Be("source-entity");
         param.GetType().GetProperty("targetEntityId")!.GetValue(param).Should().Be("target-entity");
     }
+
+    // Re-embedding after merge (G9)
+
+    [Fact]
+    public async Task MergeEntitiesAsync_ClearsTargetEmbedding()
+    {
+        var calls = new List<(string Cypher, object? Parameters)>();
+        var repo = CreateWriteCapture(calls);
+        await repo.MergeEntitiesAsync("src", "tgt");
+        calls[0].Cypher.Should().Contain("target.embedding = null");
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_ClearsEmbeddingAfterAliasUpdate()
+    {
+        var calls = new List<(string Cypher, object? Parameters)>();
+        var repo = CreateWriteCapture(calls);
+        await repo.MergeEntitiesAsync("src", "tgt");
+        var cypher = calls[0].Cypher;
+        var aliasIdx = cypher.IndexOf("target.aliases");
+        var embeddingIdx = cypher.IndexOf("target.embedding = null");
+        embeddingIdx.Should().BeGreaterThan(aliasIdx, "embedding should be cleared after alias merge");
+    }
 }

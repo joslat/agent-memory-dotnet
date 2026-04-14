@@ -98,4 +98,7 @@ public interface IEntityRepository
         string entityId,
         float[] embedding,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes an entity and all its relationships.</summary>
+    Task<bool> DeleteAsync(string entityId, CancellationToken cancellationToken = default);
 }

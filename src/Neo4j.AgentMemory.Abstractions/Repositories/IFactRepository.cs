@@ -43,4 +43,10 @@ public interface IFactRepository
 
     /// <summary>Sets the embedding vector on an existing fact node.</summary>
     Task UpdateEmbeddingAsync(string factId, float[] embedding, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes a fact and all its relationships.</summary>
+    Task<bool> DeleteAsync(string factId, CancellationToken cancellationToken = default);
+
+    /// <summary>Finds existing facts matching the subject-predicate-object triple.</summary>
+    Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default);
 }

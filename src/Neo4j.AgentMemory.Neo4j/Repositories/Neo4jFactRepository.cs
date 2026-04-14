@@ -23,11 +23,9 @@ public sealed class Neo4jFactRepository : IFactRepository
         _logger.LogDebug("Upserting fact {Id}", fact.FactId);
 
         const string cypher = @"
-            MERGE (f:Fact {id: $id})
+            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})
             ON CREATE SET
-                f.subject            = $subject,
-                f.predicate          = $predicate,
-                f.object             = $object,
+                f.id                 = $id,
                 f.confidence         = $confidence,
                 f.valid_from         = $validFrom,
                 f.valid_until        = $validUntil,
@@ -35,13 +33,12 @@ public sealed class Neo4jFactRepository : IFactRepository
                 f.created_at         = $createdAtUtc,
                 f.metadata           = $metadata
             ON MATCH SET
-                f.subject            = $subject,
-                f.predicate          = $predicate,
-                f.object             = $object,
+                f.id                 = $id,
                 f.confidence         = $confidence,
                 f.valid_from         = $validFrom,
                 f.valid_until        = $validUntil,
                 f.source_message_ids = $sourceMessageIds,
+                f.updated_at         = $updatedAtUtc,
                 f.metadata           = $metadata
             RETURN f";
 
@@ -58,6 +55,7 @@ public sealed class Neo4jFactRepository : IFactRepository
                 ["validUntil"]       = (object?)(fact.ValidUntil?.ToString("O")),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
                 ["createdAtUtc"]     = fact.CreatedAtUtc.ToString("O"),
+                ["updatedAtUtc"]     = DateTimeOffset.UtcNow.ToString("O"),
                 ["metadata"]         = SerializeMetadata(fact.Metadata)
             };
 
@@ -335,6 +333,44 @@ public sealed class Neo4jFactRepository : IFactRepository
             await runner.RunAsync(
                 "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding",
                 new { id = factId, embedding = embedding.ToList() });
+        }, cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(string factId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting fact {Id}", factId);
+
+        const string cypher = @"
+            MATCH (f:Fact {id: $factId})
+            DETACH DELETE f
+            RETURN count(f) > 0 AS deleted";
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { factId });
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["deleted"].As<bool>();
+        }, cancellationToken);
+    }
+
+    public async Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Finding fact by triple ({Subject}, {Predicate}, {Object})", subject, predicate, @object);
+
+        const string cypher = @"
+            MATCH (f:Fact)
+            WHERE toLower(f.subject) = toLower($subject)
+              AND toLower(f.predicate) = toLower($predicate)
+              AND toLower(f.object) = toLower($object)
+            RETURN f LIMIT 1";
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, new { subject, predicate, @object });
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["f"].As<INode>();
+            return MapToFact(node, ReadEmbedding(node));
         }, cancellationToken);
     }
 

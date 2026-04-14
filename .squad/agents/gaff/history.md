@@ -192,3 +192,38 @@
 **Pre-existing stubs found:** Several methods (`CreateTriggeredByRelationshipAsync`, `CreateInitiatedByRelationshipAsync`, `CreateConversationTraceRelationshipsAsync`, `UpsertBatchAsync` for entities) already existed as TODO stubs with `return Task.CompletedTask`. Always check for stubs before adding new methods to avoid CS0111 duplicate errors.
 
 **Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 419 passed, 0 failed.
+
+### Epic — Write-Layer Gaps + Fact Deduplication + Conversation Title + Re-embedding (2025-07-15)
+
+**Objective:** Close write-layer gaps: Entity/Fact DeleteAsync, fact deduplication via SPO-triple MERGE, Conversation title field, and embedding invalidation after entity merge.
+
+**Interface changes (Abstractions):**
+- `IEntityRepository` — added `DeleteAsync(string entityId)` → returns `bool`
+- `IFactRepository` — added `DeleteAsync(string factId)` → returns `bool`, `FindByTripleAsync(subject, predicate, object)` → returns `Fact?`
+- `Conversation` domain model — added `Title` property (nullable `string?`)
+
+**Neo4j repository implementations:**
+- `Neo4jEntityRepository.DeleteAsync` — `MATCH (e:Entity {id: $entityId}) DETACH DELETE e RETURN count(e) > 0 AS deleted`
+- `Neo4jFactRepository.DeleteAsync` — same DETACH DELETE pattern for Fact nodes
+- `Neo4jFactRepository.FindByTripleAsync` — case-insensitive match via `toLower()` on subject/predicate/object, `LIMIT 1`
+- `Neo4jFactRepository.UpsertAsync` — changed MERGE key from `{id: $id}` to `{subject: $subject, predicate: $predicate, object: $object}` — prevents duplicate SPO triples at the Cypher level; added `updated_at` on ON MATCH SET, `id` on ON CREATE SET
+- `Neo4jConversationRepository` — added `title` property to both ON CREATE SET and ON MATCH SET; reads via `TryGetValue("title")`
+- `Neo4jEntityRepository.MergeEntitiesAsync` — added `SET target.embedding = null` after alias merge to trigger re-embedding (G9 requirement)
+
+**FakeResultCursor test helper (new):**
+- Created `tests/.../TestHelpers/FakeResultCursor.cs` — implements `IResultCursor` with proper `IAsyncEnumerable<IRecord>` iteration
+- Required because Neo4j.Driver 6.0 `SingleAsync`/`ToListAsync` extension methods use `GetAsyncEnumerator()` + `MoveNextAsync()` internally, which NSubstitute cannot mock on `Substitute.For<IResultCursor>()`
+
+**Key testing insight — RunAsync overload resolution:**
+- `IAsyncQueryRunner` has separate `RunAsync(string, object)` and `RunAsync(string, IDictionary<string, object>)` overloads
+- `Dictionary<string, object?>` params resolve to the IDictionary overload; anonymous objects resolve to the object overload
+- Tests that mock `RunAsync(Arg.Any<string>(), Arg.Any<object>())` miss calls with Dictionary params — must mock BOTH overloads
+
+**Tests added (34 new):**
+- `Neo4jEntityRepositoryDeleteTests` — 6 tests (Cypher, params, true/false return, transaction type)
+- `Neo4jFactRepositoryDeleteTests` — 6 tests (same pattern)
+- `Neo4jFactRepositoryDeduplicationTests` — 11 tests (FindByTripleAsync Cypher/params/null return + UpsertAsync MERGE on SPO, ON CREATE/MATCH, updatedAt)
+- `Neo4jConversationRepositoryTitleTests` — 9 tests (Upsert includes title, GetById returns title, null handling, domain model)
+- `Neo4jEntityRepositoryExtensionsTests` — 2 new tests (embedding cleared after merge, ordering verified)
+
+**Build status:** `dotnet build src/Neo4j.AgentMemory.Abstractions && dotnet build src/Neo4j.AgentMemory.Neo4j` → 0 errors. `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 823 passed, 0 failed.

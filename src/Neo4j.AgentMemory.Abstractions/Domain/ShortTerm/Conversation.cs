@@ -31,6 +31,11 @@ public sealed record Conversation
     public required DateTimeOffset UpdatedAtUtc { get; init; }
 
     /// <summary>
+    /// Optional human-readable title for the conversation.
+    /// </summary>
+    public string? Title { get; init; }
+
+    /// <summary>
     /// Additional metadata for the conversation.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

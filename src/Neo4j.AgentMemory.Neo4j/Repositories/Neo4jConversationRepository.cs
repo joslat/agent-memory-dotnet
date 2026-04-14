@@ -27,12 +27,14 @@ public sealed class Neo4jConversationRepository : IConversationRepository
             ON CREATE SET
                 c.session_id  = $sessionId,
                 c.user_id     = $userId,
+                c.title       = $title,
                 c.created_at  = $createdAtUtc,
                 c.updated_at  = $updatedAtUtc,
                 c.metadata    = $metadata
             ON MATCH SET
                 c.session_id  = $sessionId,
                 c.user_id     = $userId,
+                c.title       = $title,
                 c.updated_at  = $updatedAtUtc,
                 c.metadata    = $metadata
             RETURN c";
@@ -42,6 +44,7 @@ public sealed class Neo4jConversationRepository : IConversationRepository
             id           = conversation.ConversationId,
             sessionId    = conversation.SessionId,
             userId       = (object?)conversation.UserId,
+            title        = (object?)conversation.Title,
             createdAtUtc = conversation.CreatedAtUtc.ToString("O"),
             updatedAtUtc = conversation.UpdatedAtUtc.ToString("O"),
             metadata     = SerializeMetadata(conversation.Metadata)
@@ -104,6 +107,7 @@ public sealed class Neo4jConversationRepository : IConversationRepository
             ConversationId = node["id"].As<string>(),
             SessionId      = node["session_id"].As<string>(),
             UserId         = node.Properties.TryGetValue("user_id", out var uid) ? uid.As<string>() : null,
+            Title          = node.Properties.TryGetValue("title", out var t) && t is not null ? t.As<string>() : null,
             CreatedAtUtc   = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             UpdatedAtUtc   = DateTimeOffset.Parse(node["updated_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
