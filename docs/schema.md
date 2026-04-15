@@ -11,7 +11,7 @@
 
 | Category | Python Items | .NET Matches | Parity |
 |----------|:---:|:---:|:---:|
-| Node labels | 11 | 10 implemented (all except Schema) | 91% |
+| Node labels | 11 | 11 (all labels including Schema — indexed via schema_name_idx, schema_version_idx) | 100% |
 | Constraints | 9 | 10 (all 9 Python + `extractor_name`) | 100% |
 | Property indexes | 10 + 2 Schema | 14 (all 10 Python + 2 Schema + 2 extras) | 100% |
 | Vector indexes | 5 | 6 (all 5 Python + `reasoning_step_embedding_idx`) | 100% |

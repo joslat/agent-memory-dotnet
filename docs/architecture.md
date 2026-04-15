@@ -25,7 +25,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 ### What It Does NOT Do
 
 - **No Python runtime** — purely .NET, no Python bridge or subprocess *(Spec §1.4)*
-- **MCP Server** — Phase 6, exposes 14 memory tools via Model Context Protocol *(Plan §Phase 6)*
+- **MCP Server** — Phase 6 complete, exposes 21 memory tools, 6 resources, and 3 prompts via Model Context Protocol *(Plan §Phase 6)*
 - **No bundled LLM** — extraction and embedding providers are pluggable interfaces, stubbed in Phase 1 *(Decision D5)*
 - **No fork of upstream Python agent-memory** — inspired by its architecture, not a port *(Spec §0.1)*
 - **Not an official Neo4j product** — independent community project *(Spec §1.1)*
@@ -538,10 +538,10 @@ The existing neo4j-maf-provider was built for **MAF 0.3** (pre-GA). MAF is now *
 4. Unit tests use **NSubstitute mocks** via `MockFactory` — no real infrastructure
 5. Test data seeders provide factory methods for all domain types
 
-### Current Test Inventory (Phase 1)
+### Current Test Inventory
 
-- **Unit tests (21):** SystemClock, GuidIdGenerator, StubEmbeddingProvider, StubExtractionPipeline
-- **Integration tests (2):** Neo4j connectivity smoke test, basic node CRUD
+- **Unit tests (1058):** Covering all 10 src packages — domain models, services, repositories, extraction pipeline, entity resolution, MCP tools/resources/prompts, MAF adapter, GraphRAG, observability, enrichment, geocoding, configuration, datetime migration, session strategies, metadata filters
+- **Integration tests (71):** Neo4j connectivity, repository CRUD, schema bootstrap, transaction behavior via Testcontainers
 - **Test infrastructure:** Neo4jTestFixture, IntegrationTestBase, TestDataSeeders, MockFactory, Neo4jTestCollection
 
 ---
@@ -551,39 +551,27 @@ The existing neo4j-maf-provider was built for **MAF 0.3** (pre-GA). MAF is now *
 | Phase | Name | Objective | Status |
 |---|---|---|---|
 | **0** | Discovery & Design Lock | Freeze architecture, interfaces, graph schema | ✅ Complete |
-| **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | 🔧 **In Progress** |
-| **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ⏳ Not Started |
-| **3** | MAF Adapter | Microsoft Agent Framework integration | ⏳ Not Started |
-| **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ⏳ Not Started |
-| **5** | Advanced Extraction | Azure Language, ONNX, geocoding, enrichment | ⏳ Not Started |
-| **6** | MCP Server | External access via Model Context Protocol | ⏳ Not Started |
+| **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | ✅ **Complete** |
+| **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ✅ **Complete** |
+| **3** | MAF Adapter | Microsoft Agent Framework integration | ✅ **Complete** |
+| **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ✅ **Complete** |
+| **5** | Advanced Extraction | Azure Language, geocoding, enrichment | ✅ **Complete** |
+| **6** | MCP Server | External access via Model Context Protocol | ✅ **Complete** |
+| **7** | Gap Closure (Waves A–C) | Python parity sprint — datetime, sessions, filters, MCP resources | ✅ **Complete** |
 
-### Phase 1 Status Detail
+### All Phases Complete
 
-| Component | Status |
-|---|---|
-| Abstractions package (all contracts) | ✅ Complete |
-| Neo4j infrastructure (driver, schema, tx) | ✅ Complete |
-| Test harness (Testcontainers, fixtures) | ✅ Complete |
-| Stub implementations (embedding, extractors) | ✅ Complete |
-| Neo4j repository implementations (10 repos) | 🔲 Not Started |
-| Core service implementations (3 services) | 🔲 Not Started |
-| Context assembler | 🔲 Not Started |
-| Memory service facade | 🔲 Not Started |
-| Schema constraints + indexes | ✅ Complete (9 constraints, 3 fulltext, 5 vector, 9 property) |
-| DI wiring (full registration) | 🔲 Not Started |
-| Unit tests for services | 🔲 Not Started |
-| Integration tests for repositories | 🔲 Not Started |
+All 6 implementation phases plus the gap closure sprint are complete. The project ships 10 packages with 1058 unit tests passing and ~99% functional parity with the Python reference.
 
 ### Phase 1 Exit Criteria
 
-- All repositories implemented with Neo4j persistence
-- All services unit tested
-- All repositories integration tested with real Neo4j via Testcontainers
-- Context assembler functional with configurable budgets
-- No MAF or GraphRAG dependencies in Core or Abstractions
-- Schema bootstrap creates all constraints and indexes
-- In-process memory engine works without Agent Framework
+- ✅ All repositories implemented with Neo4j persistence
+- ✅ All services unit tested
+- ✅ All repositories integration tested with real Neo4j via Testcontainers
+- ✅ Context assembler functional with configurable budgets
+- ✅ No MAF or GraphRAG dependencies in Core or Abstractions
+- ✅ Schema bootstrap creates all constraints and indexes (10 constraints, 14 property, 6 vector, 1 point, 3 fulltext)
+- ✅ In-process memory engine works without Agent Framework
 
 ---
 
@@ -771,21 +759,6 @@ CALL apoc.periodic.iterate(
 
 *Note:* ISO 8601 strings produced by `ToString("O")` are valid input to Cypher's `datetime()` function, so the conversion is safe for well-formed data.
 
-### 10.6 Verdict: Defer to Post-Phase 1, But Plan For It
+### 10.6 Status: ✅ COMPLETED (Gap Closure Sprint — G1)
 
-**Recommendation: Do not migrate now. Plan the migration as a P1 task for Phase 2 or 3.**
-
-**Rationale:**
-
-1. **Phase 1 is not yet complete.** Several repositories and services are still in progress. Changing the timestamp serialization pattern mid-implementation creates unnecessary churn and risk.
-2. **No correctness bug today.** ISO 8601 strings with UTC normalization work correctly for all current use cases. The `ToString("O")` format is lexicographically sortable for UTC timestamps.
-3. **Migration is mechanical but wide.** ~12 repository files, every write path, every read path, plus integration tests. It's a clean half-day refactor but should be done in one atomic PR, not interleaved with feature work.
-4. **The inconsistency should be fixed regardless.** The mixed `datetime()` / ISO string usage in `Neo4jEntityRepository.cs` should be normalized — either all native or all string — in the current phase.
-
-**When to do it:**
-
-- **Trigger:** When Phase 1 repositories are complete and integration-tested, *before* Phase 2 extraction pipeline work adds more timestamp-writing code.
-- **Scope:** Single PR that converts all repositories + updates integration tests + includes a data migration Cypher script.
-- **Pre-req:** Add a `SchemaVersion` mechanism (Ops1 — Schema Migration Runner) so the migration script runs automatically on schema bootstrap.
-
-**Immediate action (Phase 1):** Normalize `Neo4jEntityRepository.cs` to use ISO strings consistently like all other repositories, eliminating the mixed approach. This makes the future native datetime migration cleaner (one pattern to change, not two).
+The datetime migration was completed as part of the Gap Closure Sprint (Wave B). All 7 Neo4j repositories now use native `datetime()` storage via the `Neo4jDateTimeHelper` utility class. A backward-compatible reader gracefully handles both ISO-8601 strings and native datetime values during the transition period. 1058 unit tests pass with the migration in place.

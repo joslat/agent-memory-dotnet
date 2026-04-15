@@ -125,3 +125,22 @@ Our project: If MAF API changes → only `Neo4jMemoryContextProvider.cs` (300 LO
 - MCP Server: Expose memory as tools for Claude
 
 **Emphasize in ecosystem messaging:** "Single memory engine, multiple framework integrations."
+
+---
+
+### L7: Post-Gap-Closure Documentation Audit (2025-07-24)
+
+**Finding:** After the gap closure sprint (Waves A–C), 9 out of 13 documentation files had stale information.
+
+**Key stale items found:**
+- Test counts: Multiple docs showed 398 or 349 — actual is 1058
+- MCP tool counts: Docs showed 14 or 18 — actual is 21 tools, 6 resources, 3 prompts
+- `memory_get_observations` was listed as "not implemented" in 3 places — it IS implemented in `ObservationTools.cs`
+- Phase roadmap in `architecture.md` showed Phase 1 "in progress" and Phases 2–6 "not started" — all complete
+- datetime migration in `architecture.md` still recommended as future work — completed in G1
+- Node labels parity in `schema.md` showed 91% — should be 100% (Schema node has indexes)
+- `task_embedding_idx` listed as missing in `implementation-status.md` — it exists in SchemaBootstrapper
+
+**Lesson:** Documentation lags behind code changes by default. After every sprint, a targeted doc sweep is needed.
+
+**Files updated:** README.md, docs/architecture.md, docs/implementation-status.md, docs/schema.md, docs/feature-record.md, docs/python-dotnet-comparison.md, docs/architecture-assessment.md, docs/package-strategy-and-features.md

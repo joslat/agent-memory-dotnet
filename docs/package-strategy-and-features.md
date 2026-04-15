@@ -36,7 +36,7 @@ Today, the solution contains **10 source projects** organized in a layered ports
 │  ┌──────────────────┐ ┌───────────────────┐ ┌───────────────────┐  │
 │  │  AgentFramework   │ │  GraphRagAdapter   │ │    McpServer      │  │
 │  │ MAF 1.1.0         │ │ neo4j-maf-provider │ │ MCP 1.2.0         │  │
-│  │ ~300 LOC          │ │ IRetriever reuse   │ │ 14 tools          │  │
+│  │ ~300 LOC          │ │ IRetriever reuse   │ │ 21 tools          │  │
 │  └────────┬──────────┘ └────────┬──────────┘ └────────┬──────────┘  │
 │           │                     │                     │              │
 ├───────────┼─────────────────────┼─────────────────────┼──────────────┤
@@ -194,7 +194,7 @@ The GraphRagAdapter currently depends on the `neo4j-maf-provider` project via **
 | **Context assembly** | Basic (index→format) | Advanced (multi-tier, blending, budget) | **+BETTER** |
 | **Framework coupling** | Tight (MAF only) | Loose (core-agnostic) | **+BETTER** |
 | **Observability** | ❌ | ✅ (OpenTelemetry) | **+NEW** |
-| **MCP support** | ❌ | ✅ (14 tools) | **+NEW** |
+| **MCP support** | ❌ | ✅ (21 tools, 6 resources, 3 prompts) | **+NEW** |
 | **Schema management** | ❌ (assumes indexes exist) | ✅ (27 schema objects bootstrapped) | **+NEW** |
 | **Testing** | Reference only | 419+ unit + integration tests | **+NEW** |
 
@@ -378,7 +378,7 @@ For convenience, consider publishing a meta-package:
 | # | Feature | Description | Impact | Effort | Rationale | Implementation Approach | Dependencies |
 |---|---------|-------------|--------|--------|-----------|------------------------|--------------|
 | D1 | **Fluent Configuration Builder** | `services.AddAgentMemory(m => m.UseNeo4j(n => n.Uri("...")).UseLlmExtraction().UseObservability())` — single fluent entry point. | **High** | **M** | Current DI setup requires 5-6 separate `Add*` calls. Fluent builder reduces boilerplate and guides users through the configuration pit-of-success. | `AgentMemoryBuilder` class with method chaining. Each extension method calls the appropriate `IServiceCollection` registration. Terminal `.Build()` validates configuration. | All packages contribute extension methods |
-| D2 | **Source Generator for MCP Tools** | Auto-generate MCP tool registrations from `IMemoryService` methods using a Roslyn source generator. | **Low** | **L** | Nice-to-have for keeping MCP server in sync with service API. Current manual registration works fine for 14 tools. | `[McpToolExport]` attribute + Roslyn IIncrementalGenerator. Generates `McpToolRegistrations.g.cs`. | McpServer, Roslyn APIs |
+| D2 | **Source Generator for MCP Tools** | Auto-generate MCP tool registrations from `IMemoryService` methods using a Roslyn source generator. | **Low** | **L** | Nice-to-have for keeping MCP server in sync with service API. Current manual registration works fine for 21 tools. | `[McpToolExport]` attribute + Roslyn IIncrementalGenerator. Generates `McpToolRegistrations.g.cs`. | McpServer, Roslyn APIs |
 | D3 | **Memory Playground CLI** | Standalone `dotnet tool` that connects to Neo4j and exposes memory operations as interactive REPL commands: `recall "Alice"`, `extract "Alice likes pizza"`, `stats`. | **Medium** | **M** | Enables rapid experimentation without writing a full app. Python has CLI request (issue #11). | `dotnet tool install Neo4j.AgentMemory.Cli`. Uses Spectre.Console for TUI. Connects to Neo4j via config file or args. | Abstractions, Core, Neo4j, Spectre.Console |
 
 #### Intelligence

@@ -21,7 +21,7 @@ It is designed to support:
 - **Neo4j-backed persistent memory**
 - **Graph-native retrieval and memory recall**
 - **GraphRAG interoperability**
-- **Future MCP exposure for external clients and tools**
+- **MCP Server for external clients and tools** (21 tools, 6 resources, 3 prompts)
 
 ## Why this exists
 
@@ -89,7 +89,7 @@ A separate adapter that composes with the existing .NET Neo4j GraphRAG provider 
 - combined memory + GraphRAG scenarios
 
 ### 5. MCP layer
-A .NET MCP server exposing 14 memory tools to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
+A .NET MCP server exposing 21 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
 
 ## Planned capabilities
 
@@ -155,7 +155,7 @@ Instead, the .NET version will prioritize:
 
 ## Project status
 
-All 6 implementation phases complete. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, GraphRAG blended retrieval adapter, OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 14 tools — all ready for deployment.
+All 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, GraphRAG blended retrieval adapter, OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 21 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
 
 The solution ships 10 packages:
 
@@ -170,9 +170,9 @@ The solution ships 10 packages:
 | `Neo4j.AgentMemory.GraphRagAdapter` | 4 | GraphRAG adapter — `IGraphRagContextSource` via Neo4j vector/fulltext/hybrid/graph retrieval |
 | `Neo4j.AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
 | `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory + GraphRAG operations |
-| `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 14 tools (search, context, store, entities, facts, preferences, reasoning traces, graph query) via Model Context Protocol |
+| `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 21 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) via Model Context Protocol |
 
-**398 unit tests passing.**
+**1058 unit tests passing, 0 failures.** (~99% functional parity with Python reference)
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 

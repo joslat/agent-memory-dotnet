@@ -19,7 +19,7 @@
 | 6 | **Reasoning Traces** | 4 | Trace recording, steps, tool calls, similar trace search | 80 | Enables agent self-reflection and learning from past tasks | 10 tests |
 | 7 | **Graph Schema** | 4 | Constraints, indexes, vector indexes, migration runner | 85 | Data integrity + query performance — foundation for all persistence | 14 tests |
 | 8 | **Vector Search** | 3 | Embedding generation, similarity search, configurable dimensions | 90 | Semantic retrieval across all memory layers — core to context assembly | 7 tests |
-| 9 | **MCP Server** | 10 | 18 tools, 5+ resources (Conversations, Entities, Preferences, Context, MemoryStatus), 3 prompts | 85 | Primary integration surface — any MCP-compatible agent can use memory | 53+ tests |
+| 9 | **MCP Server** | 10 | 21 tools, 6 resources (Conversations, Entities, Preferences, Context, MemoryStatus, Schema), 3 prompts | 85 | Primary integration surface — any MCP-compatible agent can use memory | 53+ tests |
 | 10 | **MAF Integration** | 6 | Context provider, chat message store, trace recorder, memory facade, tool factory, type mapper | 80 | Microsoft Agent Framework interop — enterprise agent platform support | 52 tests |
 | 11 | **GraphRAG Adapter** | 5 | Vector/fulltext/hybrid/graph retrievers, stop word filter, context source | 85 | External knowledge graph retrieval — complements internal memory | 19 tests |
 | 12 | **Azure Language Extraction** | 3 | Named entity extraction, fact extraction, relationship extraction via Azure AI | 70 | Cloud-native extraction alternative — no LLM needed | 22 tests |
@@ -363,7 +363,7 @@
 ## Feature 9: MCP Server
 
 **Value Score:** 85/100
-**Description:** Model Context Protocol server exposing 18 tools for memory operations. Any MCP-compatible AI agent can search memory, store messages, add entities/facts/preferences, manage conversations, record reasoning traces, execute Cypher queries, find duplicate entities, and trigger extraction. Security-gated advanced features (graph query, export, duplicates).
+**Description:** Model Context Protocol server exposing 21 tools for memory operations. Any MCP-compatible AI agent can search memory, store messages, add entities/facts/preferences, manage conversations, record reasoning traces, execute Cypher queries, find duplicate entities, trigger extraction, get observations, export graphs, and generate embeddings. Security-gated advanced features (graph query, export, duplicates).
 **Package:** Neo4j.AgentMemory.McpServer
 
 ### Sub-Features
@@ -375,8 +375,9 @@
 | Entity tools (2) | `EntityTools` | MCP Tool Attributes | ✅ Complete | 6 |
 | Reasoning tools (3) | `ReasoningTools` | MCP Tool Attributes | ✅ Complete | 8 |
 | Graph query tool (1) | `GraphQueryTools` | MCP Tool Attributes | ✅ Complete | 5 |
-| Advanced tools (4) | `AdvancedMemoryTools` | MCP Tool Attributes | ✅ Complete | 12 |
-| MCP Resources (5+) | `ConversationListResource`, `EntityListResource`, `PreferenceListResource`, `ContextResource`, `MemoryStatusResource` | MCP Resource Attributes | ✅ Complete (Gap Closure G7/G8/G10/G11) | — |
+| Advanced tools (6) | `AdvancedMemoryTools` | MCP Tool Attributes | ✅ Complete | 12 |
+| Observation tools (1) | `ObservationTools` | MCP Tool Attributes | ✅ Complete | — |
+| MCP Resources (6) | `ConversationListResource`, `EntityListResource`, `PreferenceListResource`, `ContextResource`, `MemoryStatusResource`, `SchemaInfoResource` | MCP Resource Attributes | ✅ Complete (Gap Closure G7/G8/G10/G11) | — |
 | MCP Prompts (3) | Conversation, Reasoning, Review prompts | MCP Prompt Attributes | ✅ Complete | — |
 | Configuration | `McpServerOptions` | — | ✅ Complete | 6 |
 
@@ -926,7 +927,7 @@
 |---|---------------|---------------|:---:|:---:|:---:|
 | G9 | **Re-embedding after entity merge** | `MergeEntitiesAsync` Cypher doesn't update target entity's embedding. Alias-form queries may miss merged entity. | 0.5 days | **LOW** | ❌ Open |
 | G10 | **Entity index refresh hook** | No post-merge hook to re-index canonical entity text for fulltext search. | 0.5 days | **LOW** | ❌ Open |
-| G11 | **MCP tool: memory_get_observations** | Python has observation compression tool for token-budget-aware retrieval. Useful for constrained contexts. | 1 day | **LOW** | ❌ Open |
+| G11 | **MCP tool: memory_get_observations** | Python has observation compression tool for token-budget-aware retrieval. Useful for constrained contexts. | 1 day | **LOW** | ✅ **CLOSED** — `ObservationTools.MemoryGetObservations` implemented with `IContextCompressor` |
 | G12 | **Diffbot enrichment provider** | Python supports both Wikipedia and Diffbot. .NET is Wikipedia-only. | 1–2 days | **LOW** | ✅ **CLOSED (Wave 4C)** — Diffbot enrichment provider implemented |
 | G13 | **CLI entry point** | Python has `cli/` module for command-line operations. .NET has no CLI. | 2–3 days | **LOW** | 🔜 **DEFERRED** — Not needed for library-first package strategy |
 | G14 | **Custom YAML/JSON schema support** | Python supports custom entity schemas via YAML/JSON config. .NET uses hardcoded entity types. | 2–3 days | **LOW** | ✅ **CLOSED (Wave 4C)** — Custom schema support implemented |

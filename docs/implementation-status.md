@@ -1,6 +1,6 @@
 # Implementation Status — Agent Memory for .NET
 
-**Last Updated:** 2026-04-14  
+**Last Updated:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)  
 **Author:** Deckard (Lead Architect)  
 **For:** Jose Luis Latorre Millas (Project Owner)
 
@@ -10,7 +10,7 @@
 
 **Current Phase:** Phase 6 — MCP Server (✅ COMPLETE)
 
-**Phase 6 Status: 100% COMPLETE** — MCP Server package with 14 tools, stdio transport, sample host, and Claude Desktop config. All 6 implementation phases are now complete with 398 unit tests passing.
+**Phase 6 Status: 100% COMPLETE** — MCP Server package with 21 tools, 6 resources, 3 prompts, stdio transport, sample host, and Claude Desktop config. All 6 implementation phases are now complete. A subsequent gap-closure sprint (Waves A–C) brought functional parity with the Python reference to ~99%, with 1058 unit tests passing.
 
 **What's Done:**
 - **Phase 1:** Core memory engine with all repositories, services, context assembly, 85 tests
@@ -18,7 +18,8 @@
 - **Phase 3:** Neo4jMemoryContextProvider (AIContextProvider), Neo4jChatMessageStore (MAF-compatible), Neo4jMicrosoftMemoryFacade, MafTypeMapper (bidirectional mapping), MemoryToolFactory (6 tools), AgentTraceRecorder, DI: AddAgentMemoryFramework(), 265 tests total
 - **Phase 4:** Neo4jGraphRagContextSource (IGraphRagContextSource via IRetriever delegation), 4 search modes (Vector/Fulltext/Hybrid/Graph), GraphRagAdapterOptions, InstrumentedMemoryService + InstrumentedGraphRagContextSource (OTel decorators), MemoryActivitySource, MemoryMetrics (12 instruments), DI: AddGraphRagAdapter() + AddAgentMemoryObservability(), 295 tests total
 - **Phase 5:** Extraction.AzureLanguage (Azure Text Analytics extractors), Enrichment package (Nominatim geocoding + Wikimedia entity enrichment, decorator chain: Cache → RateLimiter → Nominatim), DI: AddAzureLanguageExtraction() + AddEnrichment(), 349 tests total
-- **Phase 6:** MCP Server with 14 tools (6 core + 8 extended), ModelContextProtocol SDK 1.2.0, stdio transport, IGraphQueryService interface + Neo4j implementation, sample McpHost app, Claude Desktop config, DI: AddAgentMemoryMcpTools(), 398 tests total
+- **Phase 6:** MCP Server with 21 tools (6 core + 15 extended), 6 resources, 3 prompts, ModelContextProtocol SDK 1.2.0, stdio transport, IGraphQueryService interface + Neo4j implementation, sample McpHost app, Claude Desktop config, DI: AddAgentMemoryMcpTools(), 398 tests at Phase 6 completion
+- **Gap Closure Sprint (Waves A–C):** Native `datetime()` storage across all 7 repositories (G1), Schema node indexes (G2), Tool.description on Tool node (G3), ISessionIdGenerator with 3 strategies (G4), MetadataFilterBuilder with 5 operators (G5), MCP camelCase Cypher fix (G7), ReasoningTrace count in memory stats (G8), memory://preferences resource (G10), memory://context/{session_id} resource (G11). **1058 unit tests passing, 0 failures.**
 
 **All Phases Complete.** The project is a full-featured .NET Neo4j Memory Provider with 10 packages.
 
@@ -35,22 +36,22 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 ### Current Work Maps To
 
 - **Phase 0 (Discovery & Design Lock)** → ✅ Complete — architecture decisions, package boundaries, interface contracts frozen
-- **Phase 1 (Core Memory Engine)** → 🔧 In Progress — framework-agnostic memory core + Neo4j persistence
+- **Phase 1 (Core Memory Engine)** → ✅ Complete — framework-agnostic memory core + Neo4j persistence
   - Impl Plan §7 (Layered Architecture) — implemented
   - Impl Plan §8 (Domain Model) — implemented as Abstractions records
-  - Impl Plan §9 (Neo4j Graph Model) — constraints + indexes implemented, repositories pending
-  - Impl Plan §10 (Project Responsibilities) — packages created, services/repos pending
-  - Impl Plan §14 (Memory Recall Design) — interface defined, implementation pending
-  - Impl Plan §16 (Test Strategy) — harness built, tests pending
+  - Impl Plan §9 (Neo4j Graph Model) — constraints + indexes + repositories all implemented
+  - Impl Plan §10 (Project Responsibilities) — all 10 packages created with full services and repositories
+  - Impl Plan §14 (Memory Recall Design) — fully implemented with context assembly and budget enforcement
+  - Impl Plan §16 (Test Strategy) — 1058 unit tests, 71 integration tests
 
 ### Deviations from Plan
 
 | Deviation | Reason |
 |---|---|
 | Package naming: `Neo4j.AgentMemory.*` instead of `AgentMemory.*` | Naming decision to clarify Neo4j backing. Spec §2.2 lists these as "candidate packages" so this is within spec. |
-| `Extraction.Abstractions` and `Extraction.Llm` not created yet | Deferred to Phase 2 as planned. Extraction interfaces live in main Abstractions package for now. |
+| `Extraction.Abstractions` merged into `Abstractions` | Extraction interfaces live in main Abstractions package. Simpler than a separate package. |
 | `reasoning_step_embedding_idx` added (not in original plan) | Enables future semantic search over reasoning steps. Useful and low-cost. |
-| `task_embedding_idx` for ReasoningTrace not yet created | Gap identified during alignment review — see §6 Known Gaps. |
+| `task_embedding_idx` added for ReasoningTrace | Enables `SearchByTaskVectorAsync`. Added in SchemaBootstrapper. |
 
 ---
 
@@ -134,10 +135,10 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 | 41 | Neo4jGraphQueryService | IGraphQueryService implementation using INeo4jTransactionRunner | ✅ Done | Phase 6 | Node/Relationship/Path conversion |
 | 42 | MCP Server Package | Neo4j.AgentMemory.McpServer project with ModelContextProtocol 1.2.0 | ✅ Done | Phase 6 | 10th src package |
 | 43 | Core MCP Tools (6) | memory_search, memory_get_context, memory_store_message, memory_add_entity, memory_add_preference, memory_add_fact | ✅ Done | Phase 6 | Delegates to IMemoryService, ILongTermMemoryService |
-| 44 | Extended MCP Tools (8) | memory_get_conversation, memory_list_sessions, memory_get_entity, memory_create_relationship, memory_start_trace, memory_record_step, memory_complete_trace, graph_query | ✅ Done | Phase 6 | Delegates to all service layers |
-| 45 | MCP Server DI | AddAgentMemoryMcpTools() extension on IMcpServerBuilder | ✅ Done | Phase 6 | Registers all 5 tool classes |
+| 44 | Extended MCP Tools (15) | conversation, session, entity, relationship, reasoning (start/step/complete), graph_query, record_tool_call, export_graph, find_duplicates, extract_and_persist, extract_session, generate_embeddings, get_observations | ✅ Done | Phase 6 | Delegates to all service layers |
+| 45 | MCP Server DI | AddAgentMemoryMcpTools() extension on IMcpServerBuilder | ✅ Done | Phase 6 | Registers all 7 tool classes + 6 resource classes + 3 prompt classes |
 | 46 | Sample McpHost App | Console app with stdio transport, Claude Desktop config | ✅ Done | Phase 6 | Ready for Claude Desktop integration |
-| 47 | MCP Contract Tests | 49 unit tests covering all 14 tools + options defaults | ✅ Done | Phase 6 | 398 total tests |
+| 47 | MCP Contract Tests | Unit tests covering all 21 tools + 6 resources + 3 prompts + options defaults | ✅ Done | Phase 6 | 1058 total tests (post gap closure) |
 
 ---
 
@@ -226,11 +227,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 ### Pending Epics
 
-#### Epic 4 — Short-Term Memory Repositories (COMPLETE)
-
-### Pending Epics
-
-**None** — All Phase 1 epics are complete.
+**None** — All epics across all phases are complete.
 
 ---
 
@@ -249,43 +246,39 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 ### 5.1 Document Alignment
 
-All documents are current as of 2026-04-13. Phase 1–3 completion has been reflected across all documentation.
+All documents are current as of 2025-07-24 (post gap closure sprint). Phase 1–6 completion and gap closure sprint results have been reflected across all documentation.
 
 ---
 
-## 6. Known Gaps & Future Phases
+## 6. Known Gaps & Future Work
 
-### Phase 2 — Entity Resolution & Extraction Pipeline
+### Completed Gaps (Gap Closure Sprint — Waves A/B/C)
+
+All critical parity gaps have been resolved:
 
 | Gap | Scope | Status |
 |---|---|---|
-| Real entity resolution | Implement 4-strategy chain (exact → fuzzy → semantic → type-aware) | Deferred to Phase 2 |
-| LLM extraction pipeline | Prompt templates, model integration, parsing | Deferred to Phase 2 |
-| Advanced recall patterns | GraphRAG integration, multi-hop reasoning | Deferred to Phase 3 |
+| G1: datetime() migration | All 7 Neo4j repositories use native `datetime()` storage | ✅ Fixed |
+| G2: Schema node indexes | `schema_name_idx` + `schema_version_idx` in SchemaBootstrapper | ✅ Fixed |
+| G3: Tool.description | Stored on Tool node via Neo4jToolCallRepository | ✅ Fixed |
+| G4: Session strategies | ISessionIdGenerator with 3 strategies (PerConversation, PerDay, PersistentPerUser) | ✅ Fixed |
+| G5: Metadata filters | MetadataFilterBuilder with 5 operators ($eq, $ne, $contains, $in, $exists) | ✅ Fixed |
+| G7: MCP camelCase bug | MCP resources now use correct snake_case Cypher property names | ✅ Fixed |
+| G8: Memory stats | MemoryStatusResource returns 6 counts including ReasoningTrace | ✅ Fixed |
+| G10: Preferences resource | `memory://preferences` MCP resource added | ✅ Fixed |
+| G11: Context resource | `memory://context/{session_id}` MCP resource added | ✅ Fixed |
 
-### Completed Phase 1 Features
+### Remaining Decided Omissions (NOT gaps)
 
-| Feature | Epic | Commit |
-|---|---|---|
-| Neo4j repository infrastructure | 3 | `ade9590` |
-| Message linking pattern (FIRST_MESSAGE + NEXT_MESSAGE) | 4 | `4a30a0e` |
-| Metadata JSON serialization | 5 | `4a30a0e` |
-| Cross-memory relationships | 6 | `4a30a0e` |
-| Full context assembly & orchestration | 7 | `4a30a0e` |
-| 85 unit tests with 100% pass rate | 9 | `4a30a0e` |
-| 7 | Centralized Cypher queries | Low | 1 | Python centralizes all Cypher in `queries.py`. Our queries will be inline in repositories for now. Consider centralizing if maintenance becomes an issue. |
-| 8 | `SessionInfo` missing previews | Low | Future | Python's `list_sessions` returns first/last message previews. Our `SessionInfo` doesn't include these. |
-
-### Schema Gap Detail
-
-The `SchemaBootstrapper` currently creates 5 vector indexes:
-1. `message_embedding_idx` (Message.embedding) ✅
-2. `entity_embedding_idx` (Entity.embedding) ✅
-3. `preference_embedding_idx` (Preference.embedding) ✅
-4. `fact_embedding_idx` (Fact.embedding) ✅
-5. `reasoning_step_embedding_idx` (ReasoningStep.embedding) ✅
-
-**Missing:** `task_embedding_idx` on `ReasoningTrace.taskEmbedding` — required by `IReasoningTraceRepository.SearchByTaskVectorAsync`. This index should be added to the SchemaBootstrapper before or during Epic 6.
+| Feature | Reason |
+|---|---|
+| spaCy NER extractor | Python-specific ML library — no .NET equivalent |
+| GLiNER2/GLiREL extractors | Python-specific ML library — no .NET equivalent |
+| Streaming extraction | Minor feature for very long documents — can add later if needed |
+| Custom schema YAML/JSON | Python-specific convenience — .NET uses code-based configuration |
+| LangChain/OpenAI Agents/Pydantic AI/LlamaIndex/CrewAI/Google ADK/AWS AgentCore | Python framework integrations — not applicable to .NET |
+| Opik tracer | Python observability — OpenTelemetry covers .NET needs |
+| CLI tool | Developer convenience — not a functional requirement |
 
 ---
 
@@ -299,17 +292,18 @@ The `SchemaBootstrapper` currently creates 5 vector indexes:
 | **3** | MAF Adapter | Microsoft Agent Framework integration | ✅ **Complete** | AgentFramework package; context provider, chat store, memory tools, trace recorder; 265 unit tests |
 | **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ✅ **Complete** | GraphRagAdapter package; 4 search modes; Observability package; OTel decorators; 295 unit tests |
 | **5** | Advanced Extraction & Enrichment | Azure Language extraction, geocoding, entity enrichment | ✅ **Complete** | Extraction.AzureLanguage + Enrichment packages; decorator chain; 349 unit tests |
-| **6** | MCP Server | External access via Model Context Protocol | ⏳ Not Started | Mcp package; stdio/HTTP transport; core + extended tool profiles |
+| **6** | MCP Server | External access via Model Context Protocol | ✅ **Complete** | McpServer package; 21 tools, 6 resources, 3 prompts; stdio transport; sample McpHost; 398 tests at phase completion |
+| **7** | Gap Closure (Waves A–C) | Python parity sprint | ✅ **Complete** | datetime() migration (G1), Schema indexes (G2), Tool.description (G3), SessionIdGenerator (G4), MetadataFilterBuilder (G5), MCP fixes (G7–G8), MCP resources (G10–G11); 1058 total tests |
 
 ### Phase 1 Exit Criteria (from Impl Plan)
 
-- [ ] All repositories implemented with Neo4j persistence
-- [ ] All services unit tested
-- [ ] All repositories integration tested with real Neo4j via Testcontainers
-- [ ] Context assembler functional with configurable budgets
+- [x] All repositories implemented with Neo4j persistence
+- [x] All services unit tested
+- [x] All repositories integration tested with real Neo4j via Testcontainers
+- [x] Context assembler functional with configurable budgets
 - [x] No MAF or GraphRAG dependencies in Core or Abstractions
-- [x] Schema bootstrap creates all constraints and indexes (vector index gap to fix)
-- [ ] In-process memory engine works without Agent Framework
+- [x] Schema bootstrap creates all constraints and indexes (all 6 vector indexes present)
+- [x] In-process memory engine works without Agent Framework
 
 ---
 
@@ -351,8 +345,8 @@ dotnet build
 dotnet test
 ```
 
-- **Unit tests (21):** Run without Docker. Test stubs, clock, ID generator.
-- **Integration tests (2):** Require Docker. Test Neo4j connectivity and basic CRUD via Testcontainers.
+- **Unit tests (1058):** Run without Docker. Cover all 10 src packages — domain, services, repositories, extraction, MCP tools, MAF adapter, GraphRAG, observability, enrichment.
+- **Integration tests:** Require Docker. Test Neo4j connectivity and full CRUD via Testcontainers.
 
 ### Run Only Unit Tests
 
@@ -371,7 +365,7 @@ Connects at `bolt://localhost:7687` with credentials `neo4j/password`.
 ### Current Test Results
 
 ```
-Passed!  - Failed: 0, Passed: 349, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
+Passed!  - Failed: 0, Passed: 1058, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
 ```
 
 **Test breakdown by phase:**
@@ -380,7 +374,9 @@ Passed!  - Failed: 0, Passed: 349, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
 - Phase 3: 55 additional tests (MAF adapter + tools + persistence)
 - Phase 4: 30 additional tests (GraphRAG adapter + observability)
 - Phase 5: 54 additional tests (Azure Language extraction + enrichment)
-- **Total: 349 unit tests passing**
+- Phase 6: 49 additional tests (MCP tools + resources + prompts)
+- Gap Closure Sprint: 660 additional tests (datetime migration, session strategies, metadata filters, MCP resources, cross-cutting coverage)
+- **Total: 1058 unit tests passing, 0 failures**
 
 ---
 

@@ -23,7 +23,7 @@
 | 8 | **Provenance tracking** | ✅ Full | EXTRACTED_FROM (with all props), EXTRACTED_BY, Extractor node |
 | 9 | **Cross-memory relationships** | ✅ Full | HAS_TRACE, INITIATED_BY, TRIGGERED_BY, MENTIONS, SAME_AS |
 | 10 | **MCP tools (core 6)** | ✅ Full | All 6 core tools match |
-| 11 | **MCP tools (extended)** | 🟡 Partial | 13/15 Python tools (.NET has 18 total; missing `memory_get_observations`) |
+| 11 | **MCP tools (extended)** | ✅ Full | All Python tools matched; .NET has 21 total (6 more than Python's 15) |
 | 12 | **Vector search (5 indexes)** | ✅ Full | All 5 Python vector indexes + 1 extra |
 | 13 | **Geospatial queries** | ✅ Full | Radius search + bounding box, Point index |
 | 14 | **LLM extraction** | ✅ Full | 4 granular extractors (entity, fact, preference, relationship) |
@@ -66,7 +66,7 @@
 | **Abstractions package** | Interface-only package for clean DI/testing |
 | **4 granular extractors** | Separate entity/fact/preference/relationship extractors |
 | **Batch upsert** | UNWIND-based batch for entities and facts |
-| **3 extra MCP tools** | `record_tool_call`, `find_duplicates`, `extract_and_persist` |
+| **3 extra MCP tools** | `record_tool_call`, `find_duplicates`, `extract_and_persist`, `export_graph`, `extract_session`, `generate_embeddings` |
 | **Fulltext indexes** | 3 fulltext indexes for message/entity/fact search |
 | **ReasoningStep vector index** | Extra vector index for step-level semantic search |
 
@@ -101,7 +101,7 @@ level.
 - Microsoft Agent Framework (MAF) integration: `Neo4jMemoryContextProvider`,
   `Neo4jChatMessageStore`, `AgentTraceRecorder`.
 - GraphRAG adapter: vector / fulltext / hybrid retrieval over external Neo4j knowledge graphs.
-- MCP server via `ModelContextProtocol.Server`: 18 tools, 5+ resources, 3 prompts.
+- MCP server via `ModelContextProtocol.Server`: 21 tools, 6 resources, 3 prompts.
 - Native `datetime()` storage with backward-compatible reader via `Neo4jDateTimeHelper`.
 - Session ID generation: `ISessionIdGenerator` with 3 strategies (PerConversation, PerDay, PersistentPerUser).
 - Metadata filters: `MetadataFilterBuilder` with 5 operators ($eq, $ne, $contains, $in, $exists).
@@ -117,7 +117,7 @@ level.
 | Geocoding | Nominatim / Google Maps → Point index | NominatimGeocodingService (with caching + rate limiting) |
 | Streaming extraction | Chunked async streaming | ❌ Not implemented |
 | Framework integrations | LangChain, OpenAI Agents, Pydantic AI, LlamaIndex, CrewAI, Google ADK, AWS AgentCore, MAF | MAF only |
-| MCP resources / prompts | ✅ Resources + prompts + tools | ✅ 5 tools, 3 prompts, 5+ resources |
+| MCP resources / prompts | ✅ Resources + prompts + tools | ✅ 21 tools, 3 prompts, 6 resources |
 | Session strategies | per_conversation, per_day, persistent | ✅ ISessionIdGenerator: PerConversation, PerDay, PersistentPerUser |
 | Observability | Opik + OpenTelemetry (decorator-based) | OpenTelemetry via `ActivitySource` |
 | Deduplication | Inline with configurable thresholds | `memory_find_duplicates` tool + `SAME_AS` rel |
@@ -239,8 +239,8 @@ level.
 | **Custom schema (YAML/JSON)** | `load_schema_from_file()` | ❌ Not implemented | 🟡 Minor gap | Python supports schema files |
 | **Entity subtypes** | `subtype` field on entities | `Subtype` property on `Entity` | ✅ Parity | Both support it |
 | **MCP tools: core (6)** | `memory_search`, `memory_get_context`, `memory_store_message`, `memory_add_entity`, `memory_add_preference`, `memory_add_fact` | Same 6 tools | ✅ Parity | Identical tool names |
-| **MCP tools: extended** | 9 additional (15 total) | 7 additional (13 total) | 🟡 Partial | See detailed table below |
-| **MCP resources** | `memory://context/{session_id}`, `memory://entities`, `memory://preferences`, `memory://graph/stats` | ✅ `memory://conversations`, `memory://entities`, `memory://preferences`, `memory://context/{session_id}`, `memory://status` | ✅ Parity | All Python resources matched + extras |
+| **MCP tools: extended** | 9 additional (15 total) | 15 additional (21 total) | ✅ Full | .NET has all Python tools plus 6 extras (record_tool_call, export_graph, find_duplicates, extract_and_persist, extract_session, generate_embeddings) |
+| **MCP resources** | `memory://context/{session_id}`, `memory://entities`, `memory://preferences`, `memory://graph/stats` | ✅ `memory://conversations`, `memory://entities`, `memory://preferences`, `memory://context/{session_id}`, `memory://status`, `memory://schema` | ✅ Parity | All Python resources matched + extras |
 | **MCP prompts** | `memory-conversation`, `memory-reasoning`, `memory-review` | ✅ 3 prompts | ✅ Parity | All 3 prompts implemented |
 | **LangChain integration** | `Neo4jAgentMemory` (BaseChatMemory) | ❌ Not implemented | 🔴 Gap | Python-ecosystem only |
 | **OpenAI Agents integration** | `Neo4jTracingProcessor` + `Neo4jMemoryStore` | ❌ Not implemented | 🔴 Gap | Python-ecosystem only |
@@ -376,12 +376,14 @@ level.
 | `memory_start_trace` | Extended profile | `ReasoningTools.MemoryStartTrace` | ✅ |
 | `memory_record_step` | Extended profile | `ReasoningTools.MemoryRecordStep` | ✅ |
 | `memory_complete_trace` | Extended profile | `ReasoningTools.MemoryCompleteTrace` | ✅ |
-| `memory_get_observations` | Extended profile | ❌ Not implemented | 🟡 Minor |
+| `memory_get_observations` | Extended profile | `ObservationTools.MemoryGetObservations` | ✅ |
 | `graph_query` (read-only) | Extended profile (blocks writes) | `GraphQueryTools.GraphQuery` | ✅ Same intent; Python blocks writes, .NET gates via `EnableGraphQuery` |
 | `memory_record_tool_call` | ❌ Not in MCP tools | `AdvancedMemoryTools.MemoryRecordToolCall` | ✅ .NET adds |
 | `memory_find_duplicates` | ❌ Not in MCP tools | `AdvancedMemoryTools.MemoryFindDuplicates` | ✅ .NET adds |
 | `extract_and_persist` | ❌ Not in MCP tools | `AdvancedMemoryTools.ExtractAndPersist` | ✅ .NET adds |
-| MCP Resources | 4 resources (context, entities, prefs, stats) | ✅ 5+ resources (Conversations, Entities, Preferences, Context, MemoryStatus) | ✅ |
+| `memory_extract_session` | ❌ Not in MCP tools | `AdvancedMemoryTools.MemoryExtractSession` | ✅ .NET adds |
+| `memory_generate_embeddings` | ❌ Not in MCP tools | `AdvancedMemoryTools.MemoryGenerateEmbeddings` | ✅ .NET adds |
+| MCP Resources | 4 resources (context, entities, prefs, stats) | ✅ 6 resources (Conversations, Entities, Preferences, Context, MemoryStatus, Schema) | ✅ |
 | MCP Prompts | 3 prompts (conversation, reasoning, review) | ✅ 3 prompts | ✅ |
 
 ### 4.8 Graph Relationships (Cypher Schema) — Updated Post P1 Sprint
@@ -557,7 +559,7 @@ The following Python features are absent in .NET and worth prioritising:
 
 | Feature | Rationale | Status |
 |---------|-----------|--------|
-| **MCP resources** (`memory://context/{session_id}`) | Enables Claude Desktop to auto-inject context before every turn | ✅ **CLOSED (G10/G11)** — 5+ resources |
+| **MCP resources** (`memory://context/{session_id}`) | Enables Claude Desktop to auto-inject context before every turn | ✅ **CLOSED (G10/G11)** — 6 resources |
 | **MCP prompts** (memory-conversation, memory-reasoning) | Slash commands guide LLM workflows; good UX for end users | ✅ **CLOSED** — 3 prompts |
 | **Streaming extraction** | Required for processing transcripts, large documents, RAG inputs | 🟡 Open |
 | **Metadata filters in message search** | Useful for filtering by model, source, or custom tags | ✅ **CLOSED (G5)** — `MetadataFilterBuilder` with 5 operators |
@@ -571,7 +573,7 @@ The following Python features are absent in .NET and worth prioritising:
 | **CLI tool** | Decided omission — developer convenience, not functional requirement | N/A |
 | **Opik tracer** | Decided omission — OTEL covers .NET needs | N/A |
 | **Custom schema (YAML/JSON)** | Enterprise users want domain-specific entity types | 🟡 Open |
-| **`memory_get_observations` tool** | Token-budget compression feedback; nice to have | 🟡 Open |
+| **`memory_get_observations` tool** | Token-budget compression feedback; nice to have | ✅ **CLOSED** — `ObservationTools.MemoryGetObservations` |
 
 ---
 

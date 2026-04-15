@@ -115,7 +115,7 @@ Abstractions ← Core ← Neo4j
 | 7 | **Extraction.AzureLanguage** | Abstractions | Azure.AI.TextAnalytics 5.3.0, M.E.DI/Logging/Options | Azure Cognitive Services extraction: entity recognition, relationship extraction. |
 | 8 | **Enrichment** | Abstractions | M.E.Http, M.E.Caching.Memory, M.E.DI/Logging/Options | Entity enrichment: geocoding, HTTP, caching, rate limiting. |
 | 9 | **Observability** | Abstractions, Core | OpenTelemetry.Api 1.12.0, M.E.DI/Logging | Decorator-pattern instrumentation: traces, metrics, structured logging. |
-| 10 | **McpServer** | Abstractions | ModelContextProtocol 1.2.0, M.E.Hosting | MCP tool definitions: 18 tools for memory operations via Model Context Protocol. |
+| 10 | **McpServer** | Abstractions | ModelContextProtocol 1.2.0, M.E.Hosting | MCP tool definitions: 21 tools, 6 resources, 3 prompts for memory operations via Model Context Protocol. |
 
 ### Test Projects (2)
 
@@ -258,7 +258,7 @@ Layer 0 (Foundation):    Abstractions
 | Only depends on Abstractions | ✅ Pass | Single ProjectReference to Abstractions |
 | No Core reference | ✅ Pass | Tool definitions resolve services via DI at runtime |
 | No Neo4j reference | ✅ Pass | Pure interface-driven |
-| Clean MCP tool definitions | ✅ Pass | 18 tools across 6 tool classes |
+| Clean MCP tool definitions | ✅ Pass | 24 tools across 7 tool classes + 6 resources + 3 prompts |
 
 **Verdict:** McpServer is properly isolated. It defines tools against abstractions and relies on DI for runtime binding. This is the correct approach — the host application (Sample.McpHost) wires up Core + Neo4j, not the server itself.
 
