@@ -1,9 +1,69 @@
 # Python neo4j-agent-memory vs .NET agent-memory-dotnet — Comprehensive Comparison
 
-> **Document authored by:** Sebastian (GraphRAG Interop Engineer)  
-> **Date:** 2025-07-12  
+> **Document authored by:** Sebastian (GraphRAG Interop Engineer) | Updated by Deckard (P1 Sprint)  
+> **Date:** 2025-07-23 (Post P1 Schema Parity Sprint)  
 > **Scope:** Exhaustive feature-by-feature comparison of the Python `neo4j-agent-memory` library
 > (`Neo4j/agent-memory/`) and the .NET `agent-memory-dotnet` project (`src/`).
+
+---
+
+## FUNCTIONAL PARITY SCORECARD
+
+> **Overall functional parity (excluding decided omissions): ~91%**
+
+| # | Functional Area | Status | Notes |
+|---|----------------|:---:|-------|
+| 1 | **Short-term memory (conversations/messages)** | ✅ Full | Add, batch, retrieve, search, delete, FIRST_MESSAGE/NEXT_MESSAGE chain |
+| 2 | **Long-term memory: entities** | ✅ Full | Upsert, batch, search (vector/name/type), merge, dedup, geospatial, dynamic labels |
+| 3 | **Long-term memory: facts** | ✅ Full | SPO triples, confidence, temporal validity, semantic search |
+| 4 | **Long-term memory: preferences** | ✅ Full | Category, context, confidence, semantic search, delete |
+| 5 | **Entity resolution chain** | ✅ Full | Exact → fuzzy → semantic, auto-merge, SAME_AS |
+| 6 | **Reasoning traces/steps/tool calls** | ✅ Full | Start, step, tool call, complete, search, Tool aggregate stats |
+| 7 | **Graph schema (constraints/indexes)** | ✅ Full | 10 constraints, 12 property, 6 vector, 1 point, 3 fulltext |
+| 8 | **Provenance tracking** | ✅ Full | EXTRACTED_FROM (with all props), EXTRACTED_BY, Extractor node |
+| 9 | **Cross-memory relationships** | ✅ Full | HAS_TRACE, INITIATED_BY, TRIGGERED_BY, MENTIONS, SAME_AS |
+| 10 | **MCP tools (core 6)** | ✅ Full | All 6 core tools match |
+| 11 | **MCP tools (extended)** | 🟡 Partial | 13/15 Python tools (.NET has 18 total; missing `memory_get_observations`) |
+| 12 | **Vector search (5 indexes)** | ✅ Full | All 5 Python vector indexes + 1 extra |
+| 13 | **Geospatial queries** | ✅ Full | Radius search + bounding box, Point index |
+| 14 | **LLM extraction** | ✅ Full | 4 granular extractors (entity, fact, preference, relationship) |
+| 15 | **Entity enrichment (Wikipedia)** | ✅ Full | WikimediaEnrichmentService |
+| 16 | **OpenTelemetry observability** | ✅ Full | ActivitySource + MeterProvider |
+| 17 | **MAF integration** | ✅ Full | ContextProvider + ChatStore + TraceRecorder |
+| 18 | **Extraction pipeline** | 🟡 Partial | Single-stage (no multi-extractor merge strategies) |
+| 19 | **MCP resources/prompts** | 🟡 Gap | Not implemented |
+| 20 | **Session strategies** | 🟡 Partial | Manual session ID (no auto per_day/persistent) |
+| 21 | **Metadata filters** | 🟡 Minor gap | No metadata filter clause in message search |
+| 22 | **Datetime storage** | 🟡 Partial | ISO strings vs native datetime() |
+
+### Decided Omissions (NOT counted in parity %)
+
+| Feature | Reason for Omission |
+|---------|-------------------|
+| spaCy NER extractor | Python-specific ML library — no .NET equivalent |
+| GLiNER2/GLiREL extractors | Python-specific ML library — no .NET equivalent |
+| LangChain integration | Python framework — not applicable to .NET |
+| OpenAI Agents integration | Python framework — not applicable to .NET |
+| Pydantic AI integration | Python framework — not applicable to .NET |
+| LlamaIndex integration | Python framework — not applicable to .NET |
+| CrewAI integration | Python framework — not applicable to .NET |
+| Google ADK integration | Python framework — not applicable to .NET |
+| AWS AgentCore integration | Python framework — not applicable to .NET |
+| Opik tracer | Python observability platform — OTEL covers .NET needs |
+| CLI tool | Developer convenience — not a functional requirement |
+
+### .NET-Only Advantages (not in Python)
+
+| Feature | Value |
+|---------|-------|
+| **Azure Language extraction** | Enterprise NER via `AzureLanguageEntityExtractor` |
+| **GraphRAG adapter** | Vector/fulltext/hybrid retrieval over external KGs |
+| **Abstractions package** | Interface-only package for clean DI/testing |
+| **4 granular extractors** | Separate entity/fact/preference/relationship extractors |
+| **Batch upsert** | UNWIND-based batch for entities and facts |
+| **3 extra MCP tools** | `record_tool_call`, `find_duplicates`, `extract_and_persist` |
+| **Fulltext indexes** | 3 fulltext indexes for message/entity/fact search |
+| **ReasoningStep vector index** | Extra vector index for step-level semantic search |
 
 ---
 
@@ -164,8 +224,8 @@ level.
 | **Wikipedia enrichment** | `WikimediaProvider` | `WikimediaEnrichmentService` | ✅ Parity | Both fetch Wikipedia summaries |
 | **Diffbot enrichment** | `DiffbotProvider` | ❌ Not implemented | 🟡 Minor gap | Commercial knowledge graph |
 | **Geocoding** | `GeocoderService` (Nominatim/Google) | ❌ Not implemented | 🟡 Minor gap | Python stores Neo4j Point |
-| **Geospatial index** | `setup_point_indexes()` (`Entity.location`) | ❌ Not implemented | 🟡 Minor gap | Enables radius queries |
-| **POLE+O schema model** | `EntitySchemaConfig` + `POLEOEntityType` | String types only | 🟡 Partial | .NET has no schema model class |
+| **Geospatial index** | `setup_point_indexes()` (`Entity.location`) | ✅ `entity_location_idx` Point index | ✅ Parity | Point index in SchemaBootstrapper |
+| **POLE+O schema model** | `EntitySchemaConfig` + `POLEOEntityType` | `BuildDynamicLabels` + string types | 🟡 Partial | .NET adds type/subtype labels but no formal schema model class |
 | **Custom schema (YAML/JSON)** | `load_schema_from_file()` | ❌ Not implemented | 🟡 Minor gap | Python supports schema files |
 | **Entity subtypes** | `subtype` field on entities | `Subtype` property on `Entity` | ✅ Parity | Both support it |
 | **MCP tools: core (6)** | `memory_search`, `memory_get_context`, `memory_store_message`, `memory_add_entity`, `memory_add_preference`, `memory_add_fact` | Same 6 tools | ✅ Parity | Identical tool names |
@@ -265,7 +325,7 @@ level.
 | Record tool call | `reasoning.record_tool_call(step_id, tool_name, arguments, result)` | `RecordToolCallAsync(stepId, toolName, input, output, status)` | ✅ |
 | Complete trace | `reasoning.complete_trace(trace_id, outcome, success)` | `CompleteTraceAsync(traceId, outcome, success)` | ✅ |
 | Semantic search on traces | Task embedding search | `SearchTracesAsync(embedding, limit, minScore)` | ✅ |
-| Tool statistics | `tool_stats_enabled` config | ❌ Not a distinct feature in .NET | 🟡 Minor |
+| Tool statistics | `tool_stats_enabled` config | ✅ Pre-aggregated on Tool node | ✅ Parity | `successful_calls`, `failed_calls`, `total_duration_ms`, `last_used_at` all auto-incremented |
 | `HAS_TRACE` / `IN_SESSION` relationships | Built into queries | Wired in repositories | ✅ |
 | `CALLS` relationship (step → tool) | `record_tool_call` → `ToolCall` node | `RecordToolCallAsync` → `ToolCall` node | ✅ |
 
@@ -314,21 +374,22 @@ level.
 | MCP Resources | 4 resources (context, entities, prefs, stats) | ❌ Not implemented | 🟡 |
 | MCP Prompts | 3 prompts (conversation, reasoning, review) | ❌ Not implemented | 🟡 |
 
-### 4.8 Graph Relationships (Cypher Schema)
+### 4.8 Graph Relationships (Cypher Schema) — Updated Post P1 Sprint
 
 | Relationship | Python | .NET | Notes |
 |--------------|--------|------|-------|
 | `FIRST_MESSAGE` (Session→Message) | `build_create_entity_query` | `Neo4jConversationRepository` | ✅ |
 | `NEXT_MESSAGE` (Message→Message) | `add_batch` chain | `Neo4jMessageRepository.AddBatchAsync` | ✅ |
-| `EXTRACTED_FROM` (Entity/Fact/Pref→Message) | Not wired in pipeline | ✅ Wired in `MemoryExtractionPipeline` | ✅ .NET stronger |
-| `MENTIONS` (Entity→Entity) | Via `add_relationship()` | `Neo4jEntityRepository.AddMentionAsync` | ✅ |
-| `SAME_AS` (Entity→Entity) | `AddSameAsRelationshipAsync` | `Neo4jEntityRepository.AddSameAsRelationshipAsync` | ✅ |
-| `HAS_STEP` (Trace→Step) | `add_step()` query | `Neo4jReasoningStepRepository` | ✅ |
-| `CALLS` (Step→ToolCall→Tool) | `record_tool_call()` | `Neo4jToolCallRepository` | ✅ |
-| `HAS_TRACE` (Session→Trace) | wired in `start_trace` | `Neo4jReasoningTraceRepository` | ✅ |
+| `EXTRACTED_FROM` (Entity/Fact/Pref→Message) | `CREATE_EXTRACTED_FROM_RELATIONSHIP` | ✅ Wired in `MemoryExtractionPipeline` + `CreateExtractedFromRelationshipAsync` with all 5 properties | ✅ Full parity (P1 Sprint) |
+| `MENTIONS` (Message→Entity) | `LINK_MESSAGE_TO_ENTITY` with confidence/start_pos/end_pos | `Neo4jEntityRepository.AddMentionAsync` with confidence/start_pos/end_pos | ✅ Full parity (P1 Sprint) |
+| `SAME_AS` (Entity→Entity) | `CREATE_SAME_AS_RELATIONSHIP` with status/confidence/match_type | `AddSameAsRelationshipAsync` with status/confidence/match_type/updated_at | ✅ Full parity (P1 Sprint) |
+| `HAS_STEP` (Trace→Step) | `add_step()` query with `{order: $step_number}` | `Neo4jReasoningStepRepository` with `{order: $stepNumber}` | ✅ |
+| `USES_TOOL` + `INSTANCE_OF` (Step→ToolCall→Tool) | `CREATE_TOOL_CALL` | `Neo4jToolCallRepository` with full Tool aggregate stats | ✅ Full parity (P1 Sprint) |
+| `HAS_TRACE` (Conversation→Trace) | wired in `start_trace` | `Neo4jReasoningTraceRepository` | ✅ |
 | `IN_SESSION` (Entity→Session) | via queries | `Neo4jEntityRepository` | ✅ |
+| `EXTRACTED_BY` (Entity→Extractor) | `CREATE_EXTRACTED_BY_RELATIONSHIP` | `Neo4jExtractorRepository.CreateExtractedByRelationshipAsync` | ✅ Full parity (P1 Sprint) |
 | POLE+O typed relationships (KNOWS, MEMBER_OF, etc.) | Defined in `schema/models.py` | Only generic `RELATED_TO` | 🟡 Python richer schema |
-| `LOCATED_AT` (geospatial) | `RESIDES_AT`, `HEADQUARTERS_AT` | ❌ Not schema-defined | 🟡 Minor |
+| `LOCATED_AT` (geospatial) | `RESIDES_AT`, `HEADQUARTERS_AT` | ❌ Not schema-defined (but geospatial queries work) | 🟡 Minor |
 
 ### 4.9 Vector Indexes and Search
 
@@ -339,7 +400,7 @@ level.
 | `preference_embedding_idx` | ✅ `Preference.embedding` | ✅ | Both |
 | `fact_embedding_idx` | ✅ `Fact.embedding` | ✅ | Both |
 | `task_embedding_idx` | ✅ `ReasoningTrace.task_embedding` | ✅ | Both |
-| `entity_location_idx` (Point) | ✅ | ❌ | Python only (geocoding) |
+| `entity_location_idx` (Point) | ✅ | ✅ | Both (P1 Sprint) |
 | Hybrid search (fulltext + vector) | `hybrid_search_enabled` config | `GraphRagSearchMode.Hybrid` (adapter only) | 🟡 Python in memory search; .NET in GraphRAG |
 | Fulltext index | ✅ entity_name + canonical_name | `conversation_session_idx`, `entity_type_idx` | Both |
 
@@ -382,7 +443,7 @@ level.
 | **GLiNER2 extractor** | Major | `extraction/gliner_extractor.py` | High (Python ML dep; no .NET port) |
 | **Multi-stage extraction pipeline with merge strategies** | Major | `extraction/pipeline.py` | Medium — add `IExtractionPipeline` composition in Core |
 | **Geocoding (Nominatim/Google)** | Minor | `services/geocoder.py`, `GeocodingConfig` | Medium — `HttpClient` + Neo4j Point type |
-| **Geospatial Point index** | Minor | `graph/schema.py setup_point_indexes()` | Low — one Cypher statement in schema setup |
+| **Geospatial Point index** | ~~Minor~~ | ~~`graph/schema.py setup_point_indexes()`~~ | ~~Low~~ | ✅ **FIXED (P1 Sprint)** — `entity_location_idx` in SchemaBootstrapper + `SearchByLocationAsync` + `SearchInBoundingBoxAsync` |
 | **Background enrichment queue** | Minor | `enrichment/background.py` | Medium — `Channel<T>` + hosted service |
 | **Diffbot enrichment provider** | Minor | `enrichment/diffbot.py` | Low-Medium — HTTP client integration |
 | **Streaming extraction for large docs** | Minor | `extraction/streaming.py` | Medium — chunk splitter + async iteration |

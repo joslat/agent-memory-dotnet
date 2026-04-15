@@ -483,3 +483,27 @@
 - Updated `docs/design.md` — Phase 2 extraction section updated to reflect complete status
 
 **Key Insight:** The .NET implementation is now a superset of the Python reference in several areas (fulltext indexes, denormalized properties, additional relationships). This is a feature, not a bug — it means the .NET SDK provides richer querying capabilities while maintaining structural compatibility.
+
+### 2025-07-23 — Post P1 Sprint Parity Audit
+
+**Trigger:** Jose requested comprehensive parity audit after completing P1 Schema Parity Sprint (10/11 P1 items completed, 34 new tests, 1037 total).
+
+**Deliverables:**
+1. **`docs/schema.md`** — Complete overhaul. Updated from ~88% to ~96% parity. All 10 completed P1 items marked ✅ FIXED. Full difference table (section 2.10) updated with 48 items. New section 4 "What Would 100% Schema Parity Require?" — answers the exact 4 items needed for 100%. Detailed P1-9 datetime gap analysis. P2 items reclassified with parity-required vs improvement.
+2. **`docs/python-dotnet-comparison.md`** — Added FUNCTIONAL PARITY SCORECARD header showing ~91% functional parity (excluding decided omissions). 22 functional areas rated. Updated sections 4.2, 4.5, 4.8, 4.9 for P1 sprint changes. Decided omissions (11 items) separated from genuine gaps.
+3. **`docs/feature-record.md`** — Updated header: 1037 unit tests, 71 integration tests. Feature 17 (Cross-Memory Relationships) updated with EXTRACTED_BY sub-feature and relationship property enrichments from P1 sprint.
+4. **P2 Analysis** — Classified all P2 items: P2-1 (Schema node) is the only one partially needed for parity. P2-2/P2-3/P2-4 are improvements. P2-5 (.NET extensions) add value. P2-6 (Tool.description) is trivial.
+
+**Key Findings:**
+1. **Schema parity: ~96%** — Up from ~88% pre-sprint. 10/11 P1 items completed. Only P1-9 (datetime) deferred.
+2. **Functional parity: ~91%** — Excluding decided omissions (Python-specific ML libs, Python framework integrations). Remaining gaps: multi-stage extraction pipeline, MCP resources/prompts, session strategies, datetime storage.
+3. **100% schema parity requires exactly 4 items:** Native datetime, Schema node, Schema indexes, Tool.description.
+4. **Most impactful remaining gap:** Multi-stage extraction pipeline with merge strategies (UNION, INTERSECTION, CONFIDENCE, CASCADE). This is functional, not schema. For schema, it's native datetime().
+5. **P2 items are overwhelmingly improvements, not parity requirements.** Only P2-1 (Schema node) partially qualifies.
+6. **Dynamic label casing difference:** .NET uses UPPERCASE (`PERSON`), Python uses PascalCase (`Person`). Functionally equivalent but worth noting.
+
+**Verification:**
+- 1037 unit tests + 71 integration tests passing (verified via `dotnet test`)
+- All 10 P1 items verified by reading actual implementation code in repositories
+- Python reference verified by reading `queries.py`, `query_builder.py`, `schema.py`
+- Build clean: 0 warnings, 0 errors

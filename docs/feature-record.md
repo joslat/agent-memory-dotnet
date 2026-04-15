@@ -1,9 +1,9 @@
 # Feature Record — Agent Memory for .NET
 
-> **Generated:** 2025-07-13 | **Updated:** 2025-07-22 (Post Wave 4A/4B/4C review)
+> **Generated:** 2025-07-13 | **Updated:** 2025-07-23 (Post P1 Schema Parity Sprint)
 > **Author:** Sebastian (GraphRAG Interop Engineer) | **Reviewer:** Deckard (Lead Architect)
 > **Project:** Neo4j.AgentMemory for .NET 9
-> **Total Unit Tests:** 1003 | **Integration Tests:** 2 | **Test Files:** 55+
+> **Total Unit Tests:** 1037 | **Integration Tests:** 71 | **Test Files:** 55+
 
 ---
 
@@ -739,14 +739,15 @@
 
 | Sub-Feature | Implementation | Interface | Status | Test(s) |
 |-------------|---------------|-----------|--------|---------|
-| EXTRACTED_FROM | Entity/Fact/Preference repos | Multiple repos | ✅ Complete | 6 |
-| MENTIONS | `Neo4jEntityRepository.AddMentionAsync/BatchAsync` | `IEntityRepository` | ✅ Complete | 4 |
-| SAME_AS | `Neo4jEntityRepository.AddSameAsRelationshipAsync` | `IEntityRepository` | ✅ Complete | 3 |
+| EXTRACTED_FROM | Entity/Fact/Preference repos (with confidence, start_pos, end_pos, context, created_at) | Multiple repos | ✅ Complete | 6 |
+| MENTIONS | `Neo4jEntityRepository.AddMentionAsync/BatchAsync` (with confidence, start_pos, end_pos) | `IEntityRepository` | ✅ Complete | 4 |
+| SAME_AS | `Neo4jEntityRepository.AddSameAsRelationshipAsync` (with status, updated_at) | `IEntityRepository` | ✅ Complete | 3 |
 | ABOUT | Fact/Preference repos | `IFactRepository`, `IPreferenceRepository` | ✅ Complete | 2 |
 | HAS_FACT | `Neo4jFactRepository.CreateConversationFactRelationshipAsync` | `IFactRepository` | ✅ Complete | 0 |
 | HAS_PREFERENCE | `Neo4jPreferenceRepository.CreateConversationPreferenceRelationshipAsync` | `IPreferenceRepository` | ✅ Complete | 0 |
 | HAS_TRACE / IN_SESSION | `Neo4jReasoningTraceRepository` | `IReasoningTraceRepository` | ✅ Complete | 3 |
 | TRIGGERED_BY | `Neo4jToolCallRepository.CreateTriggeredByRelationshipAsync` | `IToolCallRepository` | ✅ Complete | 2 |
+| EXTRACTED_BY | `Neo4jExtractorRepository.CreateExtractedByRelationshipAsync` (with confidence, extraction_time_ms) | `IExtractorRepository` | ✅ Complete (P1 Sprint) | 2+ |
 
 ### Test Coverage
 
