@@ -42,8 +42,8 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 10 constraints + 3 fulltext + 6 vector + 12 property = 31
-        executedStatements.Should().HaveCount(31);
+        // 10 constraints + 3 fulltext + 6 vector + 13 property = 32
+        executedStatements.Should().HaveCount(32);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class SchemaBootstrapperTests
         constraints.Should().Contain(s => s.Contains("entity_id"));
         constraints.Should().Contain(s => s.Contains("fact_id"));
         constraints.Should().Contain(s => s.Contains("preference_id"));
-        constraints.Should().Contain(s => s.Contains("relationship_id"));
+        constraints.Should().Contain(s => s.Contains("extractor_name"));
         constraints.Should().Contain(s => s.Contains("reasoning_trace_id"));
         constraints.Should().Contain(s => s.Contains("reasoning_step_id"));
         constraints.Should().Contain(s => s.Contains("tool_call_id"));
@@ -170,9 +170,9 @@ public class SchemaBootstrapperTests
         await bootstrapper.BootstrapAsync();
 
         var propertyIndexes = executedStatements
-            .Where(s => s.StartsWith("CREATE INDEX"))
+            .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(12);
+        propertyIndexes.Should().HaveCount(13);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
         propertyIndexes.Should().Contain(s => s.Contains("message_role_idx"));
@@ -185,6 +185,7 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("trace_success_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("reasoning_step_timestamp"));
         propertyIndexes.Should().Contain(s => s.Contains("tool_call_status"));
+        propertyIndexes.Should().Contain(s => s.Contains("entity_location_idx"));
     }
 
     [Theory]

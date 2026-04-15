@@ -46,7 +46,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 e.aliases            = $aliases,
                 e.attributes         = $attributes,
                 e.source_message_ids = $sourceMessageIds,
-                e.metadata           = $metadata
+                e.metadata           = $metadata,
+                e.updated_at         = datetime()
             RETURN e";
 
         return await _tx.WriteAsync(async runner =>
@@ -84,6 +85,14 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 await runner.RunAsync(
                     "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
                     new { id = entity.EntityId, embedding = entity.Embedding.ToList() });
+            }
+
+            // Dynamically add POLE+O type labels
+            var labels = BuildDynamicLabels(entity.Type, entity.Subtype);
+            if (labels.Count > 0)
+            {
+                var labelClause = string.Join(", ", labels.Select(l => $"e:{SanitizeLabel(l)}"));
+                await runner.RunAsync($"MATCH (e:Entity {{id: $id}}) SET {labelClause}", new { id = entity.EntityId });
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
@@ -208,22 +217,23 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task AddMentionAsync(string messageId, string entityId, CancellationToken cancellationToken = default)
+    public async Task AddMentionAsync(string messageId, string entityId, double? confidence = null, int? startPos = null, int? endPos = null, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Adding MENTIONS: Message {MessageId} -> Entity {EntityId}", messageId, entityId);
 
         const string cypher = @"
             MATCH (m:Message {id: $messageId})
             MATCH (e:Entity {id: $entityId})
-            MERGE (m)-[:MENTIONS]->(e)";
+            MERGE (m)-[r:MENTIONS]->(e)
+            ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos";
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { messageId, entityId });
+            await runner.RunAsync(cypher, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos });
         }, cancellationToken);
     }
 
-    public async Task AddMentionsBatchAsync(string messageId, IReadOnlyList<string> entityIds, CancellationToken cancellationToken = default)
+    public async Task AddMentionsBatchAsync(string messageId, IReadOnlyList<string> entityIds, double? confidence = null, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Adding {Count} MENTIONS for Message {MessageId}", entityIds.Count, messageId);
 
@@ -231,15 +241,16 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             MATCH (m:Message {id: $messageId})
             UNWIND $entityIds AS eid
             MATCH (e:Entity {id: eid})
-            MERGE (m)-[:MENTIONS]->(e)";
+            MERGE (m)-[r:MENTIONS]->(e)
+            ON CREATE SET r.confidence = $confidence";
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { messageId, entityIds = entityIds.ToList() });
+            await runner.RunAsync(cypher, new { messageId, entityIds = entityIds.ToList(), confidence = (object?)confidence });
         }, cancellationToken);
     }
 
-    public async Task AddSameAsRelationshipAsync(string entityId1, string entityId2, double confidence, string matchType, CancellationToken cancellationToken = default)
+    public async Task AddSameAsRelationshipAsync(string entityId1, string entityId2, double confidence, string matchType, string status = "pending", CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Adding SAME_AS: {EntityId1} <-> {EntityId2} (confidence={Confidence}, matchType={MatchType})",
             entityId1, entityId2, confidence, matchType);
@@ -248,11 +259,12 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             MATCH (e1:Entity {id: $entityId1})
             MATCH (e2:Entity {id: $entityId2})
             MERGE (e1)-[r:SAME_AS]->(e2)
-            SET r.confidence = $confidence, r.match_type = $matchType, r.created_at = datetime()";
+            ON CREATE SET r.confidence = $confidence, r.match_type = $matchType, r.created_at = datetime(), r.status = $status
+            ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END, r.updated_at = datetime()";
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { entityId1, entityId2, confidence, matchType });
+            await runner.RunAsync(cypher, new { entityId1, entityId2, confidence, matchType, status });
         }, cancellationToken);
     }
 
@@ -309,7 +321,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 e.aliases            = item.aliases,
                 e.attributes         = item.attributes,
                 e.source_message_ids = item.source_message_ids,
-                e.metadata           = item.metadata
+                e.metadata           = item.metadata,
+                e.updated_at         = datetime()
             RETURN e";
 
         var items = entities.Select(e => new Dictionary<string, object?>
@@ -341,6 +354,17 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, embedding = entity.Embedding!.ToList() });
             }
 
+            // Dynamically add POLE+O type labels
+            foreach (var entity in entities)
+            {
+                var labels = BuildDynamicLabels(entity.Type, entity.Subtype);
+                if (labels.Count > 0)
+                {
+                    var labelClause = string.Join(", ", labels.Select(l => $"e:{SanitizeLabel(l)}"));
+                    await runner.RunAsync($"MATCH (e:Entity {{id: $id}}) SET {labelClause}", new { id = entity.EntityId });
+                }
+            }
+
             // Auto-create EXTRACTED_FROM relationships
             foreach (var entity in entities.Where(e => e.SourceMessageIds.Count > 0))
             {
@@ -362,7 +386,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task CreateExtractedFromRelationshipAsync(string entityId, string messageId, CancellationToken cancellationToken = default)
+    public async Task CreateExtractedFromRelationshipAsync(string entityId, string messageId, double? confidence = null, int? startPos = null, int? endPos = null, string? context = null, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Creating EXTRACTED_FROM: Entity {EntityId} -> Message {MessageId}", entityId, messageId);
 
@@ -370,8 +394,10 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         {
             await runner.RunAsync(@"
                 MATCH (e:Entity {id: $entityId}), (m:Message {id: $messageId})
-                MERGE (e)-[:EXTRACTED_FROM]->(m)",
-                new { entityId, messageId });
+                MERGE (e)-[r:EXTRACTED_FROM]->(m)
+                ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos, r.context = $context, r.created_at = datetime()
+                ON MATCH SET r.confidence = CASE WHEN $confidence IS NOT NULL AND ($confidence > r.confidence OR r.confidence IS NULL) THEN $confidence ELSE r.confidence END",
+                new { entityId, messageId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
         }, cancellationToken);
     }
 
@@ -596,6 +622,34 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         if (!node.Properties.TryGetValue("embedding", out var ev) || ev is null) return null;
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
+    }
+
+    private static readonly HashSet<string> ValidEntityLabels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PERSON", "OBJECT", "LOCATION", "EVENT", "ORGANIZATION",
+        "INDIVIDUAL", "GROUP", "ANIMAL", "VEHICLE", "BUILDING", "LANDMARK",
+        "CITY", "COUNTRY", "REGION", "ADDRESS", "COMPANY", "GOVERNMENT",
+        "CONFERENCE", "MEETING", "INCIDENT"
+    };
+
+    internal static List<string> BuildDynamicLabels(string type, string? subtype)
+    {
+        var labels = new List<string>();
+        var sanitizedType = SanitizeLabel(type);
+        if (!string.IsNullOrEmpty(sanitizedType) && ValidEntityLabels.Contains(sanitizedType))
+            labels.Add(sanitizedType.ToUpperInvariant());
+        if (!string.IsNullOrEmpty(subtype))
+        {
+            var sanitizedSubtype = SanitizeLabel(subtype);
+            if (!string.IsNullOrEmpty(sanitizedSubtype) && ValidEntityLabels.Contains(sanitizedSubtype))
+                labels.Add(sanitizedSubtype.ToUpperInvariant());
+        }
+        return labels;
+    }
+
+    internal static string SanitizeLabel(string label)
+    {
+        return new string(label.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
     }
 
     private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)

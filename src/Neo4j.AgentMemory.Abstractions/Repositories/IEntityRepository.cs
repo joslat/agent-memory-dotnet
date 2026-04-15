@@ -58,6 +58,10 @@ public interface IEntityRepository
     Task CreateExtractedFromRelationshipAsync(
         string entityId,
         string messageId,
+        double? confidence = null,
+        int? startPos = null,
+        int? endPos = null,
+        string? context = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

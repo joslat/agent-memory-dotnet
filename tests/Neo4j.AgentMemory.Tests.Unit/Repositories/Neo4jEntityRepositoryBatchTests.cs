@@ -68,7 +68,9 @@ public sealed class Neo4jEntityRepositoryBatchTests
         await repo.CreateExtractedFromRelationshipAsync("e-1", "msg-1");
 
         calls.Should().ContainSingle();
-        calls[0].Cypher.Should().Contain("MERGE (e)-[:EXTRACTED_FROM]->(m)");
+        calls[0].Cypher.Should().Contain("MERGE (e)-[r:EXTRACTED_FROM]->(m)");
+        calls[0].Cypher.Should().Contain("r.confidence");
+        calls[0].Cypher.Should().Contain("r.created_at = datetime()");
     }
 
     [Fact]
@@ -113,7 +115,7 @@ public sealed class Neo4jEntityRepositoryBatchTests
 
         await repo.UpsertBatchAsync(entities);
 
-        calls.Should().ContainSingle();
+        calls.Should().HaveCountGreaterThanOrEqualTo(1);
         calls[0].Cypher.Should().Contain("UNWIND $items AS item");
     }
 
@@ -134,7 +136,8 @@ public sealed class Neo4jEntityRepositoryBatchTests
 
         await repo.UpsertBatchAsync(entities);
 
-        calls.Should().HaveCount(2);
-        calls[1].Cypher.Should().Contain("EXTRACTED_FROM");
+        // Merge + labels + EXTRACTED_FROM
+        calls.Should().HaveCountGreaterThanOrEqualTo(2);
+        calls.Should().Contain(c => c.Cypher.Contains("EXTRACTED_FROM"));
     }
 }

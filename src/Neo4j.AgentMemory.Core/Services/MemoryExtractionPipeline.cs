@@ -150,7 +150,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                     try
                     {
                         await _entityRepository.CreateExtractedFromRelationshipAsync(
-                            entity.EntityId, msgId, cancellationToken);
+                            entity.EntityId, msgId, cancellationToken: cancellationToken);
                     }
                     catch (Exception ex)
                     {

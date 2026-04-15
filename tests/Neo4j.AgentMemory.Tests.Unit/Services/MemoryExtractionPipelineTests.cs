@@ -420,7 +420,7 @@ public sealed class MemoryExtractionPipelineTests
 
         // MakeRequest creates 2 messages (msg-1, msg-2)
         await _entityRepo.Received(request.Messages.Count).CreateExtractedFromRelationshipAsync(
-            "e-alice", Arg.Any<string>(), Arg.Any<CancellationToken>());
+            "e-alice", Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -478,7 +478,7 @@ public sealed class MemoryExtractionPipelineTests
             .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(MakeResolvedEntity("e-bob", "Bob")));
         _entityRepo
-            .CreateExtractedFromRelationshipAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .CreateExtractedFromRelationshipAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new Exception("DB connection failed")));
 
         var sut = CreateSut();

@@ -144,7 +144,10 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         calls.Should().HaveCount(1);
         calls[0].Cypher.Should().Contain("MATCH (m:Message {id: $messageId})");
         calls[0].Cypher.Should().Contain("MATCH (e:Entity {id: $entityId})");
-        calls[0].Cypher.Should().Contain("MERGE (m)-[:MENTIONS]->(e)");
+        calls[0].Cypher.Should().Contain("MERGE (m)-[r:MENTIONS]->(e)");
+        calls[0].Cypher.Should().Contain("r.confidence = $confidence");
+        calls[0].Cypher.Should().Contain("r.start_pos = $startPos");
+        calls[0].Cypher.Should().Contain("r.end_pos = $endPos");
     }
 
     [Fact]
@@ -169,7 +172,8 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         calls.Should().HaveCount(1);
         calls[0].Cypher.Should().Contain("UNWIND $entityIds AS eid");
         calls[0].Cypher.Should().Contain("MATCH (e:Entity {id: eid})");
-        calls[0].Cypher.Should().Contain("MERGE (m)-[:MENTIONS]->(e)");
+        calls[0].Cypher.Should().Contain("MERGE (m)-[r:MENTIONS]->(e)");
+        calls[0].Cypher.Should().Contain("r.confidence = $confidence");
     }
 
     [Fact]

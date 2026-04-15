@@ -35,6 +35,9 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IPreferenceRepository, Neo4jPreferenceRepository>();
         services.TryAddTransient<IRelationshipRepository, Neo4jRelationshipRepository>();
 
+        // Provenance
+        services.TryAddTransient<IExtractorRepository, Neo4jExtractorRepository>();
+
         // Reasoning memory repositories
         services.TryAddTransient<IReasoningTraceRepository, Neo4jReasoningTraceRepository>();
         services.TryAddTransient<IReasoningStepRepository, Neo4jReasoningStepRepository>();

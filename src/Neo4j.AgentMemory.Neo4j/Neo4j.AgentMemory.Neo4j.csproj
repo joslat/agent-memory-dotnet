@@ -18,4 +18,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Neo4j.AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
 </Project>
