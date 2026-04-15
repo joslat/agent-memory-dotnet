@@ -430,6 +430,670 @@ Created three project-level documents under `docs/`:
 ### Rationale
 
 - Consolidates scattered Squad-internal knowledge into canonical, shareable documents
+
+---
+
+## Decision: G12 Diffbot Enrichment Options Pattern
+
+**Date:** 2025-07-15  
+**Author:** Gaff  
+**Task:** G12 — Diffbot Enrichment Provider
+
+### Context
+
+The task spec defined `DiffbotEnrichmentOptions` as a `sealed record` with `required string ApiKey { get; init; }`. However, the `AddDiffbotEnrichment(Action<DiffbotEnrichmentOptions> configure)` DI extension pattern requires the options type to be mutable (you can't call an `Action<T>` on a record with `init`-only properties after construction).
+
+### Decision
+
+Changed `DiffbotEnrichmentOptions` to use `set` (not `init`) properties and removed `required` on `ApiKey` (defaulting to `string.Empty`). Kept it as `sealed record` to honour the spirit of the spec.
+
+**Rationale:**
+- The existing codebase pattern uses `sealed class` with `set` properties for options (`GeocodingOptions`, `EnrichmentOptions`, `EnrichmentCacheOptions`) — this is consistent.
+- The `Action<T>` options pattern (used throughout `ServiceCollectionExtensions`) cannot work with immutable records.
+- Keeping it as a `record` still provides value equality and `with`-expression support.
+- Callers are responsible for setting `ApiKey` — validated at runtime if the API returns 401.
+
+### Alternative Considered
+
+Keeping `init`-only + `required` and changing the DI method to accept a `DiffbotEnrichmentOptions` instance directly. Rejected because it would differ from the established `Action<T>` convention for all other enrichment services.
+
+---
+
+## Decision: G10 — Post-Merge Fulltext Index Refresh
+
+**Author:** Gaff (Neo4j Persistence Engineer)  
+**Date:** 2025-07-16  
+**Task:** G10 — Entity Index Refresh Hook After Merge
+
+### Decision
+
+After `MergeEntitiesAsync`, the implementation now:
+
+1. **Absorbs source aliases into target in a single Cypher `WITH` + `SET`** — deduplication via `WHERE NOT x IN coalesce(target.aliases, [])` guard (no APOC dependency needed).
+
+2. **Conditionally merges source description** — uses a Cypher `CASE` expression to append source description only when target doesn't already contain it, avoiding data pollution.
+
+3. **Sets `target.updated_at = datetime()`** inside the merge Cypher — this alone is sufficient to trigger Neo4j 5.x fulltext auto-reindex on `name` and `description`.
+
+4. **`RefreshEntitySearchFieldsAsync` is a lightweight post-merge call** — strips null/empty alias entries, stamps `updated_at`. It does NOT modify `description` (that's done in the merge Cypher). This keeps refresh idempotent and safe to call at any time.
+
+### Rationale
+
+- Neo4j 5.x fulltext indexes auto-update on property changes — no manual `CALL db.index.fulltext.queryNodes()` refresh needed. The key is ensuring properties ARE written.
+- Single `SET` block for all target property changes is more atomic than multiple separate `SET` statements.
+- Keeping description enrichment in the merge Cypher (not in refresh) avoids double-write and ensures description state is correct at merge time.
+
+### Boundary Note
+
+`RefreshEntitySearchFieldsAsync` is intentionally kept as a persistence-layer utility. Callers (Core services, MAF adapters) may call it independently if they update entity fields outside the standard upsert path.
+
+---
+
+## Decision: Fact MERGE Key Changed from ID to SPO Triple
+
+**Author:** Gaff (Neo4j Persistence Engineer)  
+**Date:** 2025-07-15  
+**Status:** Implemented
+
+### Context
+
+Fact UpsertAsync previously used `MERGE (f:Fact {id: $id})` which allowed duplicate subject-predicate-object triples when different IDs were generated for semantically identical facts.
+
+### Decision
+
+Changed the MERGE key to `MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})`. The `id` is now set inside `ON CREATE SET` so existing facts matching the same SPO triple get updated (via `ON MATCH SET`) instead of duplicated.
+
+Added `FindByTripleAsync` for pre-flight dedup checks and `updated_at` timestamp on match.
+
+### Impact
+
+- **Core services** that call `IFactRepository.UpsertAsync` get dedup for free — no code changes needed
+- **Entity merge** now clears `target.embedding = null` to flag re-embedding after aliases change
+- **Conversation** now has a `Title` property persisted as `c.title` in Neo4j (snake_case)
+- **FakeResultCursor** test helper added — use this instead of `Substitute.For<IResultCursor>()` when mocking `SingleAsync`/`ToListAsync`
+
+---
+
+## Holden: Integration Test Architecture Decisions
+
+**Date:** 2026-04-14  
+**Agent:** Holden (Testing & Harness Engineer)  
+**Task:** G1 — Repository Integration Tests
+
+### Decision 1: Separate Integration Collection from Smoke Tests
+
+**Decision:** Created `Neo4jIntegrationCollection` (`"Neo4j Integration"`) as a new xUnit collection separate from the existing `Neo4jTestCollection` (`"Neo4j"`).
+
+**Rationale:** The new `Neo4jIntegrationFixture` runs `SchemaBootstrapper` and waits for vector indexes to come online — behavior incompatible with the lightweight smoke test fixture. Keeping them separate avoids container sharing and initialization conflicts.
+
+### Decision 2: DirectSessionFactory Pattern
+
+**Decision:** Implemented a private `DirectSessionFactory : INeo4jSessionFactory` inside `Neo4jIntegrationFixture` that takes an `IDriver` directly, bypassing `Neo4jDriverFactory` and DI.
+
+**Rationale:** Integration tests do not use the DI container. This pattern allows full use of real `Neo4jTransactionRunner` + `SchemaBootstrapper` implementations with zero mocks, while keeping test setup minimal.
+
+### Decision 3: EmbeddingDimensions = 4 in Test Fixture
+
+**Decision:** Schema is bootstrapped with `EmbeddingDimensions = 4`. All test embeddings use 4-element float arrays.
+
+**Rationale:** Vector indexes require embeddings to match their configured dimension. Using 4 instead of 1536 reduces test data size and keeps bootstrapping fast. All test classes must use 4-element embeddings for vector search tests to work.
+
+### Decision 4: WaitForVectorIndexesAsync in Fixture Init
+
+**Decision:** After bootstrapping, the fixture polls `SHOW INDEXES WHERE type = 'VECTOR' AND state <> 'ONLINE'` (up to 60 seconds) before yielding control to tests.
+
+**Rationale:** Neo4j vector indexes start in POPULATING state and `db.index.vector.queryNodes` fails against a non-ONLINE index. Without this wait, all vector search tests would fail intermittently. This is more reliable than a fixed `Task.Delay`.
+
+### Decision 5: [Trait("Category", "Integration")] on All Tests
+
+**Decision:** Every test class and the trait `[Trait("Category", "Integration")]` is applied at the class level.
+
+**Rationale:** Allows `dotnet test --filter "Category!=Integration"` to run unit tests only, without requiring a live Docker/Neo4j instance. This preserves the CI gate for unit tests.
+
+---
+
+## Decision: Typed Exception Hierarchy & Options Test Namespace
+
+**Author:** Holden (Testing & Harness Engineer)  
+**Date:** 2026-07-xx  
+**Status:** Implemented
+
+### Exception Hierarchy
+
+All memory-system exceptions now derive from `MemoryException` in `Neo4j.AgentMemory.Abstractions.Exceptions`. Each specialized exception carries a context property (e.g., `EntityId`, `CypherQuery`) so callers can handle errors without parsing message strings.
+
+**Convention:** New exception types must extend `MemoryException`, include full XML docs (CS1591 enforced), and provide at least message-only and message+innerException constructors.
+
+### Options Test Namespace
+
+Test classes in `tests/.../Options/` use namespace `Neo4j.AgentMemory.Tests.Unit.OptionsTests` (not `.Options`) to avoid ambiguity with `Microsoft.Extensions.Options.Options.Create()` used in existing tests. Future option test classes should follow this pattern.
+
+---
+
+## Decision: Azure Language Preference Extraction Strategy
+
+**Author:** Rachael  
+**Date:** 2026-07-13  
+**Task:** G4 — Azure Language Preference Extraction
+
+### Decision
+
+The `AzureLanguagePreferenceExtractor` uses **sentiment analysis + key phrase extraction** as a proxy for user preferences, since Azure AI Language has no dedicated preference-extraction capability.
+
+### Rationale
+
+- Azure AI Text Analytics exposes: named entity recognition, key phrase extraction, linked entity recognition, and **sentiment analysis** (document + sentence level).
+- Preferences are inherently sentiment-bearing statements about topics; combining sentiment polarity with key phrases gives a reasonable signal without an LLM.
+- A configurable `PreferenceSentimentThreshold` (default 0.7) prevents low-confidence sentiment from generating noisy preferences.
+
+### Mappings
+
+| Sentiment | Score ≥ threshold | Category emitted | PreferenceText |
+|-----------|------------------|-----------------|----------------|
+| positive  | PositiveScore     | `like`          | `likes {phrase}` |
+| negative  | NegativeScore     | `dislike`       | `dislikes {phrase}` |
+| neutral/mixed | either below | (none)          | empty list |
+
+### Trade-offs
+
+- **Pro:** No LLM required; fast and cheap; deterministic for the same text.
+- **Con:** Cannot detect "prefer X over Y" or "avoid X" nuances — those require semantic understanding only an LLM provides. Users needing richer preference extraction should use the LLM path.
+
+### Interface Extension
+
+Added `AnalyzeSentimentAsync(string, string?, CancellationToken)` to `ITextAnalyticsClientWrapper` and `AzureSentimentResult` model to `AzureModels.cs`. This extends the internal wrapper but does not change the public `IPreferenceExtractor` contract.
+
+---
+
+## Architecture Assessment Decisions — Roy (July 2026)
+
+### Context
+
+Full architecture audit of all 10 source projects, 2 test projects, and 3 sample projects. Verified dependency flow, boundary compliance, and clean architecture adherence. Assessed .NET AI ecosystem positioning.
+
+---
+
+### D-ARCH1: Architecture is Clean — No Structural Changes Required
+
+**Status:** Proposed (for team acknowledgment)  
+**Scope:** All source projects
+
+The current 5-layer ports-and-adapters architecture has zero circular dependencies, zero boundary violations, and zero framework leakage. No structural refactoring is needed.
+
+**Evidence:**
+- Abstractions: zero PackageReferences, zero imports of Neo4j.Driver or Microsoft.Agents
+- Core: zero imports of Neo4j.Driver, Neo4j.AgentMemory.Neo4j, or Microsoft.Agents
+- AgentFramework: zero imports of Neo4j.Driver or Neo4j.AgentMemory.Neo4j
+- All 10 src projects have strictly downward dependency arrows
+
+**Rationale:** Confirms the architecture established in D1/D2 is well-enforced across all phases.
+
+---
+
+### D-ARCH2: Build Semantic Kernel Adapter
+
+**Status:** Proposed  
+**Scope:** New package — `Neo4j.AgentMemory.SemanticKernel`  
+**Impact:** High | **Effort:** Medium
+
+Create a thin SK adapter following the same pattern as AgentFramework:
+- `MemoryPlugin` (KernelPlugin) — exposes memory ops as SK functions
+- `MemoryAutoRecallFilter` (IFunctionInvocationFilter) — auto-inject context pre-run
+- `SKTypeMapper` — ChatMessageContent ↔ Message mapping
+- DI extension: `services.AddAgentMemoryForSemanticKernel()`
+
+**Rationale:** Semantic Kernel has the largest .NET AI user base. Without this adapter, we miss the primary adoption channel. Our architecture already supports thin adapters — AgentFramework proves the pattern works.
+
+---
+
+### D-ARCH3: Create M.E.AI Embedding Bridge
+
+**Status:** Proposed  
+**Scope:** Core or new extension package  
+**Impact:** High | **Effort:** Small
+
+Bridge `IEmbeddingGenerator<string, Embedding<float>>` (M.E.AI) to our `IEmbeddingProvider` interface. Single adapter class + DI extension.
+
+**Rationale:** M.E.AI is the unified AI abstraction for .NET 10+. Every consumer benefits from plug-and-play embedding provider support. Lowest effort, broadest impact.
+
+---
+
+### D-ARCH4: NuGet Publish Order
+
+**Status:** Proposed (reinforces D-PKG4)  
+**Scope:** Package release strategy
+
+Publish in 5 waves:
+1. Abstractions, Core
+2. Neo4j, Extraction.Llm, Extraction.AzureLanguage, Enrichment, Observability
+3. AgentFramework, McpServer (GraphRagAdapter blocked on neo4j-maf-provider NuGet)
+4. Meta-package (Neo4j.AgentMemory)
+5. SemanticKernel (after D-ARCH2 implementation)
+
+Use `-preview` suffix for all initial releases.
+
+---
+
+### D-ARCH5: Resolve neo4j-maf-provider Packaging
+
+**Status:** Proposed  
+**Scope:** GraphRagAdapter dependency
+
+Short term: keep ProjectReference.  
+Medium term: switch to PackageReference when neo4j-maf-provider publishes to NuGet.  
+Contribute adapter patterns upstream.
+
+**Rationale:** ProjectReference blocks NuGet publishing of GraphRagAdapter. External dependency on Neo4j's publishing timeline.
+
+---
+
+### D-ARCH6: Defer AutoGen and LangChain.NET
+
+**Status:** Proposed  
+**Scope:** Ecosystem integration
+
+Do NOT build adapters for AutoGen (.NET) or LangChain.NET.
+
+**Rationale:** AutoGen .NET is experimental with unstable API. LangChain.NET is a niche community port. Investment is not justified given current adoption levels. Revisit quarterly.
+
+---
+
+## Decision: Background Enrichment Queue Architecture
+
+**Author:** Roy (Core Memory Domain Engineer)  
+**Date:** 2026-07  
+**Status:** Proposed  
+**Scope:** Gap G5 — Core package enrichment pipeline
+
+---
+
+### Context
+
+Enrichment in .NET was synchronous, blocking the extraction pipeline. Python `agent-memory` has a `BackgroundEnrichmentQueue` with async processing, retry logic, and multiple providers. We need parity.
+
+### Decision
+
+Implemented `BackgroundEnrichmentQueue` as a framework-agnostic, BCL-only class using `System.Threading.Channels`.
+
+### Key choices
+
+**1. `Channel<T>` with `BoundedChannelFullMode.DropOldest`**  
+- Non-blocking writes (`TryWrite` always returns true when DropOldest)  
+- Bounded capacity prevents unbounded memory growth  
+- DropOldest is appropriate for enrichment: recent entities are more valuable than old pending ones  
+
+**2. Fixed worker pool, not semaphore + single reader**  
+With a single reader loop + `SemaphoreSlim`, items are read from the channel BEFORE a concurrency slot is acquired. This makes `QueueDepth = channel.Reader.Count` inaccurate (items in limbo between dequeue and processing). The worker-pool pattern keeps items in the channel until a worker is free, so `QueueDepth` accurately reflects waiting items.
+
+**3. No `IHostedService` or `BackgroundService`**  
+Core must have zero framework dependencies. Workers are started as `Task.Run(...)` tasks and tracked via `Task.WhenAll`. Lifetime is managed via `IDisposable` / `IAsyncDisposable`.
+
+**4. Retry via re-queue**  
+Failed items (all providers fail for a given entity) are re-queued with an incremented `RetryCount`. Items with `RetryCount >= MaxRetries` are dropped with a warning log. This avoids blocking the worker during retries (delay is within ProcessItemAsync, not the channel reading loop).
+
+**5. All providers called per entity**  
+All registered `IEnrichmentService` instances are called sequentially per entity. Any single success triggers `IEntityRepository.UpsertAsync`. This mirrors Python's multi-provider approach.
+
+### Artifacts
+
+- `src/Neo4j.AgentMemory.Abstractions/Services/IBackgroundEnrichmentQueue.cs`
+- `src/Neo4j.AgentMemory.Abstractions/Options/EnrichmentQueueOptions.cs`  
+- `src/Neo4j.AgentMemory.Core/Enrichment/BackgroundEnrichmentQueue.cs`
+- `tests/Neo4j.AgentMemory.Tests.Unit/Enrichment/BackgroundEnrichmentQueueTests.cs` (20 tests)
+
+### Impact
+
+- Zero changes to existing enrichment service files
+- No new NuGet packages (`System.Threading.Channels` is BCL in .NET 9)
+- Callers wire `BackgroundEnrichmentQueue` via DI and call `EnqueueAsync` after extraction
+- When `Enabled = false`, all operations are no-ops (safe for environments without enrichment configured)
+
+---
+
+## Decision: Multi-Extractor Merge Strategy Architecture
+
+**Author:** Roy  
+**Date:** 2025-07-15  
+**Status:** Implemented  
+**Scope:** Core + Abstractions
+
+### Context
+
+Python agent-memory supports 5 merge strategies for combining multiple extractors (UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS). Our .NET pipeline had no multi-extractor support.
+
+### Decision
+
+1. **Generic strategy pattern** — `IMergeStrategy<T>` with `Func<T, string>` key selectors instead of type-specific classes. Keeps the strategy count at 5 rather than 5×4=20.
+
+2. **New pipeline alongside existing** — `MultiExtractorPipeline` is a separate `IMemoryExtractionPipeline` implementation. The existing `MemoryExtractionPipeline` (single-extractor, does resolution+persistence) is not modified. DI registration determines which is active.
+
+3. **MergeStrategyType on ExtractionOptions** — Default is `Union`, configurable per pipeline instance. The enum lives in Abstractions so adapters can reference it.
+
+4. **Dedup keys** — Entity: Name (case-insensitive). Fact: SPO triple. Preference: PreferenceText. Relationship: (source, type, target).
+
+### Implications
+
+- Adapters that register multiple `IEntityExtractor` implementations should configure `MultiExtractorPipeline` instead of `MemoryExtractionPipeline`.
+- `MultiExtractorPipeline` does extraction+merge only; it does NOT do resolution, embedding, or persistence. Those responsibilities remain in `MemoryExtractionPipeline` or a future composed pipeline.
+- Future work: a composed pipeline that uses `MultiExtractorPipeline` for extraction then delegates to resolution/persistence.
+
+---
+
+## Decision: G7 Streaming Extraction Pipeline Design
+
+**Author:** Roy  
+**Date:** 2025-04-14  
+**Status:** Implemented
+
+### Context
+
+G7 required porting Python's `streaming.py` to .NET, providing chunked extraction of long documents with streaming results and deduplication. The main design question was how to bridge the gap between `IStreamingExtractor` (which takes raw text) and `IEntityExtractor` (which takes `IReadOnlyList<Message>`).
+
+### Decision
+
+### IEntityExtractor wrapping via synthetic Message
+
+`StreamingExtractor.ExtractStreamingAsync` synthesises a single `Message` per chunk with:
+- `MessageId` = `Guid.NewGuid().ToString()`
+- `ConversationId` = `"streaming"`
+- `SessionId` = `"streaming"`
+- `Role` = `"user"`
+- `Content` = chunk text
+- `TimestampUtc` = `DateTimeOffset.UtcNow`
+
+This avoids any changes to `IEntityExtractor` and is a clean integration point.
+
+### Internal static helpers
+
+`TextChunker` and `EntityDeduplicator` are `internal static` classes, accessible to tests via the existing `InternalsVisibleTo` declaration in Core's csproj. This keeps the public API surface minimal.
+
+### IAsyncEnumerable with [EnumeratorCancellation]
+
+`ExtractStreamingAsync` returns `IAsyncEnumerable<StreamingChunkResult>`. Per-chunk errors are caught (except `OperationCanceledException`) and emitted as failed results — matching Python's behaviour.
+
+### No relationship extraction from streaming
+
+`IStreamingExtractor` only wraps `IEntityExtractor` because relationship extraction (`IRelationshipExtractor`) requires a separate call chain. The `ExtractionResult.Relationships` collection will be populated if the concrete `IEntityExtractor` implementation also performs relationship extraction, but it is not orchestrated by the streaming layer.
+
+### Consequences
+
+- Downstream DI registrations should register `StreamingExtractor` for `IStreamingExtractor`.
+- Any extractor that produces relationships alongside entities will have those relationships automatically deduped across chunks.
+- Token-based chunking uses the same `\S+` whitespace pattern as Python — not a production tokenizer — and is labelled "approximate" throughout the API.
+
+---
+
+## Decision: G14 — Custom YAML/JSON Schema Support
+
+**Author:** Sebastian  
+**Date:** 2025-07-13  
+**Status:** Implemented ✅
+
+### Context
+
+G14 required porting the Python `schema/models.py` and `schema/persistence.py` modules to .NET. The primary design decision was how to structure the schema types and where to place them.
+
+### Decisions
+
+### 1. SchemaListItem in Domain/Schema, not Services
+`SchemaListItem` is a pure data record with no behaviour. Placing it in `Domain/Schema/` (alongside the other schema records) is cleaner than a Services/ subfolder. `ISchemaManager` simply references it from there.
+
+### 2. No YAML support
+`SchemaLoader` intentionally excludes YAML loading. The task specified "no YAML — avoid YamlDotNet dependency". JSON is sufficient for the current use cases. A future YAML overload can be added when needed.
+
+### 3. Private DTOs inside SchemaLoader
+JSON deserialization DTOs (`EntitySchemaConfigDto`, etc.) are private sealed classes nested inside `SchemaLoader`. They are never exposed publicly. This prevents coupling of any external code to the JSON deserialization shape.
+
+### 4. #pragma warning disable CS1591 on all new Abstractions files
+The Abstractions project has `GenerateDocumentationFile=true`, which enforces XML doc comments on all public members. All schema records use the same `#pragma warning disable CS1591` suppressor established by `SchemaConstants.cs`. This keeps the codebase consistent without forcing verbose XML docs on every record property.
+
+### 5. ISchemaManager does not include a concrete implementation
+The interface lives in Abstractions. A concrete Neo4j-backed implementation (`Neo4jSchemaManager`) would belong in `Neo4j.AgentMemory.Neo4j`, which is the existing pattern (IEntityRepository → Neo4jEntityRepository, etc.). This is deferred — the interface is the contract.
+
+### Impact
+
+- All 91 schema tests pass
+- Pre-existing `TextChunkerTests.cs` FA8-compat bug fixed (unrelated but was blocking test runs)
+- No new NuGet packages added
+
+---
+
+## Decision: Feature Record Document Created
+
+**Author:** Sebastian (GraphRAG Interop Engineer)  
+**Date:** 2025-07-13  
+**Status:** Informational  
+**Scope:** Documentation
+
+### Context
+
+Jose Luis requested a comprehensive feature record document cataloging every feature, sub-feature, test mapping, and value score across the entire Agent Memory for .NET project.
+
+### Decision
+
+Created `docs/feature-record.md` — a comprehensive feature record with:
+
+- **20 features** documented with value scores (0–100)
+- **~429 unit tests** mapped to features/sub-features
+- **2 integration tests** documented
+- **15 gaps** identified with priorities and effort estimates
+
+### Key Observations
+
+1. **Unit test coverage is excellent** — every package has thorough unit tests
+2. **Integration test coverage is the biggest gap** — only 2 smoke tests exist
+3. **Top 3 gaps by impact:** repository integration tests (HIGH), fact deduplication (HIGH), multi-extractor merge pipeline (HIGH)
+4. **Highest-value features:** Short-Term Memory (95), Long-Term Memory (95), Context Assembly (90), Extraction Pipeline (90), Entity Resolution (90), Vector Search (90)
+
+### Impact
+
+This document serves as a living reference for:
+- Sprint planning (priority-ordered gaps)
+- Test coverage improvement targeting
+- Feature parity tracking with Python reference
+- Onboarding new team members
+
+---
+
+## Decision: MCP Resources Registration Pattern
+
+**Author:** Sebastian (GraphRAG Interoperability Engineer)  
+**Date:** 2025-07-13  
+**Status:** Implemented
+
+### Context
+
+Added 4 MCP resources (G6), observation tool (G11), and POLE+O entity types (G15). Needed to decide how to register the new resources and tool.
+
+### Decisions
+
+1. **Resources registered via separate `AddAgentMemoryMcpResources()` method** — not added to `AddAgentMemoryMcpTools()`. This avoids breaking existing consumers who call `AddAgentMemoryMcpTools()` without expecting resources. Clients opt in to resources explicitly.
+
+2. **Resources use `IGraphQueryService` with raw Cypher** — same pattern as `GraphQueryTools` and `AdvancedMemoryTools`. Resources don't require `EnableGraphQuery = true` since they only run safe read-only schema/count queries.
+
+3. **`ObservationTools` registered inside `AddAgentMemoryMcpTools()`** — it's a tool, so it belongs with other tools. Consumers get it automatically.
+
+4. **`EntityType.Unknown` excluded from `All` collection** — `All` represents the 5 canonical POLE+O types. Unknown is a fallback, not a classification. This matches Python's `POLEOEntityType` which has 5 values.
+
+### Impact
+
+- Existing consumers: zero breaking changes
+- New consumers: call `AddAgentMemoryMcpResources()` to opt in to resources
+
+---
+
+## Decision: P1 Sprint Complete — P2 Items Are Not Parity Blockers
+
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** 2025-07-23  
+**Status:** Proposed
+
+### Context
+
+The P1 Schema Parity Sprint completed 10 of 11 P1 items (P1-9 datetime deferred), bringing schema parity from ~88% to ~96%. After thorough audit of both Python reference code (`queries.py`, `query_builder.py`, `schema.py`) and .NET implementations, we now have a precise picture of what remains.
+
+### Decision
+
+#### 1. P2 items are improvements, not parity requirements
+
+After verifying every P2 item against the Python reference:
+
+- **P2-1 (Schema node)**: Only needed if we support custom entity schema models (YAML/JSON config files). Python uses it; .NET uses fixed types. **Classified: Nice-to-have.**
+- **P2-2 (Graph export queries)**: Python has 4 typed export queries. .NET already has `MemoryExportGraph` MCP tool. **Classified: Improvement.**
+- **P2-3 (GET_MEMORY_STATS)**: Diagnostic utility. **Classified: Improvement.**
+- **P2-4 (Session listing pagination)**: DX improvement. **Classified: Improvement.**
+- **P2-6 (Tool.description)**: Python defines but never auto-populates in `CREATE_TOOL_CALL`. **Classified: Trivial gap.**
+
+#### 2. P1-9 (datetime) is the single biggest remaining schema gap
+
+ISO string timestamps are functional but prevent:
+- Native temporal arithmetic in Cypher
+- Efficient temporal range comparisons
+- Cross-implementation consistency on shared databases
+
+Estimated effort: 3-5 days (all repos + migration + tests).
+
+#### 3. Multi-stage extraction pipeline is the biggest functional gap
+
+The absence of `ExtractionPipeline` with merge strategies (UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS) is the most impactful functional gap for production use. This is purely functional, not schema-related.
+
+#### 4. The ~96% schema parity and ~91% functional parity numbers are verified
+
+These are based on line-by-line code comparison, not estimates. All claims are traceable to specific files and line numbers.
+
+### Impact
+
+- No further schema work needed for "production-ready" status
+- P1-9 datetime migration can be scheduled as a standalone effort
+- Multi-stage extraction pipeline should be prioritized for Phase 3
+- P2 items can be deprioritized without affecting parity claims
+
+---
+
+## Decision: Schema Parity with Python Reference Implementation
+
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** 2025-07-21  
+**Priority:** P0 — Critical  
+**Status:** Proposed
+
+---
+
+### D-SCHEMA-1: Neo4j Properties Must Use `snake_case`
+
+**Decision:** All Neo4j node and relationship properties in the .NET implementation MUST use `snake_case` naming to match the Python reference implementation exactly.
+
+**Rationale:** The Python reference defines the canonical schema. Using `camelCase` makes it impossible to share a Neo4j database instance between Python and .NET clients. The C# domain model keeps PascalCase per .NET convention; the repository layer performs the translation.
+
+**Impact:** All 9 repository files must be updated. All Cypher queries must be rewritten. Migration needed for existing databases. All integration tests must be updated.
+
+**Affected files:**
+- `src/Neo4j.AgentMemory.Neo4j/Repositories/*.cs` (all 9 files)
+- `src/Neo4j.AgentMemory.Neo4j/Infrastructure/SchemaBootstrapper.cs`
+
+---
+
+### D-SCHEMA-2: Relationship Types Must Match Python Exactly
+
+**Decision:** The following relationship renames are required:
+
+| Current (.NET) | Correct (Python) |
+|----------------|-----------------|
+| `RELATES_TO` | `RELATED_TO` |
+| `USED_TOOL` | `USES_TOOL` |
+| `CALLS` | `INSTANCE_OF` |
+
+**Rationale:** Same Neo4j instance parity requirement.
+
+**Affected files:**
+- `Neo4jRelationshipRepository.cs`
+- `Neo4jToolCallRepository.cs`
+
+---
+
+### D-SCHEMA-3: Timestamps Must Use Neo4j `datetime()`
+
+**Decision:** All timestamp properties must use Neo4j's native `datetime()` function, not ISO 8601 strings.
+
+**Rationale:** Python uses `datetime()` throughout. Using strings prevents native Neo4j temporal operations.
+
+---
+
+### D-SCHEMA-4: Missing Indexes Must Be Added
+
+**Decision:** Add these missing indexes to SchemaBootstrapper:
+
+- `conversation_session_idx` — Conversation.session_id
+- `message_role_idx` — Message.role
+- `entity_canonical_idx` — Entity.canonical_name
+- `trace_success_idx` — ReasoningTrace.success
+
+**Also add:** `tool_name` UNIQUE constraint on Tool.name.
+
+---
+
+### D-SCHEMA-5: Schema Contract Tests Required
+
+**Decision:** Add automated schema parity tests that validate:
+1. All Neo4j property names are `snake_case`
+2. All relationship types match the canonical list in `docs/schema.md`
+3. All Python indexes are present in SchemaBootstrapper
+4. ToolCall status values are lowercase
+
+**Rationale:** Human review missed 45+ divergences. Only automated tests prevent future drift.
+
+---
+
+### D-SCHEMA-6: `docs/schema.md` Is Authoritative
+
+**Decision:** `docs/schema.md` is the single source of truth for the Neo4j schema. All schema changes must update this document first, then be implemented in code. PRs that modify schema without updating `docs/schema.md` must be rejected.
+
+---
+
+### D-SCHEMA-7: .NET Extensions Are Permitted
+
+**Decision:** The .NET implementation may include schema extensions not present in Python, provided they:
+1. Do not conflict with any Python schema element
+2. Are documented in `docs/schema.md` under a ".NET Extensions" section
+3. Are additive only (new nodes, new relationships, new indexes)
+
+Current permitted extensions:
+- `HAS_FACT` (Conversation → Fact)
+- `HAS_PREFERENCE` (Conversation → Preference)
+- `IN_SESSION` (ReasoningTrace → Conversation)
+- `reasoning_step_embedding_idx` (vector index)
+- `Migration` node (.NET infrastructure)
+
+---
+
+## Decision: Schema Parity Review Complete — Remaining Work is P1/P2
+
+**Date:** 2025-07-22  
+**Author:** Deckard (Lead / Solution Architect)  
+**Status:** Proposed
+
+### Context
+
+Comprehensive line-by-line audit of Python `queries.py` (1100+ lines) versus all .NET `Repositories/*.cs` Cypher queries, post Wave 4A/4B/4C fixes.
+
+### Decision
+
+All P0 critical schema issues (property naming, relationship types, missing constraints/indexes) are now RESOLVED. The .NET implementation achieves **~88% structural parity** with the Python reference.
+
+Remaining 16 items are P1/P2 feature-level gaps (relationship properties, provenance subsystem, dynamic labels, geospatial queries, native datetime). These do NOT break cross-implementation compatibility.
+
+### Recommended Priority for Remaining Work
+
+1. **P1-HIGH:** Tool aggregate stats (successful_calls, failed_calls, total_duration_ms) — straightforward, high value
+2. **P1-HIGH:** MENTIONS/EXTRACTED_FROM relationship properties — needed for provenance quality
+3. **P1-MEDIUM:** Entity `updated_at` on MATCH — data freshness tracking
+4. **P1-MEDIUM:** Point index in SchemaBootstrapper — entity_location_idx
+5. **P1-LOW:** Native `datetime()` migration — functional parity, large migration impact
+6. **P2:** Dynamic entity labels, Extractor node, Schema node, graph export queries
+
+### Impact
+
+The project can be considered feature-complete for v1.0 release without the remaining P1 items. They are improvements, not blockers.
 - All claims verified against actual .csproj files and source code
 - References specific specification sections for traceability
 - Includes "Last Updated" and "Phase 1 Status" for temporal context
