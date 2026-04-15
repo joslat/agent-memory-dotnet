@@ -1,6 +1,6 @@
 # Software Design Document — Agent Memory for .NET
 
-**Last Updated:** 2025-07-12 (Phase 1 — In Progress)  
+**Last Updated:** 2025-07-22 (Post Wave 4A/4B/4C — Schema Parity Review)  
 **Author:** Deckard (Lead Architect), domain model by Roy (Core Memory Domain Engineer)  
 **Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)  
 **Architecture Overview:** [architecture.md](architecture.md)
@@ -305,14 +305,15 @@ public enum ExtractionTypes
 | `StubExtractionPipeline` | Returns empty `ExtractionResult` |
 | `StubEmbeddingProvider` | Returns zero-vectors of configured dimension |
 
-### 4.4 Phase 2: Real Extraction
+### 4.4 Phase 2+: Real Extraction (✅ COMPLETE)
 
-Phase 2 will implement LLM-based extraction using:
-- Provider-neutral prompt builder
-- JSON schema for structured output
-- Extraction result validation
-- Repair/retry paths
-- Entity normalization and merge policies
+LLM-based extraction is implemented via `Neo4j.AgentMemory.Extraction.Llm`:
+- Four granular extractors: Entity, Fact, Preference, Relationship
+- Uses `IChatClient` (Microsoft.Extensions.AI) for provider-neutral LLM calls
+- JSON schema for structured output with type normalization
+- Configurable model selection and confidence mapping
+- Streaming extraction pipeline for chunked large-document processing (Wave 4C)
+- Azure Cognitive Services alternative via `Neo4j.AgentMemory.Extraction.AzureLanguage`
 
 ---
 

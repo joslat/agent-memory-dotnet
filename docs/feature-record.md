@@ -1,9 +1,9 @@
 # Feature Record — Agent Memory for .NET
 
-> **Generated:** 2025-07-13
-> **Author:** Sebastian (GraphRAG Interop Engineer)
+> **Generated:** 2025-07-13 | **Updated:** 2025-07-22 (Post Wave 4A/4B/4C review)
+> **Author:** Sebastian (GraphRAG Interop Engineer) | **Reviewer:** Deckard (Lead Architect)
 > **Project:** Neo4j.AgentMemory for .NET 9
-> **Total Unit Tests:** ~260 | **Integration Tests:** 2 | **Test Files:** 55
+> **Total Unit Tests:** 1003 | **Integration Tests:** 2 | **Test Files:** 55+
 
 ---
 
@@ -896,35 +896,45 @@
 
 ## Gap Analysis
 
+> **Updated:** 2025-07-22 by Deckard — Post Wave 4A/4B/4C review
+
 ### Critical Gaps
 
-| # | What's Missing | Why It Matters | Estimated Effort | Priority |
-|---|---------------|---------------|:---:|:---:|
-| G1 | **Repository integration tests** | Only 2 connectivity tests exist. No integration tests for any repository (entity, fact, preference, message, etc.). Schema bootstrap, vector search, and complex Cypher queries are untested against real Neo4j. | 3–5 days | **HIGH** |
-| G2 | **Fact deduplication** | No mechanism to detect or prevent duplicate facts. Extraction creates new facts without checking if equivalent SPO triples exist. Knowledge graph accumulates redundant facts. | 2–3 days | **HIGH** |
-| G3 | **Multi-extractor pipeline with merge strategies** | Python has 5 merge strategies (UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS) for combining multiple extractors. .NET runs one extractor per type. No way to combine LLM + Azure results. | 3–5 days | **HIGH** |
+| # | What's Missing | Why It Matters | Estimated Effort | Priority | Status |
+|---|---------------|---------------|:---:|:---:|:---:|
+| G1 | **Repository integration tests** | Only 2 connectivity tests exist. No integration tests for any repository (entity, fact, preference, message, etc.). Schema bootstrap, vector search, and complex Cypher queries are untested against real Neo4j. | 3–5 days | **HIGH** | ❌ Open |
+| G2 | **Fact deduplication** | No mechanism to detect or prevent duplicate facts. Extraction creates new facts without checking if equivalent SPO triples exist. Knowledge graph accumulates redundant facts. | 2–3 days | **HIGH** | ❌ Open |
+| G3 | **Multi-extractor pipeline with merge strategies** | Python has 5 merge strategies (UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS) for combining multiple extractors. .NET runs one extractor per type. No way to combine LLM + Azure results. | 3–5 days | **HIGH** | ❌ Open |
 
 ### Important Gaps
 
-| # | What's Missing | Why It Matters | Estimated Effort | Priority |
-|---|---------------|---------------|:---:|:---:|
-| G4 | **Azure preference extraction** | `AzureLanguageExtraction` has entity, fact, and relationship extractors but no `AzureLanguagePreferenceExtractor`. Users must use LLM extraction for preferences. | 1–2 days | **MEDIUM** |
-| G5 | **Background enrichment queue** | Python has `BackgroundEnrichmentQueue` (async, non-blocking, retry, multiple providers). .NET enrichment is synchronous — blocks extraction pipeline. | 2–3 days | **MEDIUM** |
-| G6 | **MCP resources and prompts** | Python MCP server has 4 resources and 3 prompts. .NET MCP server has only tools (0 resources, 0 prompts). Reduces discoverability for MCP clients. | 1–2 days | **MEDIUM** |
-| G7 | **Streaming extraction** | Python has `extraction/streaming.py` for chunked large-document processing. .NET loads all messages into memory. Won't scale for long documents. | 2–3 days | **MEDIUM** |
-| G8 | **Options validation tests** | Configuration option records (`MemoryOptions`, `RecallOptions`, `LongTermMemoryOptions`, etc.) have no dedicated unit tests for defaults and constraints. | 1 day | **MEDIUM** |
+| # | What's Missing | Why It Matters | Estimated Effort | Priority | Status |
+|---|---------------|---------------|:---:|:---:|:---:|
+| G4 | **Azure preference extraction** | `AzureLanguageExtraction` has entity, fact, and relationship extractors but no `AzureLanguagePreferenceExtractor`. Users must use LLM extraction for preferences. | 1–2 days | **MEDIUM** | ❌ Open |
+| G5 | **Background enrichment queue** | Python has `BackgroundEnrichmentQueue` (async, non-blocking, retry, multiple providers). .NET enrichment is synchronous — blocks extraction pipeline. | 2–3 days | **MEDIUM** | ❌ Open |
+| G6 | **MCP resources and prompts** | Python MCP server has 4 resources and 3 prompts. .NET MCP server has only tools (0 resources, 0 prompts). Reduces discoverability for MCP clients. | 1–2 days | **MEDIUM** | ❌ Open |
+| G7 | **Streaming extraction** | Python has `extraction/streaming.py` for chunked large-document processing. .NET loads all messages into memory. Won't scale for long documents. | 2–3 days | **MEDIUM** | ✅ **CLOSED (Wave 4C)** — Streaming extraction pipeline implemented |
+| G8 | **Options validation tests** | Configuration option records (`MemoryOptions`, `RecallOptions`, `LongTermMemoryOptions`, etc.) have no dedicated unit tests for defaults and constraints. | 1 day | **MEDIUM** | ❌ Open |
 
 ### Nice-to-Have Gaps
 
-| # | What's Missing | Why It Matters | Estimated Effort | Priority |
-|---|---------------|---------------|:---:|:---:|
-| G9 | **Re-embedding after entity merge** | `MergeEntitiesAsync` Cypher doesn't update target entity's embedding. Alias-form queries may miss merged entity. | 0.5 days | **LOW** |
-| G10 | **Entity index refresh hook** | No post-merge hook to re-index canonical entity text for fulltext search. | 0.5 days | **LOW** |
-| G11 | **MCP tool: memory_get_observations** | Python has observation compression tool for token-budget-aware retrieval. Useful for constrained contexts. | 1 day | **LOW** |
-| G12 | **Diffbot enrichment provider** | Python supports both Wikipedia and Diffbot. .NET is Wikipedia-only. | 1–2 days | **LOW** |
-| G13 | **CLI entry point** | Python has `cli/` module for command-line operations. .NET has no CLI. | 2–3 days | **LOW** |
-| G14 | **Custom YAML/JSON schema support** | Python supports custom entity schemas via YAML/JSON config. .NET uses hardcoded entity types. | 2–3 days | **LOW** |
-| G15 | **POLE+O entity type model** | Python uses `POLEOEntityType` (Person, Object, Location, Event, Organization) as a first-class concept. .NET uses free-form string types. | 1–2 days | **LOW** |
+| # | What's Missing | Why It Matters | Estimated Effort | Priority | Status |
+|---|---------------|---------------|:---:|:---:|:---:|
+| G9 | **Re-embedding after entity merge** | `MergeEntitiesAsync` Cypher doesn't update target entity's embedding. Alias-form queries may miss merged entity. | 0.5 days | **LOW** | ❌ Open |
+| G10 | **Entity index refresh hook** | No post-merge hook to re-index canonical entity text for fulltext search. | 0.5 days | **LOW** | ❌ Open |
+| G11 | **MCP tool: memory_get_observations** | Python has observation compression tool for token-budget-aware retrieval. Useful for constrained contexts. | 1 day | **LOW** | ❌ Open |
+| G12 | **Diffbot enrichment provider** | Python supports both Wikipedia and Diffbot. .NET is Wikipedia-only. | 1–2 days | **LOW** | ✅ **CLOSED (Wave 4C)** — Diffbot enrichment provider implemented |
+| G13 | **CLI entry point** | Python has `cli/` module for command-line operations. .NET has no CLI. | 2–3 days | **LOW** | 🔜 **DEFERRED** — Not needed for library-first package strategy |
+| G14 | **Custom YAML/JSON schema support** | Python supports custom entity schemas via YAML/JSON config. .NET uses hardcoded entity types. | 2–3 days | **LOW** | ✅ **CLOSED (Wave 4C)** — Custom schema support implemented |
+| G15 | **POLE+O entity type model** | Python uses `POLEOEntityType` (Person, Object, Location, Event, Organization) as a first-class concept. .NET uses free-form string types. | 1–2 days | **LOW** | ❌ Open |
+
+### Gap Summary
+
+| Status | Count | Gaps |
+|--------|:---:|------|
+| ✅ Closed | 3 | G7, G12, G14 |
+| 🔜 Deferred | 1 | G13 |
+| ❌ Open | 11 | G1–G6, G8–G11, G15 |
 
 ---
 
@@ -945,9 +955,10 @@
 | Services | 7 | ~72 | ✅ Excellent |
 | Stubs | 4 | ~21 | ✅ Good |
 | Validation | 1 | ~14 | ✅ Good |
+| Wave 4A/B/C additions | — | ~596 | ✅ Excellent (schema parity, streaming, enrichment, custom schema) |
 | **Integration** | **1** | **2** | **⚠️ Minimal** |
-| **TOTAL** | **55** | **~429** | **Strong unit, weak integration** |
+| **TOTAL** | **55+** | **1003** | **Strong unit, weak integration** |
 
 ---
 
-*Document generated from full source analysis of all 10 packages and 55 test files.*
+*Document generated from full source analysis of all 10 packages and 55+ test files. Updated 2025-07-22 with Wave 4A/4B/4C audit results.*

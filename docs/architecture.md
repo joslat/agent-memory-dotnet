@@ -300,49 +300,66 @@ Neo4j.AgentMemory.Enrichment.Decorators                — Cache/RateLimit decor
 
 ### 4.1 Node Types
 
-| Neo4j Label | Domain Type | Key Properties |
-|---|---|---|
-| `:Conversation` | `Conversation` | `id`, `sessionId`, `userId`, `createdAtUtc`, `updatedAtUtc`, `metadata` |
-| `:Message` | `Message` | `id`, `conversationId`, `sessionId`, `role`, `content`, `timestampUtc`, `embedding`, `metadata` |
-| `:Entity` | `Entity` | `id`, `name`, `canonicalName`, `type`, `subtype`, `description`, `confidence`, `embedding`, `aliases`, `sourceMessageIds`, `metadata` |
-| `:Fact` | `Fact` | `id`, `subject`, `predicate`, `object`, `confidence`, `validFrom`, `validUntil`, `embedding`, `sourceMessageIds`, `metadata` |
-| `:Preference` | `Preference` | `id`, `category`, `preferenceText`, `context`, `confidence`, `embedding`, `sourceMessageIds`, `metadata` |
-| `:MemoryRelationship` | `Relationship` | `id`, `sourceEntityId`, `targetEntityId`, `relationshipType`, `confidence`, `validFrom`, `validUntil`, `attributes` |
-| `:ReasoningTrace` | `ReasoningTrace` | `id`, `sessionId`, `task`, `outcome`, `success`, `startedAtUtc`, `completedAtUtc`, `taskEmbedding`, `metadata` |
-| `:ReasoningStep` | `ReasoningStep` | `id`, `traceId`, `stepNumber`, `thought`, `action`, `observation`, `embedding`, `metadata` |
-| `:ToolCall` | `ToolCall` | `id`, `stepId`, `toolName`, `arguments`, `result`, `status`, `durationMs`, `error`, `metadata` |
+> **Note:** All Neo4j properties use `snake_case` (matching Python reference). C# domain models use PascalCase per .NET convention. The repository layer handles the translation.
 
-> **Note:** The `Relationship` domain type maps to `:MemoryRelationship` in Neo4j to avoid conflict with Neo4j's native relationship concept.
+| Neo4j Label | Domain Type | Key Properties (Neo4j snake_case) |
+|---|---|---|
+| `:Conversation` | `Conversation` | `id`, `session_id`, `user_id`, `title`, `created_at`, `updated_at`, `metadata` |
+| `:Message` | `Message` | `id`, `conversation_id`, `session_id`, `role`, `content`, `timestamp`, `embedding`, `tool_call_ids`, `metadata` |
+| `:Entity` | `Entity` | `id`, `name`, `canonical_name`, `type`, `subtype`, `description`, `confidence`, `embedding`, `aliases`, `attributes`, `source_message_ids`, `location`, `metadata` |
+| `:Fact` | `Fact` | `id`, `subject`, `predicate`, `object`, `confidence`, `valid_from`, `valid_until`, `embedding`, `source_message_ids`, `created_at`, `metadata` |
+| `:Preference` | `Preference` | `id`, `category`, `preference`, `context`, `confidence`, `embedding`, `source_message_ids`, `created_at`, `metadata` |
+| `:ReasoningTrace` | `ReasoningTrace` | `id`, `session_id`, `task`, `outcome`, `success`, `started_at`, `completed_at`, `task_embedding`, `metadata` |
+| `:ReasoningStep` | `ReasoningStep` | `id`, `trace_id`, `step_number`, `thought`, `action`, `observation`, `embedding`, `metadata` |
+| `:ToolCall` | `ToolCall` | `id`, `step_id`, `tool_name`, `arguments`, `result`, `status`, `duration_ms`, `error`, `metadata` |
+| `:Tool` | *(aggregate)* | `name`, `created_at`, `total_calls` |
+
+> **Note:** Entity-to-entity relationships use `RELATED_TO` via Neo4j native relationships (not a separate `:MemoryRelationship` node). The `Relationship` domain type maps to `RELATED_TO` relationship properties.
 
 ### 4.2 Relationship Types
 
 ```mermaid
 graph LR
     Conversation -->|HAS_MESSAGE| Message
+    Conversation -->|FIRST_MESSAGE| Message
     Message -->|NEXT_MESSAGE| Message
     Message -->|MENTIONS| Entity
     Entity -->|RELATED_TO| Entity
-    Entity -->|HAS_PREFERENCE| Preference
-    Entity -->|HAS_FACT| Fact
+    Entity -->|SAME_AS| Entity
+    Preference -->|ABOUT| Entity
+    Fact -->|ABOUT| Entity
     ReasoningTrace -->|HAS_STEP| ReasoningStep
-    ReasoningStep -->|USED_TOOL| ToolCall
+    ReasoningStep -->|USES_TOOL| ToolCall
+    ToolCall -->|INSTANCE_OF| Tool
+    Conversation -->|HAS_TRACE| ReasoningTrace
+    ReasoningTrace -->|INITIATED_BY| Message
+    ToolCall -->|TRIGGERED_BY| Message
+    Entity -->|EXTRACTED_FROM| Message
+    Fact -->|EXTRACTED_FROM| Message
+    Preference -->|EXTRACTED_FROM| Message
+    Conversation -->|HAS_FACT| Fact
+    Conversation -->|HAS_PREFERENCE| Preference
 ```
 
 | Relationship Type | From | To | Purpose |
 |---|---|---|---|
 | `HAS_MESSAGE` | Conversation | Message | Conversation contains messages |
+| `FIRST_MESSAGE` | Conversation | Message | Head of linked list |
 | `NEXT_MESSAGE` | Message | Message | Message ordering within conversation |
-| `MENTIONS` | Message | Entity | Entity extraction provenance |
+| `MENTIONS` | Message | Entity | Entity mention in message |
 | `RELATED_TO` | Entity | Entity | Inter-entity relationships |
-| `HAS_PREFERENCE` | Entity | Preference | User/entity preferences |
-| `HAS_FACT` | Entity | Fact | Facts about entities |
-| `HAS_STEP` | ReasoningTrace | ReasoningStep | Trace contains steps |
-| `USED_TOOL` | ReasoningStep | ToolCall | Step used a tool |
-| `INITIATED_BY` | ReasoningTrace | Message | Trace provenance |
-| `TRIGGERED_BY` | ToolCall | Message | Tool call provenance |
-| `EXTRACTED_FROM` | Entity/Fact/Preference | Message | Extraction provenance |
-| `EXTRACTED_BY` | Entity/Fact/Preference | Extractor | Extraction method |
+| `ABOUT` | Preference/Fact | Entity | Links knowledge to entity |
 | `SAME_AS` | Entity | Entity | Entity deduplication |
+| `HAS_STEP` | ReasoningTrace | ReasoningStep | Trace contains steps (with `order` property) |
+| `USES_TOOL` | ReasoningStep | ToolCall | Step-to-tool-call link |
+| `INSTANCE_OF` | ToolCall | Tool | Links call to tool definition |
+| `HAS_TRACE` | Conversation | ReasoningTrace | Conversation-to-trace |
+| `INITIATED_BY` | ReasoningTrace | Message | Trace triggered by message |
+| `TRIGGERED_BY` | ToolCall | Message | Tool call triggered by message |
+| `EXTRACTED_FROM` | Entity/Fact/Preference | Message | Extraction provenance |
+| `IN_SESSION` | ReasoningTrace | Conversation | .NET extension (reverse of HAS_TRACE) |
+| `HAS_FACT` | Conversation | Fact | .NET extension |
+| `HAS_PREFERENCE` | Conversation | Preference | .NET extension |
 
 ### 4.3 Constraints (Implemented in SchemaBootstrapper)
 
@@ -352,10 +369,11 @@ CREATE CONSTRAINT message_id IF NOT EXISTS FOR (m:Message) REQUIRE m.id IS UNIQU
 CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE
 CREATE CONSTRAINT fact_id IF NOT EXISTS FOR (f:Fact) REQUIRE f.id IS UNIQUE
 CREATE CONSTRAINT preference_id IF NOT EXISTS FOR (p:Preference) REQUIRE p.id IS UNIQUE
-CREATE CONSTRAINT relationship_id IF NOT EXISTS FOR (r:MemoryRelationship) REQUIRE r.id IS UNIQUE
 CREATE CONSTRAINT reasoning_trace_id IF NOT EXISTS FOR (t:ReasoningTrace) REQUIRE t.id IS UNIQUE
 CREATE CONSTRAINT reasoning_step_id IF NOT EXISTS FOR (s:ReasoningStep) REQUIRE s.id IS UNIQUE
 CREATE CONSTRAINT tool_call_id IF NOT EXISTS FOR (tc:ToolCall) REQUIRE tc.id IS UNIQUE
+CREATE CONSTRAINT tool_name IF NOT EXISTS FOR (t:Tool) REQUIRE t.name IS UNIQUE
+CREATE CONSTRAINT relationship_id IF NOT EXISTS FOR (r:MemoryRelationship) REQUIRE r.id IS UNIQUE  -- .NET extension
 ```
 
 ### 4.4 Fulltext Indexes (Implemented in SchemaBootstrapper)
