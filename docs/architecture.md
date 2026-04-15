@@ -584,3 +584,208 @@ The existing neo4j-maf-provider was built for **MAF 0.3** (pre-GA). MAF is now *
 - No MAF or GraphRAG dependencies in Core or Abstractions
 - Schema bootstrap creates all constraints and indexes
 - In-process memory engine works without Agent Framework
+
+---
+
+## 9. Package Strategy Analysis
+
+**Added:** 2025-07-17  
+**Author:** Deckard (Lead Architect)
+
+### 9.1 Why 10 Packages? Dependency Isolation Audit
+
+Each package exists to prevent a specific unwanted transitive dependency from reaching consumers who don't need it. The following table shows what each package adds to the dependency graph and why that isolation matters.
+
+| # | Package | Key External Deps | Depends On (Project Refs) | Isolation Justification |
+|---|---|---|---|---|
+| 1 | **Abstractions** | *None* (BCL only) | — | **Foundation stone.** Zero-dep contract package. Every other package references this. If it pulled *anything*, every consumer inherits that cost. This is non-negotiable. |
+| 2 | **Core** | FuzzySharp, M.E.AI.Abstractions, M.E.DI/Logging/Options | Abstractions | **Orchestration without infrastructure.** Services, entity resolution, extraction pipeline coordination. Depends only on lightweight M.E.* abstractions — no driver, no AI SDK, no framework. Consumers who only need in-memory stubs never touch Neo4j.Driver. |
+| 3 | **Neo4j** | Neo4j.Driver 6.0.0 | Abstractions, Core | **Driver firewall.** The *only* package that references Neo4j.Driver. Without this separation, every consumer — including MCP, MAF, Observability — would transitively pull the driver. Driver is ~4 MB with native dependencies. |
+| 4 | **Enrichment** | M.E.Http, M.E.Caching.Memory | Abstractions | **HTTP isolation.** Wikimedia/Nominatim enrichment requires HttpClient infrastructure and caching. Consumers who don't need external entity enrichment don't inherit HTTP factory overhead or geocoding dependencies. |
+| 5 | **Extraction.AzureLanguage** | Azure.AI.TextAnalytics 5.3.0 | Abstractions | **Azure SDK firewall.** Azure.AI.TextAnalytics pulls Azure.Core, Azure.Identity, and their transitive graph (~12 packages). Users of LLM extraction or no extraction at all should never see these. |
+| 6 | **Extraction.Llm** | M.E.AI.Abstractions | Abstractions, Core | **LLM extraction alternative.** Uses IChatClient for structured extraction. Separated from AzureLanguage so users choose one extraction backend without pulling the other. Depends on Core for extraction pipeline types. |
+| 7 | **AgentFramework** | Microsoft.Agents.AI.Abstractions 1.1.0 | Abstractions, Core | **MAF firewall.** Microsoft Agent Framework is a specific runtime commitment. Non-MAF users (MCP hosts, standalone apps) should never see Microsoft.Agents.* in their dependency tree. |
+| 8 | **GraphRagAdapter** | Neo4j.AgentFramework.GraphRAG (project ref) | Abstractions | **GraphRAG firewall.** The upstream Neo4j.AgentFramework.GraphRAG package pulls its own retriever/embedding infrastructure. Only consumers who specifically want GraphRAG retrieval should pay this cost. |
+| 9 | **McpServer** | ModelContextProtocol 1.2.0, M.E.Hosting | Abstractions | **MCP SDK firewall.** MCP SDK + hosting stack is only relevant for MCP server deployments. Agent Framework consumers, library consumers, and CLI tools should never inherit MCP protocol overhead. |
+| 10 | **Observability** | OpenTelemetry.Api 1.12.0 | Abstractions, Core | **OTel opt-in.** OpenTelemetry.Api is lightweight (~200 KB), but the pattern is correct: observability is a cross-cutting concern that should be additive, not mandatory. Consumers who don't export traces shouldn't reference OTel. |
+
+### 9.2 Dependency Graph (Simplified)
+
+```
+                        ┌─────────────────────┐
+                        │    Abstractions      │  ← zero deps (BCL only)
+                        └──────────┬──────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    │              │              │
+              ┌─────▼─────┐  ┌────▼────┐   ┌────▼──────────────┐
+              │   Core     │  │Enrichmt │   │ Extraction.Azure  │
+              │ (FuzzySharp│  │ (HTTP,  │   │ (Azure.AI.Text)   │
+              │  M.E.AI)   │  │ Cache)  │   └───────────────────┘
+              └─────┬──────┘  └─────────┘
+                    │
+        ┌───────────┼───────────┬───────────────┐
+        │           │           │               │
+  ┌─────▼─────┐ ┌──▼────────┐ ┌▼────────────┐ ┌▼──────────────┐
+  │   Neo4j   │ │ Extract.  │ │AgentFramework│ │ Observability │
+  │(Neo4j.Drv)│ │   Llm     │ │(MS.Agents)  │ │(OTel.Api)     │
+  └───────────┘ └───────────┘ └─────────────┘ └───────────────┘
+
+  ┌──────────────┐   ┌──────────────┐
+  │GraphRagAdapter│   │  McpServer   │
+  │(GraphRAG ref) │   │(MCP SDK +   │
+  └──────────────┘   │ Hosting)     │
+                     └──────────────┘
+```
+
+### 9.3 Can We Simplify? Merger Candidates Analysis
+
+| Merge Candidate | External Deps Gained | Verdict | Rationale |
+|---|---|---|---|
+| **Core + Neo4j** → single package | Neo4j.Driver 6.0.0 | ❌ **Do not merge** | Core is usable without Neo4j (in-memory stubs, testing). Merging forces every consumer to pull the driver (~4 MB + native deps) even when they only need service interfaces. This is the most valuable split in the system. |
+| **Core + Observability** → single package | OpenTelemetry.Api | ⚠️ **Possible but not recommended** | OTel.Api is light (~200 KB), but making it mandatory violates the opt-in principle. Libraries shouldn't force telemetry on consumers. Keep separate. |
+| **Extraction.Llm + Core** → single package | *None new* (same M.E.AI dep) | ⚠️ **Plausible** | Extraction.Llm depends on Core and shares the M.E.AI.Abstractions dependency. The extraction pipeline is architecturally part of Core's orchestration concern. *However*, keeping it separate lets users deploy Core without any LLM extraction cost, which is valid for read-only or manually-curated memory use cases. **Defer until user feedback says otherwise.** |
+| **Enrichment + Core** → single package | M.E.Http, M.E.Caching | ❌ **Do not merge** | Enrichment adds HttpClient factory and caching infrastructure — real runtime overhead that most consumers won't need. It's an external API integration layer. |
+| **AgentFramework + GraphRagAdapter** → single package | Both MS.Agents + GraphRAG | ❌ **Do not merge** | Different frameworks, different consumers. A MAF user may not want GraphRAG. A GraphRAG user may not want MAF lifecycle. Each pulls a distinct SDK. |
+| **Extraction.AzureLanguage + Extraction.Llm** → single package | Azure.AI.TextAnalytics | ❌ **Do not merge** | Azure SDK is ~12 transitive packages. LLM extraction is lightweight. Merging forces Azure SDK on LLM-only users. The whole point of extraction backends is pick-one-or-both. |
+| **McpServer + anything** | MCP SDK + Hosting | ❌ **Do not merge** | MCP is an executable deployment unit, not a library. It has fundamentally different packaging concerns (hosting, stdio/SSE transport). |
+
+### 9.4 Recommendation: Keep 10 Packages
+
+**The current 10-package topology is justified.** Each package isolates a genuine external dependency that would otherwise pollute consumers who don't need it. The four strongest splits are:
+
+1. **Abstractions ↔ everything** — zero-dep contracts (industry standard pattern: cf. M.E.Logging.Abstractions)
+2. **Core ↔ Neo4j** — driver isolation (the most impactful split)
+3. **Extraction.AzureLanguage ↔ Extraction.Llm** — pick-your-backend without inheriting the other's SDK
+4. **McpServer ↔ library packages** — executable vs. library concern separation
+
+The only debatable merge is **Extraction.Llm → Core**, and even that should be deferred. The cognitive overhead of 10 projects is modest with a clear naming convention and the solution file organizes them well.
+
+### 9.5 Consumer Use-Case Matrix
+
+| Use Case | Packages Required | Package Count |
+|---|---|---|
+| **Library consumer (read/write memory)** | Abstractions + Core + Neo4j | 3 |
+| **+ LLM extraction** | + Extraction.Llm | 4 |
+| **+ Azure extraction** | + Extraction.AzureLanguage | 4–5 |
+| **+ Entity enrichment** | + Enrichment | 4–6 |
+| **MAF agent integration** | Abstractions + Core + Neo4j + AgentFramework | 4 |
+| **GraphRAG retrieval only** | Abstractions + GraphRagAdapter | 2 |
+| **MCP server deployment** | Abstractions + Core + Neo4j + McpServer | 4 |
+| **+ Observability** | + Observability (additive to any above) | +1 |
+
+---
+
+## 10. DateTime Assessment — ISO Strings vs. Native `datetime()` (P1-9)
+
+**Added:** 2025-07-17  
+**Author:** Deckard (Lead Architect)  
+**Tracking:** P1-9 (from package-strategy-and-features.md feature proposals)
+
+### 10.1 Current State
+
+All timestamps are stored as **ISO 8601 strings** using C#'s `DateTimeOffset.ToString("O")` roundtrip format (e.g., `"2025-07-17T14:30:00.0000000+00:00"`). They are parsed back using `DateTimeOffset.Parse(value, null, DateTimeStyles.RoundtripKind)`.
+
+**Domain model types:** All timestamp properties use `DateTimeOffset` (correct .NET practice).
+
+**Serialization boundary:** The `Neo4j.*Repository` classes convert `DateTimeOffset` → ISO string on write and string → `DateTimeOffset` on read.
+
+**Inconsistency found:** `Neo4jEntityRepository.cs` uses Cypher's `datetime()` function directly in some MERGE clauses (entity resolution `SAME_AS` relationships, `merged_at` properties), while all other repositories pass ISO strings as parameters. This mixed approach is a minor schema inconsistency.
+
+### 10.2 What Would Change
+
+**Domain models:** No change needed. Properties remain `DateTimeOffset`.
+
+**Repository files affected (12 files):**
+
+| Repository File | Properties Affected |
+|---|---|
+| `Neo4jMessageRepository.cs` | `timestamp` |
+| `Neo4jConversationRepository.cs` | `created_at`, `updated_at` |
+| `Neo4jEntityRepository.cs` | `created_at` (+ normalize existing `datetime()` calls) |
+| `Neo4jFactRepository.cs` | `created_at`, `valid_from`, `valid_until` |
+| `Neo4jRelationshipRepository.cs` | `created_at`, `updated_at`, `valid_from`, `valid_until` |
+| `Neo4jPreferenceRepository.cs` | `created_at` |
+| `Neo4jReasoningTraceRepository.cs` | `started_at`, `completed_at` |
+| `Neo4jReasoningStepRepository.cs` | `timestamp` |
+| `Neo4jToolCallRepository.cs` | `created_at`, `started_at`, `completed_at` |
+| `Neo4jSessionInfoRepository.cs` | `started_at`, `ended_at` |
+| `SchemaBootstrapper.cs` | Index definitions (if any use timestamp properties) |
+| `SchemaConstants.cs` | No change (constants are property name strings, not types) |
+
+**Write path changes:**
+```csharp
+// Before (ISO string):
+parameters.Add("created_at", entity.CreatedAtUtc.ToString("O"));
+
+// After (native ZonedDateTime):
+parameters.Add("created_at", new ZonedDateTime(entity.CreatedAtUtc));
+```
+
+**Read path changes:**
+```csharp
+// Before (ISO string parse):
+DateTimeOffset.Parse(node["created_at"].As<string>(), null, DateTimeStyles.RoundtripKind)
+
+// After (native ZonedDateTime):
+node["created_at"].As<ZonedDateTime>().ToDateTimeOffset()
+```
+
+**Cypher query changes:** Queries using `ORDER BY m.timestamp` or `WHERE e.created_at > $since` would work *better* with native datetime (proper temporal comparison vs. lexicographic string comparison — though ISO 8601 is lexicographically sortable, native is semantically correct).
+
+### 10.3 Benefits of Migration
+
+| Benefit | Impact |
+|---|---|
+| **Correct temporal ordering** | Neo4j native `datetime()` supports `>`, `<`, `duration.between()` natively. ISO strings work lexicographically but can break with timezone offsets other than UTC. |
+| **Temporal query support** | Enables Cypher temporal functions: `duration.between()`, `date.truncate()`, `datetime().year`, temporal range predicates. |
+| **Schema consistency** | Eliminates the current mixed approach (some `datetime()`, some ISO strings). |
+| **Neo4j Browser / Bloom UX** | Native datetime renders as a proper temporal value in Neo4j tools, not a raw string. |
+| **Index efficiency** | Neo4j temporal indexes on native datetime are more efficient than string property indexes for range scans. |
+| **Driver v6 support** | Neo4j.Driver 6.0.0 has first-class `ZonedDateTime` / `LocalDateTime` mapping. No workarounds needed. |
+
+### 10.4 Risks and Breaking Changes
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| **Existing data incompatibility** | 🔴 **High** | Databases with ISO string timestamps cannot be read by code expecting `ZonedDateTime`. Requires a data migration Cypher script or dual-read fallback. |
+| **Breaking change for consumers** | 🟡 **Medium** | Domain model is unchanged (`DateTimeOffset`). The break is at the Neo4j property storage level — consumers don't see it unless they run raw Cypher against the graph. |
+| **Integration test rewrites** | 🟡 **Medium** | All integration tests that assert on stored timestamp values will need updating. Test data seeders may need adjustment. |
+| **MCP server raw queries** | 🟡 **Medium** | If MCP tools expose raw Cypher queries or return timestamp strings, the wire format changes. MCP tool contracts may need versioning consideration. |
+| **Schema migration complexity** | 🟡 **Medium** | Need to migrate existing data: `SET n.created_at = datetime(n.created_at)` for every node type. Must handle null values and malformed strings. |
+| **Timezone handling edge cases** | 🟢 **Low** | Current approach normalizes to UTC via `DateTimeOffset`. Neo4j `ZonedDateTime` preserves timezone info — which is actually an improvement. |
+
+### 10.5 Data Migration Script (If Proceeding)
+
+```cypher
+// Run once per node label — example for Message nodes:
+CALL apoc.periodic.iterate(
+  "MATCH (n:Message) WHERE n.timestamp IS NOT NULL AND valueType(n.timestamp) = 'STRING' RETURN n",
+  "SET n.timestamp = datetime(n.timestamp)",
+  {batchSize: 1000, parallel: false}
+)
+
+// Repeat for: Conversation, Entity, Fact, Preference, Relationship,
+//             ReasoningTrace, ReasoningStep, ToolCall, SessionInfo
+```
+
+*Note:* ISO 8601 strings produced by `ToString("O")` are valid input to Cypher's `datetime()` function, so the conversion is safe for well-formed data.
+
+### 10.6 Verdict: Defer to Post-Phase 1, But Plan For It
+
+**Recommendation: Do not migrate now. Plan the migration as a P1 task for Phase 2 or 3.**
+
+**Rationale:**
+
+1. **Phase 1 is not yet complete.** Several repositories and services are still in progress. Changing the timestamp serialization pattern mid-implementation creates unnecessary churn and risk.
+2. **No correctness bug today.** ISO 8601 strings with UTC normalization work correctly for all current use cases. The `ToString("O")` format is lexicographically sortable for UTC timestamps.
+3. **Migration is mechanical but wide.** ~12 repository files, every write path, every read path, plus integration tests. It's a clean half-day refactor but should be done in one atomic PR, not interleaved with feature work.
+4. **The inconsistency should be fixed regardless.** The mixed `datetime()` / ISO string usage in `Neo4jEntityRepository.cs` should be normalized — either all native or all string — in the current phase.
+
+**When to do it:**
+
+- **Trigger:** When Phase 1 repositories are complete and integration-tested, *before* Phase 2 extraction pipeline work adds more timestamp-writing code.
+- **Scope:** Single PR that converts all repositories + updates integration tests + includes a data migration Cypher script.
+- **Pre-req:** Add a `SchemaVersion` mechanism (Ops1 — Schema Migration Runner) so the migration script runs automatically on schema bootstrap.
+
+**Immediate action (Phase 1):** Normalize `Neo4jEntityRepository.cs` to use ISO strings consistently like all other repositories, eliminating the mixed approach. This makes the future native datetime migration cleaner (one pattern to change, not two).
