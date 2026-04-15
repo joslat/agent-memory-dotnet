@@ -28,11 +28,11 @@ public sealed class EntityListResource
             MATCH (e:Entity)
             {typeFilter}
             WITH e
-            ORDER BY e.createdAtUtc DESC
+            ORDER BY e.created_at DESC
             SKIP $offset
             LIMIT $limit
             OPTIONAL MATCH (e)-[:SAME_AS]-(alias)
-            RETURN e.entityId AS id, e.name AS name, e.type AS type, count(alias) AS aliasCount
+            RETURN e.id AS id, e.name AS name, e.type AS type, count(alias) AS aliasCount
             """;
 
         var parameters = new Dictionary<string, object?>

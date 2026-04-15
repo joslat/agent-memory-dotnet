@@ -22,10 +22,10 @@ public sealed class ConversationListResource
             MATCH (c:Conversation)
             OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(m:Message)
             WITH c, count(m) AS messageCount
-            ORDER BY c.createdAtUtc DESC
+            ORDER BY c.created_at DESC
             LIMIT $limit
-            RETURN c.conversationId AS id, c.sessionId AS sessionId,
-                   c.createdAtUtc AS createdAt, messageCount
+            RETURN c.id AS id, c.session_id AS sessionId,
+                   c.created_at AS createdAt, messageCount
             """;
 
         var parameters = new Dictionary<string, object?>

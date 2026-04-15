@@ -207,7 +207,7 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
         };
         await repo.UpsertAsync(fact);
         calls[0].Cypher.Should().Contain("ON MATCH SET");
-        calls[0].Cypher.Should().MatchRegex(@"f\.updated_at\s+=\s+\$updatedAtUtc");
+        calls[0].Cypher.Should().MatchRegex(@"f\.updated_at\s+=\s+datetime\(\$updatedAtUtc\)");
     }
 
     [Fact]

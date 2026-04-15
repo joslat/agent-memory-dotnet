@@ -27,18 +27,18 @@ public sealed class Neo4jFactRepository : IFactRepository
             ON CREATE SET
                 f.id                 = $id,
                 f.confidence         = $confidence,
-                f.valid_from         = $validFrom,
-                f.valid_until        = $validUntil,
+                f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
+                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 f.source_message_ids = $sourceMessageIds,
-                f.created_at         = $createdAtUtc,
+                f.created_at         = datetime($createdAtUtc),
                 f.metadata           = $metadata
             ON MATCH SET
                 f.id                 = $id,
                 f.confidence         = $confidence,
-                f.valid_from         = $validFrom,
-                f.valid_until        = $validUntil,
+                f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
+                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 f.source_message_ids = $sourceMessageIds,
-                f.updated_at         = $updatedAtUtc,
+                f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata
             RETURN f";
 
@@ -99,18 +99,18 @@ public sealed class Neo4jFactRepository : IFactRepository
                 f.predicate          = item.predicate,
                 f.object             = item.object,
                 f.confidence         = item.confidence,
-                f.valid_from         = item.valid_from,
-                f.valid_until        = item.valid_until,
+                f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
                 f.source_message_ids = item.source_message_ids,
-                f.created_at         = item.created_at,
+                f.created_at         = datetime(item.created_at),
                 f.metadata           = item.metadata
             ON MATCH SET
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
                 f.confidence         = item.confidence,
-                f.valid_from         = item.valid_from,
-                f.valid_until        = item.valid_until,
+                f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
                 f.source_message_ids = item.source_message_ids,
                 f.metadata           = item.metadata
             RETURN f";
@@ -281,17 +281,17 @@ public sealed class Neo4jFactRepository : IFactRepository
             Predicate        = node["predicate"].As<string>(),
             Object           = node["object"].As<string>(),
             Confidence       = node["confidence"].As<double>(),
-            ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf) && vf.As<string>() is { } vfStr && !string.IsNullOrEmpty(vfStr)
-                                ? DateTimeOffset.Parse(vfStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
+            ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil       = node.Properties.TryGetValue("valid_until", out var vu) && vu.As<string>() is { } vuStr && !string.IsNullOrEmpty(vuStr)
-                                ? DateTimeOffset.Parse(vuStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
+            ValidUntil       = node.Properties.TryGetValue("valid_until", out var vu)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
             Embedding        = embedding,
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
             Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

@@ -51,6 +51,7 @@ public interface IMessageRepository
         string? sessionId = null,
         int limit = 10,
         double minScore = 0.0,
+        Dictionary<string, object>? metadataFilters = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

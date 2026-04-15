@@ -46,6 +46,11 @@ public sealed record ToolCall
     public string? Error { get; init; }
 
     /// <summary>
+    /// Optional description of the tool (propagated to the Tool node).
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

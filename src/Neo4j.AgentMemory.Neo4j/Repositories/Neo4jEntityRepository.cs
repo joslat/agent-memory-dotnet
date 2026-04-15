@@ -34,7 +34,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 e.aliases            = $aliases,
                 e.attributes         = $attributes,
                 e.source_message_ids = $sourceMessageIds,
-                e.created_at         = $createdAtUtc,
+                e.created_at         = datetime($createdAtUtc),
                 e.metadata           = $metadata
             ON MATCH SET
                 e.name               = $name,
@@ -309,7 +309,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 e.aliases            = item.aliases,
                 e.attributes         = item.attributes,
                 e.source_message_ids = item.source_message_ids,
-                e.created_at         = item.created_at,
+                e.created_at         = datetime(item.created_at),
                 e.metadata           = item.metadata
             ON MATCH SET
                 e.name               = item.name,
@@ -449,7 +449,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         const string cypher = @"
             MATCH (e:Entity {id: $entityId})
-            SET e.updated_at = $updatedAt,
+            SET e.updated_at = datetime($updatedAt),
                 e.aliases    = [x IN coalesce(e.aliases, []) WHERE x IS NOT NULL AND size(toString(x)) > 0]
             RETURN e";
 
@@ -493,7 +493,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc   = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
     }

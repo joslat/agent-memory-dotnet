@@ -122,7 +122,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         CancellationToken cancellationToken = default)
     {
         var scored = await _messageRepo.SearchByVectorAsync(
-            queryEmbedding, sessionId, limit, minScore, cancellationToken);
+            queryEmbedding, sessionId, limit, minScore, null, cancellationToken);
         return scored.Select(r => r.Message).ToList();
     }
 

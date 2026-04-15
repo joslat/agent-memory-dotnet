@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
             Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Extraction));
 
         // Core services
+        services.TryAddSingleton<ISessionIdGenerator, SessionIdGenerator>();
         services.TryAddScoped<IShortTermMemoryService, ShortTermMemoryService>();
         services.TryAddScoped<ILongTermMemoryService, LongTermMemoryService>();
         services.TryAddScoped<IReasoningMemoryService, ReasoningMemoryService>();

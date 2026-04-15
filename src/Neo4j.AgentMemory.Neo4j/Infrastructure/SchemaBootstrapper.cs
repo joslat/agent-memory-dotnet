@@ -45,6 +45,8 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
         "CREATE INDEX trace_success_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.success)",
         "CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)",
         "CREATE INDEX tool_call_status_idx IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)",
+        "CREATE INDEX schema_name_idx IF NOT EXISTS FOR (s:Schema) ON (s.name)",
+        "CREATE INDEX schema_version_idx IF NOT EXISTS FOR (s:Schema) ON (s.version)",
         "CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.location)"
     ];
 

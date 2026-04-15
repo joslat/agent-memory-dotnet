@@ -50,6 +50,7 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
                 MATCH (tc:ToolCall {id: $id})
                 MERGE (tool:Tool {name: $toolName})
                 ON CREATE SET tool.created_at = datetime(),
+                              tool.description = $description,
                               tool.total_calls = 0,
                               tool.successful_calls = 0,
                               tool.failed_calls = 0,
@@ -62,7 +63,8 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
                     tool.last_used_at = datetime()",
                 new { id = toolCall.ToolCallId, toolName = toolCall.ToolName,
                       status = toolCall.Status.ToString().ToLowerInvariant(),
-                      durationMs = (object?)toolCall.DurationMs });
+                      durationMs = (object?)toolCall.DurationMs,
+                      description = (object?)toolCall.Description });
 
             return MapToToolCall(tcNode);
         }, cancellationToken);

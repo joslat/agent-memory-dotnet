@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -30,7 +31,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                 session_id:      $sessionId,
                 role:            $role,
                 content:         $content,
-                timestamp:       $timestamp,
+                timestamp:       datetime($timestamp),
                 tool_call_ids:   $toolCallIds,
                 metadata:        $metadata
             })
@@ -102,7 +103,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                 session_id:      msg.session_id,
                 role:            msg.role,
                 content:         msg.content,
-                timestamp:       msg.timestamp,
+                timestamp:       datetime(msg.timestamp),
                 tool_call_ids:   msg.tool_call_ids,
                 metadata:        msg.metadata
             })
@@ -240,23 +241,22 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         string? sessionId = null,
         int limit = 10,
         double minScore = 0.0,
+        Dictionary<string, object>? metadataFilters = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Vector search messages, sessionId={SessionId}, limit={Limit}", sessionId, limit);
 
-        var cypher = sessionId is null
-            ? @"
-                CALL db.index.vector.queryNodes('message_embedding_idx', $limit, $embedding)
-                YIELD node, score
-                WHERE score >= $minScore
-                RETURN node, score
-                ORDER BY score DESC"
-            : @"
-                CALL db.index.vector.queryNodes('message_embedding_idx', $limit, $embedding)
-                YIELD node, score
-                WHERE score >= $minScore AND node.session_id = $sessionId
-                RETURN node, score
-                ORDER BY score DESC";
+        var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
+
+        var sessionFilter = sessionId is null ? string.Empty : "AND node.session_id = $sessionId";
+
+        var cypher = $@"
+            CALL db.index.vector.queryNodes('message_embedding_idx', $limit, $embedding)
+            YIELD node, score
+            WHERE score >= $minScore {sessionFilter}
+            {filterClause}
+            RETURN node, score
+            ORDER BY score DESC";
 
         var parameters = new Dictionary<string, object>
         {
@@ -265,6 +265,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             ["minScore"]  = minScore
         };
         if (sessionId is not null) parameters["sessionId"] = sessionId;
+        foreach (var (k, v) in filterParams) parameters[k] = v;
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -299,7 +300,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             SessionId      = node["session_id"].As<string>(),
             Role           = node["role"].As<string>(),
             Content        = node["content"].As<string>(),
-            TimestampUtc   = DateTimeOffset.Parse(node["timestamp"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            TimestampUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["timestamp"]),
             Embedding      = embedding,
             ToolCallIds    = node.Properties.TryGetValue("tool_call_ids", out var tc)
                                 ? tc.As<IList<object>>().Select(v => v.ToString()!).ToList()

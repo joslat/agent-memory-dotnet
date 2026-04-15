@@ -49,7 +49,9 @@ public static class ServiceCollectionExtensions
             .WithResources<MemoryStatusResource>()
             .WithResources<EntityListResource>()
             .WithResources<ConversationListResource>()
-            .WithResources<SchemaInfoResource>();
+            .WithResources<SchemaInfoResource>()
+            .WithResources<PreferenceListResource>()
+            .WithResources<ContextResource>();
     }
 
     /// <summary>

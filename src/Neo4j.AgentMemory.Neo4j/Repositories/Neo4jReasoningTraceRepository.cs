@@ -29,10 +29,10 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                 task:         $task,
                 outcome:      $outcome,
                 success:      $success,
-                started_at:   $startedAt,
-                completed_at: $completedAt,
                 metadata:     $metadata
             })
+            SET t.started_at   = datetime($startedAt),
+                t.completed_at = CASE WHEN $completedAt IS NOT NULL THEN datetime($completedAt) ELSE null END
             RETURN t";
 
         return await _tx.WriteAsync(async runner =>
@@ -63,8 +63,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                 t.task         = $task,
                 t.outcome      = $outcome,
                 t.success      = $success,
-                t.started_at   = $startedAt,
-                t.completed_at = $completedAt,
+                t.started_at   = datetime($startedAt),
+                t.completed_at = CASE WHEN $completedAt IS NOT NULL THEN datetime($completedAt) ELSE null END,
                 t.metadata     = $metadata
             RETURN t";
 
@@ -203,9 +203,9 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             Success        = node.Properties.TryGetValue("success", out var succ) && succ is not null
                                 ? succ.As<bool?>()
                                 : null,
-            StartedAtUtc   = DateTimeOffset.Parse(node["started_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
-            CompletedAtUtc = node.Properties.TryGetValue("completed_at", out var ca) && ca.As<string>() is { } caStr && !string.IsNullOrEmpty(caStr)
-                                ? DateTimeOffset.Parse(caStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
+            StartedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["started_at"]),
+            CompletedAtUtc = node.Properties.TryGetValue("completed_at", out var ca)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ca)
                                 : null,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };

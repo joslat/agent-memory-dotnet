@@ -30,7 +30,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
                 p.context            = $context,
                 p.confidence         = $confidence,
                 p.source_message_ids = $sourceMessageIds,
-                p.created_at         = $createdAtUtc,
+                p.created_at         = datetime($createdAtUtc),
                 p.metadata           = $metadata
             ON MATCH SET
                 p.category           = $category,
@@ -211,7 +211,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
             Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

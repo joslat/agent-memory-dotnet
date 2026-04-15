@@ -507,3 +507,54 @@
 - All 10 P1 items verified by reading actual implementation code in repositories
 - Python reference verified by reading `queries.py`, `query_builder.py`, `schema.py`
 - Build clean: 0 warnings, 0 errors
+
+### 2025-07-24 — Definitive Gap Closure Plan (Source-Level Audit)
+
+**Trigger:** Jose requested THE definitive gap closure plan, reading actual Python + .NET source code, to drive a multi-agent implementation sprint.
+
+**Critical Discovery: Stale Documentation**
+The `docs/python-dotnet-comparison.md` scorecard is materially wrong. Multiple items marked as gaps are actually implemented:
+- Multi-stage extraction pipeline with 5 merge strategies: `MultiExtractorPipeline.cs` + `MergeStrategies/` → FULLY IMPLEMENTED
+- MCP resources (4 files) and prompts (3 files): → FULLY IMPLEMENTED
+- `memory_get_observations` tool: `ObservationTools.cs` + `IContextCompressor` → FULLY IMPLEMENTED
+- Background enrichment queue: `BackgroundEnrichmentQueue.cs` with `Channel<T>` → FULLY IMPLEMENTED
+- Context compression (3-tier): `ContextCompressor.cs` → FULLY IMPLEMENTED
+- `StreamingExtractionOptions`, `EnrichmentQueueOptions`, `ContextCompressionOptions` configs all exist
+
+**True parity: ~97%, not ~91%.** The remaining gaps are surgical.
+
+**Bug Discovered: G7 — MCP Resources use camelCase property names in Cypher**
+`ConversationListResource.cs` and `EntityListResource.cs` use `c.createdAtUtc`, `c.conversationId`, `e.entityId` in Cypher queries but schema is snake_case (`created_at`, `id`). These resources return empty results against real data. Urgent fix needed.
+
+**Genuine Remaining Gaps (11 items):**
+1. G1: datetime() storage — 7 repos still use ISO strings (3 already migrated)
+2. G2: Schema node — no data-node repository (interface + indexes exist)
+3. G3: Tool.description — trivial property addition
+4. G4: Session strategy — enum exists, no generator service
+5. G5: Metadata filters — no filter builder for message search
+6. G6: Fact dedup — Python doesn't implement this either
+7. G7: MCP Resources camelCase Cypher bug (HIGH — broken)
+8. G8: MemoryStatusResource missing trace count
+9. G9: LIST_SESSIONS parity (covered by G7)
+10. G10: Preferences MCP resource missing
+11. G11: Context MCP resource missing
+
+**6 Decisions Proposed (D-GAP1 through D-GAP6):**
+- D-GAP1: datetime() full migration (recommended)
+- D-GAP2: Schema node — skip repository, add indexes only (recommended)
+- D-GAP3: Session strategy — implement generator (recommended)
+- D-GAP4: Metadata filters — 5-operator pragmatic subset (recommended)
+- D-GAP5: Fact dedup — skip, Python doesn't have it either (recommended)
+- D-GAP6: MCP resource URIs — add Python-standard resources (recommended)
+
+**Implementation Waves:**
+- Wave A (Day 1, 2h): Bug fixes — G7, G8
+- Wave B (Day 1-2, 1d): Schema closure — G1, G2, G3
+- Wave C (Day 2-3, 1.5d): Functional gaps — G4, G5, G10, G11
+- Wave D (Day 3, 0.5d): Documentation update
+
+**Total effort: 3-4 days for 2-person team.** Much smaller than expected.
+
+**Deliverables:**
+- Session plan: `plan.md` with complete gap inventory, decisions, waves, test strategy, risk assessment
+- Decisions: `.squad/decisions/inbox/deckard-gap-closure-plan.md` with 6 decision proposals + 2 bug reports

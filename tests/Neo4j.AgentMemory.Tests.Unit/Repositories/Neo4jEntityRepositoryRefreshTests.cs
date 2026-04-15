@@ -44,7 +44,7 @@ public sealed class Neo4jEntityRepositoryRefreshTests
         await repo.RefreshEntitySearchFieldsAsync("ent-1");
         calls.Should().ContainSingle();
         calls[0].Cypher.Should().Contain("MATCH (e:Entity {id: $entityId})");
-        calls[0].Cypher.Should().Contain("SET e.updated_at = $updatedAt");
+        calls[0].Cypher.Should().Contain("SET e.updated_at = datetime($updatedAt)");
         calls[0].Cypher.Should().Contain("e.aliases");
     }
 
@@ -115,7 +115,7 @@ public sealed class Neo4jEntityRepositoryRefreshTests
         calls.Should().HaveCount(2);
         calls[0].Cypher.Should().Contain("MATCH (source:Entity {id: $sourceEntityId})");
         calls[1].Cypher.Should().Contain("MATCH (e:Entity {id: $entityId})");
-        calls[1].Cypher.Should().Contain("SET e.updated_at = $updatedAt");
+        calls[1].Cypher.Should().Contain("SET e.updated_at = datetime($updatedAt)");
     }
 
     [Fact]

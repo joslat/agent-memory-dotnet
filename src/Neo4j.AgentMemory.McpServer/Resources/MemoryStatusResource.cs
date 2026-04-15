@@ -27,7 +27,9 @@ public sealed class MemoryStatusResource
             OPTIONAL MATCH (c:Conversation)
             WITH entityCount, factCount, preferenceCount, count(c) AS conversationCount
             OPTIONAL MATCH (m:Message)
-            RETURN entityCount, factCount, preferenceCount, conversationCount, count(m) AS messageCount
+            WITH entityCount, factCount, preferenceCount, conversationCount, count(m) AS messageCount
+            OPTIONAL MATCH (t:ReasoningTrace)
+            RETURN entityCount, factCount, preferenceCount, conversationCount, messageCount, count(t) AS traceCount
             """;
 
         var results = await graphQueryService.QueryAsync(countQuery, cancellationToken: cancellationToken);
@@ -40,6 +42,7 @@ public sealed class MemoryStatusResource
             preferenceCount = row != null && row.TryGetValue("preferenceCount", out var pc) ? Convert.ToInt64(pc) : 0L,
             conversationCount = row != null && row.TryGetValue("conversationCount", out var cc) ? Convert.ToInt64(cc) : 0L,
             messageCount = row != null && row.TryGetValue("messageCount", out var mc) ? Convert.ToInt64(mc) : 0L,
+            traceCount = row != null && row.TryGetValue("traceCount", out var tc) ? Convert.ToInt64(tc) : 0L,
             retrievedAtUtc = DateTimeOffset.UtcNow
         });
     }

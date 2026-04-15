@@ -33,22 +33,22 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
                 r.target_entity_id   = $targetEntityId,
                 r.confidence         = $confidence,
                 r.description        = $description,
-                r.valid_from         = $validFrom,
-                r.valid_until        = $validUntil,
+                r.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
+                r.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 r.attributes         = $attributes,
                 r.source_message_ids = $sourceMessageIds,
-                r.created_at         = $createdAt,
-                r.updated_at         = $updatedAt,
+                r.created_at         = datetime($createdAt),
+                r.updated_at         = datetime($updatedAt),
                 r.metadata           = $metadata
             ON MATCH SET
                 r.relation_type      = $relationType,
                 r.confidence         = $confidence,
                 r.description        = $description,
-                r.valid_from         = $validFrom,
-                r.valid_until        = $validUntil,
+                r.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
+                r.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 r.attributes         = $attributes,
                 r.source_message_ids = $sourceMessageIds,
-                r.updated_at         = $updatedAt,
+                r.updated_at         = datetime($updatedAt),
                 r.metadata           = $metadata
             RETURN r";
 
@@ -146,17 +146,17 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
             RelationshipType = r["relation_type"].As<string>(),
             Confidence       = r["confidence"].As<double>(),
             Description      = r.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
-            ValidFrom        = r.Properties.TryGetValue("valid_from", out var vf) && vf.As<string>() is { } vfStr && !string.IsNullOrEmpty(vfStr)
-                                ? DateTimeOffset.Parse(vfStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
+            ValidFrom        = r.Properties.TryGetValue("valid_from", out var vf)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil       = r.Properties.TryGetValue("valid_until", out var vu) && vu.As<string>() is { } vuStr && !string.IsNullOrEmpty(vuStr)
-                                ? DateTimeOffset.Parse(vuStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
+            ValidUntil       = r.Properties.TryGetValue("valid_until", out var vu)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
             Attributes       = DeserializeMetadata(r.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
             SourceMessageIds = r.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = DateTimeOffset.Parse(r["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(r["created_at"]),
             Metadata         = DeserializeMetadata(r.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
