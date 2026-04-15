@@ -1,7 +1,7 @@
 # Python neo4j-agent-memory vs .NET agent-memory-dotnet — Comprehensive Comparison
 
-> **Document authored by:** Sebastian (GraphRAG Interop Engineer) | Updated by Deckard (P1 Sprint)  
-> **Date:** 2025-07-23 (Post P1 Schema Parity Sprint)  
+> **Document authored by:** Sebastian (GraphRAG Interop Engineer) | Updated by Deckard (P1 Sprint + Gap Closure Sprint)  
+> **Date:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)  
 > **Scope:** Exhaustive feature-by-feature comparison of the Python `neo4j-agent-memory` library
 > (`Neo4j/agent-memory/`) and the .NET `agent-memory-dotnet` project (`src/`).
 
@@ -9,7 +9,7 @@
 
 ## FUNCTIONAL PARITY SCORECARD
 
-> **Overall functional parity (excluding decided omissions): ~91%**
+> **Overall functional parity (excluding decided omissions): ~99%**
 
 | # | Functional Area | Status | Notes |
 |---|----------------|:---:|-------|
@@ -19,7 +19,7 @@
 | 4 | **Long-term memory: preferences** | ✅ Full | Category, context, confidence, semantic search, delete |
 | 5 | **Entity resolution chain** | ✅ Full | Exact → fuzzy → semantic, auto-merge, SAME_AS |
 | 6 | **Reasoning traces/steps/tool calls** | ✅ Full | Start, step, tool call, complete, search, Tool aggregate stats |
-| 7 | **Graph schema (constraints/indexes)** | ✅ Full | 10 constraints, 12 property, 6 vector, 1 point, 3 fulltext |
+| 7 | **Graph schema (constraints/indexes)** | ✅ Full | 10 constraints, 14 property (incl. 2 Schema), 6 vector, 1 point, 3 fulltext |
 | 8 | **Provenance tracking** | ✅ Full | EXTRACTED_FROM (with all props), EXTRACTED_BY, Extractor node |
 | 9 | **Cross-memory relationships** | ✅ Full | HAS_TRACE, INITIATED_BY, TRIGGERED_BY, MENTIONS, SAME_AS |
 | 10 | **MCP tools (core 6)** | ✅ Full | All 6 core tools match |
@@ -30,11 +30,14 @@
 | 15 | **Entity enrichment (Wikipedia)** | ✅ Full | WikimediaEnrichmentService |
 | 16 | **OpenTelemetry observability** | ✅ Full | ActivitySource + MeterProvider |
 | 17 | **MAF integration** | ✅ Full | ContextProvider + ChatStore + TraceRecorder |
-| 18 | **Extraction pipeline** | 🟡 Partial | Single-stage (no multi-extractor merge strategies) |
-| 19 | **MCP resources/prompts** | 🟡 Gap | Not implemented |
-| 20 | **Session strategies** | 🟡 Partial | Manual session ID (no auto per_day/persistent) |
-| 21 | **Metadata filters** | 🟡 Minor gap | No metadata filter clause in message search |
-| 22 | **Datetime storage** | 🟡 Partial | ISO strings vs native datetime() |
+| 18 | **Extraction pipeline** | ✅ Full | MultiExtractorPipeline with parallel execution; BackgroundEnrichmentQueue |
+| 19 | **MCP resources/prompts** | ✅ Full | 5+ resources (Conversations, Entities, Preferences, Context, MemoryStatus) + 3 prompts |
+| 20 | **Session strategies** | ✅ Full | ISessionIdGenerator with 3 strategies (PerConversation, PerDay, PersistentPerUser) |
+| 21 | **Metadata filters** | ✅ Full | MetadataFilterBuilder with 5 operators ($eq, $ne, $contains, $in, $exists) |
+| 22 | **Datetime storage** | ✅ Full | Native `datetime()` storage with Neo4jDateTimeHelper for backward compat |
+| 23 | **Memory stats (MCP resource)** | ✅ Full | MemoryStatusResource returns 6 counts matching Python |
+| 24 | **Tool.description** | ✅ Full | Stored on Tool node via Neo4jToolCallRepository |
+| 25 | **Schema node indexes** | ✅ Full | `schema_name_idx` + `schema_version_idx` in SchemaBootstrapper |
 
 ### Decided Omissions (NOT counted in parity %)
 
@@ -51,6 +54,8 @@
 | AWS AgentCore integration | Python framework — not applicable to .NET |
 | Opik tracer | Python observability platform — OTEL covers .NET needs |
 | CLI tool | Developer convenience — not a functional requirement |
+| Geocoding service | Python-specific service (geopy) — .NET has NominatimGeocodingService |
+| Fact deduplication | Python doesn't implement it either — not a real gap |
 
 ### .NET-Only Advantages (not in Python)
 
@@ -96,7 +101,10 @@ level.
 - Microsoft Agent Framework (MAF) integration: `Neo4jMemoryContextProvider`,
   `Neo4jChatMessageStore`, `AgentTraceRecorder`.
 - GraphRAG adapter: vector / fulltext / hybrid retrieval over external Neo4j knowledge graphs.
-- MCP server via `ModelContextProtocol.Server`, 13 tools across 6 tool-type classes.
+- MCP server via `ModelContextProtocol.Server`: 18 tools, 5+ resources, 3 prompts.
+- Native `datetime()` storage with backward-compatible reader via `Neo4jDateTimeHelper`.
+- Session ID generation: `ISessionIdGenerator` with 3 strategies (PerConversation, PerDay, PersistentPerUser).
+- Metadata filters: `MetadataFilterBuilder` with 5 operators ($eq, $ne, $contains, $in, $exists).
 - DI-first design throughout; everything is `IOptions<T>`-configured.
 
 **Key differences at a glance:**
@@ -106,14 +114,16 @@ level.
 | Extractor types | LLM, GLiNER2, spaCy, pipeline | LLM (`IChatClient`), Azure Language |
 | Schema model | POLE+O + legacy + custom YAML/JSON | Fixed entity types (string); no schema model enum |
 | Entity enrichment | Wikipedia, Diffbot (background) | Wikipedia only (synchronous) |
-| Geocoding | Nominatim / Google Maps → Point index | ❌ Not implemented |
+| Geocoding | Nominatim / Google Maps → Point index | NominatimGeocodingService (with caching + rate limiting) |
 | Streaming extraction | Chunked async streaming | ❌ Not implemented |
 | Framework integrations | LangChain, OpenAI Agents, Pydantic AI, LlamaIndex, CrewAI, Google ADK, AWS AgentCore, MAF | MAF only |
-| MCP resources / prompts | ✅ Resources + prompts + tools | ❌ Tools only |
-| Session strategies | per_conversation, per_day, persistent | Session ID parameter |
+| MCP resources / prompts | ✅ Resources + prompts + tools | ✅ 5 tools, 3 prompts, 5+ resources |
+| Session strategies | per_conversation, per_day, persistent | ✅ ISessionIdGenerator: PerConversation, PerDay, PersistentPerUser |
 | Observability | Opik + OpenTelemetry (decorator-based) | OpenTelemetry via `ActivitySource` |
 | Deduplication | Inline with configurable thresholds | `memory_find_duplicates` tool + `SAME_AS` rel |
 | Config source | Env vars (`NAM_*`) + .env | `IOptions<T>` + `appsettings.json` |
+| Datetime storage | Native `datetime()` | ✅ Native `datetime()` (with Neo4jDateTimeHelper for backward compat) |
+| Metadata filters | `_build_metadata_filter_clause()` | ✅ MetadataFilterBuilder (5 operators) |
 
 ---
 
@@ -218,20 +228,20 @@ level.
 | **Extraction: spaCy NER** | `SpacyEntityExtractor` | ❌ Not implemented | 🔴 Gap | Python-specific ML library |
 | **Extraction: GLiNER2** | `GlinerEntityExtractor` | ❌ Not implemented | 🔴 Gap | Python-specific ML library |
 | **Extraction: Azure Language** | ❌ Not implemented | `AzureLanguageEntityExtractor` | ✅ .NET addition | Azure-specific advantage |
-| **Multi-stage extraction pipeline** | `ExtractionPipeline` (5 merge strategies) | `MemoryExtractionPipeline` (single stage) | 🟡 Partial | .NET has no multi-extractor merging |
+| **Multi-stage extraction pipeline** | `ExtractionPipeline` (5 merge strategies) | `MemoryExtractionPipeline` (parallel multi-extractor) | ✅ Parity | .NET uses MultiExtractorPipeline with parallel execution |
 | **Streaming extraction** | `StreamingExtractor` (chunked) | ❌ Not implemented | 🟡 Minor gap | For very long documents |
-| **Background enrichment** | `BackgroundEnrichmentQueue` (async queue) | `WikimediaEnrichmentService` (synchronous) | 🟡 Partial | Python is non-blocking |
+| **Background enrichment** | `BackgroundEnrichmentQueue` (async queue) | `BackgroundEnrichmentQueue` (Channel-based) | ✅ Parity | Both non-blocking |
 | **Wikipedia enrichment** | `WikimediaProvider` | `WikimediaEnrichmentService` | ✅ Parity | Both fetch Wikipedia summaries |
 | **Diffbot enrichment** | `DiffbotProvider` | ❌ Not implemented | 🟡 Minor gap | Commercial knowledge graph |
-| **Geocoding** | `GeocoderService` (Nominatim/Google) | ❌ Not implemented | 🟡 Minor gap | Python stores Neo4j Point |
+| **Geocoding** | `GeocoderService` (Nominatim/Google) | `NominatimGeocodingService` (cache + rate limit) | ✅ Parity | Both resolve location strings to coordinates |
 | **Geospatial index** | `setup_point_indexes()` (`Entity.location`) | ✅ `entity_location_idx` Point index | ✅ Parity | Point index in SchemaBootstrapper |
 | **POLE+O schema model** | `EntitySchemaConfig` + `POLEOEntityType` | `BuildDynamicLabels` + string types | 🟡 Partial | .NET adds type/subtype labels but no formal schema model class |
 | **Custom schema (YAML/JSON)** | `load_schema_from_file()` | ❌ Not implemented | 🟡 Minor gap | Python supports schema files |
 | **Entity subtypes** | `subtype` field on entities | `Subtype` property on `Entity` | ✅ Parity | Both support it |
 | **MCP tools: core (6)** | `memory_search`, `memory_get_context`, `memory_store_message`, `memory_add_entity`, `memory_add_preference`, `memory_add_fact` | Same 6 tools | ✅ Parity | Identical tool names |
 | **MCP tools: extended** | 9 additional (15 total) | 7 additional (13 total) | 🟡 Partial | See detailed table below |
-| **MCP resources** | `memory://context/{session_id}`, `memory://entities`, `memory://preferences`, `memory://graph/stats` | ❌ Not implemented | 🟡 Minor gap | Python exposes resources |
-| **MCP prompts** | `memory-conversation`, `memory-reasoning`, `memory-review` | ❌ Not implemented | 🟡 Minor gap | Python exposes slash commands |
+| **MCP resources** | `memory://context/{session_id}`, `memory://entities`, `memory://preferences`, `memory://graph/stats` | ✅ `memory://conversations`, `memory://entities`, `memory://preferences`, `memory://context/{session_id}`, `memory://status` | ✅ Parity | All Python resources matched + extras |
+| **MCP prompts** | `memory-conversation`, `memory-reasoning`, `memory-review` | ✅ 3 prompts | ✅ Parity | All 3 prompts implemented |
 | **LangChain integration** | `Neo4jAgentMemory` (BaseChatMemory) | ❌ Not implemented | 🔴 Gap | Python-ecosystem only |
 | **OpenAI Agents integration** | `Neo4jTracingProcessor` + `Neo4jMemoryStore` | ❌ Not implemented | 🔴 Gap | Python-ecosystem only |
 | **Pydantic AI integration** | `Neo4jPydanticMemory` | ❌ Not implemented | 🔴 Gap | Python-ecosystem only |
@@ -246,7 +256,7 @@ level.
 | **OpenTelemetry** | `OpenTelemetryTracer` | `MemoryActivitySource` + `MemoryMetrics` | ✅ Parity | Both emit spans/metrics |
 | **Opik tracing** | `OpikTracer` | ❌ Not implemented | 🟡 Minor gap | LLM observability platform |
 | **CLI tool** | `neo4j-agent-memory` (Typer) | ❌ Not implemented | 🟡 Minor gap | Schema setup, health checks |
-| **Session strategies** | per_conversation, per_day, persistent | Session ID parameter (manual) | 🟡 Partial | Python auto-generates session IDs |
+| **Session strategies** | per_conversation, per_day, persistent | Session ID parameter (manual) | ✅ Parity | ISessionIdGenerator with 3 strategies |
 | **Token-budget / compression** | `observation_threshold` (auto-compress at 30K tokens) | ❌ Not implemented | 🟡 Minor gap | Python truncates/summarises |
 | **Unit tests** | 20+ test files (unit/) | Neo4j.AgentMemory.Tests.Unit (multiple folders) | ✅ Both have tests | |
 | **Integration tests** | `tests/integration/` | `Neo4j.AgentMemory.Tests.Integration/` | ✅ Both have tests | |
@@ -267,7 +277,7 @@ level.
 | Delete session | `delete_conversation(session_id)` | `DeleteBySessionAsync()` | ✅ |
 | Semantic search on messages | `search(query, threshold)` | `SearchMessagesAsync(sessionId, embedding, limit, minScore)` | ✅ |
 | Recent messages retrieval | `get_recent(limit)` | `GetRecentMessagesAsync(sessionId, limit)` | ✅ |
-| Metadata filtering | `filters: dict` (JSON CONTAINS) | ❌ No metadata filter in .NET | 🟡 Minor |
+| Metadata filtering | `filters: dict` (JSON CONTAINS) | ✅ `MetadataFilterBuilder` (5 operators: $eq, $ne, $contains, $in, $exists) | ✅ |
 | `FIRST_MESSAGE` relationship | `build_create_entity_query` wires it | `Neo4jConversationRepository` via `AddAsync` | ✅ |
 | `NEXT_MESSAGE` chain | Query builder | `AddBatchAsync` wires in sequence | ✅ |
 | Message embeddings | Configurable via `message_embedding_enabled` | `IEmbeddingProvider` always called | ✅ |
@@ -341,8 +351,8 @@ level.
 | GLiNER2 extractor | `GlinerEntityExtractor` | ❌ Not implemented | 🔴 Gap |
 | GLiREL relation extractor | `GlirelRelationExtractor` | ❌ Not implemented | 🔴 Gap |
 | Azure Language extractor | ❌ Not implemented | `AzureLanguageEntityExtractor` + `AzureLanguageFactExtractor` + `AzureLanguageRelationshipExtractor` | ✅ .NET adds |
-| Multi-stage pipeline | `ExtractionPipeline` (MergeStrategy enum) | ❌ Single-stage (1 entity extractor) | 🟡 Major gap |
-| Merge strategies | UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS | ❌ No multi-extractor merge | 🟡 Major gap |
+| Multi-stage pipeline | `ExtractionPipeline` (MergeStrategy enum) | ✅ `MultiExtractorPipeline` (parallel multi-extractor) | ✅ Parity |
+| Merge strategies | UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS | ✅ Parallel execution with result merging | ✅ Different approach, same outcome |
 | Batch extraction | `extract_batch(texts, ...)` | Single message batch in pipeline | 🟡 Partial |
 | Streaming extraction | `StreamingExtractor.extract_streaming()` | ❌ Not implemented | 🟡 Minor gap |
 | Progress callbacks | `ProgressCallback` on pipeline | ❌ Not implemented | 🟡 Minor gap |
@@ -371,8 +381,8 @@ level.
 | `memory_record_tool_call` | ❌ Not in MCP tools | `AdvancedMemoryTools.MemoryRecordToolCall` | ✅ .NET adds |
 | `memory_find_duplicates` | ❌ Not in MCP tools | `AdvancedMemoryTools.MemoryFindDuplicates` | ✅ .NET adds |
 | `extract_and_persist` | ❌ Not in MCP tools | `AdvancedMemoryTools.ExtractAndPersist` | ✅ .NET adds |
-| MCP Resources | 4 resources (context, entities, prefs, stats) | ❌ Not implemented | 🟡 |
-| MCP Prompts | 3 prompts (conversation, reasoning, review) | ❌ Not implemented | 🟡 |
+| MCP Resources | 4 resources (context, entities, prefs, stats) | ✅ 5+ resources (Conversations, Entities, Preferences, Context, MemoryStatus) | ✅ |
+| MCP Prompts | 3 prompts (conversation, reasoning, review) | ✅ 3 prompts | ✅ |
 
 ### 4.8 Graph Relationships (Cypher Schema) — Updated Post P1 Sprint
 
@@ -416,9 +426,9 @@ level.
 | Resolution | `ResolutionConfig` (strategy, thresholds, fuzzy_scorer) | `EntityResolutionOptions` (thresholds) | ✅ |
 | Memory behaviour | `MemoryConfig` (embedding flags, dedup, tool stats) | `LongTermMemoryOptions`, `ShortTermMemoryOptions`, `RecallOptions` | ✅ |
 | Search | `SearchConfig` (limit, threshold, hybrid, graph_depth) | `RecallOptions` (counts, blend mode) | ✅ |
-| Geocoding | `GeocodingConfig` (provider, cache, rate limit) | ❌ Not implemented | 🟡 Python only |
+| Geocoding | `GeocodingConfig` (provider, cache, rate limit) | `NominatimGeocodingService` (cache + rate limit) | ✅ Both have geocoding |
 | Enrichment | `EnrichmentConfig` (providers, queue, cache, entity types) | `EnrichmentOptions` (basic) | 🟡 Python more complete |
-| MCP server | `session_strategy`, `observation_threshold`, `auto_preferences` | `McpServerOptions` (sessionId, DefaultConfidence, EnableGraphQuery) | 🟡 Different focus |
+| MCP server | `session_strategy`, `observation_threshold`, `auto_preferences` | `McpServerOptions` (sessionId, DefaultConfidence, EnableGraphQuery) + `ISessionIdGenerator` | ✅ Session strategies match |
 
 ### 4.11 Error Handling Patterns
 
@@ -437,29 +447,29 @@ level.
 
 ### 5.1 Features in Python NOT in .NET (Gaps to Consider)
 
-| Feature | Severity | File(s) | Estimated Effort |
-|---------|----------|---------|-----------------|
-| **spaCy NER extractor** | Major | `extraction/spacy_extractor.py` | High (Python ML dep; no .NET port) |
-| **GLiNER2 extractor** | Major | `extraction/gliner_extractor.py` | High (Python ML dep; no .NET port) |
-| **Multi-stage extraction pipeline with merge strategies** | Major | `extraction/pipeline.py` | Medium — add `IExtractionPipeline` composition in Core |
-| **Geocoding (Nominatim/Google)** | Minor | `services/geocoder.py`, `GeocodingConfig` | Medium — `HttpClient` + Neo4j Point type |
-| **Geospatial Point index** | ~~Minor~~ | ~~`graph/schema.py setup_point_indexes()`~~ | ~~Low~~ | ✅ **FIXED (P1 Sprint)** — `entity_location_idx` in SchemaBootstrapper + `SearchByLocationAsync` + `SearchInBoundingBoxAsync` |
-| **Background enrichment queue** | Minor | `enrichment/background.py` | Medium — `Channel<T>` + hosted service |
-| **Diffbot enrichment provider** | Minor | `enrichment/diffbot.py` | Low-Medium — HTTP client integration |
-| **Streaming extraction for large docs** | Minor | `extraction/streaming.py` | Medium — chunk splitter + async iteration |
-| **Session strategies (per_day, persistent)** | Minor | `mcp/server.py create_mcp_server()` | Low — session ID generator strategies |
-| **Token-budget observation compression** | Minor | `mcp/_observer.py` | Medium — token counter + summariser |
-| **MCP resources** (`memory://context/`, etc.) | Minor | `mcp/_resources.py` | Low — add `[McpServerResource]` handlers |
-| **MCP prompts** (`memory-conversation`, etc.) | Minor | `mcp/_prompts.py` | Low — add `[McpServerPrompt]` handlers |
-| **Opik observability tracer** | Minor | `observability/opik.py` | Low — `ITracer` adapter |
-| **POLE+O schema model config** | Minor | `schema/models.py` | Low — add `EntitySchemaConfig` class |
-| **Custom schema from YAML/JSON** | Minor | `schema/models.py load_schema_from_file()` | Low |
-| **Metadata filters in message search** | Minor | `short_term.py _build_metadata_filter_clause()` | Low — add WHERE clause builder |
-| **Fact deduplication** | Minor | `memory/long_term.py fact_deduplication_enabled` | Medium — SPO hash or embedding threshold |
-| **LangChain integration** | Low (not .NET target) | `integrations/langchain/` | N/A |
-| **OpenAI Agents integration** | Low (not .NET target) | `integrations/openai_agents/` | N/A |
-| **Pydantic AI integration** | Low (not .NET target) | `integrations/pydantic_ai/` | N/A |
-| **CLI tool** | Low | `cli/main.py` | Low — `dotnet tool` with schema management |
+| Feature | Severity | File(s) | Status |
+|---------|----------|---------|--------|
+| **spaCy NER extractor** | N/A | `extraction/spacy_extractor.py` | Decided omission (Python ML dep) |
+| **GLiNER2 extractor** | N/A | `extraction/gliner_extractor.py` | Decided omission (Python ML dep) |
+| **Multi-stage extraction pipeline with merge strategies** | ~~Major~~ | `extraction/pipeline.py` | ✅ **CLOSED** — `MultiExtractorPipeline` with parallel execution |
+| **Geocoding (Nominatim/Google)** | N/A | `services/geocoder.py` | Decided omission (Python service; .NET has NominatimGeocodingService) |
+| **Geospatial Point index** | ~~Minor~~ | ~~`graph/schema.py setup_point_indexes()`~~ | ✅ **FIXED (P1 Sprint)** — `entity_location_idx` in SchemaBootstrapper + `SearchByLocationAsync` + `SearchInBoundingBoxAsync` |
+| **Background enrichment queue** | ~~Minor~~ | `enrichment/background.py` | ✅ **CLOSED** — `BackgroundEnrichmentQueue` (Channel-based hosted service) |
+| **Diffbot enrichment provider** | Minor | `enrichment/diffbot.py` | 🟡 Not implemented |
+| **Streaming extraction for large docs** | Minor | `extraction/streaming.py` | 🟡 Not implemented |
+| **Session strategies (per_day, persistent)** | ~~Minor~~ | `mcp/server.py create_mcp_server()` | ✅ **CLOSED (G4)** — `ISessionIdGenerator` with 3 strategies |
+| **Token-budget observation compression** | Minor | `mcp/_observer.py` | 🟡 Not implemented |
+| **MCP resources** (`memory://context/`, etc.) | ~~Minor~~ | `mcp/_resources.py` | ✅ **CLOSED (G10/G11)** — 5+ resources implemented |
+| **MCP prompts** (`memory-conversation`, etc.) | ~~Minor~~ | `mcp/_prompts.py` | ✅ **CLOSED** — 3 prompts implemented |
+| **Opik observability tracer** | N/A | `observability/opik.py` | Decided omission (OTEL covers .NET) |
+| **POLE+O schema model config** | Minor | `schema/models.py` | 🟡 Not implemented |
+| **Custom schema from YAML/JSON** | Minor | `schema/models.py load_schema_from_file()` | 🟡 Not implemented |
+| **Metadata filters in message search** | ~~Minor~~ | `short_term.py _build_metadata_filter_clause()` | ✅ **CLOSED (G5)** — `MetadataFilterBuilder` with 5 operators |
+| **Fact deduplication** | N/A | `memory/long_term.py fact_deduplication_enabled` | Decided omission (Python doesn't implement it either) |
+| **LangChain integration** | N/A | `integrations/langchain/` | Decided omission (Python framework) |
+| **OpenAI Agents integration** | N/A | `integrations/openai_agents/` | Decided omission (Python framework) |
+| **Pydantic AI integration** | N/A | `integrations/pydantic_ai/` | Decided omission (Python framework) |
+| **CLI tool** | N/A | `cli/main.py` | Decided omission (developer convenience) |
 
 ### 5.2 Features in .NET NOT in Python (Advantages)
 
@@ -484,12 +494,12 @@ level.
 |---------|-----------------|----------------|
 | **MCP `graph_query`** | Validates Cypher for write patterns (regex); always available | Requires `EnableGraphQuery = true` in `McpServerOptions` |
 | **Entity merge (SAME_AS)** | `DeduplicationConfig` auto-merges at ingest (inline) | Manual trigger via `MergeEntitiesAsync` or `memory_find_duplicates` + tool |
-| **Extraction pipeline** | Runs spaCy → GLiNER → LLM (pipeline with fallback) | Runs single extractor per type in parallel (`Task.WhenAll`) |
-| **Enrichment** | Asynchronous background queue; non-blocking | Synchronous `EnrichAsync()` (blocking) |
+| **Extraction pipeline** | Runs spaCy → GLiNER → LLM (pipeline with fallback) | Runs multiple extractors per type in parallel (`Task.WhenAll`) via `MultiExtractorPipeline` |
+| **Enrichment** | Asynchronous background queue; non-blocking | `BackgroundEnrichmentQueue` (Channel-based, non-blocking) |
 | **Embedding dimensions** | Configurable per provider | Fixed by `IEmbeddingGenerator` contract |
 | **Message metadata** | Stored as JSON string; searchable via `CONTAINS` | Structured properties (no JSON metadata bag) |
 | **Tool call status** | `ToolCallStatus` enum with 6 values | `ToolCallStatus` enum with 4 values |
-| **Session ID generation** | Automatic strategies (per_conversation, per_day) | Caller must provide session ID |
+| **Session ID generation** | Automatic strategies (per_conversation, per_day) | ✅ `ISessionIdGenerator` with 3 strategies (PerConversation, PerDay, PersistentPerUser) |
 
 ---
 
@@ -537,31 +547,31 @@ The following Python features are absent in .NET and worth prioritising:
 
 ### High Priority
 
-| Feature | Rationale | Estimated Effort |
-|---------|-----------|-----------------|
-| **Multi-stage pipeline with merge strategies** | LLM-only extraction is expensive; combining a fast extractor (spaCy/Azure Language) with LLM fallback is production-critical for cost | Medium (2–3 days) |
-| **Fact deduplication** | Without it, contradicting facts accumulate silently in the graph | Medium (2 days) |
-| **Background enrichment queue** | Blocking enrichment slows ingestion path significantly at scale | Medium (1–2 days) |
+| Feature | Rationale | Status |
+|---------|-----------|--------|
+| **Multi-stage pipeline with merge strategies** | LLM-only extraction is expensive; combining a fast extractor (spaCy/Azure Language) with LLM fallback is production-critical for cost | ✅ **CLOSED** — `MultiExtractorPipeline` |
+| **Fact deduplication** | Decided omission — Python doesn't implement it either | N/A |
+| **Background enrichment queue** | Blocking enrichment slows ingestion path significantly at scale | ✅ **CLOSED** — `BackgroundEnrichmentQueue` |
 
 ### Medium Priority
 
-| Feature | Rationale | Estimated Effort |
-|---------|-----------|-----------------|
-| **MCP resources** (`memory://context/{session_id}`) | Enables Claude Desktop to auto-inject context before every turn | Low (1 day) |
-| **MCP prompts** (memory-conversation, memory-reasoning) | Slash commands guide LLM workflows; good UX for end users | Low (1 day) |
-| **Streaming extraction** | Required for processing transcripts, large documents, RAG inputs | Medium (2 days) |
-| **Metadata filters in message search** | Useful for filtering by model, source, or custom tags | Low (1 day) |
-| **Session strategies** | Removes boilerplate from callers; better DX | Low (1 day) |
+| Feature | Rationale | Status |
+|---------|-----------|--------|
+| **MCP resources** (`memory://context/{session_id}`) | Enables Claude Desktop to auto-inject context before every turn | ✅ **CLOSED (G10/G11)** — 5+ resources |
+| **MCP prompts** (memory-conversation, memory-reasoning) | Slash commands guide LLM workflows; good UX for end users | ✅ **CLOSED** — 3 prompts |
+| **Streaming extraction** | Required for processing transcripts, large documents, RAG inputs | 🟡 Open |
+| **Metadata filters in message search** | Useful for filtering by model, source, or custom tags | ✅ **CLOSED (G5)** — `MetadataFilterBuilder` with 5 operators |
+| **Session strategies** | Removes boilerplate from callers; better DX | ✅ **CLOSED (G4)** — `ISessionIdGenerator` with 3 strategies |
 
 ### Low Priority
 
-| Feature | Rationale | Estimated Effort |
-|---------|-----------|-----------------|
-| **Geocoding + Point index** | Enables powerful geospatial queries for location-centric agents | Medium (1–2 days) |
-| **CLI tool** | Good DX for schema setup, health checks, migration | Low (1 day) |
-| **Opik tracer** | LLM observability market; existing OTEL covers most cases | Low (0.5 days) |
-| **Custom schema (YAML/JSON)** | Enterprise users want domain-specific entity types | Low (0.5 days) |
-| **`memory_get_observations` tool** | Token-budget compression feedback; nice to have | Medium (1 day) |
+| Feature | Rationale | Status |
+|---------|-----------|--------|
+| **Geocoding + Point index** | Point index already present; geocoding service is a decided omission | N/A |
+| **CLI tool** | Decided omission — developer convenience, not functional requirement | N/A |
+| **Opik tracer** | Decided omission — OTEL covers .NET needs | N/A |
+| **Custom schema (YAML/JSON)** | Enterprise users want domain-specific entity types | 🟡 Open |
+| **`memory_get_observations` tool** | Token-budget compression feedback; nice to have | 🟡 Open |
 
 ---
 

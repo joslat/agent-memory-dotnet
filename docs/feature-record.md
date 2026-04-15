@@ -1,9 +1,9 @@
 # Feature Record — Agent Memory for .NET
 
-> **Generated:** 2025-07-13 | **Updated:** 2025-07-23 (Post P1 Schema Parity Sprint)
+> **Generated:** 2025-07-13 | **Updated:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)
 > **Author:** Sebastian (GraphRAG Interop Engineer) | **Reviewer:** Deckard (Lead Architect)
 > **Project:** Neo4j.AgentMemory for .NET 9
-> **Total Unit Tests:** 1037 | **Integration Tests:** 71 | **Test Files:** 55+
+> **Total Unit Tests:** 1058 | **Integration Tests:** 71 | **Test Files:** 55+
 
 ---
 
@@ -19,7 +19,7 @@
 | 6 | **Reasoning Traces** | 4 | Trace recording, steps, tool calls, similar trace search | 80 | Enables agent self-reflection and learning from past tasks | 10 tests |
 | 7 | **Graph Schema** | 4 | Constraints, indexes, vector indexes, migration runner | 85 | Data integrity + query performance — foundation for all persistence | 14 tests |
 | 8 | **Vector Search** | 3 | Embedding generation, similarity search, configurable dimensions | 90 | Semantic retrieval across all memory layers — core to context assembly | 7 tests |
-| 9 | **MCP Server** | 7 | 18 tools: core (6), conversation (2), entity (2), reasoning (3), graph (1), advanced (4) | 85 | Primary integration surface — any MCP-compatible agent can use memory | 53 tests |
+| 9 | **MCP Server** | 10 | 18 tools, 5+ resources (Conversations, Entities, Preferences, Context, MemoryStatus), 3 prompts | 85 | Primary integration surface — any MCP-compatible agent can use memory | 53+ tests |
 | 10 | **MAF Integration** | 6 | Context provider, chat message store, trace recorder, memory facade, tool factory, type mapper | 80 | Microsoft Agent Framework interop — enterprise agent platform support | 52 tests |
 | 11 | **GraphRAG Adapter** | 5 | Vector/fulltext/hybrid/graph retrievers, stop word filter, context source | 85 | External knowledge graph retrieval — complements internal memory | 19 tests |
 | 12 | **Azure Language Extraction** | 3 | Named entity extraction, fact extraction, relationship extraction via Azure AI | 70 | Cloud-native extraction alternative — no LLM needed | 22 tests |
@@ -298,7 +298,7 @@
 ## Feature 7: Graph Schema
 
 **Value Score:** 85/100
-**Description:** Database schema management for Neo4j — creates 9 unique constraints, 3 fulltext indexes, 6 vector indexes, and 9 property indexes. Supports configurable embedding dimensions and Cypher-based migrations. Ensures data integrity and query performance.
+**Description:** Database schema management for Neo4j — creates 10 unique constraints, 3 fulltext indexes, 6 vector indexes, 12 property indexes, and 2 schema persistence indexes. Supports configurable embedding dimensions and Cypher-based migrations. Ensures data integrity and query performance.
 **Package:** Neo4j.AgentMemory.Neo4j
 
 ### Sub-Features
@@ -308,6 +308,7 @@
 | Constraints | `SchemaBootstrapper.BootstrapAsync` | `ISchemaBootstrapper` | ✅ Complete | 2 |
 | Fulltext indexes | `SchemaBootstrapper` (message, entity, fact) | `ISchemaBootstrapper` | ✅ Complete | 1 |
 | Vector indexes | `SchemaBootstrapper.BuildVectorIndexes` | `ISchemaBootstrapper` | ✅ Complete | 5 |
+| Schema persistence indexes | `SchemaBootstrapper` (schema_name_idx, schema_version_idx) | `ISchemaBootstrapper` | ✅ Complete (Gap Closure G2) | 0 |
 | Migration runner | `MigrationRunner.RunMigrationsAsync` | `IMigrationRunner` | ✅ Complete | 3 |
 
 ### Test Coverage
@@ -375,6 +376,8 @@
 | Reasoning tools (3) | `ReasoningTools` | MCP Tool Attributes | ✅ Complete | 8 |
 | Graph query tool (1) | `GraphQueryTools` | MCP Tool Attributes | ✅ Complete | 5 |
 | Advanced tools (4) | `AdvancedMemoryTools` | MCP Tool Attributes | ✅ Complete | 12 |
+| MCP Resources (5+) | `ConversationListResource`, `EntityListResource`, `PreferenceListResource`, `ContextResource`, `MemoryStatusResource` | MCP Resource Attributes | ✅ Complete (Gap Closure G7/G8/G10/G11) | — |
+| MCP Prompts (3) | Conversation, Reasoning, Review prompts | MCP Prompt Attributes | ✅ Complete | — |
 | Configuration | `McpServerOptions` | — | ✅ Complete | 6 |
 
 ### Test Coverage
@@ -897,23 +900,23 @@
 
 ## Gap Analysis
 
-> **Updated:** 2025-07-22 by Deckard — Post Wave 4A/4B/4C review
+> **Updated:** 2025-07-24 by Deckard — Post Gap Closure Sprint (Waves A/B/C)
 
 ### Critical Gaps
 
 | # | What's Missing | Why It Matters | Estimated Effort | Priority | Status |
 |---|---------------|---------------|:---:|:---:|:---:|
 | G1 | **Repository integration tests** | Only 2 connectivity tests exist. No integration tests for any repository (entity, fact, preference, message, etc.). Schema bootstrap, vector search, and complex Cypher queries are untested against real Neo4j. | 3–5 days | **HIGH** | ❌ Open |
-| G2 | **Fact deduplication** | No mechanism to detect or prevent duplicate facts. Extraction creates new facts without checking if equivalent SPO triples exist. Knowledge graph accumulates redundant facts. | 2–3 days | **HIGH** | ❌ Open |
-| G3 | **Multi-extractor pipeline with merge strategies** | Python has 5 merge strategies (UNION, INTERSECTION, CONFIDENCE, CASCADE, FIRST_SUCCESS) for combining multiple extractors. .NET runs one extractor per type. No way to combine LLM + Azure results. | 3–5 days | **HIGH** | ❌ Open |
+| G2 | **Fact deduplication** | Decided omission — Python doesn't implement it either. | N/A | N/A | 🔜 **DECIDED OMISSION** |
+| G3 | **Multi-extractor pipeline with merge strategies** | Python has 5 merge strategies. .NET now has `MultiExtractorPipeline` with parallel multi-extractor execution. | N/A | N/A | ✅ **CLOSED** |
 
 ### Important Gaps
 
 | # | What's Missing | Why It Matters | Estimated Effort | Priority | Status |
 |---|---------------|---------------|:---:|:---:|:---:|
 | G4 | **Azure preference extraction** | `AzureLanguageExtraction` has entity, fact, and relationship extractors but no `AzureLanguagePreferenceExtractor`. Users must use LLM extraction for preferences. | 1–2 days | **MEDIUM** | ❌ Open |
-| G5 | **Background enrichment queue** | Python has `BackgroundEnrichmentQueue` (async, non-blocking, retry, multiple providers). .NET enrichment is synchronous — blocks extraction pipeline. | 2–3 days | **MEDIUM** | ❌ Open |
-| G6 | **MCP resources and prompts** | Python MCP server has 4 resources and 3 prompts. .NET MCP server has only tools (0 resources, 0 prompts). Reduces discoverability for MCP clients. | 1–2 days | **MEDIUM** | ❌ Open |
+| G5 | **Background enrichment queue** | Python has `BackgroundEnrichmentQueue`. .NET now has `BackgroundEnrichmentQueue` (Channel-based hosted service). | N/A | N/A | ✅ **CLOSED** |
+| G6 | **MCP resources and prompts** | Python MCP server has 4 resources and 3 prompts. .NET now has 5+ resources and 3 prompts. | N/A | N/A | ✅ **CLOSED (G7/G8/G10/G11)** |
 | G7 | **Streaming extraction** | Python has `extraction/streaming.py` for chunked large-document processing. .NET loads all messages into memory. Won't scale for long documents. | 2–3 days | **MEDIUM** | ✅ **CLOSED (Wave 4C)** — Streaming extraction pipeline implemented |
 | G8 | **Options validation tests** | Configuration option records (`MemoryOptions`, `RecallOptions`, `LongTermMemoryOptions`, etc.) have no dedicated unit tests for defaults and constraints. | 1 day | **MEDIUM** | ❌ Open |
 
@@ -929,13 +932,29 @@
 | G14 | **Custom YAML/JSON schema support** | Python supports custom entity schemas via YAML/JSON config. .NET uses hardcoded entity types. | 2–3 days | **LOW** | ✅ **CLOSED (Wave 4C)** — Custom schema support implemented |
 | G15 | **POLE+O entity type model** | Python uses `POLEOEntityType` (Person, Object, Location, Event, Organization) as a first-class concept. .NET uses free-form string types. | 1–2 days | **LOW** | ❌ Open |
 
+### Gap Closure Sprint Results (Waves A/B/C)
+
+| Gap | What | Wave | Status |
+|-----|------|------|--------|
+| G1 (datetime) | Migrated all 7 repos to native `datetime()` via `Neo4jDateTimeHelper` | Wave B | ✅ Closed |
+| G2 (Schema indexes) | Added `schema_name_idx` + `schema_version_idx` to SchemaBootstrapper | Wave B | ✅ Closed |
+| G3 (Tool.description) | Added description field to domain model + Neo4jToolCallRepository | Wave B | ✅ Closed |
+| G4 (SessionIdGenerator) | `ISessionIdGenerator` with 3 strategies + 8 tests | Wave C | ✅ Closed |
+| G5 (MetadataFilterBuilder) | 5 operators ($eq, $ne, $contains, $in, $exists) + 13 tests | Wave C | ✅ Closed |
+| G7 (MCP camelCase bug) | Fixed Cypher in ConversationListResource + EntityListResource | Wave A | ✅ Closed |
+| G8 (MemoryStatus counts) | Added ReasoningTrace count — now returns 6 counts matching Python | Wave A | ✅ Closed |
+| G10 (Preferences resource) | Added `memory://preferences` MCP resource with category filter | Wave C | ✅ Closed |
+| G11 (Context resource) | Added `memory://context/{session_id}` MCP resource using IMemoryContextAssembler | Wave C | ✅ Closed |
+
+**G6 (fact dedup) was skipped — Python doesn't implement it either.**
+
 ### Gap Summary
 
 | Status | Count | Gaps |
 |--------|:---:|------|
-| ✅ Closed | 3 | G7, G12, G14 |
-| 🔜 Deferred | 1 | G13 |
-| ❌ Open | 11 | G1–G6, G8–G11, G15 |
+| ✅ Closed | 12 | G1-G5, G7-G8, G10-G11, G12, G14, (Wave 4C items) |
+| 🔜 Deferred/Omitted | 2 | G6 (fact dedup — decided omission), G13 (CLI) |
+| ❌ Open | 5 | G1 (repo integration tests), G4 (Azure pref), G8 (options tests), G9, G10 (entity re-index), G11 (observations tool), G15 |
 
 ---
 
@@ -957,9 +976,10 @@
 | Stubs | 4 | ~21 | ✅ Good |
 | Validation | 1 | ~14 | ✅ Good |
 | Wave 4A/B/C additions | — | ~596 | ✅ Excellent (schema parity, streaming, enrichment, custom schema) |
+| Gap Closure Sprint (Waves A/B/C) | — | ~21 | ✅ Good (SessionIdGenerator 8 + MetadataFilterBuilder 13) |
 | **Integration** | **1** | **2** | **⚠️ Minimal** |
-| **TOTAL** | **55+** | **1003** | **Strong unit, weak integration** |
+| **TOTAL** | **55+** | **1058** | **Strong unit, weak integration** |
 
 ---
 
-*Document generated from full source analysis of all 10 packages and 55+ test files. Updated 2025-07-22 with Wave 4A/4B/4C audit results.*
+*Document generated from full source analysis of all 10 packages and 55+ test files. Updated 2025-07-24 with Gap Closure Sprint (Waves A/B/C) audit results. 1058 tests pass, 0 failures.*

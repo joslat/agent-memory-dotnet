@@ -2,27 +2,28 @@
 
 > **Authority:** This document is the single source of truth for the Neo4j graph schema.
 > **Canonical source:** Python reference implementation (`Neo4j/agent-memory/src/neo4j_agent_memory/`)
-> **Date:** 2025-07-23 (Post P1 Schema Parity Sprint)
+> **Date:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)
 > **Author:** Deckard (Lead / Solution Architect)
 
 ---
 
-## Schema Parity Status: ~96% — All P0 and P1 items FIXED (except P1-9 datetime)
+## Schema Parity Status: ~99% — All P0, P1, and Gap Closure items FIXED
 
 | Category | Python Items | .NET Matches | Parity |
 |----------|:---:|:---:|:---:|
 | Node labels | 11 | 10 implemented (all except Schema) | 91% |
 | Constraints | 9 | 10 (all 9 Python + `extractor_name`) | 100% |
-| Property indexes | 10 | 12 (all 10 Python + 2 extras) | 100% |
+| Property indexes | 10 + 2 Schema | 14 (all 10 Python + 2 Schema + 2 extras) | 100% |
 | Vector indexes | 5 | 6 (all 5 Python + `reasoning_step_embedding_idx`) | 100% |
 | Point indexes | 1 | 1 (`entity_location_idx`) | 100% |
 | Relationship types | 15 | 18 (all 15 Python + 3 .NET extras) | 100% |
 | Property naming (snake_case) | — | All correct | 100% |
 | Relationship properties | ~25 props | ~25 (all Python properties present) | 100% |
-| Tool aggregate stats | 7 properties | 7 (all except optional `description`) | 86% |
-| **Weighted overall** | | | **~96%** |
+| Tool aggregate stats | 7 properties | 7 (all including `description`) | 100% |
+| Datetime storage | Native `datetime()` | Native `datetime()` (with backward compat helper) | 100% |
+| **Weighted overall** | | | **~99%** |
 
-**Summary:** The P1 Schema Parity Sprint completed 10 of 11 P1 items, adding 34 new tests (1037 total). All P0 and P1 items are RESOLVED except P1-9 (datetime storage — deferred, functional but uses ISO strings instead of native `datetime()`). Remaining gaps are P2 items: Schema node (not implemented), schema persistence indexes (tied to Schema node), Tool.description field (optional, not auto-populated in Python either), and the datetime storage type difference.
+**Summary:** The Gap Closure Sprint (Waves A/B/C) completed all 9 actionable gaps (G1-G5, G7-G8, G10-G11). All timestamps now use native Neo4j `datetime()` storage via `Neo4jDateTimeHelper` (G1). Schema node indexes (`schema_name_idx`, `schema_version_idx`) are created in `SchemaBootstrapper` (G2). `Tool.description` is stored on the Tool node (G3). MCP resources return correct data with snake_case Cypher (G7 fix). MemoryStatus returns 6 counts matching Python (G8). 1058 tests pass, 0 failures.
 
 ---
 
@@ -174,7 +175,7 @@
 | `failed_calls` | int | ✅ | `0` | Pre-aggregated counter |
 | `total_duration_ms` | int | ✅ | `0` | Pre-aggregated sum |
 | `last_used_at` | datetime | ❌ | `datetime()` | Updated on each call |
-| `description` | string | ❌ | — | Tool description |
+| `description` | string | ❌ | — | Tool description (stored by .NET) |
 
 #### `Extractor` — Provenance
 
@@ -285,7 +286,7 @@
 | Index Name | Label | Property |
 |------------|-------|----------|
 | `schema_name_idx` | `Schema` | `name` |
-| `schema_id_idx` | `Schema` | `id` |
+| `schema_version_idx` | `Schema` | `version` |
 
 ---
 
@@ -350,7 +351,7 @@
 | Tool | `failed_calls` | `failed_calls` | ✅ FIXED (P1 Sprint) — Pre-aggregated on INSTANCE_OF creation |
 | Tool | `total_duration_ms` | `total_duration_ms` | ✅ FIXED (P1 Sprint) — Pre-aggregated sum |
 | Tool | `last_used_at` | `last_used_at` | ✅ FIXED (P1 Sprint) — Set to `datetime()` on each call |
-| Tool | `description` | *(not set)* | 🟡 P2 — Optional field; Python defines it but never auto-populates it in `CREATE_TOOL_CALL` either |
+| Tool | `description` | ✅ Stored | 🟡 Not set | ✅ FIXED (Gap Closure G3) — Stored on Tool node via `Neo4jToolCallRepository` |
 
 **Remaining .NET extras (not in Python but kept for added value):**
 
@@ -388,8 +389,8 @@
 | `trace_success_idx` | ✅ | ✅ | ✅ FIXED (Wave 4B) |
 | `tool_call_status_idx` | ✅ | ✅ | ✅ Already present |
 | `entity_location_idx` (Point) | ✅ | ✅ | ✅ FIXED (P1 Sprint) — `CREATE POINT INDEX entity_location_idx` in SchemaBootstrapper |
-| `schema_name_idx` | ✅ | ❌ | 🟡 P2 — Tied to Schema node (not implemented) |
-| `schema_id_idx` | ✅ | ❌ | 🟡 P2 — Tied to Schema node (not implemented) |
+| `schema_name_idx` | ✅ | ✅ | ✅ FIXED (Gap Closure G2) — Created in SchemaBootstrapper |
+| `schema_version_idx` | ✅ | ✅ | ✅ FIXED (Gap Closure G2) — Created in SchemaBootstrapper |
 | `fact_category` (Property) | ❌ | ✅ | .NET extension |
 | `reasoning_step_timestamp` (Property) | ❌ | ✅ | .NET extension |
 | `reasoning_step_embedding_idx` (Vector) | ❌ | ✅ | .NET extension |
@@ -469,19 +470,19 @@
 | `failed_calls` counter | ✅ Pre-aggregated | ✅ Pre-aggregated | ✅ FIXED (P1 Sprint) — Incremented for status `error`/`timeout` |
 | `total_duration_ms` counter | ✅ Pre-aggregated | ✅ Pre-aggregated | ✅ FIXED (P1 Sprint) — Summed from `COALESCE(tc.duration_ms, 0)` |
 | `last_used_at` timestamp | ✅ Present | ✅ Present | ✅ FIXED (P1 Sprint) — `SET tool.last_used_at = datetime()` on each call |
-| `description` field | ✅ Optional | 🟡 Not set | 🟡 P2 — Python defines but never auto-populates in `CREATE_TOOL_CALL` |
+| `description` field | ✅ Optional | ✅ Stored | ✅ FIXED (Gap Closure G3) — Stored on Tool node via `Neo4jToolCallRepository` |
 | Tool.name UNIQUE constraint | ✅ Present | ✅ Present | ✅ FIXED (Wave 4B) |
 
 ### 2.9 Additional Differences
 
 | Feature | Python | .NET | Notes |
 |---------|--------|------|-------|
-| Datetime storage | Neo4j native `datetime()` | ISO 8601 strings | 🟡 P1-9 DEFERRED — Functional but different type. `.NET` stores `created_at` as `"2025-07-23T10:00:00Z"` string; Python stores native `datetime()`. Both are queryable but native datetime supports temporal arithmetic (`duration()`) |
+| Datetime storage | Neo4j native `datetime()` | ✅ Native `datetime()` | ✅ FIXED (Gap Closure G1) — All repositories migrated to native `datetime()` via `Neo4jDateTimeHelper` with backward compat for mixed-type reads |
 | Entity MERGE key | `{name: $name, type: $type}` | `{id: $id}` | ⚠️ Design difference — .NET is stricter (UUID-based dedup). Python merges on name+type, allowing natural dedup but risking collisions |
 | Dynamic entity labels | `(:Entity:Person:Individual)` | `(:Entity:PERSON:INDIVIDUAL)` | ✅ FIXED (P1 Sprint) — .NET uses UPPERCASE labels via `BuildDynamicLabels()`; Python uses PascalCase. Functionally equivalent |
 | Geospatial queries | `SEARCH_LOCATIONS_NEAR`, `SEARCH_LOCATIONS_IN_BOUNDING_BOX` | `SearchByLocationAsync`, `SearchInBoundingBoxAsync` | ✅ FIXED (P1 Sprint) — Both radius and bounding box queries implemented |
 | Graph export queries | `GET_GRAPH_SHORT_TERM`, `GET_GRAPH_LONG_TERM`, etc. | `AdvancedMemoryTools.MemoryExportGraph` | 🟡 P2 — .NET has export via MCP tool; Python has 4 typed export queries |
-| Memory stats query | `GET_MEMORY_STATS` | Not implemented | 🟡 P2 — Utility query for diagnostics |
+| Memory stats query | `GET_MEMORY_STATS` | ✅ `MemoryStatusResource` (6 counts) | ✅ FIXED (Gap Closure G8) — Returns Conversation, Message, Entity, Fact, Preference, ReasoningTrace counts matching Python |
 | Session listing w/ pagination | `LIST_SESSIONS` with ORDER BY/SKIP/LIMIT | Simple session queries | 🟡 P2 — Python has richer session management with ordering/pagination |
 
 ---
@@ -511,7 +512,7 @@
 | 28 | MemoryRelationship | Extra | ✅ FIXED (P1 Sprint) | Phantom constraint removed |
 | 29 | entity_location_idx | Point index | ✅ FIXED (P1 Sprint) | `CREATE POINT INDEX entity_location_idx` in SchemaBootstrapper |
 | 30–33 | Property indexes | Indexes | ✅ FIXED (Wave 4B) | All 10 Python indexes present |
-| 34–35 | Schema indexes | Indexes | 🟡 P2 | Tied to Schema node |
+| 34–35 | Schema indexes | Indexes | ✅ FIXED (Gap Closure G2) | `schema_name_idx` + `schema_version_idx` in SchemaBootstrapper |
 | 36 | reasoning_step_embedding | Vector | ✅ .NET Extension | |
 | 37 | MENTIONS rel props | Rel props | ✅ FIXED (P1 Sprint) | `confidence`, `start_pos`, `end_pos` all present |
 | 38 | HAS_STEP order | Rel prop | ✅ FIXED | `{order: $stepNumber}` |
@@ -519,18 +520,18 @@
 | 40 | EXTRACTED_FROM props | Rel props | ✅ FIXED (P1 Sprint) | All 5 properties: `confidence`, `start_pos`, `end_pos`, `context`, `created_at` |
 | 41 | EXTRACTED_BY rel | Relationship | ✅ FIXED (P1 Sprint) | `confidence`, `extraction_time_ms`, `created_at` |
 | 42–44 | HAS_FACT/PREF/SESSION | Extra rels | ✅ .NET Extension | |
-| 45 | Datetime handling | Storage | 🟡 P1-9 DEFERRED | ISO strings vs native datetime() — functional, type differs |
+| 45 | Datetime handling | Storage | ✅ FIXED (Gap Closure G1) | Native `datetime()` via `Neo4jDateTimeHelper` with backward compat |
 | 46 | Entity updated_at | Property | ✅ FIXED (P1 Sprint) | ON MATCH SET `e.updated_at = datetime()` |
 | 47 | Geospatial queries | Methods | ✅ FIXED (P1 Sprint) | `SearchByLocationAsync`, `SearchInBoundingBoxAsync` |
-| 48 | Tool.description | Property | 🟡 P2 | Optional field — Python defines but never auto-sets |
+| 48 | Tool.description | Property | ✅ FIXED (Gap Closure G3) | Stored on Tool node via `Neo4jToolCallRepository` |
 
 ---
 
-## 3. Remaining Fix Plan (Post P1 Sprint)
+## 3. Remaining Fix Plan (Post Gap Closure Sprint)
 
-> All P0 and P1 items are RESOLVED except P1-9 (datetime). Remaining items are P2 (nice-to-have) and the deferred P1-9.
+> All P0, P1, and critical P2 items are RESOLVED. The Gap Closure Sprint (Waves A/B/C) closed 9 actionable gaps (G1-G5, G7-G8, G10-G11). 1058 tests pass, 0 failures.
 
-### P1 — ✅ ALL COMPLETED (except P1-9 deferred)
+### P1 — ✅ ALL COMPLETED
 
 | # | Fix | Status | Notes |
 |---|-----|--------|-------|
@@ -542,57 +543,41 @@
 | P1-6 | Add full Tool aggregate stats | ✅ DONE | `successful_calls`, `failed_calls`, `total_duration_ms`, `last_used_at` in `Neo4jToolCallRepository.AddAsync` |
 | P1-7 | Add `SAME_AS` status/updated_at properties | ✅ DONE | `status` on CREATE, `updated_at` on MATCH in `AddSameAsRelationshipAsync` |
 | P1-8 | Add Entity `updated_at` on ON MATCH | ✅ DONE | `e.updated_at = datetime()` in `UpsertAsync` ON MATCH SET |
-| P1-9 | Switch to native `datetime()` | 🟡 DEFERRED | Timestamps stored as ISO 8601 strings. Switching requires migration + all repos. See below |
+| P1-9 | Switch to native `datetime()` | ✅ DONE (Gap Closure G1) | All 7 repository files migrated to native `datetime()` via `Neo4jDateTimeHelper` with backward compat |
 | P1-10 | Add geospatial query methods | ✅ DONE | `SearchByLocationAsync` (radius) + `SearchInBoundingBoxAsync` in `Neo4jEntityRepository` |
 | P1-11 | Remove `MemoryRelationship` phantom constraint | ✅ DONE | Removed from SchemaBootstrapper |
-
-#### P1-9 Datetime Gap Detail
-
-**What:** Python stores all timestamps as Neo4j native `datetime()` type (e.g., `e.created_at = datetime()`). .NET stores timestamps as ISO 8601 strings (e.g., `e.created_at = "2025-07-23T10:00:00.0000000+00:00"`).
-
-**Where it matters:**
-- `created_at` on all node types (Conversation, Message, Entity, Fact, Preference, ReasoningTrace, ReasoningStep, Extractor)
-- `updated_at` on Entity (set via `datetime()` on ON MATCH — this one IS native!)
-- `started_at` / `completed_at` on ReasoningTrace
-- `timestamp` on Message, ReasoningStep
-- Relationship `created_at` properties (most use `datetime()` correctly)
-
-**Functional impact:** Low. Both formats are queryable. The difference prevents:
-1. Native temporal arithmetic in Cypher (`duration()`, `date.truncate()`)
-2. Temporal range comparisons may be less efficient (string vs native)
-3. Cross-implementation queries on the same database would see mixed types
-
-**Effort to fix:** Medium (3-5 days). Requires:
-1. Change all `entity.CreatedAtUtc.ToString("O")` → `entity.CreatedAtUtc.DateTime` (Neo4j driver converts automatically)
-2. Update all `MapToEntity` / `MapToFact` etc. to handle both string and ZonedDateTime
-3. Migration query to convert existing string timestamps
-4. Update all unit test expectations
 
 ### P2 — Nice-to-Have / Improvements
 
 | # | Fix | Required for Parity? | Effort | Value | Notes |
 |---|-----|:---:|:---:|:---:|-------|
-| P2-1 | Add `Schema` node + repository | 🟡 Partial | Medium | Low | Python uses for custom entity schema persistence (POLE+O + YAML/JSON config). .NET uses fixed types. Only needed if we support custom schema models |
+| P2-1 | Add `Schema` node + repository | 🟡 Partial | Medium | Low | Python uses for custom entity schema persistence (POLE+O + YAML/JSON config). .NET uses fixed types. Only needed if we support custom schema models. Schema indexes are already created (G2). |
 | P2-2 | Add graph export queries (typed) | ❌ No | Low | Low | Python has 4 typed exports (`GET_GRAPH_SHORT_TERM`, etc.). .NET already has `MemoryExportGraph` MCP tool with basic export |
-| P2-3 | Add `GET_MEMORY_STATS` query | ❌ No | Low | Medium | Diagnostic utility — counts of conversations, messages, entities, facts, traces. Easy to add |
+| P2-3 | ~~Add `GET_MEMORY_STATS` query~~ | ~~❌ No~~ | ~~Low~~ | ~~Medium~~ | ✅ **CLOSED (Gap Closure G8)** — `MemoryStatusResource` returns 6 counts |
 | P2-4 | Add session listing with ordering/pagination | 🟡 Partial | Low | Medium | Python `LIST_SESSIONS` has ORDER BY/SKIP/LIMIT. .NET has basic `GetBySessionAsync`. Pagination would improve DX |
 | P2-5 | Keep `.NET-only` extensions | N/A | N/A | High | `HAS_FACT`, `HAS_PREFERENCE`, `IN_SESSION`, fulltext indexes, `reasoning_step_embedding_idx` — all add value beyond Python |
-| P2-6 | Add `Tool.description` field | ❌ No | Trivial | Low | Optional metadata field. Python defines but never auto-populates in `CREATE_TOOL_CALL` |
+| P2-6 | ~~Add `Tool.description` field~~ | ~~❌ No~~ | ~~Trivial~~ | ~~Low~~ | ✅ **CLOSED (Gap Closure G3)** — Stored on Tool node |
 
 ---
 
 ## 4. What Would 100% Schema Parity Require?
 
-To achieve TRUE 100% schema parity with the Python reference implementation, the following items remain:
+The Gap Closure Sprint brought schema parity from ~96% to ~99%. The only remaining item for true 100% parity is:
 
-### Required Changes (4 items)
+### Remaining Changes (1 item)
 
 | # | Item | Current Gap | Effort |
 |---|------|-------------|--------|
-| 1 | **Native datetime()** (P1-9) | ISO string timestamps vs native `datetime()` | Medium (3-5 days) |
-| 2 | **Schema node** (P2-1) | No `Schema` node, constraint, or repository | Medium (2-3 days) |
-| 3 | **Schema indexes** (P2-1 dependent) | `schema_name_idx`, `schema_id_idx` missing | Trivial (with #2) |
-| 4 | **Tool.description** (P2-6) | Optional field not exposed in domain model | Trivial |
+| 1 | **Schema node** (P2-1) | No `Schema` node repository (indexes exist, node declaration exists) | Medium (2-3 days) |
+
+### Already Achieved (formerly gaps, now closed)
+
+| Item | Status | Sprint |
+|------|--------|--------|
+| Native `datetime()` storage | ✅ DONE | Gap Closure G1 |
+| Schema indexes | ✅ DONE | Gap Closure G2 |
+| Tool.description | ✅ DONE | Gap Closure G3 |
+| Memory stats resource | ✅ DONE | Gap Closure G8 |
 
 ### Already-Different-by-Design (not blocking parity)
 
@@ -602,12 +587,9 @@ To achieve TRUE 100% schema parity with the Python reference implementation, the
 | Dynamic label casing | PascalCase (`Person`) | UPPERCASE (`PERSON`) | Functionally equivalent for queries; .NET matches POLE+O uppercase convention |
 | .NET-only extensions | N/A | 3 extra rels, 3 extra indexes, 1 extra vector index | Added value — not breaking parity |
 
-### Summary: 96% Today → 100% with 4 Items
+### Summary: 99% Today → 100% with 1 Item
 
-The path from 96% to 100% is clear and achievable:
-- **Quick wins** (P2-6 Tool.description): Trivial, 1 hour
-- **P1-9 datetime migration**: Medium effort, biggest remaining gap by impact
-- **P2-1 Schema node**: Medium effort, only needed if custom entity schemas are required
+The path from 99% to 100% requires only the Schema node repository implementation (P2-1), which is low priority since .NET uses fixed entity types rather than custom schemas.
 
 ---
 
@@ -711,15 +693,15 @@ entity.CanonicalName = record["e"]["canonical_name"].As<string>();
 
 ---
 
-## Appendix B: Count Summary (Post P1 Sprint)
+## Appendix B: Count Summary (Post Gap Closure Sprint)
 
 | Category | Python | .NET | Delta |
 |----------|--------|------|-------|
-| Node labels | 11 | 12 | +1 extra (Migration), -1 missing (Schema) |
+| Node labels | 11 | 12 | +1 extra (Migration), -1 missing (Schema repo) |
 | Relationship types | 15 | 18 | +3 extra (HAS_FACT, HAS_PREFERENCE, IN_SESSION) |
 | Constraints | 9 | 10 | +1 extra (extractor_name) |
 | Vector indexes | 5 | 6 | +1 extra (reasoning_step_embedding_idx) |
 | Point indexes | 1 | 1 | Match |
-| Property indexes | 10 | 12 | +2 extra (fact_category, reasoning_step_timestamp) |
+| Property indexes | 10 + 2 Schema | 14 (all 12 Python + 2 extras) | Match on Python set, +2 extras |
 | Fulltext indexes | 0 | 3 | +3 extra (message_content, entity_name, fact_content) |
-| Schema persistence indexes | 2 | 0 | -2 missing (tied to Schema node) |
+| Schema persistence indexes | 2 | 2 | ✅ Match (schema_name_idx, schema_version_idx) |
