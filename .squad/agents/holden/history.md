@@ -219,3 +219,22 @@ Created `tests/Neo4j.AgentMemory.Tests.Unit/Exceptions/MemoryExceptionTests.cs` 
 - The `edit` tool replaces the first exact match; including class header in `old_str` with mismatched whitespace will corrupt the file. Use minimal unique context for `old_str`.
 - `Neo4jIntegrationFixture` should be a separate xUnit collection from the existing `Neo4jTestFixture` to avoid container sharing with smoke tests.
 - Vector indexes in Neo4j start in POPULATING state and must transition to ONLINE before `db.index.vector.queryNodes` works. Always call `WaitForVectorIndexesAsync` in fixture init.
+
+### 2026-07-xx — Comprehensive Test Coverage Audit
+
+**Baseline:** 1058 unit tests (103 files, all passing) + 56 integration tests.
+
+**Audit scope:** All 10 src projects, 222 public types, 103 unit test files, 7 integration test files.
+
+**Key findings:**
+
+- **`Neo4jRelationshipRepository`** — ZERO unit or integration tests. 5 public methods. Critical P1 gap.
+- **GraphRAG retrievers** (`AdapterVectorRetriever`, `AdapterFulltextRetriever`, `AdapterHybridRetriever`) — ZERO tests. All `internal` but exposed via `InternalsVisibleTo`. Unit-testable today.
+- **4 repos missing integration tests:** `Neo4jReasoningStepRepository`, `Neo4jToolCallRepository`, `Neo4jExtractorRepository`, `Neo4jRelationshipRepository`.
+- **`Neo4jEntityRepository.GetByIdAsync` and `GetByNameAsync`** — no unit test (has integration coverage only).
+- **~63 weak `.Should().NotBeNull()` sole assertions** in enrichment + observability tests — value-level assertions missing.
+- **`SessionIdGeneratorTests`** embeds `DateTime.UtcNow` inline — theoretically flaky at UTC midnight. Fix: inject `IClock`.
+- **Coverage estimate:** ~75-94% depending on project; overall solution ~82% by public type.
+- **Error path ratio:** 39 exception assertions in 21 files = ~3.7% — low; Core services could use more null-guard / invalid-state tests.
+
+**Deliverable:** `.squad/decisions/inbox/holden-test-audit.md` — full gap report with P1/P2/P3 priorities, summary table, and estimate of ~99 new tests to reach good coverage.

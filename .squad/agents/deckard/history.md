@@ -558,3 +558,42 @@ The `docs/python-dotnet-comparison.md` scorecard is materially wrong. Multiple i
 **Deliverables:**
 - Session plan: `plan.md` with complete gap inventory, decisions, waves, test strategy, risk assessment
 - Decisions: `.squad/decisions/inbox/deckard-gap-closure-plan.md` with 6 decision proposals + 2 bug reports
+
+### 2026-07-20 — Comprehensive Architecture Review (Full Audit)
+
+**Trigger:** Jose requested thorough architecture review of all 10 source packages applying DRY, CLEAN, SOLID, KISS principles with pragmatic lens.
+
+**Build & Test Verification:**
+- Build: ✅ 0 errors, 8 warnings (xUnit1013 in integration tests)
+- Unit tests: ✅ 1,058 passing
+- Source: 265 files, ~14,650 LOC across 10 packages
+
+**Architecture Verdict: SOUND — Zero boundary violations, zero circular deps.**
+
+**Per-Project Scores (1-10):**
+- Abstractions: 9 (exemplary zero-dep contracts, minor ISP concern on IEntityRepository)
+- Core: 7 (DRY violations in embedding generation, dual pipeline ambiguity, oversized extraction pipeline)
+- Neo4j: 8 (clean persistence, inline Cypher needs centralization)
+- AgentFramework: 10 (perfect thin adapter)
+- GraphRagAdapter: 10 (clean bridge, concurrent retrieval)
+- Extraction.Llm: 7 (~95% structural duplication with AzureLanguage)
+- Extraction.AzureLanguage: 6 (duplication + redundant Azure API calls + weak heuristics)
+- Enrichment: 9 (elegant decorator chain, provider tag missing from cache key)
+- Observability: 9 (good decorator pattern, one missing metric)
+- McpServer: 9 (24 tools, well-structured, security-gated)
+
+**Top 5 Findings:**
+1. **DRY: Embedding generation scattered across 5+ call sites** — needs IEmbeddingOrchestrator
+2. **DRY: Extraction packages ~95% structurally identical** — merge with strategy pattern
+3. **SRP: MemoryExtractionPipeline (393 LOC)** — does extraction + validation + resolution + persistence
+4. **KISS: Two IMemoryExtractionPipeline implementations** — no selection guidance
+5. **Performance: Azure relationship extractor re-calls entity recognition** — doubles API costs
+
+**Package Consolidation:** 10 → 7 proposed (merge Extraction.Llm + Extraction.AzureLanguage into unified Extraction with engine sub-packages; Observability stays separate despite 427 LOC — opt-in by design)
+
+**14 Improvement Suggestions Catalogued** with Impact/Effort scoring.
+
+**Deliverables:**
+- `docs/improvement-suggestions.md` — Full improvement catalog with 14 suggestions, cross-reference map, package consolidation proposal, priority ordering
+- `docs/architecture-assessment.md` — Updated MCP tool count (18 → 24)
+- `.squad/decisions/inbox/deckard-arch-review.md` — Key decisions from review
