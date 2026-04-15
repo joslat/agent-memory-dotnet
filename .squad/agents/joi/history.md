@@ -144,3 +144,42 @@ Our project: If MAF API changes → only `Neo4jMemoryContextProvider.cs` (300 LO
 **Lesson:** Documentation lags behind code changes by default. After every sprint, a targeted doc sweep is needed.
 
 **Files updated:** README.md, docs/architecture.md, docs/implementation-status.md, docs/schema.md, docs/feature-record.md, docs/python-dotnet-comparison.md, docs/architecture-assessment.md, docs/package-strategy-and-features.md
+
+### L8: Post-Sprint Documentation Audit — Process and Finding (2026-04-15)
+
+**Session:** arch-review-session (parallel with Deckard, Holden)
+
+**Scope:** Comprehensive audit of all 12 documentation files for stale claims and correctness.
+
+**Findings:**
+
+1. **Stale Parity Scorecard** (python-dotnet-comparison.md)
+   - Item #18 (extraction pipeline): marked as gap but fully implemented
+   - Item #19 (MCP resources/prompts): marked as gap but fully implemented
+   - Item #11 (memory_get_observations): marked as gap but fully implemented
+   - Actual functional parity: ~97% (not ~91%)
+
+2. **Feature Completeness Under-Reported**
+   - Background enrichment queue: EXISTS (not noted as implemented)
+   - Context compression: EXISTS (not noted as implemented)
+   - Streaming extraction config: EXISTS (not noted as implemented)
+
+3. **Documentation Drift Pattern Confirmed**
+   - 9 of 13 docs files had stale numeric claims (test counts, tool counts, parity %)
+   - Post-sprint docs updates do not persist automatically
+   - Manual re-application and disk-persistence verification required
+
+**Decision Proposed:**
+
+- D-DOC1: Post-Sprint Documentation Audit Process
+  - Verify all numeric claims against actual code
+  - Check status trackers against git log
+  - Search for "not implemented" markers and validate
+  - Update implementation-status.md after each sprint
+
+**Implementation Challenge:**
+
+Joi's bulk docs update was reported as successful but edits did not persist to disk. All changes reverted.
+
+**Status:** Audit process documented in decisions.md. Documentation updates should be re-applied with disk persistence verification.
+

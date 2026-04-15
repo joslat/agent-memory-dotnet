@@ -597,3 +597,53 @@ The `docs/python-dotnet-comparison.md` scorecard is materially wrong. Multiple i
 - `docs/improvement-suggestions.md` — Full improvement catalog with 14 suggestions, cross-reference map, package consolidation proposal, priority ordering
 - `docs/architecture-assessment.md` — Updated MCP tool count (18 → 24)
 - `.squad/decisions/inbox/deckard-arch-review.md` — Key decisions from review
+### L28: Architecture Audit and Consolidation Opportunities (2026-04-15)
+
+**Session:** arch-review-session (parallel with Joi, Holden)
+
+**Scope:** Complete audit of all 10 project packages with consolidation analysis.
+
+**Key Findings:**
+
+1. **~95% Structural Duplication** in Extraction.Llm and Extraction.AzureLanguage
+   - Both have identical 4 interfaces, error handling, and pipeline
+   - Only difference: engine (IChatClient vs TextAnalyticsClient)
+   - Opportunity: Strategy pattern consolidation
+
+2. **Embedding Generation Scattered Across 5 Call Sites**
+   - ShortTermMemoryService (2), LongTermMemoryService (3), MemoryExtractionPipeline (3), MemoryContextAssembler (1), MemoryService batch
+   - Each site implements own text composition and error handling
+   - Opportunity: Extract to IEmbeddingOrchestrator in Core
+
+3. **Dual Pipeline Ambiguity**
+   - MemoryExtractionPipeline vs MultiExtractorPipeline: no clear guidance
+   - Recommendation: Rename to DefaultExtractionPipeline + MultiProviderExtractionPipeline
+
+4. **Package Consolidation Path: 10 → 7**
+   - Merge Extraction engines into single base
+   - Keep Observability separate (opt-in benefit)
+   - Meta-package for improved onboarding
+
+**Proposed Decisions:**
+- D-AR1: Merge extraction packages with IExtractionEngine strategy
+- D-AR2: Consolidate embedding into IEmbeddingOrchestrator
+- D-AR3: Keep Observability separate (opt-in)
+- D-AR4: Clarify dual pipeline via naming
+- D-AR5: Publish Neo4j.AgentMemory meta-package
+
+**Gap Closure Identified:**
+
+Items from Python parity comparison that need implementation:
+- D-GAP1: Full datetime() migration (7 repos, ~1 day)
+- D-GAP2: Schema indexes (Skip repository, add 2 indexes, ~10 min)
+- D-GAP3: SessionIdGenerator implementation (PerConversation, PerDay, PersistentPerUser wiring, ~0.5 day)
+- D-GAP4: Metadata filters (5-operator subset, ~1 day)
+- D-GAP5: Fact deduplication (Skip, not in Python)
+- D-GAP6: MCP resource URIs (Add 2 Python-standard URIs, ~0.5 day)
+
+**Critical Bugs Found:**
+- BUG-G7: MCP resources use camelCase in Cypher; schema is snake_case → empty results **FIX IMMEDIATELY**
+- BUG-G8: MemoryStatusResource missing ReasoningTrace count
+
+**Status:** All findings documented in decisions.md, ready for Jose approval.
+

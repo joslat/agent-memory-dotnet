@@ -772,6 +772,181 @@ WHERE similarity >= $threshold
 
 ---
 
+### D-AR1: Merge Extraction Packages with Strategy Pattern (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Architecture Consolidation
+
+Merge `Extraction.Llm` and `Extraction.AzureLanguage` into a unified `Extraction` base package with an `IExtractionEngine` strategy interface. Keep engine-specific NuGet dependencies in sub-packages.
+
+**Rationale:** ~95% structural duplication. Same 4 interfaces, same error handling, same pipeline. Only the engine (IChatClient vs TextAnalyticsClient) differs. Strategy pattern eliminates duplication and enables runtime engine selection.
+
+**Impact:** HIGH — Reduces code duplication, simplifies new engine onboarding, enables runtime switching.  
+**Risk:** Breaking change for current consumers. Mitigate with semantic versioning.
+
+---
+
+### D-AR2: Consolidate Embedding Generation into IEmbeddingOrchestrator (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Architecture Consolidation
+
+Extract embedding text-composition and call logic from 5+ call sites into a single `IEmbeddingOrchestrator` service in Core.
+
+**Rationale:** `GenerateEmbeddingAsync()` is called from ShortTermMemoryService (2×), LongTermMemoryService (3×), MemoryExtractionPipeline (3×), MemoryContextAssembler (1×), and MemoryService batch methods. Each site has its own text composition and error handling.
+
+**Impact:** HIGH — Eliminates most DRY violations, single point for embedding strategy changes.  
+**Risk:** LOW — Internal refactor only.
+
+---
+
+### D-AR3: Keep Observability as Separate Package (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Architecture Consolidation
+
+Retain `Neo4j.AgentMemory.Observability` as a separate package despite its small size (427 LOC).
+
+**Rationale:** Observability is opt-in. Moving to Core would force OpenTelemetry.Api dependency on all consumers. Separate package signals first-class support while keeping Core lean.
+
+**Impact:** None (no change).  
+**Risk:** None.
+
+---
+
+### D-AR4: Resolve Dual Pipeline Ambiguity (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Architecture Consolidation
+
+Clarify the relationship between `MemoryExtractionPipeline` and `MultiExtractorPipeline`. Rename to `DefaultExtractionPipeline` and `MultiProviderExtractionPipeline`, and document selection criteria in DI registration comments.
+
+**Rationale:** Two `IMemoryExtractionPipeline` implementations exist with no clear guidance on when to use which. This creates confusion for consumers.
+
+**Impact:** MEDIUM — Reduces consumer confusion.  
+**Risk:** LOW — Naming change only.
+
+---
+
+### D-AR5: Publish Meta-Package for Quick Start (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Architecture Consolidation
+
+Create a `Neo4j.AgentMemory` convenience meta-package that references Abstractions + Core + Neo4j + Extraction.Llm.
+
+**Rationale:** Current onboarding requires installing 3+ packages. Meta-package reduces friction to a single `dotnet add package Neo4j.AgentMemory`.
+
+**Impact:** HIGH — Significantly improves developer experience.  
+**Risk:** None — Empty project with dependency declarations.
+
+---
+
+### D-GAP1: datetime() Migration — Full Migration (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Python-Parity Closure
+
+Migrate all 7 remaining repository files from ISO 8601 strings to Neo4j native `datetime()`. The codebase is already half-migrated (Entity ON MATCH, ToolCall, Extractor all use `datetime()`). No data migration needed — Neo4j auto-converts on next upsert. Enables temporal queries (`duration()`, range) and achieves 100% schema parity.
+
+**Files affected:** Neo4jConversationRepository, Neo4jMessageRepository, Neo4jFactRepository, Neo4jPreferenceRepository, Neo4jRelationshipRepository, Neo4jReasoningTraceRepository, Neo4jReasoningStepRepository.
+
+**Effort:** ~1 day.
+
+---
+
+### D-GAP2: Schema Node — Skip Repository, Add Indexes Only (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Python-Parity Closure
+
+Python stores entity extraction config as versioned Schema nodes in the graph. .NET uses `IOptions<T>` — a strictly superior pattern for .NET consumers (compile-time validation, IntelliSense, appsettings.json). Add the 2 Schema indexes (`schema_name_idx`, `schema_id_idx`) to SchemaBootstrapper for index parity, but skip the repository. Document as decided omission.
+
+**Effort:** Trivial (~10 minutes).
+
+---
+
+### D-GAP3: Session Strategy — Implement Generator (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Python-Parity Closure
+
+Implement `ISessionIdGenerator` + `SessionIdGenerator`. The `SessionStrategy` enum and `ShortTermMemoryOptions.SessionStrategy` config property already exist but nothing reads them. Implement the generator service: PerConversation → new UUID, PerDay → `{userId}-{yyyy-MM-dd}`, PersistentPerUser → userId. Wire into MCP tools.
+
+**Effort:** Half day.
+
+---
+
+### D-GAP4: Metadata Filters — Pragmatic 5-Operator Subset (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Python-Parity Closure
+
+Implement 5 core operators ($eq, $ne, $contains, $in, $exists) for metadata filtering. Python has 12 operators. The 5-operator subset covers 95% of real-world metadata filtering. Numeric comparison operators ($gt, $lt, etc.) are rarely needed for JSON string metadata and can be added later.
+
+**Effort:** ~1 day.
+
+---
+
+### D-GAP5: Fact Deduplication — Skip (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Python-Parity Closure
+
+Skip fact deduplication. The `fact_deduplication_enabled` referenced in comparisons doesn't correspond to implemented logic in Python. Entity deduplication (SAME_AS) covers the common case. Document as "not in Python reference."
+
+---
+
+### D-GAP6: MCP Resource URIs — Add Python-Standard Resources (Deckard, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Python-Parity Closure
+
+Add `memory://context/{session_id}` and `memory://preferences` resources. Keep existing .NET resources (`memory://status`, `memory://conversations`, `memory://entities`, `memory://schema`) and add the two Python-standard URIs. Maximum compatibility with clients expecting either set.
+
+**Effort:** Half day.
+
+---
+
+### BUG-G7: MCP Resources Use Wrong Property Names (Deckard, 2026-07)
+
+**Status:** Bug Found  
+**Scope:** Python-Parity Closure
+
+`ConversationListResource.cs` and `EntityListResource.cs` use camelCase (`c.createdAtUtc`, `c.conversationId`, `e.entityId`) in Cypher but the schema is snake_case (`c.created_at`, `c.id`, `e.id`). These resources **will return empty results** against real data. **FIX IMMEDIATELY.**
+
+---
+
+### BUG-G8: MemoryStatusResource Missing Trace Count (Deckard, 2026-07)
+
+**Status:** Bug Found  
+**Scope:** Python-Parity Closure
+
+MemoryStatusResource returns 5 node type counts but omits ReasoningTrace. Python returns 6. Add one OPTIONAL MATCH line.
+
+---
+
+### D-DOC1: Post-Sprint Documentation Audit Process (Joi, 2026-07)
+
+**Status:** Proposed  
+**Scope:** Documentation Governance
+
+After every sprint or major feature merge, a documentation audit should be performed. The audit should:
+
+1. Verify all numeric claims (test counts, tool counts, parity percentages) against actual code
+2. Check phase/status trackers against git log
+3. Search for "not implemented" / "❌" markers and verify each one against source
+4. Update the implementation-status.md test results section
+
+**Consequences:**
+- Prevents documentation drift from accumulating
+- Keeps README accurate for new developers evaluating the project
+- Ensures the feature-record and comparison docs remain reliable references
+
+**Note:** Joi's docs audit attempt encountered file persistence issues (edits reported as successful but did not persist to disk). Documentation updates should be re-applied with disk persistence verification.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus

@@ -238,3 +238,90 @@ Created `tests/Neo4j.AgentMemory.Tests.Unit/Exceptions/MemoryExceptionTests.cs` 
 - **Error path ratio:** 39 exception assertions in 21 files = ~3.7% — low; Core services could use more null-guard / invalid-state tests.
 
 **Deliverable:** `.squad/decisions/inbox/holden-test-audit.md` — full gap report with P1/P2/P3 priorities, summary table, and estimate of ~99 new tests to reach good coverage.
+
+### L9: Test Coverage Audit Across 222 Public Types (2026-04-15)
+
+**Session:** arch-review-session (parallel with Deckard, Joi)
+
+**Scope:** Complete assessment of test coverage across all 10 projects (222 public types).
+
+**Baseline Metrics:**
+- 1058 unit tests (103 files)
+- 56 integration tests (7 files)
+- All tests passing
+- Overall coverage: 70–95% across projects
+
+**Coverage Summary by Project:**
+
+| Project | Public Types | Coverage | Tests | Gap |
+|---------|---|---|---|---|
+| Abstractions | 110 | ~32% | Interfaces not directly tested (by design) | — |
+| AgentFramework | 11 | ~82% | ServiceCollectionExtensions untested | 1 |
+| Core | 31 | ~90% | ServiceCollectionExtensions untested | 1 |
+| Enrichment | 10 | ~90% | ServiceCollectionExtensions untested | 1 |
+| Extraction.AzureLanguage | 6 | ~83% | ServiceCollectionExtensions, wrapper untested | 2 |
+| Extraction.Llm | 6 | ~83% | ServiceCollectionExtensions untested | 1 |
+| GraphRagAdapter | 6 | ~50% | **ALL 3 retrievers untested** | 3 |
+| McpServer | 18 | ~94% | ServiceCollectionExtensions untested | 1 |
+| Neo4j | 24 | ~75% | **RelationshipRepository (ZERO tests)**, 4 repos missing integration | 5 |
+| Observability | 3 | ~100% | ServiceCollectionExtensions untested | 1 |
+
+**Critical Gaps (P1 — Core Functionality Without Tests):**
+
+1. **Neo4jRelationshipRepository — ZERO tests (unit or integration)**
+   - 5 public methods: UpsertAsync, GetByIdAsync, GetByEntityAsync, GetBySourceEntityAsync, GetByTargetEntityAsync
+   - Relationships are first-class knowledge graph edges
+   - Recommended: ~8 unit (Cypher validation) + ~6 integration (round-trip)
+
+2. **GraphRAG Retrievers — ZERO tests**
+   - AdapterVectorRetriever, AdapterFulltextRetriever, AdapterHybridRetriever
+   - Internal classes exposed via InternalsVisibleTo
+   - Core retrieval pipeline for GraphRAG context
+   - Recommended: ~6 unit tests per retriever (~18 total)
+
+3. **Neo4jReasoningStepRepository — Missing integration tests**
+   - Unit tests exist, integration missing
+   - Recommended: ~5 integration tests
+
+4. **Neo4jToolCallRepository — Only 2 relationship tests**
+   - 5 public methods, only relationship creation tested
+   - Recommended: ~6 integration tests
+
+**Important Gaps (P2 — Significant Features):**
+
+- Neo4jExtractorRepository: 11 unit tests but no integration tests (~5 needed)
+- Neo4jEntityRepository: GetByIdAsync/GetByNameAsync lack unit tests (~4 needed)
+- Neo4jTransactionRunner/SessionFactory/DriverFactory: No tests (~4 integration needed)
+- TextAnalyticsClientWrapper: No tests (~3 integration/contract tests needed)
+- Core service error paths: Thin coverage (~15 unit tests needed)
+
+**Test Quality Issues Found:**
+
+| Issue | Severity | Files | Count |
+|---|---|---|---|
+| .Should().NotBeNull() as sole assertion | Medium | 14 | ~63 |
+| DateTime.UtcNow direct in tests | Low | SessionIdGeneratorTests | 2 |
+| Bare .NotBeNull() assertions | Medium | Enrichment/Observability | ~20 |
+| No behavior tests for metrics (only existence) | Medium | MemoryMetricsTests | 12 |
+| Error paths undertested in Core services | Medium | Multiple | — |
+
+**Recommended Additions (Priority Order):**
+
+Total: **~99 new tests** across 15 areas
+
+| # | Area | Tests | Effort |
+|---|------|-------|--------|
+| 1-2 | Neo4jRelationshipRepository (unit + integration) | ~14 | Low-Medium |
+| 3-5 | GraphRAG retrievers (unit) | ~18 | Medium |
+| 6-8 | Repo integration tests (Step, ToolCall, Extractor) | ~16 | Medium |
+| 9 | Core service error paths | ~15 | Medium |
+| 10-15 | DI smoke tests, infra, quality improvements | ~20 | Low |
+
+**Assessment:**
+
+Coverage is good to strong overall. Testcontainers framework is production-ready and fully implemented. Integration test harness requires no changes — only new test classes.
+
+**Highest ROI:** Execute P1 integration tests for the 4 missing Neo4j repositories. These are straightforward round-trip scenarios using existing framework patterns.
+
+**Status:** Audit report ready for Jose review. Test implementation can begin immediately.
+
