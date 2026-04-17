@@ -8,6 +8,26 @@
 - **Spec:** Agent-Memory-for-DotNet-Specification.md
 - **Plan:** Agent-memory-for-dotnet-implementation-plan.md
 
+## Recent Sprint (2026-07-18)
+
+**Deep Review Sprint — Architecture Review 2**
+
+Conducted comprehensive architecture re-evaluation with team alignment on strategic direction:
+
+1. **D-AR2-1 (Adopt MEAI IEmbeddingGenerator<T>)** — Cornerstone decision replacing custom IEmbeddingProvider with MEAI's IEmbeddingGenerator<string, Embedding<float>> as primary embedding contract. Eliminates consumer adapter code, enables MEAI middleware pipeline, unblocks Semantic Kernel integration.
+
+2. **D-AR2-2 (Merge Extraction Packages)** — Strategy pattern consolidation of Extraction.Llm and Extraction.AzureLanguage (~95% duplication). Creates unified IExtractionEngine interface.
+
+3. **D-AR2-3 (Meta-Package)** — Publish Neo4j.AgentMemory convenience package (Abstractions + Core + Neo4j + Extraction.Llm) for single-line install.
+
+4. **D-AR2-4 (Semantic Kernel Adapter)** — Future integration (~200 LOC) enabled by D-AR2-1. Post-approval execution in Q3.
+
+5. **D-AR2-5 (Fluent DI Builder)** — Unified AddNeo4jAgentMemory() fluent API replacing 8+ method calls.
+
+**Output:** docs/architecture-review-2.md (567 lines) + updated docs/improvement-suggestions.md
+
+**Team alignment:** Full consensus with Gaff (schema verification) and Rachael (ecosystem analysis). All three agents recommend D-AR2-1 as highest-impact decision.
+
 ## Learnings
 
 ### 2025-01-28 — Phase 1 Onboarding Analysis

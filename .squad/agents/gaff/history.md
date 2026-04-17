@@ -7,6 +7,24 @@
 - **Role focus:** Neo4j persistence — repositories, Cypher, schema, indexes
 - **Graph model:** Conversation, Message, Entity, Preference, Fact, ReasoningTrace, ReasoningStep, ToolCall nodes
 
+## Recent Sprint (2026-07-18)
+
+**Deep Review Sprint — Schema Parity Deep-Dive**
+
+Comprehensive code-vs-docs verification and discrepancy audit:
+
+1. **D-GAFF-1 (ToolCallStatus Enum Parity)** — Found 4-value .NET enum vs 6-value Python enum. Dead code in Neo4jToolCallRepository.cs:61 checks `$status IN ['error', 'timeout']` but Timeout not valid. Recommendation: Add Failure and Timeout values.
+
+2. **D-GAFF-2 (Documentation Count Audit)** — Identified stale claims across 4 documents: "21 tools" (actual 28), "55+ test files" (actual 111+). Schema.md §2.5 phantom constraint contradicts §2.3. Recommendation: Single documentation sweep.
+
+3. **D-GAFF-3 (Schema Index Parity)** — Python uses schema_id_idx, .NET uses schema_version_idx. Documented as intentional (Schema node deferred).
+
+4. **Neo4j-MAF-Provider Verification** — Confirmed neo4j-maf-provider is retrieval-only (vector/fulltext/hybrid). AgentMemory is strict superset (full lifecycle). GraphRagAdapter integration pattern correct.
+
+**Output:** docs/code-review-findings.md (503 lines)
+
+**Key finding:** Documentation drift is widespread; validates Joi's D-DOC1 post-sprint audit process.
+
 ## Learnings
 
 ### Epic 1 — Foundation Bootstrap (2025-01-27)
