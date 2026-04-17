@@ -647,3 +647,45 @@ Items from Python parity comparison that need implementation:
 
 **Status:** All findings documented in decisions.md, ready for Jose approval.
 
+### 2026-07-20 — Architecture Review 2: Deep Analysis Sprint
+
+**Trigger:** Jose requested five-task deep analysis: architecture re-evaluation, MEAI integration strategy, killer package proposal, creative improvements, and AI perspective on memory.
+
+**Deliverables:**
+1. **`docs/architecture-review-2.md`** — Comprehensive 5-section analysis covering architecture re-evaluation (10-package assessment with SOLID/DRY/KISS/CLEAN scoring), MEAI integration strategy (dual embedding problem, migration proposal), killer package vision (competitive positioning, DX examples, package topology), creative improvement summary, and AI agent perspective summary.
+2. **`docs/improvement-suggestions.md`** — Appended two major sections:
+   - §5 "Creative & Out-of-Box Improvements" — 10 scored ideas (C1-C10) including memory provenance chains, conflict detection, self-improving memory, temporal retrieval, memory decay, cross-agent sharing, consolidation cycles, emotional weighting, tool effectiveness, and dream-like recombination
+   - §6 "What AI Models Want From Memory" — 10 subsections covering retrieval frustrations, effectiveness improvements, memory organization levels, desired queries, multi-turn reasoning, tool use, code patterns, user adaptation, natural vs database memory, and prioritized wishlist
+3. **`.squad/decisions/inbox/deckard-arch-review-2.md`** — 5 proposed decisions (D-AR2-1 through D-AR2-5)
+
+**Key Architectural Findings:**
+
+1. **MEAI Dual Embedding Problem (CRITICAL):** Our codebase has TWO parallel embedding abstractions — `IEmbeddingProvider` (own, in Abstractions) and `IEmbeddingGenerator<T>` (MEAI, used by GraphRagAdapter). Core already depends on M.E.AI.Abstractions 10.4.1. Proposed: migrate Abstractions to depend on M.E.AI.Abstractions and use `IEmbeddingGenerator<T>` as the single embedding contract. This eliminates all adapter code and enables Semantic Kernel integration trivially.
+
+2. **MEAI as Strategic Integration Point:** MEAI is the common layer beneath MAF, Semantic Kernel, LangChain.NET, AutoGen.NET. Building on MEAI instead of MAF-specific types means we integrate with ALL .NET AI frameworks, not just one.
+
+3. **Package Consolidation Confirmed:** 10→9 (merge extraction packages) remains the right move. Observability stays separate (opt-in design). 
+
+4. **Killer Package Vision:** `Neo4j.AgentMemory` meta-package with MEAI-native DI, one-line setup, framework-agnostic core. Competitive differentiator: graph-powered multi-tier memory with entity resolution — no other .NET package offers this.
+
+5. **Architecture Health: 8/10** — Sound fundamentals (zero boundary violations, clean layering). Targeted improvements: eliminate dual embedding abstraction, merge extraction packages, consolidate embedding generation into dedicated service.
+
+**Creative Ideas — Top 3 by Composite Score:**
+- C1: Memory Provenance Chains (8.0) — reliability scoring via extraction history
+- C3: Self-Improving Memory (7.7) — track which memories are actually useful
+- C9: Tool Effectiveness Memory (7.7) — learn which tools work for which tasks
+
+**AI Agent Perspective — Top Insights:**
+- Vector similarity is necessary but insufficient; structured graph queries needed
+- Pre-assembled context briefings > raw memory item lists
+- Confidence indicators on all memories are P0 requirement
+- Memory of what WORKED (tools, explanations, approaches) enables self-improvement
+- Natural memory is proactive (anticipates needs) not reactive (waits for search)
+
+**Verification:**
+- All .csproj files read and dependency maps verified
+- MEAI documentation researched via official Microsoft docs
+- neo4j-maf-provider source code fully read (8 C# files)
+- improvement-suggestions.md fully read (448 lines) and extended
+- All findings consistent with prior reviews and decisions
+

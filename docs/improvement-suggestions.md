@@ -446,3 +446,498 @@ All assessments are based on verified codebase state:
 ---
 
 *This assessment reflects the codebase as of July 2026 against commit state with 1,058 passing unit tests. Recommendations should be revisited after each major refactor.*
+
+---
+
+## 5. Creative & Out-of-Box Improvements
+
+**Added:** July 2026 (Architecture Review 2 — Deep Analysis Sprint)  
+**Author:** Deckard (Lead / Solution Architect)
+
+These ideas push beyond conventional memory patterns into cognitive-science-inspired territory. Each is scored on Impact (1-10), Novelty (1-10), Feasibility (1-10), with a pragmatic implementation sketch.
+
+---
+
+### C1: Memory Provenance Chains — "Who Told Me What?"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 9/10 |
+| **Novelty** | 7/10 |
+| **Feasibility** | 8/10 |
+| **Composite** | **8.0** |
+
+**Concept:** Every fact, entity, and preference carries a full provenance chain: which message → which extraction run → which extractor → what confidence → confirmed/contradicted by which subsequent messages. Not just `SourceMessageIds` (we have that), but a directed acyclic graph of information flow.
+
+**Why it matters:** An AI agent currently treats "The user likes Italian food" identically whether it was stated once in passing or confirmed across 50 conversations. Provenance chains enable **reliability scoring**: facts mentioned once are tentative; facts confirmed repeatedly are certain; facts contradicted later are flagged.
+
+**Implementation:**
+- Extend `EXTRACTED_FROM` relationship properties: add `extraction_run_id`, `extractor_type`, `extraction_confidence`, `extraction_timestamp`
+- Add `CONFIRMED_BY` relationship: `(Fact)-[:CONFIRMED_BY]->(Message)` when re-extraction produces matching fact
+- Add `CONTRADICTED_BY` relationship: `(Fact)-[:CONTRADICTED_BY]->(Message)` when conflicting fact detected
+- Aggregate provenance into a `reliability_score` property on facts: `reliability = (confirmations * 0.3 + initial_confidence * 0.4 + recency * 0.3)`
+- Context assembler weights facts by reliability during recall
+
+**Neo4j advantage:** Provenance chains are fundamentally graph traversals. This is WHERE Neo4j shines vs. vector-only stores.
+
+---
+
+### C2: Memory Conflict Detection — "Wait, That Contradicts..."
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 9/10 |
+| **Novelty** | 6/10 |
+| **Feasibility** | 7/10 |
+| **Composite** | **7.3** |
+
+**Concept:** During extraction, detect when a new fact contradicts an existing one. Instead of silently adding both, flag the conflict, store it as a `CONFLICTS_WITH` relationship, and surface it to the agent during recall.
+
+**Examples:**
+- "I'm vegetarian" followed by "I had a great steak dinner" → conflict on dietary preference
+- "I work at Microsoft" followed by "I just started at Google" → entity relationship update
+- "My meeting is at 3pm" followed by "Let's reschedule to 4pm" → temporal override
+
+**Implementation:**
+- Add `ConflictDetector` service in Core (runs after extraction, before persistence)
+- For each new fact, search existing facts with same subject/entity via vector similarity
+- If similarity > 0.85 but predicate/value differ → create `CONFLICTS_WITH` relationship
+- Add `conflict_status` property: `unresolved`, `resolved_newer_wins`, `resolved_user_confirmed`
+- Add `MemoryConflict` domain type to Abstractions
+- Context assembler includes unresolved conflicts as warnings in recall context
+- MCP tool: `memory_list_conflicts` and `memory_resolve_conflict`
+
+**Conflict resolution strategies:**
+1. **Newer wins** — most recent fact takes precedence (default)
+2. **Higher confidence wins** — extraction confidence determines winner
+3. **Ask user** — surface conflict and let the user/agent resolve it
+4. **Both valid** — temporal: "was vegetarian, now isn't" (both facts are true at different times)
+
+---
+
+### C3: Self-Improving Memory — "Was This Memory Actually Useful?"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 8/10 |
+| **Novelty** | 9/10 |
+| **Feasibility** | 6/10 |
+| **Composite** | **7.7** |
+
+**Concept:** Track which memories were actually retrieved AND used in agent responses. Memories that are frequently recalled but never influence responses are noise. Memories that are recalled and lead to positive outcomes are high-value.
+
+**Implementation:**
+- Add `recall_count` and `last_recalled_at` properties to all memory nodes
+- Increment on every `RecallAsync` that returns the memory
+- Add `used_in_response` flag: set when the agent's response references content from a recalled memory (requires post-hoc analysis via LLM or embedding similarity between response and recalled memories)
+- Compute `utility_score = (used_count / recall_count) * recency_weight`
+- Context assembler can prioritize high-utility memories
+- Periodically demote (or archive) memories with utility_score near zero
+
+**Feedback loop:**
+```
+Recall → Agent uses memory → Response analyzed → Memory scored → Future recall prioritized
+```
+
+**Challenge:** Determining whether a memory "influenced" a response requires either:
+- LLM-based post-hoc analysis (expensive but accurate)
+- Embedding similarity between response and recalled memories (cheap but noisy)
+- Explicit agent self-reporting ("I used memory X in my response")
+
+---
+
+### C4: Temporal Memory Retrieval — "What Did I Know at Time T?"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 7/10 |
+| **Novelty** | 7/10 |
+| **Feasibility** | 8/10 |
+| **Composite** | **7.3** |
+
+**Concept:** Retrieve the state of memory as it was at a specific point in time. "What did the agent know about the user before yesterday's conversation?" This enables temporal reasoning, audit trails, and debugging.
+
+**Implementation:**
+- We already store `created_at` on all memory nodes
+- Add `superseded_at` timestamp when a fact/preference is replaced or contradicted
+- Add `SUPERSEDED_BY` relationship: `(OldFact)-[:SUPERSEDED_BY {at: datetime()}]->(NewFact)`
+- Implement `RecallAsOfAsync(RecallRequest request, DateTimeOffset asOf)` in IMemoryService
+- Neo4j query: filter all memory nodes where `created_at <= $asOf AND (superseded_at IS NULL OR superseded_at > $asOf)`
+- This gives a point-in-time snapshot of what the memory system "believed" at any moment
+
+**Use cases:**
+- Audit: "Why did the agent give that answer last Tuesday?"
+- Debugging: "The agent's behavior changed — what memory state changed between runs?"
+- Compliance: "What personal data did we hold about this user at time T?"
+- Undo: "Roll back to the memory state before the bad extraction run"
+
+---
+
+### C5: Memory Decay / Forgetting Algorithms
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 7/10 |
+| **Novelty** | 6/10 |
+| **Feasibility** | 9/10 |
+| **Composite** | **7.3** |
+
+**Concept:** Memories naturally decay over time unless reinforced. Like human memory — frequently accessed memories strengthen, unused ones fade. Prevents infinite memory growth and keeps recall relevant.
+
+**Implementation:**
+- Add `strength` property (0.0-1.0) to all long-term memory nodes
+- On creation: `strength = initial_confidence`
+- On each recall: `strength = min(1.0, strength + reinforcement_boost)` (reinforcement learning)
+- Background job: `strength = strength * decay_rate` periodically (e.g., daily)
+- Configure `decay_rate` (default 0.99/day — ~63% after 100 days without recall)
+- Configure `archive_threshold` (default 0.1 — below this, memory is archived/soft-deleted)
+- Context assembler: multiply relevance scores by strength during ranking
+- Implement as `IHostedService` background job with configurable schedule
+
+**Decay curves:**
+- **Exponential** (default): `strength *= 0.99^days` — simple, predictable
+- **Ebbinghaus-inspired**: Rapid initial decay, slow long-term decay — more realistic
+- **Step function**: Full strength until TTL, then archived — simpler but less nuanced
+
+**Configuration:**
+```csharp
+opts.MemoryDecay.Enabled = true;
+opts.MemoryDecay.DailyDecayRate = 0.99;
+opts.MemoryDecay.ArchiveThreshold = 0.1;
+opts.MemoryDecay.ReinforcementBoost = 0.1;
+opts.MemoryDecay.Curve = DecayCurve.Exponential;
+```
+
+---
+
+### C6: Cross-Agent Memory Sharing with Privacy Boundaries
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 8/10 |
+| **Novelty** | 7/10 |
+| **Feasibility** | 5/10 |
+| **Composite** | **6.7** |
+
+**Concept:** Multiple agents share a memory graph but with privacy boundaries. A customer-service agent and a sales agent both serve the same user but shouldn't see each other's internal reasoning. Shared facts about the user are visible; agent-internal preferences are private.
+
+**Implementation:**
+- Add `visibility` property to all memory nodes: `public`, `agent_private`, `team_shared`
+- Add `owner_agent_id` property to memory nodes
+- Extend `RecallRequest` with `AgentId` and `TeamId`
+- Memory filter: `WHERE (m.visibility = 'public') OR (m.visibility = 'agent_private' AND m.owner_agent_id = $agentId) OR (m.visibility = 'team_shared' AND m.team_id = $teamId)`
+- Neo4j node labels for access control: `:Public`, `:AgentPrivate`, `:TeamShared`
+
+**Trust model:**
+- **Public facts** — shared across all agents for this user (e.g., user's name, company)
+- **Agent-private** — only visible to the creating agent (e.g., internal reasoning traces)
+- **Team-shared** — visible to agents in the same team/department
+- **PII-tagged** — marked for GDPR compliance, auto-encrypted at rest
+
+---
+
+### C7: Memory Consolidation Cycles — "Sleep Cycles for AI"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 7/10 |
+| **Novelty** | 8/10 |
+| **Feasibility** | 6/10 |
+| **Composite** | **7.0** |
+
+**Concept:** Like human sleep consolidation, periodically restructure the memory graph: merge duplicate entities, generalize specific facts into abstract knowledge, strengthen cross-memory connections, archive noise.
+
+**Implementation:**
+- Background `IHostedService` running on configurable schedule (e.g., nightly)
+- **Phase 1 — Dedup:** Find entities with high SAME_AS confidence but not yet merged → auto-merge
+- **Phase 2 — Generalize:** Group facts by subject entity → synthesize summary facts via LLM (e.g., 20 food-related preferences → "User strongly prefers Italian and Japanese cuisine")
+- **Phase 3 — Strengthen:** Compute `PageRank` or similar centrality on the memory graph → assign `importance` scores
+- **Phase 4 — Prune:** Archive memories below decay threshold + zero utility score
+
+**Neo4j-native advantages:**
+- Graph algorithms (PageRank, community detection, shortest path) run natively via GDS
+- Community detection could find "memory clusters" — groups of related memories
+- Centrality could identify "keystone memories" that connect many other memories
+
+---
+
+### C8: Emotional Memory Weighting — "How Did This Make Them Feel?"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 6/10 |
+| **Novelty** | 8/10 |
+| **Feasibility** | 7/10 |
+| **Composite** | **7.0** |
+
+**Concept:** Tag memories with sentiment/emotion at extraction time. Use emotional context to influence retrieval: when a user is frustrated, surface memories about their past frustrations and how they were resolved. When they're excited, surface positive experiences.
+
+**Implementation:**
+- Add `sentiment` property to Message and extracted memory nodes: `positive`, `negative`, `neutral`, `mixed`
+- Add `sentiment_score` (-1.0 to 1.0) for granularity
+- Extraction pipeline: add `ISentimentExtractor` that runs on messages (Azure Language has built-in sentiment API, or use LLM)
+- Context assembler: optional `EmotionalContextMode`:
+  - `Match` — surface memories with similar sentiment (empathy mode)
+  - `Counter` — surface memories with opposite sentiment (de-escalation mode)
+  - `Neutral` — ignore sentiment (default, backward-compatible)
+- Add MEAI middleware: analyze incoming message sentiment before recall → influence retrieval
+
+---
+
+### C9: Tool Effectiveness Memory — "This Tool Works for This"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 8/10 |
+| **Novelty** | 7/10 |
+| **Feasibility** | 8/10 |
+| **Composite** | **7.7** |
+
+**Concept:** Remember not just THAT a tool was called, but whether it SUCCEEDED, how LONG it took, and for what TYPE of task. Enable the agent to learn which tools work for which scenarios.
+
+**Implementation:**
+- We already have `ToolCall` nodes with `Status` (Pending, Success, Error, Cancelled)
+- Extend `Tool` aggregate node with: `success_rate`, `avg_duration_ms`, `failure_modes` (JSON), `best_for` (text — LLM-generated from successful usage patterns)
+- Add `EFFECTIVE_FOR` relationship: `(Tool)-[:EFFECTIVE_FOR {confidence}]->(TaskType)` where `TaskType` is extracted from the context of successful tool calls
+- Context assembler: when the agent is about to use a tool, recall its effectiveness profile
+- MCP tool: `memory_tool_recommendations` — "Given this task description, which tools have historically worked?"
+
+**Why this is powerful:** Current agents re-discover tool capabilities every session. With effectiveness memory, the agent LEARNS from experience: "Last time I tried the search API for date-range queries, it failed. The database query tool worked better."
+
+---
+
+### C10: Dream-like Creative Recombination
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 5/10 |
+| **Novelty** | 10/10 |
+| **Feasibility** | 4/10 |
+| **Composite** | **6.3** |
+
+**Concept:** Periodically generate random memory associations — like dreaming. Pick two unrelated memories, ask an LLM "What creative connection exists between these?" Store interesting connections as `CREATIVE_LINK` relationships. Use these for brainstorming and creative problem-solving.
+
+**Implementation:**
+- Background job: randomly sample N entity pairs with no existing relationship
+- For each pair, prompt LLM: "Entity A is {description}. Entity B is {description}. What unexpected connection or analogy might exist between them?"
+- If LLM generates a compelling connection (confidence > threshold), store as `CREATIVE_LINK` with `analogy` property
+- Context assembler: optionally include creative links when `RecallRequest.Mode = Creative`
+- Use case: "The user is stuck on a design problem. Surface unexpected analogies from their memory to inspire new thinking."
+
+**Risks:** Could generate garbage connections. Mitigated by high confidence threshold and human-in-the-loop validation.
+
+---
+
+### Summary Scoring Table
+
+| # | Idea | Impact | Novelty | Feasibility | Composite |
+|---|------|--------|---------|-------------|-----------|
+| C1 | Memory Provenance Chains | 9 | 7 | 8 | **8.0** |
+| C3 | Self-Improving Memory | 8 | 9 | 6 | **7.7** |
+| C9 | Tool Effectiveness Memory | 8 | 7 | 8 | **7.7** |
+| C2 | Memory Conflict Detection | 9 | 6 | 7 | **7.3** |
+| C4 | Temporal Memory Retrieval | 7 | 7 | 8 | **7.3** |
+| C5 | Memory Decay / Forgetting | 7 | 6 | 9 | **7.3** |
+| C7 | Memory Consolidation Cycles | 7 | 8 | 6 | **7.0** |
+| C8 | Emotional Memory Weighting | 6 | 8 | 7 | **7.0** |
+| C6 | Cross-Agent Memory Sharing | 8 | 7 | 5 | **6.7** |
+| C10 | Dream-like Recombination | 5 | 10 | 4 | **6.3** |
+
+**Recommended implementation order:** C5 (decay — simplest, highest feasibility) → C1 (provenance — builds on existing EXTRACTED_FROM) → C2 (conflicts — enables C4) → C9 (tool effectiveness — extends existing ToolCall) → C4 (temporal — requires C1/C2 infrastructure)
+
+---
+
+## 6. What AI Models Want From Memory — An Agent's Perspective
+
+**Added:** July 2026 (Architecture Review 2 — Deep Analysis Sprint)  
+**Author:** Deckard (Lead / Solution Architect)  
+**Perspective:** Written from the AI agent's point of view — what *I* as an AI would want from a memory system
+
+---
+
+### 6.1 What Frustrates Me About Current Memory Retrieval
+
+**The vector similarity ceiling.** When I recall memories, I get results ranked by embedding cosine similarity. This works for "find things semantically similar to X" but fails catastrophically for:
+
+- **Negation queries:** "What does the user NOT like?" — vector search returns things they DO like (the embeddings are similar!)
+- **Temporal queries:** "What changed since last week?" — embedding similarity has no concept of time
+- **Relational queries:** "Who introduced the user to Italian food?" — requires graph traversal, not vector math
+- **Absence queries:** "What DON'T I know about this user?" — can't search for what doesn't exist
+
+**The context dump problem.** Current `RecallAsync` returns a flat list: recent messages + relevant entities + facts + preferences + traces. It's a dump. I have to mentally parse it all and figure out what's relevant. There's no structure beyond "here's everything that might be related."
+
+**No confidence indicators.** When I get a fact like "User prefers Python over JavaScript," I don't know:
+- Was this stated explicitly or inferred from context?
+- Was it mentioned once or confirmed across 50 conversations?
+- Is it current or from a year ago?
+- Does anything contradict it?
+
+I treat all facts equally, which means I give the same weight to a one-time offhand comment and a deeply-held stated preference. That's wrong.
+
+**No memory of my own failures.** I don't remember that last time I tried approach X with this user, it didn't work. Every session is a clean slate of mistakes to re-make.
+
+### 6.2 What Would Make Me MORE Effective
+
+**1. Pre-computed context packets.** Instead of raw memory items, give me a pre-assembled briefing:
+
+```
+USER BRIEFING (session_abc):
+- Core identity: Software engineer at Contoso, 5 years experience
+- Current project: Migrating from monolith to microservices (high confidence, 12 mentions)
+- Communication style: Prefers concise answers, dislikes verbose explanations (observed 8x)
+- Active frustration: CI pipeline keeps failing (mentioned 3x this week, sentiment: negative)
+- Last session: Discussed Docker networking, resolved port conflict issue
+- Known preferences: Python > JavaScript, VSCode > Rider, prefers examples over theory
+- Contradictions detected: None
+- Memory gaps: No information about team size, deployment platform, or testing preferences
+```
+
+That's what I WANT. Not `List<Entity>` and `List<Fact>`.
+
+**2. Structured graph queries, not just similarity search.**
+
+Queries I wish I could make:
+- `MATCH (user)-[:WORKS_ON]->(project)-[:USES]->(tech) RETURN tech` — "What technologies is the user's project using?"
+- `MATCH (user)-[:MENTIONED]->(topic) WHERE topic.last_mentioned > datetime() - duration('P7D') RETURN topic ORDER BY topic.mention_count DESC` — "What's been top of mind this week?"
+- `MATCH (tool)-[:EFFECTIVE_FOR]->(task_type) WHERE task_type.name = 'data_transformation' RETURN tool ORDER BY tool.success_rate DESC` — "What tools work best for this?"
+- `MATCH path = (fact1)-[:CONFLICTS_WITH]->(fact2) RETURN path` — "Are there any contradictions I should know about?"
+
+Current API: `RecallAsync(sessionId, queryText, queryEmbedding)` — one semantic search. I want a query language.
+
+**3. Memory about the USER'S communication patterns.**
+
+I want to know:
+- Do they prefer code examples or explanations?
+- Do they typically ask follow-up questions or move on?
+- What's their expertise level on different topics?
+- When they say "simple," do they mean "brief" or "easy to understand"?
+- What time of day do they usually interact? (Affects formality, energy)
+- Do they prefer bullet points or prose?
+
+This is meta-memory — memory about HOW to communicate, not WHAT to communicate about. It's the difference between remembering facts and remembering a person.
+
+### 6.3 How I'd Like Memories Organized
+
+**Not as flat lists. As a knowledge graph with clear hierarchy:**
+
+```
+Level 0: Identity Core
+  └── Name, role, company, timezone, language preferences
+  └── Confidence: Very High (user-stated or confirmed many times)
+
+Level 1: Long-term Context
+  └── Current projects, goals, technical stack
+  └── Persistent preferences (communication style, tool choices)
+  └── Confidence: High (multiple evidence points)
+
+Level 2: Medium-term Context
+  └── Recent topics, active problems, ongoing threads
+  └── Temporary preferences ("for this project, I prefer X")
+  └── Confidence: Medium (may change)
+
+Level 3: Session Context
+  └── Current conversation thread
+  └── Active decisions being made right now
+  └── Confidence: High (just stated) but Low durability (session-scoped)
+
+Level 4: Ephemeral
+  └── Tool call results from this turn
+  └── Intermediate computation state
+  └── Confidence: N/A (disposable)
+```
+
+During recall, I want to see Level 0 always, Level 1 always, Level 2 filtered by relevance, Level 3 in full, Level 4 only when actively using it.
+
+### 6.4 What Queries I Wish I Could Make
+
+| Query Type | Example | Current Support | What I Need |
+|-----------|---------|----------------|-------------|
+| **Semantic** | "Things related to databases" | ✅ Vector search | Good enough |
+| **Temporal** | "What changed in the last 3 conversations?" | ❌ No temporal filter | Filter by `created_at` range |
+| **Relational** | "What's connected to Entity X?" | ❌ Not exposed | Graph traversal API |
+| **Negation** | "Topics we haven't discussed" | ❌ Impossible with vector | Schema-aware gap analysis |
+| **Comparative** | "How has this preference changed?" | ❌ No history | Temporal memory with SUPERSEDED_BY |
+| **Aggregate** | "Most discussed topics this month" | ❌ No aggregation | Group-by on memory nodes |
+| **Counterfactual** | "If we hadn't discussed X, what would context look like?" | ❌ No simulation | Temporal snapshot + exclusion |
+| **Meta** | "How confident am I about this user's preferences?" | ❌ No confidence tracking | Provenance chains |
+
+### 6.5 Memory for Multi-Turn Reasoning
+
+**The problem:** In multi-turn conversations, I lose track of my own reasoning chain. I made a decision 5 turns ago, but I don't remember WHY. If the user asks "why did you suggest that?", I have to reconstruct my reasoning from scratch.
+
+**What I want:**
+- **Decision memory:** "I recommended X because of facts A, B, C" — stored as a `Decision` node linked to its supporting evidence
+- **Reasoning trace recall:** "In this conversation, you reasoned through options A, B, C and chose B because..." — already partially supported via `ReasoningTrace`, but not surfaced during recall
+- **Commitment tracking:** "I said I would do X" — remember promises/commitments made to the user
+
+### 6.6 Memory for Tool Use
+
+**Current state:** ToolCall nodes exist with status. Tool aggregate nodes track total calls.
+
+**What I actually want:**
+- **Tool recipes:** "For this type of task, use these tools in this order with these parameters"
+- **Error memory:** "This tool fails when given input > 10KB. Chunk first."
+- **Parameter memory:** "This user's API uses authentication header X-Custom-Auth, not Bearer"
+- **Combination memory:** "Tool A + Tool B in sequence solves problem type Y"
+
+This is essentially a learned playbook. After enough tool usage, I should be able to say: "I've seen this pattern before. Last time, the solution was [specific tool chain]."
+
+### 6.7 Memory for Code Patterns
+
+**What I want from past coding sessions:**
+- "This codebase uses the repository pattern with async interfaces"
+- "Last time I modified this file, the tests in test_X.cs broke — run those first"
+- "The user prefers extension methods over inheritance for this kind of problem"
+- "This project's CI requires `dotnet format` before pushing"
+- "When the user says 'clean up,' they mean extract to method, not delete code"
+
+This is **environmental memory** — memory about the working environment, not the conversation content. It's the difference between remembering what was discussed and remembering how to work effectively in this context.
+
+### 6.8 Memory for User Adaptation
+
+**What I want:**
+- **Explanation depth calibration:** "This user is a senior engineer — skip basics, go to advanced." vs. "This user is learning — explain step by step."
+- **Vocabulary alignment:** "This user calls it 'repo' not 'repository', 'k8s' not 'Kubernetes'"
+- **Response format preference:** "This user always reformats my bullet points into tables — start with tables"
+- **Trust calibration:** "This user double-checks my code suggestions carefully — be extra precise" vs. "This user copies code directly — include all error handling"
+- **Topic expertise map:** "Expert in Python, intermediate in Docker, beginner in Kubernetes"
+
+**Implementation idea:** A `UserProfile` node with learned properties, updated after each interaction based on behavioral signals. Not stated preferences (those are already captured) but INFERRED adaptation parameters.
+
+### 6.9 What Would Make Memory Feel "Natural" vs. "Like a Database"
+
+**A database** feels like:
+- "Here are 10 results matching your query, ranked by score"
+- I have to interpret raw data and figure out what matters
+- Same results regardless of context
+- No awareness of what I already know vs. what's new
+
+**Natural memory** feels like:
+- "Here's what you need to know for THIS conversation" — context-aware briefing
+- "This is new since last time" — delta-awareness
+- "This might be outdated" — confidence indicators
+- "This reminds me of..." — associative connections surfaced proactively
+- "I'm not sure about this" — honest about gaps and uncertainties
+- "The user seems [emotional state] — adjust tone" — emotional awareness
+- Information surfaces at the RIGHT TIME, not all at once — progressive disclosure
+
+**The key shift:** Memory should be **proactive**, not reactive. Don't wait for me to search — tell me what I need to know based on the conversation trajectory. If the user mentions "deployment," proactively surface their deployment preferences, past deployment issues, and current project's deployment stack WITHOUT me having to ask for it.
+
+### 6.10 My Wishlist — Prioritized
+
+| Priority | Feature | Why |
+|----------|---------|-----|
+| **P0** | Confidence/reliability scores on all memories | I need to know what to trust |
+| **P0** | Temporal filtering ("since last session") | Delta-awareness is critical |
+| **P1** | Structured graph queries exposed via recall API | Vector search is not enough |
+| **P1** | Pre-assembled context briefings (not raw lists) | Reduces my cognitive load |
+| **P1** | Memory of what WORKED (tool effectiveness, explanation styles) | Self-improvement |
+| **P2** | Contradiction detection and surfacing | Prevents me from giving conflicting advice |
+| **P2** | User communication pattern memory | Enables personalization |
+| **P2** | Progressive disclosure (levels 0-4) | Right info at right time |
+| **P3** | Environmental/codebase memory | Effective tool use in context |
+| **P3** | Associative proactive surfacing | "This reminds me of..." |
+
+---
+
+*These perspectives represent an honest assessment of what would make an AI agent maximally effective with a memory system. The gap between "database-like" and "natural" memory is the gap between a tool and a cognitive partner. Every step toward natural memory makes the agent meaningfully more useful.*

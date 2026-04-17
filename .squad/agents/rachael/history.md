@@ -35,3 +35,13 @@
 - 12 new xUnit tests cover: positive/negative/neutral sentiment, confidence mapping, empty input, Azure service errors, threshold customisation, and multiple-preference extraction from rich text.
 - Two pre-existing test failures in `Neo4jEntityRepositoryExtensionsTests` are unrelated to Azure extraction and were present before this work.
 
+### MEAI Ecosystem Analysis (2025-07-18)
+
+- `Microsoft.Extensions.AI.Abstractions` (10.4.1) is already referenced in 5 of our 10 packages: Core, AgentFramework, GraphRagAdapter, Extraction.Llm — we are deeply invested in MEAI.
+- The codebase has a "split personality" problem: our custom `IEmbeddingProvider` in Abstractions vs MEAI's `IEmbeddingGenerator<string, Embedding<float>>` in GraphRagAdapter. Consumers must register both for blended scenarios.
+- LLM extraction (all 4 extractors) and `ContextCompressor` already use MEAI's `IChatClient` — no change needed there.
+- `neo4j-maf-provider` is read-only retrieval (vector/fulltext/hybrid). Our package is a strict superset — full memory lifecycle. The GraphRagAdapter wraps their retrievers via project reference.
+- `IEmbeddingProvider` is used in 11 Core/AgentFramework files; migration to `IEmbeddingGenerator` is mechanical but touches many files.
+- Adding `Microsoft.Extensions.AI.Abstractions` to Abstractions.csproj adds ~100KB, zero new transitive deps (DI.Abstractions and System.Text.Json already in scope).
+- Full analysis written to `docs/meai-ecosystem-analysis.md`.
+

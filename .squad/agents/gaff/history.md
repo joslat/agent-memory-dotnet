@@ -290,3 +290,21 @@
 
 **Build status:** dotnet build src/Neo4j.AgentMemory.Enrichment → 0 errors, 0 warnings.
 **Test status:** 15/15 Diffbot tests pass; 7/7 Wikimedia tests pass (no regression).
+
+### Deep Verification Sprint — Code-vs-Documentation Audit (2025-07-24)
+
+**Objective:** Full code-vs-documentation verification, schema parity deep-dive, MAF-provider comparison, and architecture map.
+
+**Key findings (written to `docs/code-review-findings.md`):**
+
+1. **SchemaBootstrapper.cs verified accurate:** 10 constraints, 3 fulltext, 6 vector, 15 property/point indexes (12 regular + 2 schema + 1 point). Total: 34 schema statements.
+2. **Schema parity ~99%** confirmed: All 9 Python constraints present, all 5 Python vector indexes present, all 10 Python property indexes present, all 15 Python relationship types present. .NET extends with extras (not subtracts).
+3. **ToolCallStatus parity gap discovered:** Python has 6 values (pending, success, failure, error, timeout, cancelled), .NET enum has only 4 (missing Failure, Timeout). The Tool aggregate stats Cypher references 'timeout' but this branch can never trigger.
+4. **Schema index difference:** Python indexes Schema.id (`schema_id_idx`), .NET indexes Schema.version (`schema_version_idx`).
+5. **MCP tool count grew from 21 → 28** without docs being updated (README, feature-record, python-dotnet-comparison all stale).
+6. **Test file count grew from 55+ → 111+** test class files without docs being updated.
+7. **docs/schema.md** has a phantom `relationship_id` constraint in section 2.5 that contradicts section 2.3 (which correctly says it was removed).
+8. **neo4j-maf-provider** is read-only search; our implementation wraps it via GraphRagAdapter ProjectReference and adds full memory lifecycle.
+9. **1058 unit tests pass, 0 failures** — verified by running `dotnet test`.
+
+**Build status:** `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 1058 passed, 0 failed.
