@@ -14,15 +14,18 @@ public sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEntity
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;
+    private readonly AzureExtractionContext _context;
 
     internal AzureLanguageEntityExtractor(
         ITextAnalyticsClientWrapper client,
         IOptions<AzureLanguageOptions> options,
-        ILogger<AzureLanguageEntityExtractor> logger)
+        ILogger<AzureLanguageEntityExtractor> logger,
+        AzureExtractionContext context)
         : base(logger)
     {
         _client = client;
         _options = options.Value;
+        _context = context;
     }
 
     protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
@@ -37,8 +40,8 @@ public sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEntity
                 if (string.IsNullOrWhiteSpace(message.Content))
                     continue;
 
-                var entities = await _client.RecognizeEntitiesAsync(
-                    message.Content, _options.DefaultLanguage, ct);
+                var entities = await _context.GetOrRecognizeEntitiesAsync(
+                    message.Content, _options.DefaultLanguage, _client, ct);
                 allEntities.AddRange(entities);
             }
         }

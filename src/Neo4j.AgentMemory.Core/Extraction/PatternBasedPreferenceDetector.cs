@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
+using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Services;
 
 namespace Neo4j.AgentMemory.Core.Extraction;
@@ -11,11 +13,18 @@ namespace Neo4j.AgentMemory.Core.Extraction;
 /// </summary>
 public sealed class PatternBasedPreferenceDetector : IPreferenceExtractor
 {
-    // Confidence levels
-    private const double StrongPatternConfidence = 0.95;
-    private const double RegexMatchConfidence = 0.85;
+    private readonly ExtractionOptions _options;
 
     private static readonly IReadOnlyList<PatternRule> Rules = BuildRules();
+
+    /// <summary>Initializes with default <see cref="ExtractionOptions"/>.</summary>
+    public PatternBasedPreferenceDetector() : this(Options.Create(new ExtractionOptions())) { }
+
+    /// <summary>Initializes with configurable <see cref="ExtractionOptions"/>.</summary>
+    public PatternBasedPreferenceDetector(IOptions<ExtractionOptions> options)
+    {
+        _options = options.Value;
+    }
 
     /// <inheritdoc/>
     public Task<IReadOnlyList<ExtractedPreference>> ExtractAsync(
@@ -42,7 +51,7 @@ public sealed class PatternBasedPreferenceDetector : IPreferenceExtractor
                         Category = rule.Category,
                         PreferenceText = match.Value.Trim(),
                         Context = $"Detected via pattern in {message.Role} message",
-                        Confidence = rule.IsStrong ? StrongPatternConfidence : RegexMatchConfidence
+                        Confidence = rule.IsStrong ? _options.StrongPatternConfidence : _options.RegexMatchConfidence
                     });
                 }
             }

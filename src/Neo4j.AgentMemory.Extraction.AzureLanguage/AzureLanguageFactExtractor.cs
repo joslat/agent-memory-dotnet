@@ -61,7 +61,7 @@ public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, I
                     Subject = phrase,
                     Predicate = "mentioned in conversation",
                     Object = context,
-                    Confidence = 0.7
+                    Confidence = _options.KeyPhraseFactConfidence
                 });
             }
         }
@@ -79,7 +79,7 @@ public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, I
                 Subject = entity.Name,
                 Predicate = "is described as",
                 Object = entity.Url ?? entity.Name,
-                Confidence = 0.8
+                Confidence = _options.LinkedEntityFactConfidence
             });
         }
     }

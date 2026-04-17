@@ -1,6 +1,7 @@
 using Azure;
 using Azure.AI.TextAnalytics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Services;
@@ -31,10 +32,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITextAnalyticsClientWrapper>(sp =>
             new TextAnalyticsClientWrapper(sp.GetRequiredService<TextAnalyticsClient>()));
 
+        services.TryAddScoped<AzureExtractionContext>();
+
         services.AddScoped<IEntityExtractor>(sp => new AzureLanguageEntityExtractor(
             sp.GetRequiredService<ITextAnalyticsClientWrapper>(),
             sp.GetRequiredService<IOptions<AzureLanguageOptions>>(),
-            sp.GetRequiredService<ILogger<AzureLanguageEntityExtractor>>()));
+            sp.GetRequiredService<ILogger<AzureLanguageEntityExtractor>>(),
+            sp.GetRequiredService<AzureExtractionContext>()));
 
         services.AddScoped<IFactExtractor>(sp => new AzureLanguageFactExtractor(
             sp.GetRequiredService<ITextAnalyticsClientWrapper>(),
@@ -44,7 +48,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRelationshipExtractor>(sp => new AzureLanguageRelationshipExtractor(
             sp.GetRequiredService<ITextAnalyticsClientWrapper>(),
             sp.GetRequiredService<IOptions<AzureLanguageOptions>>(),
-            sp.GetRequiredService<ILogger<AzureLanguageRelationshipExtractor>>()));
+            sp.GetRequiredService<ILogger<AzureLanguageRelationshipExtractor>>(),
+            sp.GetRequiredService<AzureExtractionContext>()));
 
         services.AddScoped<IPreferenceExtractor>(sp => new AzureLanguagePreferenceExtractor(
             sp.GetRequiredService<ITextAnalyticsClientWrapper>(),

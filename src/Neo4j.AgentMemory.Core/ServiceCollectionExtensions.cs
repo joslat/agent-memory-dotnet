@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Services;
+using Neo4j.AgentMemory.Core.Extraction;
 using Neo4j.AgentMemory.Core.Resolution;
 using Neo4j.AgentMemory.Core.Services;
 using Neo4j.AgentMemory.Core.Stubs;
@@ -54,7 +55,12 @@ public static class ServiceCollectionExtensions
         // Keep StubEntityResolver available for explicit fallback use.
         services.TryAddScoped<StubEntityResolver>();
 
-        // Real extraction pipeline — wires extractors to repositories.
+        // Extraction pipeline stages.
+        // IExtractionStage receives IEnumerable<IExtractor> — all registered extractor implementations.
+        services.TryAddScoped<IExtractionStage, ExtractionStage>();
+        services.TryAddScoped<IPersistenceStage, PersistenceStage>();
+
+        // Unified extraction pipeline — composes the two stages.
         services.TryAddScoped<IMemoryExtractionPipeline, MemoryExtractionPipeline>();
 
         // Embedding orchestrator — centralizes embedding generation logic.

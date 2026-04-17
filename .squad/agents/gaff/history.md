@@ -326,3 +326,26 @@ Comprehensive code-vs-docs verification and discrepancy audit:
 9. **1058 unit tests pass, 0 failures** — verified by running `dotnet test`.
 
 **Build status:** `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 1058 passed, 0 failed.
+
+### Wave 2 — Findings 6 + 7: Thresholds Parameterization + Azure API Cache (2026-07-18)
+
+**Objective:** Wave 2 refactoring — two concurrent findings.
+
+**Finding 6: Hardcoded confidence thresholds made configurable.**
+
+- `ExtractionOptions` — added `StrongPatternConfidence` (default 0.95) and `RegexMatchConfidence` (default 0.85)
+- `AzureLanguageOptions` — added `KeyPhraseFactConfidence` (default 0.7) and `LinkedEntityFactConfidence` (default 0.8)
+- `PatternBasedPreferenceDetector` — replaced `private const` values with `_options.StrongPatternConfidence` / `_options.RegexMatchConfidence`; added `IOptions<ExtractionOptions>` constructor; kept parameterless ctor (uses `Options.Create(new ExtractionOptions())`) for backward compat with tests that use `new()`
+- `AzureLanguageFactExtractor` — replaced hardcoded `0.7` / `0.8` literals with `_options.KeyPhraseFactConfidence` / `_options.LinkedEntityFactConfidence`
+
+**Finding 7: Azure API deduplification via shared extraction context.**
+
+- Created `Internal/AzureExtractionContext` (sealed, internal) — `ConcurrentDictionary<string, IReadOnlyList<AzureRecognizedEntity>>` cache; `GetOrRecognizeEntitiesAsync` checks cache before calling client
+- Registered as `TryAddScoped<AzureExtractionContext>()` in `ServiceCollectionExtensions`
+- `AzureLanguageEntityExtractor` — added `AzureExtractionContext` constructor param, replaced direct client call with `_context.GetOrRecognizeEntitiesAsync`
+- `AzureLanguageRelationshipExtractor` — same change; also removed now-unnecessary `.ToList()` call (context returns `IReadOnlyList<T>` already castable to List for indexing)
+- Updated tests: `AzureLanguageEntityExtractorTests` and `AzureLanguageRelationshipExtractorTests` — `CreateSut` now passes `new AzureExtractionContext()` as 4th param
+
+**Behavior preserved:** All default values identical; 1059 tests pass (1 more than baseline from the new parameterless-ctor code path being exercised).
+
+**Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test` (unit only) → 1059 passed, 0 failed.

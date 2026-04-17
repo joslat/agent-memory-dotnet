@@ -19,6 +19,10 @@ public sealed class ExtractionOptions
     public double AutoMergeThreshold { get; set; } = 0.95;
     /// <summary>Confidence threshold that adds a SAME_AS relationship (between this and <see cref="AutoMergeThreshold"/>).</summary>
     public double SameAsThreshold { get; set; } = 0.85;
+    /// <summary>Confidence assigned to strong regex patterns in PatternBasedPreferenceDetector.</summary>
+    public double StrongPatternConfidence { get; set; } = 0.95;
+    /// <summary>Confidence assigned to standard regex matches in PatternBasedPreferenceDetector.</summary>
+    public double RegexMatchConfidence { get; set; } = 0.85;
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

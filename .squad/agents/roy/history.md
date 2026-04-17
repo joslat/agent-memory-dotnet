@@ -19,6 +19,46 @@
 
 ## Learnings
 
+### Wave 2 Findings 3+4, 2026-07-18 (Pipeline SRP Split + Multi-extractor Merge)
+
+**Task:** Split `MemoryExtractionPipeline` (14 deps, 4 responsibilities) into `ExtractionStage` + `PersistenceStage`. Merge `MultiExtractorPipeline` into `ExtractionStage`.
+
+**New files created:**
+- `src/Neo4j.AgentMemory.Core/Extraction/ExtractionStageResult.cs` — internal `record` DTO between stages
+- `src/Neo4j.AgentMemory.Core/Extraction/IExtractionStage.cs` + `ExtractionStage.cs` — runs multi-extractor, merges, filters, validates, resolves
+- `src/Neo4j.AgentMemory.Core/Extraction/IPersistenceStage.cs` + `PersistenceStage.cs` — embeds, upserts, wires EXTRACTED_FROM provenance
+
+**Files deleted:**
+- `src/Neo4j.AgentMemory.Core/Services/MultiExtractorPipeline.cs` (logic absorbed into ExtractionStage)
+- `tests/.../Extraction/MultiExtractorPipelineTests.cs` (tests migrated to ExtractionStageTests)
+
+**Key decisions:**
+1. `IExtractionStage` and `IPersistenceStage` are `internal` (not public) — they're Core implementation details. `MemoryExtractionPipeline` constructor is also `internal` (DI uses reflection). Public contract `IMemoryExtractionPipeline` unchanged.
+2. `ExtractionStageResult` must be a `record` (not `class`) for test `with` expressions to work.
+3. NSubstitute mocking of internal interfaces requires `[assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]` in Core's AssemblyInfo.cs — added alongside existing Tests.Unit entry.
+4. `ExtractionStage` accepts `IEnumerable<T>` extractor collections from DI; builds internal `IReadOnlyList<T>`. Single extractor bypasses merge. Multiple extractors apply configured `MergeStrategyType`.
+5. DI registration: `TryAddScoped<IExtractionStage, ExtractionStage>` + `TryAddScoped<IPersistenceStage, PersistenceStage>` added to `ServiceCollectionExtensions.cs`. Pipeline still registered as `TryAddScoped<IMemoryExtractionPipeline, MemoryExtractionPipeline>`.
+6. All stage interfaces kept `internal` — avoids polluting the public Core API surface.
+
+**Test strategy:**
+- `MemoryExtractionPipelineTests.cs` rewritten to test orchestration only (5 focused tests with mocked stages).
+- New `ExtractionStageTests.cs` covers single + multi-extractor, all merge strategies, confidence filter, validation, relationship endpoint check.
+- New `PersistenceStageTests.cs` covers embedding, upsert, provenance wiring, fault tolerance.
+
+**Result:** 1,066 tests, 0 failures. `MemoryExtractionPipeline` now has 3 constructor deps instead of 14.
+
+
+- **IEmbeddingOrchestrator** created in `src/Neo4j.AgentMemory.Abstractions/Services/IEmbeddingOrchestrator.cs`; implementation `EmbeddingOrchestrator` in `src/Neo4j.AgentMemory.Core/Services/EmbeddingOrchestrator.cs`
+- All 7 Core service/resolver files now use `IEmbeddingOrchestrator` instead of `IEmbeddingGenerator<string, Embedding<float>>` directly
+- **ExtractorBase<T>** created in `src/Neo4j.AgentMemory.Core/Extraction/ExtractorBase.cs` — centralizes empty-check and try/catch for all 8 extractors
+- **ConversationTextBuilder** created in `src/Neo4j.AgentMemory.Core/Extraction/ConversationTextBuilder.cs` — centralizes `"{role}: {content}"` pattern
+- Added `Core` project reference to `Extraction.Llm` and `Extraction.AzureLanguage` csproj files
+- All 4 LLM extractors and 4 Azure extractors now extend `ExtractorBase<T>`, implement `ExtractCoreAsync`
+- Test files updated: 8 test files now mock `IEmbeddingOrchestrator` instead of `IEmbeddingGenerator`
+- `LongTermMemoryService.AddEntityAsync` still composes `text` (name + optional description) and calls `EmbedTextAsync` — preserves exact text composition
+- `CompositeEntityResolver` re-embed with aliases still composes `combinedText` and calls `EmbedTextAsync` — preserves exact composition
+- DI: `services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>()` added to `Core/ServiceCollectionExtensions.cs`
+
 ### 2025-01-XX: Extraction Package Merge Analysis
 
 **Task:** Evaluate merging Extraction.Llm and Extraction.AzureLanguage packages using IExtractionEngine strategy pattern (per architecture-review-2.md Section 1.3 Change 1).

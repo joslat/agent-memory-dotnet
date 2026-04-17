@@ -29,4 +29,14 @@ public sealed class AzureLanguageOptions
     /// Minimum sentiment confidence score required to emit a preference. Defaults to 0.7.
     /// </summary>
     public double PreferenceSentimentThreshold { get; set; } = 0.7;
+
+    /// <summary>
+    /// Confidence score assigned to facts extracted from key phrases. Defaults to 0.7.
+    /// </summary>
+    public double KeyPhraseFactConfidence { get; set; } = 0.7;
+
+    /// <summary>
+    /// Confidence score assigned to facts extracted from linked entities. Defaults to 0.8.
+    /// </summary>
+    public double LinkedEntityFactConfidence { get; set; } = 0.8;
 }

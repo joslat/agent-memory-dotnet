@@ -30,7 +30,8 @@ public sealed class AzureLanguageRelationshipExtractorTests
         return new AzureLanguageRelationshipExtractor(
             client,
             Options.Create(options),
-            NullLogger<AzureLanguageRelationshipExtractor>.Instance);
+            NullLogger<AzureLanguageRelationshipExtractor>.Instance,
+            new AzureExtractionContext());
     }
 
     [Fact]

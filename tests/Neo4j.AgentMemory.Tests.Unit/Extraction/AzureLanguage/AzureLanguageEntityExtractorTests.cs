@@ -30,7 +30,8 @@ public sealed class AzureLanguageEntityExtractorTests
         return new AzureLanguageEntityExtractor(
             client,
             Options.Create(options),
-            NullLogger<AzureLanguageEntityExtractor>.Instance);
+            NullLogger<AzureLanguageEntityExtractor>.Instance,
+            new AzureExtractionContext());
     }
 
     [Fact]
