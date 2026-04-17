@@ -20,7 +20,7 @@ public sealed class AdvancedMemoryTools
         [Description("Name of the tool that was called")] string toolName,
         [Description("JSON-serialized arguments passed to the tool")] string input,
         [Description("JSON-serialized result from the tool (optional)")] string? output = null,
-        [Description("Status of the call: Pending, Success, Error, or Cancelled (default: Success)")] string status = "Success",
+        [Description("Status of the call: Pending, Success, Error, Failure, Timeout, or Cancelled (default: Success)")] string status = "Success",
         CancellationToken cancellationToken = default)
     {
         if (!Enum.TryParse<ToolCallStatus>(status, ignoreCase: true, out var toolStatus))

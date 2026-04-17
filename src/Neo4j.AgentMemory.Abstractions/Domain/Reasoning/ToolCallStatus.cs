@@ -23,5 +23,15 @@ public enum ToolCallStatus
     /// <summary>
     /// Tool call was cancelled.
     /// </summary>
-    Cancelled
+    Cancelled,
+
+    /// <summary>
+    /// Tool call failed during execution.
+    /// </summary>
+    Failure,
+
+    /// <summary>
+    /// Tool call timed out.
+    /// </summary>
+    Timeout
 }

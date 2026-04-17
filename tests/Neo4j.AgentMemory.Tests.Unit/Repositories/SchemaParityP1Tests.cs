@@ -322,7 +322,7 @@ public sealed class SchemaParityP1Tests
                 "Repositories", "Neo4jToolCallRepository.cs"));
 
         sourceCode.Should().Contain("CASE WHEN $status = 'success' THEN 1 ELSE 0 END");
-        sourceCode.Should().Contain("CASE WHEN $status IN ['error', 'timeout'] THEN 1 ELSE 0 END");
+        sourceCode.Should().Contain("CASE WHEN $status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END");
         sourceCode.Should().Contain("COALESCE($durationMs, 0)");
     }
 

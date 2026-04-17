@@ -58,7 +58,7 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
                 MERGE (tc)-[:INSTANCE_OF]->(tool)
                 SET tool.total_calls = COALESCE(tool.total_calls, 0) + 1,
                     tool.successful_calls = COALESCE(tool.successful_calls, 0) + CASE WHEN $status = 'success' THEN 1 ELSE 0 END,
-                    tool.failed_calls = COALESCE(tool.failed_calls, 0) + CASE WHEN $status IN ['error', 'timeout'] THEN 1 ELSE 0 END,
+                    tool.failed_calls = COALESCE(tool.failed_calls, 0) + CASE WHEN $status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END,
                     tool.total_duration_ms = COALESCE(tool.total_duration_ms, 0) + COALESCE($durationMs, 0),
                     tool.last_used_at = datetime()",
                 new { id = toolCall.ToolCallId, toolName = toolCall.ToolName,
