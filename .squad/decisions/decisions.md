@@ -1600,3 +1600,200 @@ services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, MyGenerator
 - Abstractions.csproj now depends on Microsoft.Extensions.AI.Abstractions 10.4.1 (previously zero external deps)
 - The `GenerateEmbeddingAsync` extension method is not available in v10.4.1 — all call sites use batch `GenerateAsync([text])` API
 - `EmbeddingDimensions` property removed — no direct equivalent in IEmbeddingGenerator; use metadata or first-result inspection
+# Decision: Merge GraphRagAdapter into Neo4j Package
+
+**ID:** D-MERGE-GRAPHRAG-NEO4J  
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** 2026-04-17  
+**Status:** Implemented ✅  
+
+## Context
+
+The solution had two separate packages that both directly depend on Neo4j.Driver 6.0.0:
+- `Neo4j.AgentMemory.Neo4j` — repositories, infrastructure, schema, migrations
+- `Neo4j.AgentMemory.GraphRagAdapter` — vector/fulltext/hybrid retrieval, GraphRAG context source
+
+Neither package was referenced by any other `src/` project — they were both leaf packages in the dependency graph. Users who want Neo4j persistence almost certainly want search capabilities too.
+
+The neo4j-maf-provider dependency was already removed (commit 578549b), meaning GraphRagAdapter owned its own retrieval types with no external coupling.
+
+## Decision
+
+Merge `Neo4j.AgentMemory.GraphRagAdapter` INTO `Neo4j.AgentMemory.Neo4j` to create a single unified graph database infrastructure layer.
+
+## Changes Made
+
+1. **Moved files with namespace updates:**
+   - `Retrieval/IRetriever.cs`, `Retrieval/RetrieverResult.cs` → `Neo4j.AgentMemory.Neo4j.Retrieval`
+   - `Internal/AdapterVectorRetriever.cs` → `Retrieval/Internal/VectorRetriever.cs` (renamed, dropped "Adapter" prefix)
+   - `Internal/AdapterFulltextRetriever.cs` → `Retrieval/Internal/FulltextRetriever.cs`
+   - `Internal/AdapterHybridRetriever.cs` → `Retrieval/Internal/HybridRetriever.cs`
+   - `Internal/StopWordFilter.cs` → `Retrieval/Internal/StopWordFilter.cs`
+   - `Neo4jGraphRagContextSource.cs` → `Services/Neo4jGraphRagContextSource.cs`
+   - `GraphRagAdapterOptions.cs` → `Infrastructure/GraphRagOptions.cs` (renamed)
+
+2. **Updated Neo4j.AgentMemory.Neo4j.csproj:**
+   - Added `Microsoft.Extensions.AI.Abstractions 10.4.1`
+
+3. **Merged DI registration:**
+   - `AddGraphRagAdapter()` extension method added to existing `ServiceCollectionExtensions.cs`
+
+4. **Removed GraphRagAdapter project:**
+   - Deleted `src/Neo4j.AgentMemory.GraphRagAdapter/` entirely
+   - Removed from `Neo4j.AgentMemory.slnx`
+
+5. **Updated consumers:**
+   - Unit test project: removed ProjectReference, updated namespaces
+   - BlendedAgent sample: removed ProjectReference, updated usings
+   - Test logic unchanged — only namespace/type references updated
+
+## Results
+
+- **Build:** 0 errors, 0 warnings
+- **Tests:** 1,059 passed, 0 failed, 0 skipped
+- **Package count:** 10 → 9
+
+## Architecture After Merge
+
+```
+Neo4j.AgentMemory.Neo4j (unified graph infrastructure)
+├── Infrastructure/   (driver, session, transaction, schema, migrations, options, GraphRagOptions)
+├── Repositories/     (10 CRUD repos)
+├── Queries/          (metadata filter builder)
+├── Schema/           (constraints, migrations)
+├── Services/         (Neo4jGraphQueryService, Neo4jGraphRagContextSource)
+├── Retrieval/        (IRetriever, RetrieverResult, RetrieverResultItem)
+│   └── Internal/     (VectorRetriever, FulltextRetriever, HybridRetriever, StopWordFilter)
+└── ServiceCollectionExtensions.cs (AddNeo4jAgentMemory + AddGraphRagAdapter)
+```
+
+## Rationale
+
+- **Single responsibility at the right level:** "All Neo4j database access" is one concern
+- **Simpler dependency graph:** Consumers reference one package, not two
+- **No API surface change:** Same public types, same DI extension methods
+- **Clean layering preserved:** Abstractions (contracts) → Core (logic) → Neo4j (all graph access)
+# Decision: Refactoring Plan for 7 Code Quality Findings
+
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** April 2026  
+**Status:** PROPOSED  
+**Requested by:** Jose Luis Latorre Millas
+
+---
+
+## Decisions Made
+
+### 1. Single NuGet Package (DECIDED)
+
+Publish ONE NuGet package `Neo4j.AgentMemory` bundling all 9 assemblies. Internal project/DLL separation retained for modularity. No more 9-package publish strategy or meta-package — just one install.
+
+**Rationale:** 1-install DX, version coherence, single discovery point on NuGet.org.
+
+### 2. Python Capability Corrections (DONE)
+
+Fixed 3 incorrect claims in comparison tables:
+- **MCP:** Python HAS FastMCP with 16 tools (was listed as ❌ None)
+- **Enrichment:** Python HAS Wikipedia + Diffbot (was listed as ❌ None)
+- **Geospatial:** Python HAS point indexes + geocoding (was listed as ❌ None)
+
+Fulltext and hybrid search remain correctly marked as .NET extensions (Python only uses vector search).
+
+### 3. Refactoring Plan Created (docs/refactoring-plan.md)
+
+Three-wave implementation plan covering all 7 findings:
+
+**Wave 1 (High):** Embedding consolidation into `IEmbeddingOrchestrator` + extraction base class to eliminate 95% structural duplication  
+**Wave 2 (Medium):** Pipeline stage split, dual pipeline merge, threshold parameterization, Azure API cache  
+**Wave 3 (Lower):** Cypher query centralization into static constant classes
+
+Plus 5 additional improvements (single NuGet package, enrichment cache keys, observability metric fix, prompt externalization, SK adapter).
+
+---
+
+## Files Modified
+
+- `docs/architecture-review-assessment.md` — Fixed comparison tables, updated package strategy to single NuGet, updated Killer Package vision
+- `docs/improvement-suggestions.md` — Added refactoring plan cross-references to S1-S8, S14
+- `docs/refactoring-plan.md` — NEW: Complete implementation plan with file:line references
+- `docs/schema.md` — No changes needed (schema doc doesn't cover MCP/enrichment/geospatial capabilities)
+
+## Build Status
+
+✅ `dotnet build Neo4j.AgentMemory.slnx` — 0 errors (pre-existing test xUnit warnings only)
+# Decision: Cypher Query Centralization Strategy
+
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** July 2026  
+**Status:** PROPOSED  
+**Scope:** Neo4j package — all Cypher query management  
+**Relates to:** Refactoring Plan Finding 5, Architecture Review §7.1
+
+---
+
+## D-CQ-1: Per-Domain Static Query Classes
+
+**Decision:** Centralize all 207+ Cypher queries into per-domain static C# classes in `src/Neo4j.AgentMemory.Neo4j/Queries/`. One class per repository domain (EntityQueries, FactQueries, etc.), plus SharedFragments for reusable patterns and CypherQueryRegistry for validation.
+
+**Rationale:**
+- Direct .NET-idiomatic translation of Python's `queries.py` pattern
+- Compile-time safety via `const string` (build breaks if query deleted)
+- IDE F12 navigation from call site to query definition
+- Per-domain split keeps each file under ~50 constants (manageable)
+- Zero runtime overhead — no file loading, no deserialization
+- 1:1 mapping between repository and query class (easy navigation)
+
+**Alternatives rejected:**
+- JSON/YAML: Multi-line Cypher escaping nightmare, no compile-time safety, security risk
+- .cypher embedded resources: Runtime loading, disconnected parameters
+- Fluent builder: Wrapping a DSL in a DSL — adds complexity without value
+- Single file: 207+ constants is unwieldy in C#
+- Neo4j OGM: No mature .NET library exists
+
+---
+
+## D-CQ-2: EXPLAIN-Based Query Validation
+
+**Decision:** Create a `CypherQueryRegistry` that collects all query constants (via explicit registration or reflection) and a `CypherQueryValidator` integration test that runs `EXPLAIN` on every registered query against a Testcontainers Neo4j instance.
+
+**Rationale:**
+- No .NET Cypher parser or linter exists
+- Neo4j driver has no offline validation API
+- `EXPLAIN` validates syntax and query plan without executing
+- Catches typos in property names, missing indexes, syntax errors
+- Runs only in integration tests — zero production overhead
+- Additive — doesn't change any existing behavior
+
+---
+
+## D-CQ-3: Dynamic Queries as Static Methods
+
+**Decision:** The ~12% of queries that use string interpolation or ternary selection become `static` methods on their domain query class, returning the appropriate query string. The conditional logic moves with the query.
+
+**Example:**
+```csharp
+public static class EntityQueries
+{
+    public static string GetByName(bool includeAliases) => includeAliases
+        ? "MATCH (e:Entity) WHERE e.name = $name OR $name IN e.aliases RETURN e"
+        : "MATCH (e:Entity {name: $name}) RETURN e";
+}
+```
+
+**Rationale:** Keeps the conditional logic colocated with the query text. The repository becomes a thin orchestrator — build parameters, call query, map results.
+
+---
+
+## D-CQ-4: SharedFragments for Reusable Patterns
+
+**Decision:** Create `SharedFragments.cs` containing reusable Cypher fragments (e.g., vector search CALL pattern, datetime formatting). These are building blocks referenced by domain query classes or composed at call sites.
+
+**Rationale:** Several repositories duplicate the same `CALL db.index.vector.queryNodes(...)` pattern with minor variations. Extracting fragments reduces duplication and ensures consistency.
+
+---
+
+*These decisions inform Wave 3 of the refactoring plan (Finding 5). Implementation is estimated at 2-3 developer-days.*
+### 20260417T195831: User directive — Single NuGet Package
+**By:** Jose Luis Latorre Millas (via Copilot)
+**What:** Publish a SINGLE NuGet package (not 9 separate packages). Multiple assemblies/DLLs are fine but generating a separate NuGet package per DLL is overkill. One package to install.
+**Why:** User request — simplify consumer experience, reduce package management overhead.
