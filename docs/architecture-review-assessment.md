@@ -186,19 +186,35 @@ Each package serves a **distinct audience** with **distinct external dependencie
 
 ### NuGet Publishing Plan
 
+**Decision (April 2026):** Publish as **ONE NuGet package** — `Neo4j.AgentMemory`. Internal assembly/DLL separation is maintained for modularity, but consumers install a single package:
+
+```bash
+dotnet add package Neo4j.AgentMemory
 ```
-Wave 1: Neo4j.AgentMemory.Abstractions
-Wave 2: Neo4j.AgentMemory.Core
-Wave 3: Neo4j.AgentMemory.Neo4j
-        Neo4j.AgentMemory.Extraction.Llm
-        Neo4j.AgentMemory.Extraction.AzureLanguage
-        Neo4j.AgentMemory.Enrichment
-        Neo4j.AgentMemory.Observability
-Wave 4: Neo4j.AgentMemory.AgentFramework
-        Neo4j.AgentMemory.McpServer
-Wave 5: Neo4j.AgentMemory (meta-package: Abstractions + Core + Neo4j + Extraction.Llm)
-Future: Neo4j.AgentMemory.SemanticKernel (SK adapter)
+
+This single package bundles all assemblies (Abstractions, Core, Neo4j, Extraction.Llm, Extraction.AzureLanguage, Enrichment, Observability, McpServer, AgentFramework). The internal project structure remains as-is for developer separation of concerns — it's only the NuGet packaging that is unified.
+
+**Rationale:**
+- **1-install DX** — No confusion about which packages to install or in what order
+- **Version coherence** — All assemblies ship and version together
+- **Discovery** — One package to find on NuGet.org, one README, one "getting started"
+- **Dependency management** — Users don't need to manually align versions across 9 packages
+- **Internal modularity preserved** — Separate .csproj files, clean dependency direction, distinct namespaces
+
 ```
+Neo4j.AgentMemory (single NuGet package)
+├── Neo4j.AgentMemory.Abstractions.dll
+├── Neo4j.AgentMemory.Core.dll
+├── Neo4j.AgentMemory.Neo4j.dll
+├── Neo4j.AgentMemory.Extraction.Llm.dll
+├── Neo4j.AgentMemory.Extraction.AzureLanguage.dll
+├── Neo4j.AgentMemory.Enrichment.dll
+├── Neo4j.AgentMemory.Observability.dll
+├── Neo4j.AgentMemory.McpServer.dll
+└── Neo4j.AgentMemory.AgentFramework.dll
+```
+
+Future: `Neo4j.AgentMemory.SemanticKernel` (SK adapter, may ship as separate package given distinct audience)
 
 ### What Each Package Does
 
@@ -421,12 +437,12 @@ We adapted **3 retriever types** and supporting utilities:
 | **Hybrid search** | ✅ V + FT | ✅ V + FT + Graph | ❌ None |
 | **Context assembly** | Basic formatting | ✅ Multi-tier blending, token budget | ✅ Multi-tier blending |
 | **MAF integration** | ✅ AIContextProvider | ✅ AIContextProvider + traces | N/A (Python) |
-| **MCP server** | ❌ None | ✅ 28 tools, 6 resources, 3 prompts | ❌ None |
+| **MCP server** | ❌ None | ✅ 28 tools, 6 resources, 3 prompts | ✅ 16 tools (FastMCP) |
 | **Observability** | ❌ None | ✅ OpenTelemetry | ❌ None |
-| **Enrichment** | ❌ None | ✅ Geocoding + Wikipedia | ❌ None |
+| **Enrichment** | ❌ None | ✅ Geocoding + Wikipedia | ✅ Wikipedia + Diffbot |
 | **Framework coupling** | MAF-only | Framework-agnostic | Framework-agnostic |
 | **Schema management** | ❌ Manual | ✅ Auto-bootstrap + migrations | ✅ Auto-bootstrap |
-| **Geospatial** | ❌ None | ✅ Point index, bounding box | ❌ None |
+| **Geospatial** | ❌ None | ✅ Point index, bounding box | ✅ Point index + geocoding |
 | **Metadata filtering** | ❌ None | ✅ 5 operators ($eq, $ne, $in, etc.) | ✅ Similar |
 | **Session strategies** | ❌ None | ✅ 3 strategies | ✅ 3 strategies |
 | **Test coverage** | Minimal | 1,058 unit tests | Unknown |
@@ -481,20 +497,25 @@ We adapted **3 retriever types** and supporting utilities:
 
 ### What a "One-Install" .NET Memory Provider Looks Like
 
+**Decision: Single NuGet Package**
+
 ```bash
 dotnet add package Neo4j.AgentMemory
 ```
 
-That single install gives you:
+That single install gives you **everything** — all 9 assemblies in one package:
 - **Persistent memory** across agent sessions (not just vector store)
-- **Automatic extraction** of entities, facts, preferences from conversations
+- **Automatic extraction** of entities, facts, preferences from conversations (LLM + Azure NLP)
 - **Entity resolution** so "Bob", "Robert", and "Bob Smith" are the same person
 - **Graph-powered relationships** — not just similarity search, but RELATED_TO, MENTIONS, ABOUT
 - **MEAI-native** — any `IChatClient` or `IEmbeddingGenerator` provider works
+- **MCP server** — 28 tools, 6 resources, 3 prompts for external client access
+- **Observability** — OpenTelemetry tracing and metrics out of the box
+- **Enrichment** — Geocoding, Wikipedia, Diffbot entity augmentation
 - **Zero-config startup** with sensible defaults
 
 ```csharp
-// 3-line setup
+// 3-line setup — ONE package install, all capabilities available
 builder.Services.AddNeo4jAgentMemory(o => { o.Uri = "bolt://localhost:7687"; });
 builder.Services.AddAgentMemoryCore();
 builder.Services.AddLlmExtraction();
@@ -541,7 +562,7 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | DI support | Manual | `IServiceCollection` extensions | Python DI |
 | Testing | Minimal | 1,058 unit tests | Unit + integration |
 | Observability | None | OpenTelemetry (opt-in) | None |
-| MCP support | None | 28 tools, 6 resources, 3 prompts | None |
+| MCP support | None | 28 tools, 6 resources, 3 prompts | 16 tools (FastMCP) |
 
 ### Feature Parity with Python Reference
 
@@ -561,9 +582,9 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | Metadata filtering | ✅ | ✅ (5 operators) | 100% |
 | Session strategies | ✅ (3) | ✅ (3) | 100% |
 | Azure NLP extraction | ❌ | ✅ | .NET extends |
-| MCP server | ❌ | ✅ | .NET extends |
+| MCP server | ✅ (16 tools, FastMCP) | ✅ (28 tools, 6 resources, 3 prompts) | .NET extends |
 | Observability | ❌ | ✅ | .NET extends |
-| Entity enrichment | ❌ | ✅ (Wikimedia, Diffbot) | .NET extends |
+| Entity enrichment | ✅ (Wikipedia + Diffbot) | ✅ (Wikimedia, Diffbot, Geocoding) | 100% |
 | **Overall** | — | — | **~99% + extensions** |
 
 ### Schema Parity Detail
@@ -589,7 +610,7 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | **Semantic Kernel adapter** | High | Not started | SK has >10K GitHub stars; largest .NET AI audience. Adapter would be ~500 LOC. |
 | **Repository integration tests** | High | Minimal | Only 2 connectivity tests. No repo CRUD integration tests against real Neo4j. |
 | **NuGet publishing** | High | Not started | Packages not yet on NuGet. Publish order defined. |
-| **Meta-package** | Medium | Not started | `Neo4j.AgentMemory` convenience package for 1-install experience. |
+| **Single NuGet package** | High | Decided | Publish `Neo4j.AgentMemory` bundling all assemblies. See §3 NuGet Publishing Plan. |
 | **Azure preference extraction** | Medium | Gap | Azure extractor has entity/fact/relationship but no preference extraction. |
 | **Temporal memory retrieval** | Medium | Not implemented | `RecallAsOfAsync` for point-in-time memory snapshots. |
 | **Memory decay/forgetting** | Medium | Not implemented | No strength decay or archival mechanism. |
@@ -617,7 +638,7 @@ Pragmatic improvements I'd make if starting a new sprint, ordered by impact/effo
 
 | Change | Why | Impact | Effort |
 |--------|-----|--------|--------|
-| **Meta-package** — Create `Neo4j.AgentMemory` that references Abstractions + Core + Neo4j + Extraction.Llm | 1-install DX | High | Trivial |
+| **Single NuGet package** — Publish as `Neo4j.AgentMemory` bundling all assemblies (decided April 2026) | 1-install DX | Very High | Trivial |
 | **Provider tag in enrichment cache keys** — Include provider name to prevent stale cache on provider switch | Correctness bug | Medium | Trivial |
 | **Fix missing duration metric** in `InstrumentedMemoryService.ExtractFromSessionAsync` | Telemetry gap | Low | Trivial |
 | **Parameterize all confidence thresholds** — Move hardcoded 0.5/0.8/0.85/0.95 to Options | Configurability | Medium | Low |

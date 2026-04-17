@@ -780,3 +780,25 @@ Items from Python parity comparison that need implementation:
 - `src/Neo4j.AgentMemory.Neo4j/Infrastructure/GraphRagOptions.cs`
 - `.squad/decisions/inbox/deckard-merge-graphrag-neo4j.md`
 
+
+## Learnings — Refactoring Plan Sprint (April 2026)
+
+### Python Capability Corrections
+- Python agent-memory **does** have MCP (FastMCP, 16 tools), enrichment (Wikipedia + Diffbot), and geospatial (point indexes + geocoding via Nominatim/Google). Previous comparison tables incorrectly listed these as ❌ None.
+- Python **does NOT** have fulltext search or hybrid search — these remain .NET extensions.
+- Source of truth for Python capabilities: `docs/python-agent-memory-analysis.md` lines 32, 46, 162, 273, 437-453, 559-629.
+
+### Single NuGet Package Decision
+- **Decided:** Publish ONE NuGet package `Neo4j.AgentMemory` bundling all 9 assemblies. Internal DLL separation preserved for modularity.
+- Supersedes the previous 5-wave publishing strategy with individual packages.
+
+### Code Quality Deep Analysis
+- **Embedding DRY violation:** 12+ call sites across 7 files in Core. `IEmbeddingGenerator.GenerateAsync()` called directly with duplicated text composition logic.
+- **Extraction duplication:** All 4 LLM extractors share identical `BuildChatOptions()` and `BuildConversationText()` methods. All 8 extractors (LLM + Azure) share identical error handling pattern (try/catch → log → return empty).
+- **MemoryExtractionPipeline:** 393 LOC, 14 constructor dependencies, 4 responsibilities. `MultiExtractorPipeline` is extraction-only (no validation/persistence), creating ambiguity.
+- **Azure API waste:** `AzureLanguageRelationshipExtractor` re-calls `RecognizeEntitiesAsync()` per message — same call already made by `AzureLanguageEntityExtractor`.
+- **207+ Cypher statements** inline across 15 files in the Neo4j package.
+
+### Artifacts Created
+- `docs/refactoring-plan.md` — 3-wave implementation plan for all 7 findings
+- `.squad/decisions/inbox/deckard-refactoring-plan.md` — Decision record

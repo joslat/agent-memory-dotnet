@@ -4,7 +4,8 @@
 **Requested by:** Jose Luis Latorre Millas  
 **Date:** April 2026 (Reassessed)  
 **Scope:** Full architecture audit of all 9 source packages + improvement roadmap  
-**Related:** See `docs/architecture-review-assessment.md` for the comprehensive architecture review
+**Related:** See `docs/architecture-review-assessment.md` for the comprehensive architecture review  
+**Refactoring Plan:** See `docs/refactoring-plan.md` for concrete implementation plan covering all 7 findings
 
 ---
 
@@ -115,6 +116,8 @@ external dependency has been removed — retriever types were internalized.
 
 ### S1: Consolidate Embedding Generation into a Dedicated Service
 
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 1, Wave 1
+
 | Attribute | Value |
 |-----------|-------|
 | **Category** | DRY |
@@ -128,6 +131,8 @@ external dependency has been removed — retriever types were internalized.
 ---
 
 ### S2: Merge Extraction.Llm and Extraction.AzureLanguage into Unified Extraction Package
+
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 2, Wave 1
 
 | Attribute | Value |
 |-----------|-------|
@@ -143,6 +148,8 @@ external dependency has been removed — retriever types were internalized.
 
 ### S3: Split MemoryExtractionPipeline into Extraction + Persistence Stages
 
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 3, Wave 2
+
 | Attribute | Value |
 |-----------|-------|
 | **Category** | SRP / SOLID |
@@ -156,6 +163,8 @@ external dependency has been removed — retriever types were internalized.
 ---
 
 ### S4: Centralize Cypher Queries into Constants/Builder
+
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 5, Wave 3
 
 | Attribute | Value |
 |-----------|-------|
@@ -171,6 +180,8 @@ external dependency has been removed — retriever types were internalized.
 
 ### S5: Parameterize Confidence Thresholds
 
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 6, Wave 2
+
 | Attribute | Value |
 |-----------|-------|
 | **Category** | DRY / Configuration |
@@ -184,6 +195,8 @@ external dependency has been removed — retriever types were internalized.
 ---
 
 ### S6: Fix AzureLanguageRelationshipExtractor Redundant API Calls
+
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 7, Wave 2
 
 | Attribute | Value |
 |-----------|-------|
@@ -212,6 +225,8 @@ external dependency has been removed — retriever types were internalized.
 ---
 
 ### S8: Resolve Dual Pipeline Ambiguity
+
+> **📋 Concrete plan:** See `docs/refactoring-plan.md` — Finding 4, Wave 2
 
 | Attribute | Value |
 |-----------|-------|
@@ -296,6 +311,8 @@ external dependency has been removed — retriever types were internalized.
 ---
 
 ### S14: Consider a Meta-Package for Quick Start
+
+> **✅ DECIDED:** Single NuGet package `Neo4j.AgentMemory` bundling all assemblies. See `docs/architecture-review-assessment.md` §3 and `docs/refactoring-plan.md` A1.
 
 | Attribute | Value |
 |-----------|-------|
