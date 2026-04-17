@@ -41,7 +41,7 @@ public static class ExtractorQueries
             OPTIONAL MATCH (e)-[ef:EXTRACTED_FROM]->(m:Message)
             OPTIONAL MATCH (e)-[eb:EXTRACTED_BY]->(ex:Extractor)
             RETURN e.id AS entityId,
-                   collect(DISTINCT {messageId: m.id, confidence: ef.confidence, startPos: ef.start_position, endPos: ef.end_position}) AS sources,
+                   collect(DISTINCT {messageId: m.id, confidence: ef.confidence, startPos: ef.start_pos, endPos: ef.end_pos}) AS sources,
                    collect(DISTINCT {extractorName: ex.name, confidence: eb.confidence, extractionTimeMs: eb.extraction_time_ms}) AS extractors";
 
     // ── GetExtractionStats ─────────────────────────────────────────────

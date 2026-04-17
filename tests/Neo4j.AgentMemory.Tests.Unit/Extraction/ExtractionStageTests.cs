@@ -481,4 +481,163 @@ public sealed class ExtractionStageTests
         result.SourceMessageIds.Should().ContainSingle()
             .Which.Should().Be("msg-1");
     }
+
+    // ── All extractors return empty ──
+
+    [Fact]
+    public async Task ExtractAsync_AllExtractorsReturnEmpty_ResultIsEmpty()
+    {
+        var entityExt = Substitute.For<IEntityExtractor>();
+        entityExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExtractedEntity>());
+
+        var factExt = Substitute.For<IFactExtractor>();
+        factExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExtractedFact>());
+
+        var prefExt = Substitute.For<IPreferenceExtractor>();
+        prefExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExtractedPreference>());
+
+        var relExt = Substitute.For<IRelationshipExtractor>();
+        relExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExtractedRelationship>());
+
+        var sut = CreateSut(
+            entityExtractors: new[] { entityExt },
+            factExtractors: new[] { factExt },
+            prefExtractors: new[] { prefExt },
+            relExtractors: new[] { relExt });
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.RawEntities.Should().BeEmpty();
+        result.RawFacts.Should().BeEmpty();
+        result.RawPreferences.Should().BeEmpty();
+        result.RawRelationships.Should().BeEmpty();
+        result.ResolvedEntityMap.Should().BeEmpty();
+    }
+
+    // ── Extractor counts in metadata ──
+
+    [Fact]
+    public async Task ExtractAsync_ExtractorCounts_ReflectRegisteredExtractors()
+    {
+        var ext1 = Substitute.For<IEntityExtractor>();
+        ext1.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExtractedEntity>());
+
+        var ext2 = Substitute.For<IEntityExtractor>();
+        ext2.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExtractedEntity>());
+
+        var sut = CreateSut(entityExtractors: new[] { ext1, ext2 });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.EntityExtractorCount.Should().Be(2);
+        result.FactExtractorCount.Should().Be(0);
+        result.PreferenceExtractorCount.Should().Be(0);
+        result.RelationshipExtractorCount.Should().Be(0);
+    }
+
+    // ── Multiple extractor fault tolerance ──
+
+    [Fact]
+    public async Task ExtractAsync_AllExtractorsThrow_ReturnsEmptyResult()
+    {
+        var failingEntity = Substitute.For<IEntityExtractor>();
+        failingEntity.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var failingFact = Substitute.For<IFactExtractor>();
+        failingFact.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TimeoutException("timeout"));
+
+        var sut = CreateSut(
+            entityExtractors: new[] { failingEntity },
+            factExtractors: new[] { failingFact });
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.RawEntities.Should().BeEmpty();
+        result.RawFacts.Should().BeEmpty();
+    }
+
+    // ── Entity resolution failure is handled per-entity ──
+
+    [Fact]
+    public async Task ExtractAsync_ResolutionThrowsForOneEntity_OtherEntitiesStillResolved()
+    {
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice"), MakeEntity("BadEntity"), MakeEntity("Bob") });
+
+        var sut = CreateSut(entityExtractors: new[] { ext });
+
+        // Override resolver AFTER CreateSut so the specific matcher takes precedence
+        _resolver
+            .ResolveEntityAsync(
+                Arg.Is<ExtractedEntity>(e => e.Name == "BadEntity"),
+                Arg.Any<IReadOnlyList<string>>(),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("resolution failed"));
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.RawEntities.Should().HaveCount(3);
+        result.ResolvedEntityMap.Should().ContainKey("Alice");
+        result.ResolvedEntityMap.Should().ContainKey("Bob");
+        result.ResolvedEntityMap.Should().NotContainKey("BadEntity");
+    }
+
+    // ── Confidence filtering on relationships ──
+
+    [Fact]
+    public async Task ExtractAsync_LowConfidenceRelationship_FilteredOut()
+    {
+        var entityExt = Substitute.For<IEntityExtractor>();
+        entityExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice"), MakeEntity("Bob") });
+
+        var relExt = Substitute.For<IRelationshipExtractor>();
+        relExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Bob", RelationshipType = "KNOWS", Confidence = 0.1 }
+            });
+
+        var sut = CreateSut(
+            entityExtractors: new[] { entityExt },
+            relExtractors: new[] { relExt },
+            options: new ExtractionOptions { MinConfidenceThreshold = 0.5 });
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.RawRelationships.Should().ContainSingle();
+        result.FilteredRelationships.Should().BeEmpty();
+    }
+
+    // ── Low-confidence preferences filtered ──
+
+    [Fact]
+    public async Task ExtractAsync_FiltersLowConfidencePreferences()
+    {
+        var ext = Substitute.For<IPreferenceExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedPreference { Category = "food", PreferenceText = "cheap pizza", Confidence = 0.2 },
+                new ExtractedPreference { Category = "drink", PreferenceText = "espresso", Confidence = 0.8 }
+            });
+
+        var sut = CreateSut(
+            prefExtractors: new[] { ext },
+            options: new ExtractionOptions { MinConfidenceThreshold = 0.5 });
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.RawPreferences.Should().HaveCount(2);
+        result.FilteredPreferences.Should().ContainSingle()
+            .Which.PreferenceText.Should().Be("espresso");
+    }
 }

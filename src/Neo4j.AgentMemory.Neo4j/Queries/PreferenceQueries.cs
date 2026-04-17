@@ -70,6 +70,6 @@ public static class PreferenceQueries
     /// <summary>Get a page of Preferences that have no embedding.</summary>
     public const string GetPageWithoutEmbedding = "MATCH (p:Preference) WHERE p.embedding IS NULL RETURN p LIMIT $limit";
 
-    /// <summary>Update the embedding vector on a Preference node.</summary>
-    public const string UpdateEmbedding = "MATCH (p:Preference {id: $id}) SET p.embedding = $embedding";
+    /// <summary>Update the embedding vector on a Preference node (same as SetEmbedding).</summary>
+    public const string UpdateEmbedding = SetEmbedding;
 }

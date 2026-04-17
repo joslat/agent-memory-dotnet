@@ -8,31 +8,44 @@
 
 ---
 
+## Status: ✅ All 4 Waves Complete
+
+| Wave | Focus | Status | Tests |
+|------|-------|--------|-------|
+| **Wave 1** | IEmbeddingOrchestrator + ExtractorBase<T> (DRY) | ✅ Complete | 1,059 |
+| **Wave 2** | Pipeline SRP split + Thresholds + Azure API cache | ✅ Complete | 1,066 |
+| **Wave 3** | Cypher Query Centralization (207+ → per-domain) | ✅ Complete | 1,066 |
+| **Wave 4** | 11 Functional Parity Gaps (G1-G11: 82.1% → 98.5%) | ✅ Complete | 1,124 |
+
+**Final Result:** 1,211 unit tests passing, **98.5% parity with Python agent-memory**, zero circular dependencies, zero boundary violations.
+
+---
+
 ## Executive Summary
 
-This plan addresses **7 concrete code quality findings** + **11 functional parity gaps** (from `cypher-analysis.md`) identified in the architecture review and query analysis, organized into **4 implementation waves** by severity and dependency. Waves 1-3 refactor existing code; Wave 4 adds the 11 missing queries directly into the centralized Cypher classes created in Wave 3. Each finding includes specific file:line references, proposed solution, implementation steps, and risk assessment.
+This plan addressed **7 concrete code quality findings** + **11 functional parity gaps** (from `cypher-analysis.md`) identified in the architecture review and query analysis, organized into **4 implementation waves** by severity and dependency. All waves are now complete.
 
-**Estimated total effort:** 10–15 developer-days  
-**Test baseline:** 1,058 passing unit tests (must remain green after each wave)
-
----
-
-## Findings Overview
-
-| # | Finding | Category | Severity | Wave |
-|---|---------|----------|----------|------|
-| 1 | Embedding generation scattered across 5+ call sites | DRY | 🔴 High | 1 |
-| 2 | Extraction.Llm and Extraction.AzureLanguage ~95% structurally identical | DRY | 🔴 High | 1 |
-| 3 | MemoryExtractionPipeline (393 LOC) does extraction + validation + resolution + persistence | SRP | 🟡 Medium | 2 |
-| 4 | Dual pipeline ambiguity (MemoryExtractionPipeline vs MultiExtractorPipeline) | KISS | 🟡 Medium | 2 |
-| 5 | Cypher queries inline in C# strings across 10 repositories | Maintainability | 🟡 Medium | 3 |
-| 6 | Confidence thresholds hardcoded (0.5, 0.8, 0.85, 0.95) | DRY | 🟡 Medium | 2 |
-| 7 | AzureLanguageRelationshipExtractor re-calls entity recognition (API waste) | Performance | 🟡 Medium | 2 |
-| 8 | 11 functional parity gaps — missing queries vs Python agent-memory | Parity | 🟡 Medium | 4 (after 3) |
+**Actual effort:** ~10 developer-days  
+**Test baseline:** Started at 1,058 passing unit tests; now at 1,211
 
 ---
 
-## Wave 1: 🔴 High Severity (Embedding + Extraction Unification)
+## Findings Overview — All Addressed
+
+| # | Finding | Category | Severity | Wave | Status |
+|---|---------|----------|----------|------|--------|
+| 1 | Embedding generation scattered across 5+ call sites | DRY | 🔴 High | 1 | ✅ Implemented: `IEmbeddingOrchestrator` |
+| 2 | Extraction.Llm and Extraction.AzureLanguage ~95% identical | DRY | 🔴 High | 1 | ✅ Implemented: `ExtractorBase<T>` |
+| 3 | MemoryExtractionPipeline (393 LOC) does too much | SRP | 🟡 Medium | 2 | ✅ Split: ExtractionStage + PersistenceStage |
+| 4 | Dual pipeline ambiguity | KISS | 🟡 Medium | 2 | ✅ Merged into unified pipeline |
+| 5 | Cypher queries inline across 10 repositories | Maintainability | 🟡 Medium | 3 | ✅ Centralized: Queries/ per-domain classes |
+| 6 | Confidence thresholds hardcoded | DRY | 🟡 Medium | 2 | ✅ Parameterized via ConfidenceOptions |
+| 7 | AzureLanguageRelationshipExtractor API waste | Performance | 🟡 Medium | 2 | ✅ Fixed: shared ExtractionContext |
+| 8 | 11 functional parity gaps (G1-G11) | Parity | 🟡 Medium | 4 | ✅ All 11 implemented; parity 98.5% |
+
+---
+
+## Wave 1: 🔴 High Severity (Embedding + Extraction Unification) — ✅ COMPLETE
 
 ### Finding 1: Embedding Generation Scattered Across 5+ Call Sites
 
@@ -196,7 +209,7 @@ public abstract class ExtractorBase<T> : IExtractor<T>
 
 ---
 
-## Wave 2: 🟡 Medium Severity (Pipeline, Thresholds, API Waste)
+## Wave 2: 🟡 Medium Severity (Pipeline, Thresholds, API Waste) — ✅ COMPLETE (1,066 tests)
 
 ### Finding 3: MemoryExtractionPipeline SRP Violation (393 LOC)
 
@@ -426,7 +439,7 @@ public class ExtractionContext
 
 ---
 
-## Wave 3: Lower Priority (Cypher Centralization + Extras)
+## Wave 3: Lower Priority (Cypher Centralization + Extras) — ✅ COMPLETE (1,066 tests)
 
 ### Finding 5: Cypher Queries Inline Across 10 Repositories
 
@@ -581,19 +594,21 @@ public static class EntityQueries
 
 ---
 
-## Wave 4: Functional Parity Gaps (After Wave 3 — New Queries Into Centralized Classes)
+## Wave 4: Functional Parity Gaps (After Wave 3 — New Queries Into Centralized Classes) — ✅ COMPLETE (1,124 tests)
 
-> **Prerequisite:** Wave 3 (Finding 5 — Cypher Centralization) must be complete before starting Wave 4.  
-> New queries go directly into the per-domain query classes (`MessageQueries`, `EntityQueries`, `ExtractorQueries`, `ConversationQueries`) — no double work.
+**Functional Parity Result:** 82.1% → **98.5%** (all 11 gaps G1-G11 implemented)
+
+> **Prerequisite:** Wave 3 (Finding 5 — Cypher Centralization) complete.  
+> New queries integrated directly into the per-domain query classes (`MessageQueries`, `EntityQueries`, `ExtractorQueries`, `ConversationQueries`).
 
 ### Finding 8: 11 Functional Parity Gaps — Missing Queries vs Python
 
 **Source:** `docs/cypher-analysis.md` §3 — Genuine Gaps  
-**Parity impact:** Implementing all 11 gaps raises functional parity from **82.1% → 98.5%** (remaining delta = decided omissions only)
+**Parity impact:** All 11 gaps now implemented: functional parity raised from 82.1% → **98.5%** (remaining delta = decided omissions only)
 
-These are Python `agent-memory` queries with no .NET equivalent that were NOT decided omissions. Grouped by domain and ordered by priority.
+These Python `agent-memory` queries with no .NET equivalent were NOT decided omissions. Grouped by domain and ordered by priority.
 
-#### Group A: Message Lifecycle (🟡 Medium Priority)
+#### Group A: Message Lifecycle (🟡 Medium Priority) — ✅ IMPLEMENTED (G1-G3)
 
 Three missing operations that complete the message CRUD surface:
 
@@ -668,9 +683,9 @@ LIMIT $limit
 
 **Effort:** Low (2-3 hours for all three)
 
-#### Group B: Provenance Queries (🟡 Medium Priority)
+#### Group B: Provenance Queries (🟡 Medium Priority) — ✅ IMPLEMENTED (G4-G8)
 
-Five missing queries that complete the provenance tracking system. The write-side (EXTRACTED_FROM, EXTRACTED_BY) already exists — these are the read/query side:
+Five queries completing the provenance tracking system. Write-side (EXTRACTED_FROM, EXTRACTED_BY) already existed — these are the read/query side:
 
 | Gap | Python Query | What It Does | Interface Change |
 |-----|-------------|--------------|------------------|
@@ -752,7 +767,7 @@ RETURN COUNT(ef) + COUNT(eb) AS deleted
 
 **Effort:** Low-Medium (3-4 hours for all five)
 
-#### Group C: Deduplication Monitoring (🟡 Medium Priority)
+#### Group C: Deduplication Monitoring (🟡 Medium Priority) — ✅ IMPLEMENTED (G9-G11)
 
 Three missing queries that complete the entity deduplication workflow. The write-side (SAME_AS, MergeEntities) already exists — these are the discovery/monitoring side:
 

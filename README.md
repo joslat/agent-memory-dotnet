@@ -53,24 +53,24 @@ It is **not**:
 
 ## Architecture direction
 
-The solution is intended to be built in layers:
+The solution is built in layers with a focus on clean separation of concerns:
 
 ### 1. Core memory engine
 Framework-agnostic contracts and services for:
 
 - message storage
-- memory extraction orchestration
-- entity / fact / preference storage
-- reasoning traces
-- context assembly
+- memory extraction orchestration (ExtractionStage → PersistenceStage pipeline)
+- entity / fact / preference storage with embedding orchestration
+- reasoning traces and step tracking
+- context assembly with token budget enforcement
 
 ### 2. Neo4j persistence layer
-Neo4j-backed implementations for:
+Unified Neo4j-backed implementations for:
 
-- graph persistence
-- vector/fulltext/hybrid search
-- relationship traversal
-- memory retrieval
+- graph persistence with centralized Cypher queries in `Queries/` directory (per domain)
+- vector/fulltext/hybrid/graph search with 6+ indexes
+- relationship traversal and entity resolution
+- memory retrieval with metadata filtering
 
 ### 3. Microsoft Agent Framework adapter
 A dedicated integration layer on top of the core for:
@@ -78,15 +78,15 @@ A dedicated integration layer on top of the core for:
 - context injection before agent runs
 - persistence after agent runs
 - Neo4j-backed chat/message store
-- memory tools for agent usage
+- memory tools for agent usage and trace recording
 
 ### 4. GraphRAG interoperability
-A separate adapter that composes with the existing .NET Neo4j GraphRAG provider for:
+Internalized retrieval layer providing:
 
-- vector retrieval
-- hybrid retrieval
-- graph-enriched context retrieval
-- combined memory + GraphRAG scenarios
+- vector retrieval (db.index.vector.queryNodes)
+- fulltext retrieval (db.index.fulltext.queryNodes)
+- hybrid retrieval (combined vector + fulltext with reranking)
+- graph-enriched context retrieval with custom traversal patterns
 
 ### 5. MCP layer
 A .NET MCP server exposing 28 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
@@ -172,7 +172,7 @@ The solution ships 10 packages:
 | `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory + GraphRAG operations |
 | `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 21 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) via Model Context Protocol |
 
-**1058 unit tests passing, 0 failures.** (~99% functional parity with Python reference)
+**1,211 unit tests passing, 0 failures.** (98.5% functional parity with Python reference)
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 

@@ -95,4 +95,64 @@ public sealed class Neo4jConversationRepositoryListSessionsTests
         calls[0].Cypher.Should().Contain("LIMIT $limit");
         calls[0].Cypher.Should().Contain("ORDER BY lastActivity DESC");
     }
+
+    // ── Edge cases ──
+
+    [Fact]
+    public async Task ListSessionsAsync_CustomLimit_PassedCorrectly()
+    {
+        var (repo, calls) = CreateReadCapture();
+
+        await repo.ListSessionsAsync(100);
+
+        var param = calls[0].Parameters!;
+        param.GetType().GetProperty("limit")!.GetValue(param).Should().Be(100);
+    }
+
+    [Fact]
+    public async Task ListSessionsAsync_LimitOfOne_PassedCorrectly()
+    {
+        var (repo, calls) = CreateReadCapture();
+
+        await repo.ListSessionsAsync(1);
+
+        var param = calls[0].Parameters!;
+        param.GetType().GetProperty("limit")!.GetValue(param).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ListSessionsAsync_SessionWithNullPreviewAndActivity_ReturnsNulls()
+    {
+        var record = Substitute.For<IRecord>();
+        record["sessionId"].Returns("session-1");
+        record["convCount"].Returns(1);
+        record["msgCount"].Returns(0);
+        record["lastPreview"].Returns((object?)null);
+        record["lastActivity"].Returns((object?)null);
+
+        var (repo, _) = CreateReadCapture(record);
+
+        var result = await repo.ListSessionsAsync();
+
+        result.Should().ContainSingle();
+        result[0].SessionId.Should().Be("session-1");
+        result[0].LastMessagePreview.Should().BeNull();
+        result[0].LastActivity.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ListSessionsAsync_UsesReadTransaction()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<List<SessionSummary>>>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<SessionSummary>()));
+        var repo = new Neo4jConversationRepository(txRunner, NullLogger<Neo4jConversationRepository>.Instance);
+
+        await repo.ListSessionsAsync();
+
+        await txRunner.Received(1).ReadAsync(
+            Arg.Any<Func<IAsyncQueryRunner, Task<List<SessionSummary>>>>(),
+            Arg.Any<CancellationToken>());
+    }
 }

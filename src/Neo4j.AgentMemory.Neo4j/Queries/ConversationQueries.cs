@@ -43,7 +43,7 @@ public static class ConversationQueries
             WITH c.session_id AS sessionId, collect(c) AS conversations
             OPTIONAL MATCH (c2:Conversation)-[:HAS_MESSAGE]->(m:Message)
             WHERE c2.session_id = sessionId
-            WITH sessionId, SIZE(conversations) AS convCount, collect(m) AS messages
+            WITH sessionId, SIZE(conversations) AS convCount, collect(m ORDER BY m.timestamp) AS messages
             RETURN sessionId,
                    convCount,
                    SIZE(messages) AS msgCount,

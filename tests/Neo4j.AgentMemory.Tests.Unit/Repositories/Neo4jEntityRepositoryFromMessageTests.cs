@@ -73,4 +73,71 @@ public sealed class Neo4jEntityRepositoryFromMessageTests
         calls[0].Cypher.Should().Contain("MATCH (m:Message {id: $messageId})");
         calls[0].Cypher.Should().Contain("ORDER BY e.name");
     }
+
+    // ── Edge cases ──
+
+    [Fact]
+    public async Task GetEntitiesFromMessageAsync_NonExistentMessage_ReturnsEmptyList()
+    {
+        var (repo, _) = CreateReadCapture();
+        var result = await repo.GetEntitiesFromMessageAsync("msg-does-not-exist");
+        result.Should().NotBeNull();
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetEntitiesFromMessageAsync_MultipleEntities_AllMappedCorrectly()
+    {
+        var node1 = CreateEntityNode("ent-1", "Alice");
+        var node2 = CreateEntityNode("ent-2", "Bob");
+
+        var record1 = Substitute.For<IRecord>();
+        record1["e"].Returns(node1);
+
+        var record2 = Substitute.For<IRecord>();
+        record2["e"].Returns(node2);
+
+        var (repo, _) = CreateReadCapture(record1, record2);
+        var result = await repo.GetEntitiesFromMessageAsync("msg-1");
+
+        result.Should().HaveCount(2);
+        result.Select(e => e.Name).Should().BeEquivalentTo(new[] { "Alice", "Bob" });
+    }
+
+    [Fact]
+    public async Task GetEntitiesFromMessageAsync_UsesReadTransaction()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<List<Entity>>>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<Entity>()));
+        var repo = new Neo4jEntityRepository(txRunner, NullLogger<Neo4jEntityRepository>.Instance);
+
+        await repo.GetEntitiesFromMessageAsync("msg-1");
+
+        await txRunner.Received(1).ReadAsync(
+            Arg.Any<Func<IAsyncQueryRunner, Task<List<Entity>>>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── Helpers ──
+
+    private static INode CreateEntityNode(string id, string name)
+    {
+        var node = Substitute.For<INode>();
+        node["id"].Returns(id);
+        node["name"].Returns(name);
+        node["type"].Returns("PERSON");
+        node["confidence"].Returns(0.9);
+        node["created_at"].Returns(DateTimeOffset.UtcNow.ToString("O"));
+        node.Properties.Returns(new Dictionary<string, object>
+        {
+            ["id"] = id,
+            ["name"] = name,
+            ["type"] = "PERSON",
+            ["confidence"] = 0.9,
+            ["created_at"] = DateTimeOffset.UtcNow.ToString("O")
+        });
+        return node;
+    }
 }

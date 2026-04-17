@@ -245,6 +245,78 @@ public sealed class Neo4jEntityRepositoryDeduplicationTests
         calls[0].Parameters.Should().NotBeNull();
     }
 
+    // ── Edge cases ──
+
+    [Fact]
+    public async Task FindSimilarByEmbeddingAsync_NoResults_ReturnsEmptyList()
+    {
+        var (repo, _) = CreateReadCapture(Array.Empty<IRecord>());
+        var result = await repo.FindSimilarByEmbeddingAsync("ent-no-matches");
+        result.Should().NotBeNull();
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FindSimilarByEmbeddingAsync_TopKIsAlwaysLimitPlusOne()
+    {
+        var (repo, calls) = CreateReadCapture(Array.Empty<IRecord>());
+        await repo.FindSimilarByEmbeddingAsync("ent-1", limit: 3);
+        var param = calls[0].Parameters!;
+        param.GetType().GetProperty("topK")!.GetValue(param).Should().Be(4);
+    }
+
+    [Fact]
+    public async Task FindSimilarByEmbeddingAsync_LimitOne_TopKIsTwo()
+    {
+        var (repo, calls) = CreateReadCapture(Array.Empty<IRecord>());
+        await repo.FindSimilarByEmbeddingAsync("ent-1", limit: 1);
+        var param = calls[0].Parameters!;
+        param.GetType().GetProperty("topK")!.GetValue(param).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetPendingDuplicatesAsync_NoSameAsRelationships_ReturnsEmptyList()
+    {
+        var (repo, _) = CreateReadCapture(Array.Empty<IRecord>());
+        var result = await repo.GetPendingDuplicatesAsync();
+        result.Should().NotBeNull();
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetDeduplicationStatsAsync_NoSameAsRelationships_ReturnsAllZeros()
+    {
+        var (repo, _) = CreateStatsReadCapture(Array.Empty<IRecord>());
+        var result = await repo.GetDeduplicationStatsAsync();
+        result.PendingCount.Should().Be(0);
+        result.ConfirmedCount.Should().Be(0);
+        result.RejectedCount.Should().Be(0);
+        result.MergedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task FindSimilarByEmbeddingAsync_MultipleResults_MapsAll()
+    {
+        var node1 = CreateEntityNode("ent-2", "Alice");
+        var record1 = Substitute.For<IRecord>();
+        record1["node"].Returns(node1);
+        record1["score"].Returns(0.95);
+
+        var node2 = CreateEntityNode("ent-3", "Alicia");
+        var record2 = Substitute.For<IRecord>();
+        record2["node"].Returns(node2);
+        record2["score"].Returns(0.88);
+
+        var (repo, _) = CreateReadCapture(new[] { record1, record2 });
+        var result = await repo.FindSimilarByEmbeddingAsync("ent-1");
+
+        result.Should().HaveCount(2);
+        result[0].Entity.Name.Should().Be("Alice");
+        result[0].Similarity.Should().Be(0.95);
+        result[1].Entity.Name.Should().Be("Alicia");
+        result[1].Similarity.Should().Be(0.88);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static (Neo4jEntityRepository Repo, List<(string Cypher, object? Parameters)> Calls)

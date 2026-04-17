@@ -151,4 +151,52 @@ public sealed class Neo4jMessageRepositoryDeleteTests
 
         await txRunner.Received(1).WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Any<CancellationToken>());
     }
+
+    // ── Edge cases: cascade vs. simple dispatch ──
+
+    [Fact]
+    public async Task DeleteAsync_CascadeTrue_DispatchesCascadeNotSimple()
+    {
+        var (repo, calls) = CreateDeleteCapture(true);
+        await repo.DeleteAsync("msg-1", cascade: true);
+        calls.Should().ContainSingle();
+        calls[0].Cypher.Should().Be(MessageQueries.DeleteCascade);
+        calls[0].Cypher.Should().NotBe(MessageQueries.DeleteSimple);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_CascadeFalse_DispatchesSimpleNotCascade()
+    {
+        var (repo, calls) = CreateDeleteCapture(true);
+        await repo.DeleteAsync("msg-1", cascade: false);
+        calls.Should().ContainSingle();
+        calls[0].Cypher.Should().Be(MessageQueries.DeleteSimple);
+        calls[0].Cypher.Should().NotBe(MessageQueries.DeleteCascade);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_NonExistentMessage_ReturnsFalse()
+    {
+        var (repo, _) = CreateDeleteCapture(deleted: false);
+        var result = await repo.DeleteAsync("msg-does-not-exist", cascade: true);
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_NonExistentMessage_NoCascade_ReturnsFalse()
+    {
+        var (repo, _) = CreateDeleteCapture(deleted: false);
+        var result = await repo.DeleteAsync("msg-does-not-exist", cascade: false);
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_EmptyStringId_StillSendsQuery()
+    {
+        // The repository doesn't guard empty IDs; it lets the DB return false.
+        var (repo, calls) = CreateDeleteCapture(false);
+        var result = await repo.DeleteAsync("", cascade: true);
+        calls.Should().ContainSingle();
+        result.Should().BeFalse();
+    }
 }

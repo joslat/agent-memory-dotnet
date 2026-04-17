@@ -330,23 +330,35 @@ The 207+ figure came from counting individual Cypher *keywords* (`MATCH`, `MERGE
 
 ---
 
-## 3. Gap Analysis
+## 3. Gap Analysis — ✅ All 11 Genuine Gaps Closed
 
-### Genuine Gaps (should be considered for implementation)
+### Genuine Gaps — Status: CLOSED ✅
 
-| Python Query | What It Does | Priority | Implementation Effort |
-|---|---|---|---|
-| `DELETE_MESSAGE` (#14) | Delete individual message + cascade MENTIONS | Medium | Low — add `DeleteAsync(messageId)` to `IMessageRepository` |
-| `DELETE_MESSAGE_NO_CASCADE` (#15) | Delete message without cascading relationships | Low | Low — MATCH + DELETE without DETACH |
-| `LIST_SESSIONS` (#16) | List all sessions with message counts and preview text | Medium | Medium — aggregate query across Conversations + Messages |
-| `GET_ENTITY_PROVENANCE` (#65) | Get complete provenance chain (sources + extractors) | Medium | Low — MATCH/OPTIONAL MATCH pattern |
-| `GET_ENTITIES_FROM_MESSAGE` (#66) | Get all entities extracted from a specific message | Medium | Low — reverse EXTRACTED_FROM traversal |
-| `GET_EXTRACTION_STATS` (#68) | Overall extraction statistics | Low | Low — count query |
-| `GET_EXTRACTOR_STATS` (#69) | Per-extractor statistics with entity counts | Low | Low — aggregate query |
-| `DELETE_ENTITY_PROVENANCE` (#71) | Remove provenance links from an entity | Low | Low — MATCH + DELETE relationships |
-| `FIND_SIMILAR_ENTITIES_BY_EMBEDDING` (#72) | Find potential duplicate entities by vector similarity | Medium | Low — vector.queryNodes excluding self |
-| `GET_POTENTIAL_DUPLICATES` (#74) | Get pending SAME_AS pairs for review | Medium | Low — MATCH on status='pending' |
-| `GET_DEDUPLICATION_STATS` (#79) | Merged/pending/rejected counts | Low | Low — aggregate query |
+| # | Python Query | What It Does | Status | Wave |
+|---|---|---|---|---|
+| G1 | `DELETE_MESSAGE` (#14) | Delete individual message + cascade MENTIONS | ✅ Implemented | Wave 4A |
+| G2 | `DELETE_MESSAGE_NO_CASCADE` (#15) | Delete message without cascading | ✅ Implemented | Wave 4A |
+| G3 | `LIST_SESSIONS` (#16) | List sessions with message counts | ✅ Implemented | Wave 4A |
+| G4 | `GET_ENTITY_PROVENANCE` (#65) | Get complete provenance chain | ✅ Implemented | Wave 4B |
+| G5 | `GET_ENTITIES_FROM_MESSAGE` (#66) | Get entities from a message | ✅ Implemented | Wave 4B |
+| G6 | `GET_EXTRACTION_STATS` (#68) | Overall extraction statistics | ✅ Implemented | Wave 4B |
+| G7 | `GET_EXTRACTOR_STATS` (#69) | Per-extractor statistics | ✅ Implemented | Wave 4B |
+| G8 | `DELETE_ENTITY_PROVENANCE` (#71) | Remove provenance links | ✅ Implemented | Wave 4B |
+| G9 | `FIND_SIMILAR_ENTITIES_BY_EMBEDDING` (#72) | Find potential duplicates by embedding | ✅ Implemented | Wave 4C |
+| G10 | `GET_POTENTIAL_DUPLICATES` (#74) | Get pending SAME_AS pairs | ✅ Implemented | Wave 4C |
+| G11 | `GET_DEDUPLICATION_STATS` (#79) | Deduplication statistics | ✅ Implemented | Wave 4C |
+
+**Result:** Functional parity improved from **82.1% → 98.5%**
+
+New domain types added:
+- `SessionSummary` — session metadata with message counts
+- `EntityProvenance` — entity sources and extractors
+- `ExtractionStats` — overall extraction metrics
+- `ExtractorStats` — per-extractor statistics
+- `DuplicatePair` — entity pairs for deduplication review
+- `DeduplicationStats` — merge/pending/rejected counts
+
+All queries integrated into per-domain classes in `Queries/` directory (Wave 3 centralization).
 
 ### Decided Omissions (by design, not needed)
 

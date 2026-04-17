@@ -332,4 +332,173 @@ public sealed class PersistenceStageTests
         result.PreferenceCount.Should().Be(0);
         result.RelationshipCount.Should().Be(0);
     }
+
+    // ── Zero items to persist ──
+
+    [Fact]
+    public async Task PersistAsync_EmptyExtraction_NoRepositoryCallsMade()
+    {
+        var sut = CreateSut();
+        await sut.PersistAsync(EmptyResult());
+
+        await _entityRepo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        await _prefRepo.DidNotReceive().UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
+        await _relRepo.DidNotReceive().UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_EmptyExtraction_NoEmbeddingCallsMade()
+    {
+        var sut = CreateSut();
+        await sut.PersistAsync(EmptyResult());
+
+        await _orchestrator.DidNotReceive().EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _orchestrator.DidNotReceive().EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _orchestrator.DidNotReceive().EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── Fact persistence fault tolerance ──
+
+    [Fact]
+    public async Task PersistAsync_FactUpsertFails_ContinuesToNextFact()
+    {
+        _idGen.GenerateId().Returns("fact-1", "fact-2");
+
+        var factCallCount = 0;
+        _factRepo.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                if (++factCallCount == 1) throw new InvalidOperationException("DB error");
+                return Task.FromResult(_.Arg<Fact>());
+            });
+
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[]
+            {
+                new ExtractedFact { Subject = "A", Predicate = "b", Object = "c", Confidence = 0.9 },
+                new ExtractedFact { Subject = "X", Predicate = "y", Object = "z", Confidence = 0.9 }
+            }
+        };
+
+        var sut = CreateSut();
+        // Should not throw
+        var result = await sut.PersistAsync(extraction);
+
+        await _factRepo.Received(2).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        result.FactCount.Should().Be(1); // only the second fact succeeded
+    }
+
+    // ── Preference persistence fault tolerance ──
+
+    [Fact]
+    public async Task PersistAsync_PreferenceUpsertFails_ContinuesToNext()
+    {
+        _idGen.GenerateId().Returns("pref-1", "pref-2");
+
+        var prefCallCount = 0;
+        _prefRepo.UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                if (++prefCallCount == 1) throw new InvalidOperationException("DB error");
+                return Task.FromResult(_.Arg<Preference>());
+            });
+
+        var extraction = EmptyResult() with
+        {
+            FilteredPreferences = new[]
+            {
+                new ExtractedPreference { Category = "a", PreferenceText = "text1", Confidence = 0.9 },
+                new ExtractedPreference { Category = "b", PreferenceText = "text2", Confidence = 0.9 }
+            }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        await _prefRepo.Received(2).UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
+        result.PreferenceCount.Should().Be(1);
+    }
+
+    // ── Relationship persistence fault tolerance ──
+
+    [Fact]
+    public async Task PersistAsync_RelationshipUpsertFails_ContinuesToNext()
+    {
+        _idGen.GenerateId().Returns("rel-1", "rel-2");
+
+        var alice = new Entity { EntityId = "e-alice", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var bob = new Entity { EntityId = "e-bob", Name = "Bob", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var charlie = new Entity { EntityId = "e-charlie", Name = "Charlie", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+
+        var relCallCount = 0;
+        _relRepo.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                if (++relCallCount == 1) throw new InvalidOperationException("DB error");
+                return Task.FromResult(_.Arg<Relationship>());
+            });
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Alice"] = alice,
+                ["Bob"] = bob,
+                ["Charlie"] = charlie
+            },
+            FilteredRelationships = new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Bob", RelationshipType = "KNOWS", Confidence = 0.9 },
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Charlie", RelationshipType = "WORKS_WITH", Confidence = 0.9 }
+            }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        await _relRepo.Received(2).UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>());
+        result.RelationshipCount.Should().Be(1);
+    }
+
+    // ── Multiple entities, facts, prefs, relationships in one extraction ──
+
+    [Fact]
+    public async Task PersistAsync_FullExtraction_AllCountsCorrect()
+    {
+        _idGen.GenerateId().Returns("fact-1", "pref-1", "rel-1");
+
+        var alice = new Entity { EntityId = "e-alice", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var bob = new Entity { EntityId = "e-bob", Name = "Bob", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Alice"] = alice,
+                ["Bob"] = bob
+            },
+            FilteredFacts = new[]
+            {
+                new ExtractedFact { Subject = "Alice", Predicate = "likes", Object = "coffee", Confidence = 0.9 }
+            },
+            FilteredPreferences = new[]
+            {
+                new ExtractedPreference { Category = "style", PreferenceText = "dark mode", Confidence = 0.9 }
+            },
+            FilteredRelationships = new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Bob", RelationshipType = "KNOWS", Confidence = 0.9 }
+            }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.EntityCount.Should().Be(2);
+        result.FactCount.Should().Be(1);
+        result.PreferenceCount.Should().Be(1);
+        result.RelationshipCount.Should().Be(1);
+    }
 }

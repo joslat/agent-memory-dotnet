@@ -275,4 +275,74 @@ public sealed class Neo4jExtractorRepositoryProvenanceTests
 
         await txRunner.Received(1).WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>(), Arg.Any<CancellationToken>());
     }
+
+    // ── Edge cases ──
+
+    [Fact]
+    public async Task GetProvenanceAsync_NonExistentEntity_ReturnsNull()
+    {
+        // No records returned → null
+        var (repo, _) = CreateReadCapture_EntityProvenance();
+        var result = await repo.GetProvenanceAsync("entity-that-does-not-exist");
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetExtractionStatsAsync_EmptyDatabase_ReturnsZeros()
+    {
+        // No records returned → zero stats
+        var (repo, _) = CreateReadCapture_ExtractionStats();
+        var result = await repo.GetExtractionStatsAsync();
+        result.TotalEntities.Should().Be(0);
+        result.TotalMessages.Should().Be(0);
+        result.AvgEntitiesPerMessage.Should().Be(0.0);
+    }
+
+    [Fact]
+    public async Task GetExtractorStatsAsync_NonExistentExtractor_ReturnsNull()
+    {
+        var (repo, _) = CreateReadCapture_ExtractorStats();
+        var result = await repo.GetExtractorStatsAsync("completely-nonexistent-extractor");
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteProvenanceAsync_EntityWithNoProvenance_ReturnsZero()
+    {
+        var (repo, _) = CreateWriteCapture_DeleteProvenance(0);
+        var result = await repo.DeleteProvenanceAsync("entity-with-no-provenance");
+        result.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetProvenanceAsync_UsesReadTransaction()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<EntityProvenance?>>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<EntityProvenance?>(null));
+        var repo = new Neo4jExtractorRepository(txRunner, NullLogger<Neo4jExtractorRepository>.Instance);
+
+        await repo.GetProvenanceAsync("e-1");
+
+        await txRunner.Received(1).ReadAsync(
+            Arg.Any<Func<IAsyncQueryRunner, Task<EntityProvenance?>>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetExtractionStatsAsync_UsesReadTransaction()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<ExtractionStats>>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ExtractionStats(0, 0, 0.0)));
+        var repo = new Neo4jExtractorRepository(txRunner, NullLogger<Neo4jExtractorRepository>.Instance);
+
+        await repo.GetExtractionStatsAsync();
+
+        await txRunner.Received(1).ReadAsync(
+            Arg.Any<Func<IAsyncQueryRunner, Task<ExtractionStats>>>(),
+            Arg.Any<CancellationToken>());
+    }
 }

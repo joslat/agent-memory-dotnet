@@ -504,7 +504,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetDeduplicationStats, new { placeholder = 0 });
+            var cursor = await runner.RunAsync(EntityQueries.GetDeduplicationStats, new { });
             var records = await cursor.ToListAsync();
             if (records.Count == 0)
                 return new DeduplicationStats(0, 0, 0, 0);

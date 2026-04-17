@@ -43,23 +43,24 @@ This reassessment identifies **12 active improvements** (down from 14 — 2 comp
 
 ### Key Findings by Category
 
-| Finding | Category | Severity | Projects Affected |
-|---------|----------|----------|-------------------|
-| Embedding generation scattered across 5+ call sites | DRY | 🔴 High | Core (4 services) |
-| Two `IMemoryExtractionPipeline` implementations with no selection logic | KISS | 🟡 Medium | Core |
-| `MemoryExtractionPipeline` at 393 LOC does extraction + validation + resolution + persistence | SRP | 🟡 Medium | Core |
-| Extraction.Llm and Extraction.AzureLanguage are ~95% structurally identical | DRY | 🔴 High | Extraction.* |
-| `IEntityRepository` has 13 methods (others have 3-6) | ISP | 🟡 Medium | Abstractions |
-| Cypher queries inline in C# strings across 10 repositories | Maintainability | 🟡 Medium | Neo4j |
-| Hardcoded LLM system prompts require recompilation to change | KISS | 🟢 Low | Extraction.Llm |
-| `AzureLanguageRelationshipExtractor` re-calls entity recognition (API waste) | Performance | 🟡 Medium | Extraction.AzureLanguage |
-| Confidence thresholds hardcoded in multiple places (0.5, 0.8, 0.85, 0.95) | DRY | 🟡 Medium | Core |
-| No Semantic Kernel adapter (largest .NET AI audience) | Ecosystem | 🔴 High | Missing package |
-| Zero TODO/FIXME/HACK comments across all ~265 source files | Quality | ✅ Positive | All |
-| Zero circular dependencies | Architecture | ✅ Positive | All |
-| Zero boundary violations | Architecture | ✅ Positive | All |
-| neo4j-maf-provider dependency removed, retrievers internalized | Architecture | ✅ Resolved | Neo4j |
-| GraphRagAdapter merged into Neo4j package (10→9 packages) | Architecture | ✅ Resolved | Neo4j |
+| Finding | Category | Severity | Status |
+|---------|----------|----------|--------|
+| Embedding generation scattered across 5+ call sites | DRY | 🔴 High | ✅ **Wave 1 Complete** — `IEmbeddingOrchestrator` |
+| Two `IMemoryExtractionPipeline` implementations | KISS | 🟡 Medium | ✅ **Wave 2 Complete** — Merged, unified pipeline |
+| `MemoryExtractionPipeline` SRP violation (393 LOC) | SRP | 🟡 Medium | ✅ **Wave 2 Complete** — Split into stages |
+| Extraction.Llm and Extraction.AzureLanguage ~95% identical | DRY | 🔴 High | ✅ **Wave 1 Complete** — `ExtractorBase<T>` |
+| `IEntityRepository` has 13 methods (bloated) | ISP | 🟡 Medium | ⚠️ **Deferred** — Working well, low priority |
+| Cypher queries inline across 10+ repositories | Maintainability | 🟡 Medium | ✅ **Wave 3 Complete** — Per-domain `Queries/` classes |
+| Hardcoded LLM system prompts | KISS | 🟢 Low | ⚠️ **Deferred** — Working well, low priority |
+| Azure Relationship Extractor API waste | Performance | 🟡 Medium | ✅ **Wave 2 Complete** — Shared `ExtractionContext` |
+| Confidence thresholds hardcoded | DRY | 🟡 Medium | ✅ **Wave 2 Complete** — Parameterized |
+| No Semantic Kernel adapter | Ecosystem | 🔴 High | 📅 **Planned** — Future `SemanticKernel` package |
+| 11 functional parity gaps (G1-G11) | Parity | 🟡 Medium | ✅ **Wave 4 Complete** — 98.5% parity |
+| Zero TODO/FIXME/HACK comments | Quality | ✅ Positive | ✅ **Maintained** |
+| Zero circular dependencies | Architecture | ✅ Positive | ✅ **Maintained** |
+| Zero boundary violations | Architecture | ✅ Positive | ✅ **Maintained** |
+| neo4j-maf-provider dependency removed | Architecture | ✅ Positive | ✅ **Resolved** — Retrievers internalized |
+| GraphRagAdapter merged into Neo4j | Architecture | ✅ Positive | ✅ **Resolved** — 10→9 packages |
 
 ---
 
