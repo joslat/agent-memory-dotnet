@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
+using Neo4j.AgentMemory.Core.Extraction;
 using Neo4j.AgentMemory.Extraction.AzureLanguage.Internal;
 
 namespace Neo4j.AgentMemory.Extraction.AzureLanguage;
@@ -10,49 +11,35 @@ namespace Neo4j.AgentMemory.Extraction.AzureLanguage;
 /// Extracts user preferences from conversation messages using Azure AI Text Analytics
 /// (sentiment analysis combined with key phrase extraction).
 /// </summary>
-public sealed class AzureLanguagePreferenceExtractor : IPreferenceExtractor
+public sealed class AzureLanguagePreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;
-    private readonly ILogger<AzureLanguagePreferenceExtractor> _logger;
 
     internal AzureLanguagePreferenceExtractor(
         ITextAnalyticsClientWrapper client,
         IOptions<AzureLanguageOptions> options,
         ILogger<AzureLanguagePreferenceExtractor> logger)
+        : base(logger)
     {
         _client = client;
         _options = options.Value;
-        _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<ExtractedPreference>> ExtractAsync(
-        IReadOnlyList<Message> messages,
-        CancellationToken cancellationToken = default)
+    protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
+        IReadOnlyList<Message> messages, CancellationToken ct)
     {
-        if (messages.Count == 0)
-            return Array.Empty<ExtractedPreference>();
+        var preferences = new List<ExtractedPreference>();
 
-        try
+        foreach (var message in messages)
         {
-            var preferences = new List<ExtractedPreference>();
+            if (string.IsNullOrWhiteSpace(message.Content))
+                continue;
 
-            foreach (var message in messages)
-            {
-                if (string.IsNullOrWhiteSpace(message.Content))
-                    continue;
-
-                await ExtractPreferencesFromMessage(message, preferences, cancellationToken);
-            }
-
-            return preferences;
+            await ExtractPreferencesFromMessage(message, preferences, ct);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Azure Language preference extraction failed; returning empty list.");
-            return Array.Empty<ExtractedPreference>();
-        }
+
+        return preferences;
     }
 
     private async Task ExtractPreferencesFromMessage(

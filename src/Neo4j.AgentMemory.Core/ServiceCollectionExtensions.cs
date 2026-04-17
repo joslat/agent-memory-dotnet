@@ -57,6 +57,9 @@ public static class ServiceCollectionExtensions
         // Real extraction pipeline — wires extractors to repositories.
         services.TryAddScoped<IMemoryExtractionPipeline, MemoryExtractionPipeline>();
 
+        // Embedding orchestrator — centralizes embedding generation logic.
+        services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();
+
         // Stub extractors as no-op defaults; replaced when AddLlmExtraction() is called.
         services.TryAddScoped<IEntityExtractor, StubEntityExtractor>();
         services.TryAddScoped<IFactExtractor, StubFactExtractor>();

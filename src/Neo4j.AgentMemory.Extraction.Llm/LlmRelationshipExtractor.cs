@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
+using Neo4j.AgentMemory.Core.Extraction;
 using Neo4j.AgentMemory.Extraction.Llm.Internal;
 
 namespace Neo4j.AgentMemory.Extraction.Llm;
@@ -11,7 +12,7 @@ namespace Neo4j.AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts relationships between entities from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmRelationshipExtractor : IRelationshipExtractor
+public sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelationship>, IRelationshipExtractor
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
@@ -36,63 +37,49 @@ public sealed class LlmRelationshipExtractor : IRelationshipExtractor
 
     private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
-    private readonly ILogger<LlmRelationshipExtractor> _logger;
 
     public LlmRelationshipExtractor(
         IChatClient chatClient,
         IOptions<LlmExtractionOptions> options,
         ILogger<LlmRelationshipExtractor> logger)
+        : base(logger)
     {
         _chatClient = chatClient;
         _options = options.Value;
-        _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<ExtractedRelationship>> ExtractAsync(
-        IReadOnlyList<Message> messages,
-        CancellationToken cancellationToken = default)
+    protected override async Task<IReadOnlyList<ExtractedRelationship>> ExtractCoreAsync(
+        IReadOnlyList<Message> messages, CancellationToken ct)
     {
-        if (messages.Count == 0)
+        var conversationText = ConversationTextBuilder.Build(messages);
+
+        var chatMessages = new List<ChatMessage>
+        {
+            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.User, $"Extract relationships from this conversation:\n\n{conversationText}")
+        };
+
+        var chatOptions = BuildChatOptions();
+        var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, ct);
+        var json = response.Text;
+
+        var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
+        if (dto?.Relations is null)
             return Array.Empty<ExtractedRelationship>();
 
-        var conversationText = BuildConversationText(messages);
-
-        try
-        {
-            var chatMessages = new List<ChatMessage>
+        return dto.Relations
+            .Where(r => !string.IsNullOrWhiteSpace(r.Source)
+                     && !string.IsNullOrWhiteSpace(r.Target)
+                     && !string.IsNullOrWhiteSpace(r.RelationType))
+            .Select(r => new ExtractedRelationship
             {
-                new(ChatRole.System, SystemPrompt),
-                new(ChatRole.User, $"Extract relationships from this conversation:\n\n{conversationText}")
-            };
-
-            var chatOptions = BuildChatOptions();
-            var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, cancellationToken);
-            var json = response.Text;
-
-            var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
-            if (dto?.Relations is null)
-                return Array.Empty<ExtractedRelationship>();
-
-            return dto.Relations
-                .Where(r => !string.IsNullOrWhiteSpace(r.Source)
-                         && !string.IsNullOrWhiteSpace(r.Target)
-                         && !string.IsNullOrWhiteSpace(r.RelationType))
-                .Select(r => new ExtractedRelationship
-                {
-                    SourceEntity = r.Source,
-                    TargetEntity = r.Target,
-                    RelationshipType = r.RelationType,
-                    Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description,
-                    Confidence = r.Confidence
-                })
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Relationship extraction failed; returning empty list.");
-            return Array.Empty<ExtractedRelationship>();
-        }
+                SourceEntity = r.Source,
+                TargetEntity = r.Target,
+                RelationshipType = r.RelationType,
+                Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description,
+                Confidence = r.Confidence
+            })
+            .ToList();
     }
 
     private ChatOptions BuildChatOptions()
@@ -102,7 +89,4 @@ public sealed class LlmRelationshipExtractor : IRelationshipExtractor
             opts.ModelId = _options.ModelId;
         return opts;
     }
-
-    private static string BuildConversationText(IReadOnlyList<Message> messages) =>
-        string.Join("\n", messages.Select(m => $"{m.Role}: {m.Content}"));
 }

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -21,7 +20,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
     private readonly IPreferenceExtractor _preferenceExtractor;
     private readonly IRelationshipExtractor _relationshipExtractor;
     private readonly IEntityResolver _entityResolver;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IEntityRepository _entityRepository;
     private readonly IFactRepository _factRepository;
     private readonly IPreferenceRepository _preferenceRepository;
@@ -37,7 +36,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         IPreferenceExtractor preferenceExtractor,
         IRelationshipExtractor relationshipExtractor,
         IEntityResolver entityResolver,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingOrchestrator embeddingOrchestrator,
         IEntityRepository entityRepository,
         IFactRepository factRepository,
         IPreferenceRepository preferenceRepository,
@@ -52,7 +51,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         _preferenceExtractor = preferenceExtractor;
         _relationshipExtractor = relationshipExtractor;
         _entityResolver = entityResolver;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
         _factRepository = factRepository;
         _preferenceRepository = preferenceRepository;
@@ -137,8 +136,8 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
 
                 if (entity.Embedding is null)
                 {
-                    var generated = await _embeddingGenerator.GenerateAsync([entity.Name], cancellationToken: cancellationToken);
-                    entity = entity with { Embedding = generated[0].Vector.ToArray() };
+                    var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, cancellationToken);
+                    entity = entity with { Embedding = embedding };
                 }
 
                 entity = await _entityRepository.UpsertAsync(entity, cancellationToken);
@@ -182,8 +181,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
 
             try
             {
-                var factText = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
-                var factGenerated = await _embeddingGenerator.GenerateAsync([factText], cancellationToken: cancellationToken);
+                var factEmbedding = await _embeddingOrchestrator.EmbedFactAsync(extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken);
 
                 var fact = new Fact
                 {
@@ -194,7 +192,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                     Confidence = extracted.Confidence,
                     ValidFrom = extracted.ValidFrom,
                     ValidUntil = extracted.ValidUntil,
-                    Embedding = factGenerated[0].Vector.ToArray(),
+                    Embedding = factEmbedding,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow
                 };
@@ -244,7 +242,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
 
             try
             {
-                var prefGenerated = await _embeddingGenerator.GenerateAsync([extracted.PreferenceText], cancellationToken: cancellationToken);
+                var prefEmbedding = await _embeddingOrchestrator.EmbedPreferenceAsync(extracted.PreferenceText, cancellationToken);
 
                 var preference = new Preference
                 {
@@ -253,7 +251,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                     PreferenceText = extracted.PreferenceText,
                     Context = extracted.Context,
                     Confidence = extracted.Confidence,
-                    Embedding = prefGenerated[0].Vector.ToArray(),
+                    Embedding = prefEmbedding,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow
                 };

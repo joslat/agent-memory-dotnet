@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -19,7 +18,7 @@ public sealed class MemoryServiceTests
     private readonly IEntityRepository _entityRepository;
     private readonly IFactRepository _factRepository;
     private readonly IPreferenceRepository _preferenceRepository;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
@@ -32,7 +31,7 @@ public sealed class MemoryServiceTests
         _entityRepository = Substitute.For<IEntityRepository>();
         _factRepository = Substitute.For<IFactRepository>();
         _preferenceRepository = Substitute.For<IPreferenceRepository>();
-        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
@@ -62,7 +61,7 @@ public sealed class MemoryServiceTests
 
     private MemoryService CreateSut(IOptions<MemoryOptions>? options = null) =>
         new(_shortTerm, _assembler, _extractionPipeline,
-            _entityRepository, _factRepository, _preferenceRepository, _embeddingGenerator,
+            _entityRepository, _factRepository, _preferenceRepository, _embeddingOrchestrator,
             options ?? Options.Create(new MemoryOptions()),
             _clock, _idGenerator,
             NullLogger<MemoryService>.Instance);

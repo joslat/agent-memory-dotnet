@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
+using Neo4j.AgentMemory.Core.Extraction;
 using Neo4j.AgentMemory.Extraction.Llm.Internal;
 
 namespace Neo4j.AgentMemory.Extraction.Llm;
@@ -11,7 +12,7 @@ namespace Neo4j.AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts user preferences from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmPreferenceExtractor : IPreferenceExtractor
+public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
@@ -36,61 +37,47 @@ public sealed class LlmPreferenceExtractor : IPreferenceExtractor
 
     private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
-    private readonly ILogger<LlmPreferenceExtractor> _logger;
 
     public LlmPreferenceExtractor(
         IChatClient chatClient,
         IOptions<LlmExtractionOptions> options,
         ILogger<LlmPreferenceExtractor> logger)
+        : base(logger)
     {
         _chatClient = chatClient;
         _options = options.Value;
-        _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<ExtractedPreference>> ExtractAsync(
-        IReadOnlyList<Message> messages,
-        CancellationToken cancellationToken = default)
+    protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
+        IReadOnlyList<Message> messages, CancellationToken ct)
     {
-        if (messages.Count == 0)
+        var conversationText = ConversationTextBuilder.Build(messages);
+
+        var chatMessages = new List<ChatMessage>
+        {
+            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.User, $"Extract preferences from this conversation:\n\n{conversationText}")
+        };
+
+        var chatOptions = BuildChatOptions();
+        var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, ct);
+        var json = response.Text;
+
+        var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
+        if (dto?.Preferences is null)
             return Array.Empty<ExtractedPreference>();
 
-        var conversationText = BuildConversationText(messages);
-
-        try
-        {
-            var chatMessages = new List<ChatMessage>
+        return dto.Preferences
+            .Where(p => !string.IsNullOrWhiteSpace(p.Category)
+                     && !string.IsNullOrWhiteSpace(p.Preference))
+            .Select(p => new ExtractedPreference
             {
-                new(ChatRole.System, SystemPrompt),
-                new(ChatRole.User, $"Extract preferences from this conversation:\n\n{conversationText}")
-            };
-
-            var chatOptions = BuildChatOptions();
-            var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, cancellationToken);
-            var json = response.Text;
-
-            var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
-            if (dto?.Preferences is null)
-                return Array.Empty<ExtractedPreference>();
-
-            return dto.Preferences
-                .Where(p => !string.IsNullOrWhiteSpace(p.Category)
-                         && !string.IsNullOrWhiteSpace(p.Preference))
-                .Select(p => new ExtractedPreference
-                {
-                    Category = p.Category,
-                    PreferenceText = p.Preference,
-                    Context = string.IsNullOrWhiteSpace(p.Context) ? null : p.Context,
-                    Confidence = p.Confidence
-                })
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Preference extraction failed; returning empty list.");
-            return Array.Empty<ExtractedPreference>();
-        }
+                Category = p.Category,
+                PreferenceText = p.Preference,
+                Context = string.IsNullOrWhiteSpace(p.Context) ? null : p.Context,
+                Confidence = p.Confidence
+            })
+            .ToList();
     }
 
     private ChatOptions BuildChatOptions()
@@ -100,7 +87,4 @@ public sealed class LlmPreferenceExtractor : IPreferenceExtractor
             opts.ModelId = _options.ModelId;
         return opts;
     }
-
-    private static string BuildConversationText(IReadOnlyList<Message> messages) =>
-        string.Join("\n", messages.Select(m => $"{m.Role}: {m.Content}"));
 }

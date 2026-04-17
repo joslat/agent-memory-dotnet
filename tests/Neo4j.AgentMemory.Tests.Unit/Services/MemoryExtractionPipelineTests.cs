@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -7,7 +6,6 @@ using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Services;
-using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -21,7 +19,7 @@ public sealed class MemoryExtractionPipelineTests
     private readonly IPreferenceExtractor _preferenceExtractor = Substitute.For<IPreferenceExtractor>();
     private readonly IRelationshipExtractor _relationshipExtractor = Substitute.For<IRelationshipExtractor>();
     private readonly IEntityResolver _entityResolver = Substitute.For<IEntityResolver>();
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
     private readonly IEntityRepository _entityRepo = Substitute.For<IEntityRepository>();
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
@@ -32,9 +30,15 @@ public sealed class MemoryExtractionPipelineTests
     public MemoryExtractionPipelineTests()
     {
         _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, new float[384]));
+        _embeddingOrchestrator
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[384]));
+        _embeddingOrchestrator
+            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[384]));
+        _embeddingOrchestrator
+            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[384]));
         _entityRepo
             .UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult(ci.Arg<Entity>()));
@@ -70,7 +74,7 @@ public sealed class MemoryExtractionPipelineTests
             _preferenceExtractor,
             _relationshipExtractor,
             _entityResolver,
-            _embeddingGenerator,
+            _embeddingOrchestrator,
             _entityRepo,
             _factRepo,
             _prefRepo,
@@ -322,8 +326,12 @@ public sealed class MemoryExtractionPipelineTests
         await sut.ExtractAsync(MakeRequest());
 
         // Entity embedding + fact embedding + preference embedding = 3 calls minimum
-        await _embeddingGenerator.Received(3)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -1,6 +1,6 @@
-using Microsoft.Extensions.AI;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Options;
+using Neo4j.AgentMemory.Abstractions.Services;
 
 namespace Neo4j.AgentMemory.Core.Resolution;
 
@@ -10,14 +10,14 @@ namespace Neo4j.AgentMemory.Core.Resolution;
 /// </summary>
 internal sealed class SemanticMatchEntityMatcher : IEntityMatcher
 {
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly EntityResolutionOptions _options;
 
     public SemanticMatchEntityMatcher(
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingOrchestrator embeddingOrchestrator,
         EntityResolutionOptions options)
     {
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingOrchestrator = embeddingOrchestrator;
         _options = options;
     }
 
@@ -28,10 +28,9 @@ internal sealed class SemanticMatchEntityMatcher : IEntityMatcher
         IReadOnlyList<Entity> existingEntities,
         CancellationToken cancellationToken = default)
     {
-        var generated = await _embeddingGenerator
-            .GenerateAsync([candidate.Name], cancellationToken: cancellationToken)
+        var candidateEmbedding = await _embeddingOrchestrator
+            .EmbedEntityAsync(candidate.Name, cancellationToken)
             .ConfigureAwait(false);
-        var candidateEmbedding = generated[0].Vector.ToArray();
 
         Entity? bestEntity = null;
         double bestScore = _options.SemanticMatchThreshold;

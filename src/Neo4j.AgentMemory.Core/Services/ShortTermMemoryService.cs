@@ -1,4 +1,3 @@
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -15,7 +14,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ShortTermMemoryOptions _options;
@@ -24,7 +23,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     public ShortTermMemoryService(
         IConversationRepository conversationRepo,
         IMessageRepository messageRepo,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IIdGenerator idGenerator,
         IOptions<ShortTermMemoryOptions> options,
@@ -32,7 +31,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     {
         _conversationRepo = conversationRepo;
         _messageRepo = messageRepo;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingOrchestrator = embeddingOrchestrator;
         _clock = clock;
         _idGenerator = idGenerator;
         _options = options.Value;
@@ -70,8 +69,8 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         if (_options.GenerateEmbeddings && message.Embedding is null)
         {
             _logger.LogDebug("Generating embedding for message {MessageId}", message.MessageId);
-            var generated = await _embeddingGenerator.GenerateAsync([message.Content], cancellationToken: cancellationToken);
-            finalMessage = message with { Embedding = generated[0].Vector.ToArray() };
+            var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken);
+            finalMessage = message with { Embedding = embedding };
         }
 
         return await _messageRepo.AddAsync(finalMessage, cancellationToken);
@@ -89,8 +88,8 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
             var finalMessage = message;
             if (_options.GenerateEmbeddings && message.Embedding is null)
             {
-                var generated = await _embeddingGenerator.GenerateAsync([message.Content], cancellationToken: cancellationToken);
-                finalMessage = message with { Embedding = generated[0].Vector.ToArray() };
+                var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken);
+                finalMessage = message with { Embedding = embedding };
             }
             results.Add(finalMessage);
         }

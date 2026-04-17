@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -7,7 +6,6 @@ using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Resolution;
-using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 
 namespace Neo4j.AgentMemory.Tests.Unit.Resolution;
@@ -18,14 +16,14 @@ public sealed class CompositeEntityResolverTests
     private const string NewEntityId = "new-entity-id";
 
     private readonly IEntityRepository _entityRepo;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
 
     public CompositeEntityResolverTests()
     {
         _entityRepo = Substitute.For<IEntityRepository>();
-        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
@@ -33,9 +31,12 @@ public sealed class CompositeEntityResolverTests
         _idGenerator.GenerateId().Returns(NewEntityId);
 
         // Default: zero vector (orthogonal to any unit vector, no semantic match above threshold)
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, new float[4]));
+        _embeddingOrchestrator
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[4]));
+        _embeddingOrchestrator
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[4]));
 
         _entityRepo
             .UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
@@ -47,7 +48,7 @@ public sealed class CompositeEntityResolverTests
         var opts = Options.Create(options ?? new ExtractionOptions());
         return new CompositeEntityResolver(
             _entityRepo,
-            _embeddingGenerator,
+            _embeddingOrchestrator,
             opts,
             _clock,
             _idGenerator,
@@ -86,8 +87,8 @@ public sealed class CompositeEntityResolverTests
 
         result.EntityId.Should().Be("e1");
         // Exact match short-circuits — embedding provider not called
-        await _embeddingGenerator.DidNotReceive()
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive()
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -122,9 +123,9 @@ public sealed class CompositeEntityResolverTests
         _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
+        _embeddingOrchestrator
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -258,9 +259,12 @@ public sealed class CompositeEntityResolverTests
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         // Semantic matcher will compute cosine similarity = 1.0 (above AutoMergeThreshold)
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
+        _embeddingOrchestrator
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
+        _embeddingOrchestrator
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -280,9 +284,11 @@ public sealed class CompositeEntityResolverTests
         // "Alicia" is NOT in existing aliases → alias will be added → re-embedding triggered
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
-        // Two calls: 1 for semantic match query, 1 for re-embedding with combined name + aliases
-        await _embeddingGenerator.Received(2)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+        // 1 call for semantic match query + 1 for re-embedding with combined name + aliases
+        await _embeddingOrchestrator.Received(1)
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -302,9 +308,9 @@ public sealed class CompositeEntityResolverTests
         _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
+        _embeddingOrchestrator
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -325,8 +331,10 @@ public sealed class CompositeEntityResolverTests
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
         // Only 1 call: for semantic match query
-        await _embeddingGenerator.Received(1)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive()
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -340,9 +348,12 @@ public sealed class CompositeEntityResolverTests
         _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
+        _embeddingOrchestrator
+            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
+        _embeddingOrchestrator
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -362,7 +373,7 @@ public sealed class CompositeEntityResolverTests
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
         // The re-embedding call uses combined text: "{name} {aliases}" = "Alice Alicia"
-        await _embeddingGenerator.Received(1)
-            .GenerateAsync(Arg.Is<IEnumerable<string>>(x => x.First() == "Alice Alicia"), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedTextAsync("Alice Alicia", Arg.Any<CancellationToken>());
     }
 }

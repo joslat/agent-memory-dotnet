@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
+using Neo4j.AgentMemory.Core.Extraction;
 using Neo4j.AgentMemory.Extraction.AzureLanguage.Internal;
 
 namespace Neo4j.AgentMemory.Extraction.AzureLanguage;
@@ -10,50 +11,36 @@ namespace Neo4j.AgentMemory.Extraction.AzureLanguage;
 /// Extracts facts from conversation messages using Azure AI Text Analytics
 /// (key phrases and linked entity recognition).
 /// </summary>
-public sealed class AzureLanguageFactExtractor : IFactExtractor
+public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, IFactExtractor
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;
-    private readonly ILogger<AzureLanguageFactExtractor> _logger;
 
     internal AzureLanguageFactExtractor(
         ITextAnalyticsClientWrapper client,
         IOptions<AzureLanguageOptions> options,
         ILogger<AzureLanguageFactExtractor> logger)
+        : base(logger)
     {
         _client = client;
         _options = options.Value;
-        _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<ExtractedFact>> ExtractAsync(
-        IReadOnlyList<Message> messages,
-        CancellationToken cancellationToken = default)
+    protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(
+        IReadOnlyList<Message> messages, CancellationToken ct)
     {
-        if (messages.Count == 0)
-            return Array.Empty<ExtractedFact>();
+        var facts = new List<ExtractedFact>();
 
-        try
+        foreach (var message in messages)
         {
-            var facts = new List<ExtractedFact>();
+            if (string.IsNullOrWhiteSpace(message.Content))
+                continue;
 
-            foreach (var message in messages)
-            {
-                if (string.IsNullOrWhiteSpace(message.Content))
-                    continue;
-
-                await AddKeyPhraseFacts(message, facts, cancellationToken);
-                await AddLinkedEntityFacts(message, facts, cancellationToken);
-            }
-
-            return facts;
+            await AddKeyPhraseFacts(message, facts, ct);
+            await AddLinkedEntityFacts(message, facts, ct);
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Azure Language fact extraction failed; returning empty list.");
-            return Array.Empty<ExtractedFact>();
-        }
+
+        return facts;
     }
 
     private async Task AddKeyPhraseFacts(Message message, List<ExtractedFact> facts, CancellationToken ct)

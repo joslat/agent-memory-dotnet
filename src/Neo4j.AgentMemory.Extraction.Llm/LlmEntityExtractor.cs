@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
+using Neo4j.AgentMemory.Core.Extraction;
 using Neo4j.AgentMemory.Extraction.Llm.Internal;
 
 namespace Neo4j.AgentMemory.Extraction.Llm;
@@ -11,7 +12,7 @@ namespace Neo4j.AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts named entities from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmEntityExtractor : IEntityExtractor
+public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntityExtractor
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
@@ -41,62 +42,48 @@ public sealed class LlmEntityExtractor : IEntityExtractor
 
     private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
-    private readonly ILogger<LlmEntityExtractor> _logger;
 
     public LlmEntityExtractor(
         IChatClient chatClient,
         IOptions<LlmExtractionOptions> options,
         ILogger<LlmEntityExtractor> logger)
+        : base(logger)
     {
         _chatClient = chatClient;
         _options = options.Value;
-        _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<ExtractedEntity>> ExtractAsync(
-        IReadOnlyList<Message> messages,
-        CancellationToken cancellationToken = default)
+    protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
+        IReadOnlyList<Message> messages, CancellationToken ct)
     {
-        if (messages.Count == 0)
+        var conversationText = ConversationTextBuilder.Build(messages);
+
+        var chatMessages = new List<ChatMessage>
+        {
+            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.User, $"Extract entities from this conversation:\n\n{conversationText}")
+        };
+
+        var chatOptions = BuildChatOptions();
+        var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, ct);
+        var json = response.Text;
+
+        var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
+        if (dto?.Entities is null)
             return Array.Empty<ExtractedEntity>();
 
-        var conversationText = BuildConversationText(messages);
-
-        try
-        {
-            var chatMessages = new List<ChatMessage>
+        return dto.Entities
+            .Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.Type))
+            .Select(e => new ExtractedEntity
             {
-                new(ChatRole.System, SystemPrompt),
-                new(ChatRole.User, $"Extract entities from this conversation:\n\n{conversationText}")
-            };
-
-            var chatOptions = BuildChatOptions();
-            var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, cancellationToken);
-            var json = response.Text;
-
-            var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
-            if (dto?.Entities is null)
-                return Array.Empty<ExtractedEntity>();
-
-            return dto.Entities
-                .Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.Type))
-                .Select(e => new ExtractedEntity
-                {
-                    Name = e.Name,
-                    Type = NormalizeEntityType(e.Type),
-                    Subtype = string.IsNullOrWhiteSpace(e.Subtype) ? null : e.Subtype,
-                    Description = string.IsNullOrWhiteSpace(e.Description) ? null : e.Description,
-                    Confidence = e.Confidence,
-                    Aliases = e.Aliases ?? new List<string>()
-                })
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Entity extraction failed; returning empty list.");
-            return Array.Empty<ExtractedEntity>();
-        }
+                Name = e.Name,
+                Type = NormalizeEntityType(e.Type),
+                Subtype = string.IsNullOrWhiteSpace(e.Subtype) ? null : e.Subtype,
+                Description = string.IsNullOrWhiteSpace(e.Description) ? null : e.Description,
+                Confidence = e.Confidence,
+                Aliases = e.Aliases ?? new List<string>()
+            })
+            .ToList();
     }
 
     private ChatOptions BuildChatOptions()
@@ -106,9 +93,6 @@ public sealed class LlmEntityExtractor : IEntityExtractor
             opts.ModelId = _options.ModelId;
         return opts;
     }
-
-    private static string BuildConversationText(IReadOnlyList<Message> messages) =>
-        string.Join("\n", messages.Select(m => $"{m.Role}: {m.Content}"));
 
     private static string NormalizeEntityType(string type) => type.ToUpperInvariant() switch
     {

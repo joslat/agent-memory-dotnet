@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -17,7 +16,7 @@ public sealed class LongTermMemoryServiceTests
     private readonly IFactRepository _factRepo;
     private readonly IPreferenceRepository _prefRepo;
     private readonly IRelationshipRepository _relRepo;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
 
     public LongTermMemoryServiceTests()
     {
@@ -25,17 +24,17 @@ public sealed class LongTermMemoryServiceTests
         _factRepo = Substitute.For<IFactRepository>();
         _prefRepo = Substitute.For<IPreferenceRepository>();
         _relRepo = Substitute.For<IRelationshipRepository>();
-        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
 
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call =>
-            {
-                var texts = call.Arg<IEnumerable<string>>();
-                var embeddings = new GeneratedEmbeddings<Embedding<float>>(
-                    texts.Select(_ => new Embedding<float>(new float[1536])).ToList());
-                return Task.FromResult(embeddings);
-            });
+        _embeddingOrchestrator
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[1536]));
+        _embeddingOrchestrator
+            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[1536]));
+        _embeddingOrchestrator
+            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[1536]));
 
         _entityRepo
             .UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
@@ -55,7 +54,7 @@ public sealed class LongTermMemoryServiceTests
     }
 
     private LongTermMemoryService CreateSut(IOptions<LongTermMemoryOptions>? options = null) =>
-        new(_entityRepo, _factRepo, _prefRepo, _relRepo, _embeddingGenerator,
+        new(_entityRepo, _factRepo, _prefRepo, _relRepo, _embeddingOrchestrator,
             options ?? Options.Create(new LongTermMemoryOptions()),
             NullLogger<LongTermMemoryService>.Instance);
 
@@ -69,9 +68,9 @@ public sealed class LongTermMemoryServiceTests
 
         await sut.AddEntityAsync(entity);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .Received(1)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -82,9 +81,9 @@ public sealed class LongTermMemoryServiceTests
 
         await sut.AddEntityAsync(entity);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .DidNotReceive()
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -138,9 +137,9 @@ public sealed class LongTermMemoryServiceTests
 
         await sut.AddPreferenceAsync(pref);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .Received(1)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -194,9 +193,9 @@ public sealed class LongTermMemoryServiceTests
 
         await sut.AddFactAsync(fact);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .Received(1)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -7,7 +6,6 @@ using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Services;
-using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 
 namespace Neo4j.AgentMemory.Tests.Unit.Services;
@@ -16,7 +14,7 @@ public sealed class ShortTermMemoryServiceTests
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
@@ -25,15 +23,15 @@ public sealed class ShortTermMemoryServiceTests
     {
         _conversationRepo = Substitute.For<IConversationRepository>();
         _messageRepo = Substitute.For<IMessageRepository>();
-        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
         _clock.UtcNow.Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-id-1", "generated-id-2", "generated-id-3");
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, new float[1536]));
+        _embeddingOrchestrator
+            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[1536]));
 
         _conversationRepo
             .UpsertAsync(Arg.Any<Conversation>(), Arg.Any<CancellationToken>())
@@ -49,7 +47,7 @@ public sealed class ShortTermMemoryServiceTests
     }
 
     private ShortTermMemoryService CreateSut(IOptions<ShortTermMemoryOptions>? options = null) =>
-        new(_conversationRepo, _messageRepo, _embeddingGenerator, _clock, _idGenerator,
+        new(_conversationRepo, _messageRepo, _embeddingOrchestrator, _clock, _idGenerator,
             options ?? Options.Create(new ShortTermMemoryOptions()),
             NullLogger<ShortTermMemoryService>.Instance);
 
@@ -95,9 +93,9 @@ public sealed class ShortTermMemoryServiceTests
 
         await sut.AddMessageAsync(message);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .Received(1)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -108,9 +106,9 @@ public sealed class ShortTermMemoryServiceTests
 
         await sut.AddMessageAsync(message);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .DidNotReceive()
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -121,9 +119,9 @@ public sealed class ShortTermMemoryServiceTests
 
         await sut.AddMessageAsync(message);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .DidNotReceive()
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -150,9 +148,9 @@ public sealed class ShortTermMemoryServiceTests
 
         await sut.AddMessagesAsync(messages);
 
-        await _embeddingGenerator
+        await _embeddingOrchestrator
             .Received(3)
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

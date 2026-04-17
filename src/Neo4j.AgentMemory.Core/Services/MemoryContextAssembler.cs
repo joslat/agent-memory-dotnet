@@ -1,4 +1,3 @@
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -16,7 +15,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly ILongTermMemoryService _longTerm;
     private readonly IReasoningMemoryService _reasoning;
     private readonly IGraphRagContextSource? _graphRag;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly MemoryOptions _options;
     private readonly ILogger<MemoryContextAssembler> _logger;
@@ -26,7 +25,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         ILongTermMemoryService longTerm,
         IReasoningMemoryService reasoning,
         IGraphRagContextSource? graphRag,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger)
@@ -35,7 +34,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         _longTerm = longTerm;
         _reasoning = reasoning;
         _graphRag = graphRag;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingOrchestrator = embeddingOrchestrator;
         _clock = clock;
         _options = options.Value;
         _logger = logger;
@@ -54,8 +53,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var queryEmbedding = request.QueryEmbedding;
         if (queryEmbedding is null)
         {
-            var generated = await _embeddingGenerator.GenerateAsync([request.Query], cancellationToken: cancellationToken);
-            queryEmbedding = generated[0].Vector.ToArray();
+            queryEmbedding = await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
         }
 
         // Launch all retrieval tasks in parallel
