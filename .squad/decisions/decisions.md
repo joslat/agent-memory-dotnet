@@ -970,6 +970,112 @@ These are based on line-by-line code comparison, not estimates. All claims are t
 
 ---
 
+## Decision: Killer Package Implementation Plan — Decisions
+
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** July 2026  
+**Context:** User feedback on architecture-review-2.md, resulting in concrete implementation plan
+
+---
+
+### D-AR2-1: MEAI Migration — Status Update
+
+**Status:** ACCEPTED → In Progress (Rachael implementing)  
+**Impact:** HIGH  
+
+User approved this decision. Rachael is actively implementing. This is the foundation for all subsequent killer package work.
+
+---
+
+### D-KP-1: Meta-Package Bundles Abstractions + Core + Neo4j + Extraction.Llm
+
+**Status:** Proposed  
+**Impact:** HIGH (DX)
+
+The `Neo4j.AgentMemory` meta-package contains exactly these four dependencies. Framework adapters (MAF, SK, MCP) are NOT included — they are separate optional add-ons. This ensures `dotnet add package Neo4j.AgentMemory` gives you everything for the common case without pulling in MAF or SK dependencies you may not need.
+
+**Rationale:** The 4-package install problem is a real DX barrier. One install must give you everything needed for the "raw .NET" scenario.
+
+---
+
+### D-KP-2: Fluent DI Builder Lives in Meta-Package
+
+**Status:** Proposed  
+**Impact:** HIGH (DX)
+
+`AddNeo4jAgentMemory()` extension method and `AgentMemoryBuilder` live in the meta-package itself (not a separate Extensions package). The meta-package is the entry point — it should own the DX.
+
+**Rationale:** Putting the builder in a separate package defeats the purpose. One package, one entry point.
+
+---
+
+### D-KP-3: Schema Auto-Bootstrap as Default Behavior
+
+**Status:** Proposed  
+**Impact:** MEDIUM (DX)
+
+`AddNeo4jAgentMemory()` registers an `IHostedService` that calls `ISchemaRepository.SetupAsync()` on application startup. Enabled by default (`BootstrapSchema = true`). Can be disabled for production environments that manage schema externally.
+
+**Rationale:** First-time users shouldn't need to think about schema. It should just work.
+
+---
+
+### D-KP-4: Implementation Plan Timeline Acknowledged
+
+**Status:** Informational  
+**Impact:** Planning
+
+4-phase implementation plan documented in architecture-review-2.md §6. Estimated ~5.5 weeks for 2-person team. Critical path: MEAI migration → meta-package → fluent DI → SK adapter → README.
+
+Phase 1 is already in progress (Rachael: MEAI, Roy: ToolCallStatus).
+
+---
+
+## Decision: MEAI Migration Executed — IEmbeddingProvider → IEmbeddingGenerator<T>
+
+**Author:** Rachael (MAF Integration Engineer)
+**Date:** 2025-07-18
+**Status:** IMPLEMENTED
+**Implements:** D-AR2-1 (Option A) from architecture-review-2.md
+
+### Summary
+
+Replaced the custom `IEmbeddingProvider` interface with MEAI's standard `IEmbeddingGenerator<string, Embedding<float>>` across all packages. This is a **breaking change** — consumers must update their DI registrations.
+
+### What Changed
+
+| Area | Before | After |
+|------|--------|-------|
+| Abstractions | `IEmbeddingProvider` (zero deps) | `IEmbeddingGenerator<T>` via M.E.AI.Abstractions 10.4.1 |
+| Core services | 7 files using IEmbeddingProvider | 7 files using IEmbeddingGenerator |
+| AgentFramework | 2 files using IEmbeddingProvider | 2 files using IEmbeddingGenerator |
+| GraphRagAdapter | Already on IEmbeddingGenerator | No change needed |
+| Stubs | StubEmbeddingProvider | StubEmbeddingGenerator |
+| Samples | Dual registration (both interfaces) | Single IEmbeddingGenerator registration |
+| Tests | 11 test files updated | MockFactory.EmbeddingResult() helpers added |
+
+**30 files changed, 401 insertions, 361 deletions. All 1059 unit tests pass.**
+
+### Consumer Migration Guide
+
+```csharp
+// BEFORE:
+services.AddSingleton<IEmbeddingProvider, MyProvider>();
+// Plus for GraphRAG:
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, MyAdapter>();
+
+// AFTER (single registration serves all packages):
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, MyGenerator>();
+```
+
+### Technical Notes
+
+- Abstractions.csproj now depends on Microsoft.Extensions.AI.Abstractions 10.4.1 (previously zero external deps)
+- The `GenerateEmbeddingAsync` extension method is not available in v10.4.1 — all call sites use batch `GenerateAsync([text])` API
+- `EmbeddingDimensions` property removed — no direct equivalent in IEmbeddingGenerator; use metadata or first-result inspection
+
+---
+
 ## Decision: Schema Parity with Python Reference Implementation
 
 **Author:** Deckard (Lead / Solution Architect)  
