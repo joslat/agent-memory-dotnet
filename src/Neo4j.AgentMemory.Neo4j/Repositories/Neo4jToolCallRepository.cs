@@ -33,7 +33,8 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
                 status:      $status,
                 duration_ms: $durationMs,
                 error:       $error,
-                metadata:    $metadata
+                metadata:    $metadata,
+                timestamp:   datetime()
             })
             CREATE (s)-[:USES_TOOL]->(tc)
             RETURN tc";

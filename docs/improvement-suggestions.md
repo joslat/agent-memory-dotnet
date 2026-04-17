@@ -2,14 +2,23 @@
 
 **Author:** Deckard (Lead / Solution Architect)  
 **Requested by:** Jose Luis Latorre Millas  
-**Date:** April 2026  
-**Scope:** Full architecture audit of all 10 source packages + improvement roadmap
+**Date:** April 2026 (Reassessed)  
+**Scope:** Full architecture audit of all 9 source packages + improvement roadmap  
+**Related:** See `docs/architecture-review-assessment.md` for the comprehensive architecture review
 
 ---
 
 ## 1. Executive Summary
 
-The Agent Memory for .NET solution is **architecturally sound** — zero boundary violations, zero circular dependencies, clean ports-and-adapters layering, and 1,058 passing unit tests across 265 source files (~14,650 LOC). The dependency direction is correct at every level: adapters depend inward, Core depends only on Abstractions, and Abstractions has zero external dependencies. However, this audit identifies **14 actionable improvements** focused on DRY violations (especially embedding generation scattered across 5 call sites and near-identical extraction projects), oversized classes (MemoryExtractionPipeline at 393 LOC doing extraction + validation + resolution + persistence), and package consolidation opportunities (10 packages could be pragmatically reduced to 7). The most impactful change is merging Extraction.Llm and Extraction.AzureLanguage into a unified Extraction package with a strategy pattern — this eliminates ~95% structural duplication while enabling runtime strategy selection.
+The Agent Memory for .NET solution is **architecturally sound** — zero boundary violations, zero circular dependencies, clean ports-and-adapters layering, and 1,058 passing unit tests across ~265 source files (~14,650 LOC). Since the last audit:
+
+**Completed since initial review:**
+- ✅ **GraphRagAdapter merged into Neo4j package** — eliminated a separate package; 10→9 packages
+- ✅ **neo4j-maf-provider dependency removed** — internalized 3 retriever types (Vector, Fulltext, Hybrid)
+- ✅ **MEAI migration complete** — custom `IEmbeddingProvider` deleted; unified on `IEmbeddingGenerator<string, Embedding<float>>`
+- ✅ **neo4j-maf-provider NuGet blocking issue resolved** — no more ProjectReference to external repo
+
+This reassessment identifies **12 active improvements** (down from 14 — 2 completed items removed, 1 stale item removed, 1 new item added). The top priority remains the meta-package for 1-install DX, followed by the embedding orchestrator consolidation and the Semantic Kernel adapter.
 
 ---
 
@@ -19,16 +28,15 @@ The Agent Memory for .NET solution is **architecturally sound** — zero boundar
 
 | # | Project | Files | LOC | SRP | Dependencies | DRY | ISP | KISS | Coupling | Cohesion | Score |
 |---|---------|-------|-----|-----|-------------|-----|-----|------|----------|----------|-------|
-| 1 | **Abstractions** | 107 | 3,347 | ✅ | ✅ Zero deps | ✅ | ⚠️ | ✅ | ✅ | ✅ | **9/10** |
+| 1 | **Abstractions** | 107 | 3,347 | ✅ | ✅ MEAI.Abstractions only | ✅ | ⚠️ | ✅ | ✅ | ✅ | **9/10** |
 | 2 | **Core** | 41 | 3,433 | ⚠️ | ✅ Abstractions only | ❌ | ✅ | ⚠️ | ✅ | ⚠️ | **7/10** |
-| 3 | **Neo4j** | 28 | 2,918 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ⚠️ | ✅ | ✅ | **8/10** |
+| 3 | **Neo4j** | 32 | ~3,400 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ⚠️ | ✅ | ✅ | **8/10** |
 | 4 | **AgentFramework** | 14 | 943 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ✅ | ✅ | **10/10** |
-| 5 | **GraphRagAdapter** | 10 | 476 | ✅ | ✅ Abstractions + neo4j-maf | ✅ | ✅ | ✅ | ✅ | ✅ | **10/10** |
-| 6 | **Extraction.Llm** | 10 | 522 | ✅ | ✅ Abstractions + Core | ❌ | ✅ | ✅ | ⚠️ | ✅ | **7/10** |
-| 7 | **Extraction.AzureLanguage** | 12 | 509 | ✅ | ✅ Abstractions only | ❌ | ✅ | ⚠️ | ⚠️ | ✅ | **6/10** |
-| 8 | **Enrichment** | 13 | 772 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
-| 9 | **Observability** | 8 | 427 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
-| 10 | **McpServer** | 22 | 1,302 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
+| 5 | **Extraction.Llm** | 10 | 522 | ✅ | ✅ Abstractions + Core | ❌ | ✅ | ✅ | ⚠️ | ✅ | **7/10** |
+| 6 | **Extraction.AzureLanguage** | 12 | 509 | ✅ | ✅ Abstractions only | ❌ | ✅ | ⚠️ | ⚠️ | ✅ | **6/10** |
+| 7 | **Enrichment** | 13 | 772 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
+| 8 | **Observability** | 8 | 427 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
+| 9 | **McpServer** | 22 | 1,302 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 
 **Legend:** ✅ Good | ⚠️ Minor concern | ❌ Needs attention
 
@@ -45,9 +53,12 @@ The Agent Memory for .NET solution is **architecturally sound** — zero boundar
 | Hardcoded LLM system prompts require recompilation to change | KISS | 🟢 Low | Extraction.Llm |
 | `AzureLanguageRelationshipExtractor` re-calls entity recognition (API waste) | Performance | 🟡 Medium | Extraction.AzureLanguage |
 | Confidence thresholds hardcoded in multiple places (0.5, 0.8, 0.85, 0.95) | DRY | 🟡 Medium | Core |
-| Zero TODO/FIXME/HACK comments across all 265 source files | Quality | ✅ Positive | All |
+| No Semantic Kernel adapter (largest .NET AI audience) | Ecosystem | 🔴 High | Missing package |
+| Zero TODO/FIXME/HACK comments across all ~265 source files | Quality | ✅ Positive | All |
 | Zero circular dependencies | Architecture | ✅ Positive | All |
 | Zero boundary violations | Architecture | ✅ Positive | All |
+| neo4j-maf-provider dependency removed, retrievers internalized | Architecture | ✅ Resolved | Neo4j |
+| GraphRagAdapter merged into Neo4j package (10→9 packages) | Architecture | ✅ Resolved | Neo4j |
 
 ---
 
@@ -60,14 +71,11 @@ The Agent Memory for .NET solution is **architecturally sound** — zero boundar
                               │    → Abstractions
                               │    → Core
                               │
-                              ├─ GraphRagAdapter ────── neo4j-maf-provider
-                              │    → Abstractions
-                              │
                               ├─ McpServer ──────────── MCP 1.2.0
 FOUNDATION                    │    → Abstractions
                               │
 Abstractions ← Core ← Neo4j  ├─ Extraction.Llm ────── M.E.AI 10.4.1
- (0 deps)      (FuzzySharp)  │    → Abstractions
+ (MEAI.Abs)    (FuzzySharp)  │    → Abstractions
                (M.E.*)       │    → Core
                               │
                               ├─ Extraction.Azure ───── Azure.AI.TextAnalytics
@@ -81,6 +89,10 @@ Abstractions ← Core ← Neo4j  ├─ Extraction.Llm ────── M.E.AI
                                    → Core
 ```
 
+NOTE: Neo4j package now includes the GraphRAG retrieval layer (Vector/Fulltext/Hybrid retrievers,
+IGraphRagContextSource) that was previously in a separate GraphRagAdapter package. The neo4j-maf-provider
+external dependency has been removed — retriever types were internalized.
+
 ### Cross-Reference Matrix (Source → Source only)
 
 | Project | Abstractions | Core | Neo4j | Others |
@@ -89,14 +101,13 @@ Abstractions ← Core ← Neo4j  ├─ Extraction.Llm ────── M.E.AI
 | **Core** | ✅ | — | ❌ | ❌ |
 | **Neo4j** | ✅ | ✅ | — | ❌ |
 | **AgentFramework** | ✅ | ✅ | ❌ | ❌ |
-| **GraphRagAdapter** | ✅ | ❌ | ❌ | ❌ |
 | **McpServer** | ✅ | ❌ | ❌ | ❌ |
 | **Extraction.Llm** | ✅ | ✅ | ❌ | ❌ |
 | **Extraction.Azure** | ✅ | ❌ | ❌ | ❌ |
 | **Enrichment** | ✅ | ❌ | ❌ | ❌ |
 | **Observability** | ✅ | ✅ | ❌ | ❌ |
 
-**Verdict:** ✅ Zero inappropriate cross-references. Every dependency arrow is justified and minimal. The asymmetry between Extraction.Llm (needs Core) and Extraction.Azure (doesn't) is intentional — Llm uses Core's pipeline infrastructure.
+**Verdict:** ✅ Zero inappropriate cross-references. Every dependency arrow is justified and minimal. The asymmetry between Extraction.Llm (needs Core) and Extraction.Azure (doesn't) is intentional — Llm uses Core's pipeline infrastructure. Neo4j now also contains the GraphRAG retrieval layer (internalized from the former GraphRagAdapter).
 
 ---
 
@@ -298,43 +309,57 @@ Abstractions ← Core ← Neo4j  ├─ Extraction.Llm ────── M.E.AI
 
 ---
 
+### S15: Build Semantic Kernel Adapter (NEW)
+
+| Attribute | Value |
+|-----------|-------|
+| **Category** | Ecosystem / DX |
+| **Current State** | Semantic Kernel (SK) has >10K GitHub stars and is the **largest .NET AI agent audience**. We have a MAF adapter but no SK adapter. SK developers cannot use our memory system without manual integration. SK is built on MEAI abstractions, which we already use natively. |
+| **Proposed Improvement** | Create `Neo4j.AgentMemory.SemanticKernel` package (~500 LOC). Implement SK's memory plugin pattern: `IMemoryStore` or `ISemanticTextMemory` adapter that delegates to our `IMemoryService`. Provide SK-native function calling tools for memory operations. Follow the same thin-adapter pattern as AgentFramework. |
+| **Impact Score** | 9/10 — Opens the solution to the largest .NET AI developer community |
+| **Effort Score** | 4/10 — SK's plugin model is well-documented; our MEAI-native design makes integration natural |
+| **Priority** | **Very High** (Impact/Effort = 2.25) |
+| **Risk** | Low. Thin adapter with no changes to core. SK APIs are stable (GA). |
+
+---
+
 ## 5. Package Consolidation Proposal
 
-### Current State: 10 Packages
+### Current State: 9 Packages
+
+> **Note:** GraphRagAdapter was merged into the Neo4j package (10→9 packages). The neo4j-maf-provider
+> external dependency was removed — retriever types (Vector, Fulltext, Hybrid) internalized into Neo4j.
 
 | # | Package | LOC | Distinct Audience | Verdict |
 |---|---------|-----|-------------------|---------|
-| 1 | Abstractions | 3,347 | Library authors, all consumers | ✅ Keep |
-| 2 | Core | 3,433 | All consumers | ✅ Keep |
-| 3 | Neo4j | 2,918 | All consumers (primary persistence) | ✅ Keep |
-| 4 | AgentFramework | 943 | MAF developers | ✅ Keep |
-| 5 | GraphRagAdapter | 476 | GraphRAG users | ✅ Keep |
-| 6 | Extraction.Llm | 522 | LLM-based extraction users | 🔶 Merge |
-| 7 | Extraction.AzureLanguage | 509 | Azure NLP users | 🔶 Merge |
-| 8 | Enrichment | 772 | Entity enrichment users | ✅ Keep |
-| 9 | Observability | 427 | Production deployments | 🔶 Consider merge |
-| 10 | McpServer | 1,302 | MCP tool consumers | ✅ Keep |
+| 1 | Abstractions | ~3,350 | Library authors, all consumers | ✅ Keep |
+| 2 | Core | ~3,430 | All consumers | ✅ Keep |
+| 3 | Neo4j | ~3,400 | All consumers (unified: CRUD + retrieval) | ✅ Keep |
+| 4 | AgentFramework | ~940 | MAF developers | ✅ Keep |
+| 5 | Extraction.Llm | ~520 | LLM-based extraction users | 🔶 Merge |
+| 6 | Extraction.AzureLanguage | ~510 | Azure NLP users | 🔶 Merge |
+| 7 | Enrichment | ~770 | Entity enrichment users | ✅ Keep |
+| 8 | Observability | ~430 | Production deployments | ✅ Keep (opt-in) |
+| 9 | McpServer | ~1,300 | MCP tool consumers | ✅ Keep |
 
-### Proposed: 7 Packages (with 2 optional sub-packages)
+### Proposed: 8 Packages (with 2 optional sub-packages)
 
 **Before → After:**
 
 ```
-BEFORE (10 packages):                    AFTER (7 core + 2 optional):
+BEFORE (9 packages):                     AFTER (8 core + 2 optional):
 
 1. Abstractions              →    1. Abstractions              (unchanged)
 2. Core                      →    2. Core                      (unchanged)
-3. Neo4j                     →    3. Neo4j                     (unchanged)
+3. Neo4j (unified)           →    3. Neo4j                     (unchanged)
 4. AgentFramework            →    4. AgentFramework            (unchanged)
-5. GraphRagAdapter           →    5. GraphRagAdapter           (unchanged)
-6. Extraction.Llm        ─┐
-                           ├→    6. Extraction                 (unified pipeline + strategy)
-7. Extraction.AzureLanguage┘         ├─ Extraction.Llm         (optional: LLM engine dep only)
-                                     └─ Extraction.AzureLanguage (optional: Azure SDK dep only)
-8. Enrichment                →    7. Enrichment                (unchanged)
-9. Observability          ─┐
-                           ├→    (merged into Core as opt-in namespace)
-10. McpServer                →    8. McpServer                 (unchanged)
+5. Extraction.Llm        ─┐
+                           ├→    5. Extraction                 (unified pipeline + strategy)
+6. Extraction.AzureLanguage┘        ├─ Extraction.Llm         (optional: LLM engine dep only)
+                                    └─ Extraction.AzureLanguage (optional: Azure SDK dep only)
+7. Enrichment                →    6. Enrichment                (unchanged)
+8. Observability             →    7. Observability             (keep separate — opt-in)
+9. McpServer                 →    8. McpServer                 (unchanged)
 ```
 
 ### Analysis
@@ -342,7 +367,7 @@ BEFORE (10 packages):                    AFTER (7 core + 2 optional):
 | Merge Candidate | Rationale | Decision |
 |----------------|-----------|----------|
 | **Extraction.Llm + Extraction.AzureLanguage** | 95% structural duplication. Same 4 interfaces. Strategy pattern natural. | **MERGE** into `Extraction` with engine sub-packages |
-| **Observability → Core** | Only 427 LOC, 2 public types. Always needed in production. | **KEEP SEPARATE** — Observability is opt-in by design. Adding OpenTelemetry.Api to Core forces the dep on everyone. |
+| **Observability → Core** | Only ~430 LOC, 2 public types. Always needed in production. | **KEEP SEPARATE** — Observability is opt-in by design. Adding OpenTelemetry.Api to Core forces the dep on everyone. |
 | **Enrichment → Core** | External HTTP dependencies (Nominatim, Wikipedia, Diffbot). | **KEEP SEPARATE** — Core should not have HTTP/caching deps. Enrichment is clearly optional. |
 | **McpServer → AgentFramework** | Different protocols (MCP vs MAF). Different audiences. | **KEEP SEPARATE** — Correct as-is. |
 
@@ -382,6 +407,8 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 
 ## 6. Recommended Priority Order
 
+> **Updated April 2026** — Reflects 9-package architecture (GraphRagAdapter merged, neo4j-maf-provider removed)
+
 ### Tier 1: Quick Wins (< 1 day each, high impact)
 
 | # | Suggestion | Impact | Effort | Ratio |
@@ -396,6 +423,7 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 
 | # | Suggestion | Impact | Effort | Ratio |
 |---|-----------|--------|--------|-------|
+| **S15** | **Build Semantic Kernel adapter** | **9** | **4** | **2.25** |
 | S6 | Fix Azure redundant API calls | 6 | 3 | **2.0** |
 | S9 | Extract truncation strategies | 4 | 2 | **2.0** |
 | S11 | Externalize LLM system prompts | 4 | 2 | **2.0** |
@@ -416,6 +444,15 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 |---|-----------|---------|
 | S7 | Split IEntityRepository | Impact too low for the breaking change. 13 methods is manageable. Accept the pragmatic tradeoff. |
 
+### Completed (Removed from Active List)
+
+| Item | What Was Done | When |
+|------|--------------|------|
+| GraphRagAdapter → Neo4j merge | Retrieval types internalized; GraphRagAdapter package deleted | April 2026 |
+| neo4j-maf-provider removal | 3 retriever types (Vector, Fulltext, Hybrid) internalized into Neo4j package | April 2026 |
+| MEAI migration | Custom `IEmbeddingProvider` deleted; unified on `IEmbeddingGenerator<string, Embedding<float>>` | April 2026 |
+| Package count 10→9 | Consequence of GraphRagAdapter merge | April 2026 |
+
 ---
 
 ## Appendix A: Build & Test Verification
@@ -424,9 +461,10 @@ All assessments are based on verified codebase state:
 
 | Metric | Value |
 |--------|-------|
-| **Build** | ✅ 0 errors, 8 warnings (xUnit1013 in integration tests) |
+| **Build** | ✅ 0 errors |
 | **Unit Tests** | ✅ 1,058 passing |
-| **Source Files** | 265 |
+| **Source Packages** | 9 (down from 10 after GraphRagAdapter merge) |
+| **Source Files** | ~265 |
 | **Total LOC** | ~14,650 |
 | **TODO/FIXME/HACK** | 0 |
 | **Circular Dependencies** | 0 |
@@ -434,18 +472,20 @@ All assessments are based on verified codebase state:
 
 ## Appendix B: What's Working Well (Don't Touch)
 
-1. **Abstractions package** — Exemplary. Zero deps, clean contracts, comprehensive domain model.
+1. **Abstractions package** — Exemplary. MEAI.Abstractions only dep, clean contracts, comprehensive domain model.
 2. **Dependency direction** — Strict layering is perfectly enforced.
-3. **Adapter pattern** — AgentFramework, GraphRagAdapter, McpServer are all thin, well-isolated adapters.
-4. **Enrichment decorator chain** — Elegant use of decorator pattern for caching + rate-limiting.
-5. **Entity resolution chain** — Well-designed chain of responsibility (Exact → Fuzzy → Semantic).
-6. **Stub implementations** — Enable testing without external services. Good DX.
-7. **Options pattern** — Consistent use of strongly-typed configuration throughout.
-8. **Sealed classes** — Appropriate use prevents unintended inheritance.
+3. **Adapter pattern** — AgentFramework and McpServer are thin, well-isolated adapters.
+4. **Unified Neo4j package** — CRUD repositories + GraphRAG retrieval in one coherent persistence layer.
+5. **Enrichment decorator chain** — Elegant use of decorator pattern for caching + rate-limiting.
+6. **Entity resolution chain** — Well-designed chain of responsibility (Exact → Fuzzy → Semantic).
+7. **Stub implementations** — Enable testing without external services. Good DX.
+8. **Options pattern** — Consistent use of strongly-typed configuration throughout.
+9. **Sealed classes** — Appropriate use prevents unintended inheritance.
+10. **MEAI integration** — Unified on `IEmbeddingGenerator<string, Embedding<float>>`. No split personality.
 
 ---
 
-*This assessment reflects the codebase as of April 2026 against commit state with 1,058 passing unit tests. Recommendations should be revisited after each major refactor.*
+*This assessment reflects the codebase as of April 2026 with 9 packages and 1,058 passing unit tests. The neo4j-maf-provider dependency has been removed and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor. See `docs/architecture-review-assessment.md` for the comprehensive architecture review.*
 
 ---
 

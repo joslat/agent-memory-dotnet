@@ -31,7 +31,8 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
                 thought:     $thought,
                 action:      $action,
                 observation: $observation,
-                metadata:    $metadata
+                metadata:    $metadata,
+                timestamp:   datetime()
             })
             CREATE (t)-[:HAS_STEP {order: $stepNumber}]->(s)
             RETURN s";

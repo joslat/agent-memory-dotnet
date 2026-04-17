@@ -217,7 +217,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task AddMentionAsync(string messageId, string entityId, double? confidence = null, int? startPos = null, int? endPos = null, CancellationToken cancellationToken = default)
+    public async Task AddMentionAsync(string messageId, string entityId, double? confidence = null, int? startPos = null, int? endPos = null, string? context = null, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Adding MENTIONS: Message {MessageId} -> Entity {EntityId}", messageId, entityId);
 
@@ -225,11 +225,11 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             MATCH (m:Message {id: $messageId})
             MATCH (e:Entity {id: $entityId})
             MERGE (m)-[r:MENTIONS]->(e)
-            ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos";
+            ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos, r.context = $context, r.created_at = datetime()";
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos });
+            await runner.RunAsync(cypher, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
         }, cancellationToken);
     }
 
@@ -242,7 +242,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             UNWIND $entityIds AS eid
             MATCH (e:Entity {id: eid})
             MERGE (m)-[r:MENTIONS]->(e)
-            ON CREATE SET r.confidence = $confidence";
+            ON CREATE SET r.confidence = $confidence, r.created_at = datetime()";
 
         await _tx.WriteAsync(async runner =>
         {
