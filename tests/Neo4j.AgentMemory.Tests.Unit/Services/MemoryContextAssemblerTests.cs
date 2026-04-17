@@ -1,10 +1,12 @@
 using FluentAssertions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Services;
+using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 
 namespace Neo4j.AgentMemory.Tests.Unit.Services;
@@ -15,7 +17,7 @@ public sealed class MemoryContextAssemblerTests
     private readonly ILongTermMemoryService _longTerm;
     private readonly IReasoningMemoryService _reasoning;
     private readonly IGraphRagContextSource _graphRag;
-    private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IClock _clock;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
     private readonly float[] _generatedEmbedding = new float[1536];
@@ -26,14 +28,14 @@ public sealed class MemoryContextAssemblerTests
         _longTerm = Substitute.For<ILongTermMemoryService>();
         _reasoning = Substitute.For<IReasoningMemoryService>();
         _graphRag = Substitute.For<IGraphRagContextSource>();
-        _embeddingProvider = Substitute.For<IEmbeddingProvider>();
+        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
         _clock = Substitute.For<IClock>();
 
         _clock.UtcNow.Returns(_fixedTime);
 
-        _embeddingProvider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(_generatedEmbedding);
+        _embeddingGenerator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, _generatedEmbedding));
 
         // Default: all services return empty results
         SetupEmptyServiceReturns();
@@ -64,7 +66,7 @@ public sealed class MemoryContextAssemblerTests
     private MemoryContextAssembler CreateSut(
         IOptions<MemoryOptions>? options = null,
         IGraphRagContextSource? graphRag = null) =>
-        new(_shortTerm, _longTerm, _reasoning, graphRag, _embeddingProvider, _clock,
+        new(_shortTerm, _longTerm, _reasoning, graphRag, _embeddingGenerator, _clock,
             options ?? Options.Create(new MemoryOptions()),
             NullLogger<MemoryContextAssembler>.Instance);
 
@@ -83,9 +85,9 @@ public sealed class MemoryContextAssemblerTests
 
         await sut.AssembleContextAsync(request);
 
-        await _embeddingProvider
+        await _embeddingGenerator
             .Received(1)
-            .GenerateEmbeddingAsync(request.Query, Arg.Any<CancellationToken>());
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -97,9 +99,9 @@ public sealed class MemoryContextAssemblerTests
 
         await sut.AssembleContextAsync(request);
 
-        await _embeddingProvider
+        await _embeddingGenerator
             .DidNotReceive()
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

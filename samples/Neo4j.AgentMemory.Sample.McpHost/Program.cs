@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -31,9 +32,9 @@ builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// StubEmbeddingProvider returns deterministic random vectors — replace with a real
-// embedding provider (e.g., OpenAI text-embedding-3-small) for production use.
-builder.Services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>();
+// StubEmbeddingGenerator returns deterministic random vectors — replace with a real
+// IEmbeddingGenerator<string, Embedding<float>> (e.g., OpenAI text-embedding-3-small) for production use.
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
 
 // Configure MCP server with stdio transport and all memory tools
 builder.Services

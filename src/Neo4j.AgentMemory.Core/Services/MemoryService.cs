@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -18,7 +19,7 @@ public sealed class MemoryService : IMemoryService
     private readonly IEntityRepository _entityRepository;
     private readonly IFactRepository _factRepository;
     private readonly IPreferenceRepository _preferenceRepository;
-    private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -31,7 +32,7 @@ public sealed class MemoryService : IMemoryService
         IEntityRepository entityRepository,
         IFactRepository factRepository,
         IPreferenceRepository preferenceRepository,
-        IEmbeddingProvider embeddingProvider,
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IOptions<MemoryOptions> options,
         IClock clock,
         IIdGenerator idGenerator,
@@ -43,7 +44,7 @@ public sealed class MemoryService : IMemoryService
         _entityRepository = entityRepository;
         _factRepository = factRepository;
         _preferenceRepository = preferenceRepository;
-        _embeddingProvider = embeddingProvider;
+        _embeddingGenerator = embeddingGenerator;
         _options = options.Value;
         _clock = clock;
         _idGenerator = idGenerator;
@@ -195,8 +196,8 @@ public sealed class MemoryService : IMemoryService
             page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
             foreach (var entity in page)
             {
-                var embedding = await _embeddingProvider.GenerateEmbeddingAsync(entity.Name, ct);
-                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct);
+                var generated = await _embeddingGenerator.GenerateAsync([entity.Name], cancellationToken: ct);
+                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, generated[0].Vector.ToArray(), ct);
                 total++;
             }
         } while (page.Count == batchSize);
@@ -215,8 +216,8 @@ public sealed class MemoryService : IMemoryService
             foreach (var fact in page)
             {
                 var text = $"{fact.Subject} {fact.Predicate} {fact.Object}";
-                var embedding = await _embeddingProvider.GenerateEmbeddingAsync(text, ct);
-                await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct);
+                var generated = await _embeddingGenerator.GenerateAsync([text], cancellationToken: ct);
+                await _factRepository.UpdateEmbeddingAsync(fact.FactId, generated[0].Vector.ToArray(), ct);
                 total++;
             }
         } while (page.Count == batchSize);
@@ -234,8 +235,8 @@ public sealed class MemoryService : IMemoryService
             page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
             foreach (var pref in page)
             {
-                var embedding = await _embeddingProvider.GenerateEmbeddingAsync(pref.PreferenceText, ct);
-                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct);
+                var generated = await _embeddingGenerator.GenerateAsync([pref.PreferenceText], cancellationToken: ct);
+                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, generated[0].Vector.ToArray(), ct);
                 total++;
             }
         } while (page.Count == batchSize);

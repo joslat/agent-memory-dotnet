@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -6,6 +7,7 @@ using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Resolution;
+using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 
 namespace Neo4j.AgentMemory.Tests.Unit.Resolution;
@@ -16,14 +18,14 @@ public sealed class CompositeEntityResolverTests
     private const string NewEntityId = "new-entity-id";
 
     private readonly IEntityRepository _entityRepo;
-    private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
 
     public CompositeEntityResolverTests()
     {
         _entityRepo = Substitute.For<IEntityRepository>();
-        _embeddingProvider = Substitute.For<IEmbeddingProvider>();
+        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
@@ -31,9 +33,9 @@ public sealed class CompositeEntityResolverTests
         _idGenerator.GenerateId().Returns(NewEntityId);
 
         // Default: zero vector (orthogonal to any unit vector, no semantic match above threshold)
-        _embeddingProvider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new float[4]));
+        _embeddingGenerator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, new float[4]));
 
         _entityRepo
             .UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
@@ -45,7 +47,7 @@ public sealed class CompositeEntityResolverTests
         var opts = Options.Create(options ?? new ExtractionOptions());
         return new CompositeEntityResolver(
             _entityRepo,
-            _embeddingProvider,
+            _embeddingGenerator,
             opts,
             _clock,
             _idGenerator,
@@ -84,8 +86,8 @@ public sealed class CompositeEntityResolverTests
 
         result.EntityId.Should().Be("e1");
         // Exact match short-circuits — embedding provider not called
-        await _embeddingProvider.DidNotReceive()
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingGenerator.DidNotReceive()
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -120,9 +122,9 @@ public sealed class CompositeEntityResolverTests
         _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
-        _embeddingProvider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(unitVec));
+        _embeddingGenerator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -256,9 +258,9 @@ public sealed class CompositeEntityResolverTests
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         // Semantic matcher will compute cosine similarity = 1.0 (above AutoMergeThreshold)
-        _embeddingProvider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(unitVec));
+        _embeddingGenerator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -279,8 +281,8 @@ public sealed class CompositeEntityResolverTests
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
         // Two calls: 1 for semantic match query, 1 for re-embedding with combined name + aliases
-        await _embeddingProvider.Received(2)
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingGenerator.Received(2)
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -300,9 +302,9 @@ public sealed class CompositeEntityResolverTests
         _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
-        _embeddingProvider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(unitVec));
+        _embeddingGenerator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -323,8 +325,8 @@ public sealed class CompositeEntityResolverTests
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
         // Only 1 call: for semantic match query
-        await _embeddingProvider.Received(1)
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingGenerator.Received(1)
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -338,9 +340,9 @@ public sealed class CompositeEntityResolverTests
         _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
-        _embeddingProvider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(unitVec));
+        _embeddingGenerator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, unitVec));
 
         var opts = new ExtractionOptions
         {
@@ -360,7 +362,7 @@ public sealed class CompositeEntityResolverTests
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
         // The re-embedding call uses combined text: "{name} {aliases}" = "Alice Alicia"
-        await _embeddingProvider.Received(1)
-            .GenerateEmbeddingAsync("Alice Alicia", Arg.Any<CancellationToken>());
+        await _embeddingGenerator.Received(1)
+            .GenerateAsync(Arg.Is<IEnumerable<string>>(x => x.First() == "Alice Alicia"), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 }

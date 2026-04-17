@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -16,7 +17,7 @@ namespace Neo4j.AgentMemory.Core.Resolution;
 public sealed class CompositeEntityResolver : IEntityResolver
 {
     private readonly IEntityRepository _entityRepository;
-    private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly ExtractionOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -24,14 +25,14 @@ public sealed class CompositeEntityResolver : IEntityResolver
 
     public CompositeEntityResolver(
         IEntityRepository entityRepository,
-        IEmbeddingProvider embeddingProvider,
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IOptions<ExtractionOptions> options,
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<CompositeEntityResolver> logger)
     {
         _entityRepository = entityRepository;
-        _embeddingProvider = embeddingProvider;
+        _embeddingGenerator = embeddingGenerator;
         _options = options.Value;
         _clock = clock;
         _idGenerator = idGenerator;
@@ -96,9 +97,9 @@ public sealed class CompositeEntityResolver : IEntityResolver
             if (aliasesChanged)
             {
                 var combinedText = $"{mergedEntity.Name} {string.Join(" ", mergedAliases)}".Trim();
-                var freshEmbedding = await _embeddingProvider.GenerateEmbeddingAsync(combinedText, cancellationToken)
+                var freshGenerated = await _embeddingGenerator.GenerateAsync([combinedText], cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
-                mergedEntity = mergedEntity with { Embedding = freshEmbedding };
+                mergedEntity = mergedEntity with { Embedding = freshGenerated[0].Vector.ToArray() };
             }
 
             return await _entityRepository.UpsertAsync(mergedEntity, cancellationToken)
@@ -171,7 +172,7 @@ public sealed class CompositeEntityResolver : IEntityResolver
             matchers.Add(new FuzzyMatchEntityMatcher(resOpts));
 
         if (resOpts.EnableSemanticMatch)
-            matchers.Add(new SemanticMatchEntityMatcher(_embeddingProvider, resOpts));
+            matchers.Add(new SemanticMatchEntityMatcher(_embeddingGenerator, resOpts));
 
         return matchers;
     }

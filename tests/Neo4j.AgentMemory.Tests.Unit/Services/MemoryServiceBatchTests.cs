@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -6,6 +7,7 @@ using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.Core.Services;
+using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 
 namespace Neo4j.AgentMemory.Tests.Unit.Services;
@@ -21,7 +23,7 @@ public sealed class MemoryServiceBatchTests
     private readonly IEntityRepository _entityRepo = Substitute.For<IEntityRepository>();
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
-    private readonly IEmbeddingProvider _embeddingProvider = Substitute.For<IEmbeddingProvider>();
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
 
@@ -37,7 +39,7 @@ public sealed class MemoryServiceBatchTests
 
     private MemoryService CreateSut() =>
         new(_shortTerm, _assembler, _extraction,
-            _entityRepo, _factRepo, _prefRepo, _embeddingProvider,
+            _entityRepo, _factRepo, _prefRepo, _embeddingGenerator,
             Options.Create(new MemoryOptions()),
             _clock, _idGenerator,
             NullLogger<MemoryService>.Instance);
@@ -131,14 +133,14 @@ public sealed class MemoryServiceBatchTests
         // First page returns 2 entities, second page returns empty (stops loop)
         _entityRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(entities, new List<Entity>());
-        _embeddingProvider.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new float[] { 0.1f });
+        _embeddingGenerator.GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, new float[] { 0.1f }));
 
         var sut = CreateSut();
         var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
 
         count.Should().Be(2);
-        await _embeddingProvider.Received(2).GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingGenerator.Received(2).GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpdateEmbeddingAsync("e1", Arg.Any<float[]>(), Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpdateEmbeddingAsync("e2", Arg.Any<float[]>(), Arg.Any<CancellationToken>());
     }
@@ -153,14 +155,14 @@ public sealed class MemoryServiceBatchTests
         };
         _factRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Fact> { fact }, new List<Fact>());
-        _embeddingProvider.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new float[] { 0.5f });
+        _embeddingGenerator.GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, new float[] { 0.5f }));
 
         var sut = CreateSut();
         await sut.GenerateEmbeddingsBatchAsync("Fact", batchSize: 100);
 
-        await _embeddingProvider.Received(1)
-            .GenerateEmbeddingAsync("Alice works_at Acme", Arg.Any<CancellationToken>());
+        await _embeddingGenerator.Received(1)
+            .GenerateAsync(Arg.Is<IEnumerable<string>>(x => x.First() == "Alice works_at Acme"), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -173,14 +175,14 @@ public sealed class MemoryServiceBatchTests
         };
         _prefRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Preference> { pref }, new List<Preference>());
-        _embeddingProvider.GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new float[] { 0.3f });
+        _embeddingGenerator.GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call => MockFactory.EmbeddingResult(call, new float[] { 0.3f }));
 
         var sut = CreateSut();
         await sut.GenerateEmbeddingsBatchAsync("Preference", batchSize: 100);
 
-        await _embeddingProvider.Received(1)
-            .GenerateEmbeddingAsync("Prefers dark mode", Arg.Any<CancellationToken>());
+        await _embeddingGenerator.Received(1)
+            .GenerateAsync(Arg.Is<IEnumerable<string>>(x => x.First() == "Prefers dark mode"), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

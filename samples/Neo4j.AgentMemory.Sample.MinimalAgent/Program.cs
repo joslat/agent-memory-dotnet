@@ -47,10 +47,10 @@ builder.Services.AddAgentMemoryCore(_ =>
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// StubEmbeddingProvider returns deterministic random vectors and is suitable only
-// for compilation and structure tests. Replace with a real provider such as
-// OpenAI text-embedding-3-small before using semantic search or LLM extraction.
-builder.Services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>();
+// StubEmbeddingGenerator returns deterministic random vectors and is suitable only
+// for compilation and structure tests. Replace with a real IEmbeddingGenerator<string, Embedding<float>>
+// such as OpenAI text-embedding-3-small before using semantic search or LLM extraction.
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
 
 // ── 3. MAF adapter ────────────────────────────────────────────────────────────
 builder.Services.AddAgentMemoryFramework(options =>

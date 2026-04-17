@@ -16,7 +16,7 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers all Core memory services.
-    /// Adapters (repositories, IEmbeddingProvider, etc.) must be registered separately.
+    /// Adapters (repositories, IEmbeddingGenerator, etc.) must be registered separately.
     /// </summary>
     public static IServiceCollection AddAgentMemoryCore(
         this IServiceCollection services,

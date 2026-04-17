@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
@@ -16,7 +17,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     private readonly IFactRepository _factRepo;
     private readonly IPreferenceRepository _prefRepo;
     private readonly IRelationshipRepository _relRepo;
-    private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly LongTermMemoryOptions _options;
     private readonly ILogger<LongTermMemoryService> _logger;
 
@@ -25,7 +26,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         IFactRepository factRepo,
         IPreferenceRepository prefRepo,
         IRelationshipRepository relRepo,
-        IEmbeddingProvider embeddingProvider,
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IOptions<LongTermMemoryOptions> options,
         ILogger<LongTermMemoryService> logger)
     {
@@ -33,7 +34,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         _factRepo = factRepo;
         _prefRepo = prefRepo;
         _relRepo = relRepo;
-        _embeddingProvider = embeddingProvider;
+        _embeddingGenerator = embeddingGenerator;
         _options = options.Value;
         _logger = logger;
     }
@@ -47,8 +48,8 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         {
             var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
             _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
-            var embedding = await _embeddingProvider.GenerateEmbeddingAsync(text, cancellationToken);
-            finalEntity = entity with { Embedding = embedding };
+            var generated = await _embeddingGenerator.GenerateAsync([text], cancellationToken: cancellationToken);
+            finalEntity = entity with { Embedding = generated[0].Vector.ToArray() };
         }
         return await _entityRepo.UpsertAsync(finalEntity, cancellationToken);
     }
@@ -79,8 +80,8 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         if (_options.GeneratePreferenceEmbeddings && preference.Embedding is null)
         {
             _logger.LogDebug("Generating embedding for preference {PreferenceId}", preference.PreferenceId);
-            var embedding = await _embeddingProvider.GenerateEmbeddingAsync(preference.PreferenceText, cancellationToken);
-            finalPreference = preference with { Embedding = embedding };
+            var generated = await _embeddingGenerator.GenerateAsync([preference.PreferenceText], cancellationToken: cancellationToken);
+            finalPreference = preference with { Embedding = generated[0].Vector.ToArray() };
         }
         return await _prefRepo.UpsertAsync(finalPreference, cancellationToken);
     }
@@ -111,8 +112,8 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         {
             var text = $"{fact.Subject} {fact.Predicate} {fact.Object}";
             _logger.LogDebug("Generating embedding for fact {FactId}", fact.FactId);
-            var embedding = await _embeddingProvider.GenerateEmbeddingAsync(text, cancellationToken);
-            finalFact = fact with { Embedding = embedding };
+            var generated = await _embeddingGenerator.GenerateAsync([text], cancellationToken: cancellationToken);
+            finalFact = fact with { Embedding = generated[0].Vector.ToArray() };
         }
         return await _factRepo.UpsertAsync(finalFact, cancellationToken);
     }

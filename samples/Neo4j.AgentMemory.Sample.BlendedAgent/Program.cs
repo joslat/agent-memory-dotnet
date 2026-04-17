@@ -62,13 +62,14 @@ builder.Services.AddAgentMemoryCore(options =>
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// StubEmbeddingProvider is for compilation and structure validation only.
-// Replace with a real provider (e.g. OpenAIEmbeddingProvider) for semantic search.
-builder.Services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>();
+// StubEmbeddingGenerator is for compilation and structure validation only.
+// Replace with a real IEmbeddingGenerator<string, Embedding<float>> (e.g. OpenAI) for semantic search.
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
 
 // IEmbeddingGenerator<string, Embedding<float>> is required by the GraphRAG adapter
-// to embed queries for vector search. Replace with a real provider before production use.
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+// to embed queries for vector search. With unified embedding, both Core and GraphRAG
+// use the same IEmbeddingGenerator registration.
+// builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();  // already registered above
 
 // ── 3. GraphRAG adapter ───────────────────────────────────────────────────────
 // Connects agent memory retrieval to a Neo4j vector + fulltext index.

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Neo4j.AgentMemory.Abstractions.Services;
 using NSubstitute;
 
@@ -20,31 +21,40 @@ public static class MockFactory
         return generator;
     }
 
-    public static IEmbeddingProvider CreateStubEmbeddingProvider(int dimensions = 1536)
+    public static IEmbeddingGenerator<string, Embedding<float>> CreateStubEmbeddingGenerator(int dimensions = 1536)
     {
-        var provider = Substitute.For<IEmbeddingProvider>();
-        provider.EmbeddingDimensions.Returns(dimensions);
+        var generator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
 
-        provider
-            .GenerateEmbeddingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(call =>
-            {
-                var text = call.Arg<string>();
-                return Task.FromResult(BuildDeterministicVector(text, dimensions));
-            });
-
-        provider
-            .GenerateEmbeddingsAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+        generator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 var texts = call.Arg<IEnumerable<string>>();
-                IReadOnlyList<float[]> vectors = texts
-                    .Select(t => BuildDeterministicVector(t, dimensions))
-                    .ToList();
-                return Task.FromResult(vectors);
+                var embeddings = new GeneratedEmbeddings<Embedding<float>>(
+                    texts.Select(t => new Embedding<float>(BuildDeterministicVector(t, dimensions))).ToList());
+                return Task.FromResult(embeddings);
             });
 
-        return provider;
+        return generator;
+    }
+
+    /// <summary>
+    /// Creates a GeneratedEmbeddings result wrapping a single float[] vector.
+    /// Use with NSubstitute: .Returns(call => MockFactory.EmbeddingResult(someVector))
+    /// </summary>
+    public static Task<GeneratedEmbeddings<Embedding<float>>> EmbeddingResult(float[] vector) =>
+        Task.FromResult(new GeneratedEmbeddings<Embedding<float>>([new Embedding<float>(vector)]));
+
+    /// <summary>
+    /// Creates a GeneratedEmbeddings result returning the same vector for every input.
+    /// Use with NSubstitute: .Returns(call => MockFactory.EmbeddingResult(call, someVector))
+    /// </summary>
+    public static Task<GeneratedEmbeddings<Embedding<float>>> EmbeddingResult(
+        NSubstitute.Core.CallInfo call, float[] vector)
+    {
+        var texts = call.Arg<IEnumerable<string>>();
+        return Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(
+            texts.Select(_ => new Embedding<float>(vector)).ToList()));
     }
 
     private static float[] BuildDeterministicVector(string text, int dimensions)

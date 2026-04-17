@@ -14,21 +14,21 @@ namespace Neo4j.AgentMemory.AgentFramework;
 public sealed class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
-    private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly ContextFormatOptions _formatOptions;
     private readonly AgentFrameworkOptions _agentOptions;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
     public Neo4jMemoryContextProvider(
         IMemoryService memoryService,
-        IEmbeddingProvider embeddingProvider,
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IOptions<ContextFormatOptions> formatOptions,
         IOptions<AgentFrameworkOptions> agentOptions,
         ILogger<Neo4jMemoryContextProvider> logger)
         : base(null, null, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
-        _embeddingProvider = embeddingProvider ?? throw new ArgumentNullException(nameof(embeddingProvider));
+        _embeddingGenerator = embeddingGenerator ?? throw new ArgumentNullException(nameof(embeddingGenerator));
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -67,9 +67,10 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             float[]? queryEmbedding = null;
             try
             {
-                queryEmbedding = await _embeddingProvider
-                    .GenerateEmbeddingAsync(queryText, cancellationToken)
+                var generated = await _embeddingGenerator
+                    .GenerateAsync([queryText], cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
+                queryEmbedding = generated[0].Vector.ToArray();
             }
             catch (Exception ex)
             {
