@@ -111,4 +111,25 @@ public interface IEntityRepository
     /// Call after merge operations to ensure fulltext search returns current data.
     /// </summary>
     Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds entities similar to the given entity by embedding vector similarity.
+    /// </summary>
+    Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
+        string entityId, double minSimilarity = 0.85, int limit = 10, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets pending SAME_AS duplicate pairs for manual review.
+    /// </summary>
+    Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(int limit = 50, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets aggregate SAME_AS relationship counts grouped by status.
+    /// </summary>
+    Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets all entities extracted from a specific message.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(string messageId, CancellationToken ct = default);
 }

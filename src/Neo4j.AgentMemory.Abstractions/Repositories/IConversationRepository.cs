@@ -34,4 +34,9 @@ public interface IConversationRepository
     Task DeleteAsync(
         string conversationId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists all sessions with summary information.
+    /// </summary>
+    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default);
 }

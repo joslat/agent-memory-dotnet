@@ -76,6 +76,28 @@ public sealed class Neo4jConversationRepository : IConversationRepository
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Listing sessions, limit={Limit}", limit);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ConversationQueries.ListSessions, new { limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var sessionId = r["sessionId"].As<string>();
+                var convCount = r["convCount"].As<int>();
+                var msgCount = r["msgCount"].As<int>();
+                var lastPreview = r["lastPreview"] is not null ? r["lastPreview"].As<string>() : null;
+                DateTimeOffset? lastActivity = r["lastActivity"] is not null
+                    ? Neo4jDateTimeHelper.ReadDateTimeOffset(r["lastActivity"])
+                    : null;
+                return new SessionSummary(sessionId, convCount, msgCount, lastPreview, lastActivity);
+            }).ToList();
+        }, ct);
+    }
+
     private static Conversation MapToConversation(INode node) =>
         new()
         {

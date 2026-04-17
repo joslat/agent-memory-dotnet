@@ -32,4 +32,44 @@ public static class ExtractorQueries
             RETURN e, r.confidence AS confidence
             ORDER BY e.created_at DESC
             LIMIT $limit";
+
+    // ── GetEntityProvenance ────────────────────────────────────────────
+
+    /// <summary>Get full provenance for an entity: source messages and extractors.</summary>
+    public const string GetEntityProvenance = @"
+            MATCH (e:Entity {id: $entityId})
+            OPTIONAL MATCH (e)-[ef:EXTRACTED_FROM]->(m:Message)
+            OPTIONAL MATCH (e)-[eb:EXTRACTED_BY]->(ex:Extractor)
+            RETURN e.id AS entityId,
+                   collect(DISTINCT {messageId: m.id, confidence: ef.confidence, startPos: ef.start_position, endPos: ef.end_position}) AS sources,
+                   collect(DISTINCT {extractorName: ex.name, confidence: eb.confidence, extractionTimeMs: eb.extraction_time_ms}) AS extractors";
+
+    // ── GetExtractionStats ─────────────────────────────────────────────
+
+    /// <summary>Get aggregate extraction statistics.</summary>
+    public const string GetExtractionStats = @"
+            OPTIONAL MATCH (e:Entity)
+            WITH COUNT(e) AS totalEntities
+            OPTIONAL MATCH (m:Message)<-[:EXTRACTED_FROM]-(:Entity)
+            WITH totalEntities, COUNT(DISTINCT m) AS totalMessages
+            RETURN totalEntities, totalMessages,
+                   CASE WHEN totalMessages > 0 THEN toFloat(totalEntities) / totalMessages ELSE 0.0 END AS avgPerMessage";
+
+    // ── GetExtractorStats ──────────────────────────────────────────────
+
+    /// <summary>Get statistics for a specific extractor.</summary>
+    public const string GetExtractorStats = @"
+            MATCH (ex:Extractor {name: $extractorName})
+            OPTIONAL MATCH (ex)<-[eb:EXTRACTED_BY]-(e:Entity)
+            RETURN ex.name AS name, COUNT(e) AS entityCount, AVG(eb.confidence) AS avgConfidence, COUNT(eb) AS totalExtractions";
+
+    // ── DeleteEntityProvenance ─────────────────────────────────────────
+
+    /// <summary>Delete all provenance relationships for an entity.</summary>
+    public const string DeleteEntityProvenance = @"
+            MATCH (e:Entity {id: $entityId})
+            OPTIONAL MATCH (e)-[ef:EXTRACTED_FROM]->()
+            OPTIONAL MATCH (e)-[eb:EXTRACTED_BY]->()
+            DELETE ef, eb
+            RETURN COUNT(ef) + COUNT(eb) AS deleted";
 }

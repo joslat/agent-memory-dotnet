@@ -453,6 +453,88 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
+        string entityId, double minSimilarity = 0.85, int limit = 10, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}",
+            entityId, minSimilarity, limit);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.FindSimilarByEmbedding, new
+            {
+                entityId,
+                topK = limit + 1,
+                minSimilarity,
+                limit
+            });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToEntity(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, ct);
+    }
+
+    public async Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(
+        int limit = 50, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Getting pending duplicate pairs, limit={Limit}", limit);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.GetPendingDuplicates, new { limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var source = MapToEntity(r["a"].As<INode>(), ReadEmbedding(r["a"].As<INode>()));
+                var target = MapToEntity(r["b"].As<INode>(), ReadEmbedding(r["b"].As<INode>()));
+                var similarity = r["similarity"].As<double>();
+                var status = r["status"].As<string>();
+                return new DuplicatePair(source, target, similarity, status);
+            }).ToList();
+        }, ct);
+    }
+
+    public async Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default)
+    {
+        _logger.LogDebug("Getting deduplication stats");
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.GetDeduplicationStats, new { placeholder = 0 });
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0)
+                return new DeduplicationStats(0, 0, 0, 0);
+
+            var record = records[0];
+            return new DeduplicationStats(
+                PendingCount: record["pending"].As<int>(),
+                ConfirmedCount: record["confirmed"].As<int>(),
+                RejectedCount: record["rejected"].As<int>(),
+                MergedCount: record["merged"].As<int>());
+        }, ct);
+    }
+
+    public async Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(
+        string messageId, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Getting entities from message {MessageId}", messageId);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.GetEntitiesFromMessage, new { messageId });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                return MapToEntity(node, ReadEmbedding(node));
+            }).ToList();
+        }, ct);
+    }
+
     private static float[]? ReadEmbedding(INode node)
     {
         if (!node.Properties.TryGetValue("embedding", out var ev) || ev is null) return null;

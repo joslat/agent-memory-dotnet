@@ -34,4 +34,21 @@ public static class ConversationQueries
 
     /// <summary>Delete a Conversation and all its relationships.</summary>
     public const string Delete = "MATCH (c:Conversation {id: $id}) DETACH DELETE c";
+
+    // ── ListSessionsAsync ──────────────────────────────────────────────
+
+    /// <summary>List sessions with conversation/message counts and last activity.</summary>
+    public const string ListSessions = @"
+            MATCH (c:Conversation)
+            WITH c.session_id AS sessionId, collect(c) AS conversations
+            OPTIONAL MATCH (c2:Conversation)-[:HAS_MESSAGE]->(m:Message)
+            WHERE c2.session_id = sessionId
+            WITH sessionId, SIZE(conversations) AS convCount, collect(m) AS messages
+            RETURN sessionId,
+                   convCount,
+                   SIZE(messages) AS msgCount,
+                   CASE WHEN SIZE(messages) > 0 THEN messages[-1].content ELSE null END AS lastPreview,
+                   CASE WHEN SIZE(messages) > 0 THEN messages[-1].timestamp ELSE null END AS lastActivity
+            ORDER BY lastActivity DESC
+            LIMIT $limit";
 }

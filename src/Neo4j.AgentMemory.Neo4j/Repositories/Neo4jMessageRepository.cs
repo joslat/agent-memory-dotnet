@@ -225,6 +225,19 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         }, cancellationToken);
     }
 
+    public async Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Deleting message {Id}, cascade={Cascade}", messageId, cascade);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var query = cascade ? MessageQueries.DeleteCascade : MessageQueries.DeleteSimple;
+            var cursor = await runner.RunAsync(query, new { id = messageId });
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["deleted"].As<bool>();
+        }, ct);
+    }
+
     private static Message MapToMessage(INode node, float[]? embedding) =>
         new()
         {

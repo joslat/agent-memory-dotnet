@@ -60,4 +60,11 @@ public interface IMessageRepository
     Task DeleteBySessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a single message by identifier.
+    /// When <paramref name="cascade"/> is true, all relationships are removed (DETACH DELETE).
+    /// When false, only the node is deleted (relationships must already be removed).
+    /// </summary>
+    Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken ct = default);
 }

@@ -248,4 +248,44 @@ public static class EntityQueries
             MATCH (e:Entity {id: $entityId})
             DETACH DELETE e
             RETURN count(e) > 0 AS deleted";
+
+    // ── FindSimilarByEmbeddingAsync ─────────────────────────────────
+
+    /// <summary>Vector search for potential duplicate entities, excluding self.</summary>
+    public const string FindSimilarByEmbedding = @"
+            MATCH (source:Entity {id: $entityId}) WHERE source.embedding IS NOT NULL
+            CALL db.index.vector.queryNodes('entity_embedding_idx', $topK, source.embedding)
+            YIELD node, score
+            WHERE node.id <> $entityId AND score >= $minSimilarity
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT $limit";
+
+    // ── GetPendingDuplicatesAsync ───────────────────────────────────
+
+    /// <summary>Get pending SAME_AS pairs for manual review.</summary>
+    public const string GetPendingDuplicates = @"
+            MATCH (a:Entity)-[s:SAME_AS {status: 'pending'}]->(b:Entity)
+            RETURN a, b, s.confidence AS similarity, s.status
+            ORDER BY s.confidence DESC
+            LIMIT $limit";
+
+    // ── GetDeduplicationStatsAsync ──────────────────────────────────
+
+    /// <summary>SAME_AS relationship counts by status for deduplication monitoring.</summary>
+    public const string GetDeduplicationStats = @"
+            OPTIONAL MATCH ()-[s:SAME_AS]->()
+            WITH s.status AS status, COUNT(s) AS cnt
+            RETURN
+              SUM(CASE WHEN status = 'pending' THEN cnt ELSE 0 END) AS pending,
+              SUM(CASE WHEN status = 'confirmed' THEN cnt ELSE 0 END) AS confirmed,
+              SUM(CASE WHEN status = 'rejected' THEN cnt ELSE 0 END) AS rejected,
+              SUM(CASE WHEN status = 'merged' THEN cnt ELSE 0 END) AS merged";
+
+    // ── GetEntitiesFromMessageAsync ────────────────────────────────────
+
+    /// <summary>Get all entities extracted from a specific message.</summary>
+    public const string GetEntitiesFromMessage = @"
+            MATCH (m:Message {id: $messageId})<-[:EXTRACTED_FROM]-(e:Entity)
+            RETURN e ORDER BY e.name";
 }

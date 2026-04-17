@@ -114,4 +114,18 @@ public static class MessageQueries
     /// <summary>Delete all messages for a given session.</summary>
     public const string DeleteBySession =
         "MATCH (m:Message {session_id: $sessionId}) DETACH DELETE m";
+
+    // ── DeleteAsync ────────────────────────────────────────────────────
+
+    /// <summary>Delete a message and all its relationships (DETACH DELETE).</summary>
+    public const string DeleteCascade = @"
+            MATCH (m:Message {id: $id})
+            DETACH DELETE m
+            RETURN true AS deleted";
+
+    /// <summary>Delete a message node only (preserve relationships).</summary>
+    public const string DeleteSimple = @"
+            MATCH (m:Message {id: $id})
+            DELETE m
+            RETURN true AS deleted";
 }

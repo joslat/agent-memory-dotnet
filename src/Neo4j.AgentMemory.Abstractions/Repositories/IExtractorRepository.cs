@@ -39,4 +39,24 @@ public interface IExtractorRepository
         string extractorName,
         int limit = 100,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets full provenance information for an entity.
+    /// </summary>
+    Task<EntityProvenance?> GetProvenanceAsync(string entityId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets aggregate extraction statistics.
+    /// </summary>
+    Task<ExtractionStats> GetExtractionStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets statistics for a specific extractor.
+    /// </summary>
+    Task<ExtractorStats?> GetExtractorStatsAsync(string extractorName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes all provenance relationships (EXTRACTED_FROM, EXTRACTED_BY) for an entity.
+    /// </summary>
+    Task<int> DeleteProvenanceAsync(string entityId, CancellationToken ct = default);
 }

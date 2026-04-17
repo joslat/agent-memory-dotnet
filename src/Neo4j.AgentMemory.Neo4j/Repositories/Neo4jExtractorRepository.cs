@@ -115,6 +115,99 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
         }, ct);
     }
 
+    /// <inheritdoc />
+    public async Task<EntityProvenance?> GetProvenanceAsync(string entityId, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Getting provenance for entity {EntityId}", entityId);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ExtractorQueries.GetEntityProvenance, new { entityId });
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+
+            var record = records[0];
+            var id = record["entityId"]?.As<string>();
+            if (id is null) return null;
+
+            var sources = record["sources"].As<IList<object>>()
+                .Cast<IDictionary<string, object>>()
+                .Where(d => d["messageId"] is not null)
+                .Select(d => new ProvenanceSource(
+                    d["messageId"].As<string>(),
+                    d.TryGetValue("confidence", out var c) && c is not null ? c.As<double>() : null,
+                    d.TryGetValue("startPos", out var sp) && sp is not null ? sp.As<int>() : null,
+                    d.TryGetValue("endPos", out var ep) && ep is not null ? ep.As<int>() : null))
+                .ToList();
+
+            var extractors = record["extractors"].As<IList<object>>()
+                .Cast<IDictionary<string, object>>()
+                .Where(d => d["extractorName"] is not null)
+                .Select(d => new ProvenanceExtractor(
+                    d["extractorName"].As<string>(),
+                    d.TryGetValue("confidence", out var c) && c is not null ? c.As<double>() : 0.0,
+                    d.TryGetValue("extractionTimeMs", out var t) && t is not null ? t.As<int>() : null))
+                .ToList();
+
+            return new EntityProvenance(id, sources, extractors);
+        }, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<ExtractionStats> GetExtractionStatsAsync(CancellationToken ct = default)
+    {
+        _logger.LogDebug("Getting extraction stats");
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ExtractorQueries.GetExtractionStats, new { });
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return new ExtractionStats(0, 0, 0.0);
+
+            var record = records[0];
+            return new ExtractionStats(
+                record["totalEntities"].As<int>(),
+                record["totalMessages"].As<int>(),
+                record["avgPerMessage"].As<double>());
+        }, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<ExtractorStats?> GetExtractorStatsAsync(string extractorName, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Getting stats for extractor {Extractor}", extractorName);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ExtractorQueries.GetExtractorStats, new { extractorName });
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+
+            var record = records[0];
+            var name = record["name"]?.As<string>();
+            if (name is null) return null;
+
+            return new ExtractorStats(
+                name,
+                record["entityCount"].As<int>(),
+                record["avgConfidence"] is not null ? record["avgConfidence"].As<double>() : 0.0,
+                record["totalExtractions"].As<int>());
+        }, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> DeleteProvenanceAsync(string entityId, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Deleting provenance for entity {EntityId}", entityId);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ExtractorQueries.DeleteEntityProvenance, new { entityId });
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 ? records[0]["deleted"].As<int>() : 0;
+        }, ct);
+    }
+
     private static Extractor MapToExtractor(INode node)
     {
         return new Extractor
