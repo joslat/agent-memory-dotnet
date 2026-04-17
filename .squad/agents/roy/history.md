@@ -8,7 +8,29 @@
 - **Architecture:** Framework-agnostic core, ports-and-adapters
 
 ## Learnings
+## Learnings
 
+### 2025-01-XX: Extraction Package Merge Analysis
+
+**Task:** Evaluate merging Extraction.Llm and Extraction.AzureLanguage packages using IExtractionEngine strategy pattern (per architecture-review-2.md Section 1.3 Change 1).
+
+**Analysis:**
+- Thoroughly reviewed both extraction packages (~1,031 LOC total)
+- LLM approach: Chat-based with JSON deserialization
+- Azure approach: Direct Azure API calls per extractor type
+- Measured actual duplication: ~100 LOC / 1,031 LOC = 9.7%
+- Architecture review's "95% structural duplication" referred to external structure, not internal logic
+
+**Decision:** DO NOT merge. Actual code duplication is <10%, insufficient to justify new abstraction layer.
+
+**Action Taken:**
+- Removed unnecessary Core dependency from Extraction.Llm
+- All 1,059 unit tests pass
+- Documented decision in .squad/decisions/inbox/roy-extraction-analysis.md
+
+**Key Learning:** "Structural similarity" ≠ "code duplication". Two implementations of the same interface may follow the same pattern without sharing logic. Creating abstractions should be driven by actual code reuse opportunity, not just pattern recognition. The task instructions explicitly allowed for this pragmatic assessment (step 9).
+
+**Impact:** Maintained architectural clarity, avoided unnecessary complexity. If we add more extraction implementations in the future (3+ total), we can revisit consolidation when true patterns emerge.
 ### 2025-07-15: Gap G3 — Multi-Extractor Pipeline with Merge Strategies
 
 **Task:** Implemented 5 merge strategies (Union, Intersection, Confidence, Cascade, FirstSuccess) and a MultiExtractorPipeline that runs N extractors per type in parallel, merges results via configurable strategy.
