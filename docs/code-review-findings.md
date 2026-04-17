@@ -242,12 +242,13 @@ Note: Python also defines many POLE+O-specific relationship types (KNOWS, ALIAS_
 | Entity MERGE key | `{name: $name, type: $type}` | `{id: $id}` | .NET is stricter (UUID-based). Python merges on name+type |
 | Fact MERGE key | `{id: $id}` | `{subject, predicate, object}` | .NET prevents duplicate SPO triples at Cypher level |
 | Dynamic entity label casing | PascalCase (`Person`) | UPPERCASE (`PERSON`) | Functionally equivalent |
-| ToolCallStatus values | 6: pending, success, failure, error, timeout, cancelled | 4: Pending, Success, Error, Cancelled | ⚠️ **Gap**: Missing `Failure` and `Timeout` |
+| ToolCallStatus values | 6: pending, success, error, cancelled, failure, timeout | 6: Pending, Success, Error, Cancelled, Failure, Timeout | ✅ **FIXED** — Now matches Python (6 values) |
 | Entity relationship types | Dynamic types (KNOWS, ALIAS_OF, etc.) | Generic `RELATED_TO` with `relation_type` property | Design difference |
 
-### 2.9 ToolCallStatus Parity Gap (NEW FINDING)
+### 2.9 ToolCallStatus Parity — RESOLVED ✅
 
-**File:** `src/Neo4j.AgentMemory.Abstractions/Domain/Reasoning/ToolCallStatus.cs`
+**Migration completed:** `ToolCallStatus` enum now has all 6 values matching Python:
+- Pending, Success, Error, Cancelled, Failure, Timeout
 
 The .NET `ToolCallStatus` enum has 4 values: `Pending`, `Success`, `Error`, `Cancelled`.
 Python defines 6 values: `pending`, `success`, `failure`, `error`, `timeout`, `cancelled`.
@@ -273,7 +274,7 @@ The `'timeout'` branch can NEVER trigger because `Timeout` is not a valid `ToolC
 | Node Labels | 11 | 11 | ✅ Exact match |
 | Relationship Types | 15 | 18 | ✅ .NET superset |
 
-**Overall Schema Parity: ~99%.** The only gap is Schema.id vs Schema.version index target and ToolCallStatus enum values.
+**Overall Schema Parity: ~99%.** The only minor difference is Schema.id vs Schema.version index target (design choice, not a gap).
 
 ---
 

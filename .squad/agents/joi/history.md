@@ -183,3 +183,55 @@ Joi's bulk docs update was reported as successful but edits did not persist to d
 
 **Status:** Audit process documented in decisions.md. Documentation updates should be re-applied with disk persistence verification.
 
+---
+
+### L9: Post-Implementation Documentation Synchronization (2025-01-29)
+
+**Session:** Post-MEAI migration + ToolCallStatus fix + Extraction package decision sprint
+
+**Scope:** Synchronized 6 documentation files after three major implementation changes:
+1. MEAI migration (IEmbeddingProvider → IEmbeddingGenerator<T>)
+2. ToolCallStatus enum extended to 6 values
+3. Extraction package consolidation decision
+
+**Changes applied:**
+
+1. **docs/schema.md** — 3 fixes:
+   - ToolCallStatus enum: Updated from 4 to 6 values (Pending, Success, Error, Cancelled, Failure, Timeout)
+   - Property indexes: Added `fact_category` and `reasoning_step_timestamp` as .NET extensions (14 total, not 12)
+   - Schema indexes: Added note that .NET uses `schema_version_idx` while Python uses `schema_id_idx`
+
+2. **docs/python-dotnet-comparison.md** — 4 updates:
+   - Test file count: "55+" → "111+ test class files (103 unit + 8 integration)"
+   - MCP tool count: "21" → "28" (13 more than Python's 15)
+   - Added MEAI native integration note under .NET advantages
+   - Updated date stamp to reflect MEAI migration completion
+
+3. **docs/feature-record.md** — 2 updates:
+   - Header: "1058 tests" → "1059 tests", "55+" → "111+ test class files"
+   - MCP Server feature: "21 tools" → "28 tools"
+
+4. **README.md** — 2 updates:
+   - MCP tool count: "21" → "28" (appears twice in document)
+   - Updated MCP layer description to reflect 28 tools
+
+5. **docs/meai-ecosystem-analysis.md** — 3 major sections rewritten:
+   - "Our Current Usage" section: Marked migration as COMPLETED, deleted IEmbeddingProvider references
+   - "Split Personality Problem" section: Changed from "We have..." to "Previously we had... RESOLVED ✅"
+   - Migration Path section: Marked all phases as COMPLETED
+   - Proposed Abstractions.csproj: Changed to "NOW IMPLEMENTED ✅"
+   - neo4j-maf-provider comparison table: Updated embedding row to show migration completed
+
+6. **docs/code-review-findings.md** — 2 fixes:
+   - ToolCallStatus design difference: Changed from "⚠️ Gap" to "✅ RESOLVED"
+   - Section 2.9: Replaced gap description with resolution note
+   - Schema parity summary: Updated from "~99% with ToolCallStatus gap" to "~99% (only Schema index difference)"
+
+**Key lesson:** Post-implementation doc sweeps must verify **actual code state**, not rely on previous documentation claims:
+- Used grep to count MCP tools (`Tool(` attributes) → 28 actual (not 21)
+- Counted test files via PowerShell → 111 class files (not 55+)
+- Viewed ToolCallStatus.cs directly → 6 enum values confirmed
+- Checked SchemaBootstrapper.cs → 15 PropertyIndexes array items (not 12)
+
+**Pattern confirmed:** Every major implementation sprint needs a corresponding doc update task. Numeric claims drift by default.
+

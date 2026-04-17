@@ -1,7 +1,7 @@
 # Python neo4j-agent-memory vs .NET agent-memory-dotnet — Comprehensive Comparison
 
 > **Document authored by:** Sebastian (GraphRAG Interop Engineer) | Updated by Deckard (P1 Sprint + Gap Closure Sprint)  
-> **Date:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)  
+> **Date:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C + MEAI Migration)  
 > **Scope:** Exhaustive feature-by-feature comparison of the Python `neo4j-agent-memory` library
 > (`Neo4j/agent-memory/`) and the .NET `agent-memory-dotnet` project (`src/`).
 
@@ -23,7 +23,7 @@
 | 8 | **Provenance tracking** | ✅ Full | EXTRACTED_FROM (with all props), EXTRACTED_BY, Extractor node |
 | 9 | **Cross-memory relationships** | ✅ Full | HAS_TRACE, INITIATED_BY, TRIGGERED_BY, MENTIONS, SAME_AS |
 | 10 | **MCP tools (core 6)** | ✅ Full | All 6 core tools match |
-| 11 | **MCP tools (extended)** | ✅ Full | All Python tools matched; .NET has 21 total (6 more than Python's 15) |
+| 11 | **MCP tools (extended)** | ✅ Full | All Python tools matched; .NET has 28 total (13 more than Python's 15) |
 | 12 | **Vector search (5 indexes)** | ✅ Full | All 5 Python vector indexes + 1 extra |
 | 13 | **Geospatial queries** | ✅ Full | Radius search + bounding box, Point index |
 | 14 | **LLM extraction** | ✅ Full | 4 granular extractors (entity, fact, preference, relationship) |
@@ -66,7 +66,7 @@
 | **Abstractions package** | Interface-only package for clean DI/testing |
 | **4 granular extractors** | Separate entity/fact/preference/relationship extractors |
 | **Batch upsert** | UNWIND-based batch for entities and facts |
-| **3 extra MCP tools** | `record_tool_call`, `find_duplicates`, `extract_and_persist`, `export_graph`, `extract_session`, `generate_embeddings` |
+| **13 extra MCP tools** | Beyond Python's 15 tools — 28 total in .NET |
 | **Fulltext indexes** | 3 fulltext indexes for message/entity/fact search |
 | **ReasoningStep vector index** | Extra vector index for step-level semantic search |
 
@@ -98,6 +98,7 @@ level.
 - Entity resolution chain (exact → fuzzy via FuzzySharp → semantic).
 - Full provenance tracking: every entity/fact/preference carries `EXTRACTED_FROM` relationships.
 - OpenTelemetry instrumentation via `ActivitySource` and `MeterProvider`.
+- Microsoft.Extensions.AI (MEAI) native integration via `IEmbeddingGenerator<T>` for embedding abstraction.
 - Microsoft Agent Framework (MAF) integration: `Neo4jMemoryContextProvider`,
   `Neo4jChatMessageStore`, `AgentTraceRecorder`.
 - GraphRAG adapter: vector / fulltext / hybrid retrieval over external Neo4j knowledge graphs.

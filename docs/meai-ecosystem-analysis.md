@@ -46,19 +46,19 @@
 | **Semantic Kernel** | Built on MEAI abstractions since SK 1.x; `IKernelBuilder` accepts `IChatClient` |
 | **Any .NET app** | Standalone — no framework required, just DI + MEAI |
 
-### Our Current Usage
+### Our Current Usage — MIGRATION COMPLETED ✅
 
-We already reference `Microsoft.Extensions.AI.Abstractions` **version 10.4.1** in **5 packages**:
+We now reference `Microsoft.Extensions.AI.Abstractions` **version 10.4.1** in **ALL packages**:
 
 | Package | MEAI Reference | Usage |
 |---------|---------------|-------|
-| `Neo4j.AgentMemory.Core` | ✅ 10.4.1 | `IChatClient` in `ContextCompressor` |
+| `Neo4j.AgentMemory.Abstractions` | ✅ 10.4.1 | `IEmbeddingGenerator<string, Embedding<float>>` (migration completed) |
+| `Neo4j.AgentMemory.Core` | ✅ 10.4.1 (transitive) | `IChatClient` in `ContextCompressor` |
 | `Neo4j.AgentMemory.AgentFramework` | ✅ 10.4.1 | `ChatMessage`, `ChatRole` for MAF mapping |
 | `Neo4j.AgentMemory.GraphRagAdapter` | ✅ 10.4.1 | `IEmbeddingGenerator<string, Embedding<float>>` |
 | `Neo4j.AgentMemory.Extraction.Llm` | ✅ 10.4.1 | `IChatClient` for all 4 LLM extractors |
-| `Neo4j.AgentMemory.Abstractions` | ❌ None | Zero dependencies — uses own `IEmbeddingProvider` |
 
-**Key finding:** We already use MEAI heavily in Core, Extraction, and GraphRagAdapter. The gap is in `Abstractions`, which defines its own `IEmbeddingProvider` instead of using MEAI's `IEmbeddingGenerator`.
+**Migration completed:** The custom `IEmbeddingProvider` interface has been **DELETED** from Abstractions. All packages now use MEAI's native `IEmbeddingGenerator<string, Embedding<float>>` interface. The `StubEmbeddingProvider` has been renamed to `StubEmbeddingGenerator`.
 
 ---
 
@@ -94,14 +94,14 @@ Neo4jGraphRagContextSource
   → VectorRetriever / HybridRetriever / FulltextRetriever
 ```
 
-### The Split Personality Problem
+### The Split Personality Problem — RESOLVED ✅
 
-We have **two embedding interfaces** in the codebase:
+**Previously**, we had **two embedding interfaces** in the codebase. This has now been **FIXED**:
 
-1. **`IEmbeddingProvider`** (Abstractions) — `Task<float[]> GenerateEmbeddingAsync(string text)` — used by Core, AgentFramework, MemoryToolFactory
-2. **`IEmbeddingGenerator<string, Embedding<float>>`** (MEAI) — used by GraphRagAdapter
+1. **`IEmbeddingGenerator<string, Embedding<float>>`** (MEAI) — now used **everywhere** (Abstractions migrated)
+2. ~~`IEmbeddingProvider`~~ (DELETED — migration completed)
 
-This forces consumers to register **both** interfaces, as seen in the BlendedAgent sample:
+The split personality problem is **RESOLVED**. All packages now use the MEAI standard interface.
 
 ```csharp
 // Two separate registrations for the SAME capability
@@ -211,21 +211,18 @@ We already use `IChatClient` from MEAI in:
 | `RecallRequest.QueryEmbedding` | `float[]?` → `ReadOnlyMemory<float>?` (optional) | Domain model |
 | `Abstractions.csproj` | Add `Microsoft.Extensions.AI.Abstractions` | New dependency |
 
-### Migration Path
+### Migration Path — COMPLETED ✅
 
-**Recommended: Two-phase approach**
+**Phase A — Additive (non-breaking):** ~~PLANNED~~ → **COMPLETED**
+1. ✅ Added `IEmbeddingGenerator` support alongside `IEmbeddingProvider`
+2. ✅ Abstractions now references Microsoft.Extensions.AI.Abstractions 10.4.1
+3. ✅ Core services migrated to use `IEmbeddingGenerator<string, Embedding<float>>`
+4. ✅ `StubEmbeddingProvider` renamed to `StubEmbeddingGenerator`
 
-**Phase A — Additive (non-breaking):**
-1. Add `IEmbeddingGenerator` support alongside `IEmbeddingProvider`
-2. Create `EmbeddingProviderAdapter` bridge
-3. Core services accept either via DI fallback pattern
-4. Mark `IEmbeddingProvider` as `[Obsolete]`
-
-**Phase B — Clean break (next major version):**
-1. Remove `IEmbeddingProvider` and `StubEmbeddingProvider`
-2. Replace `StubEmbeddingProvider` with `StubEmbeddingGenerator`
-3. All services depend on `IEmbeddingGenerator<string, Embedding<float>>` only
-4. Remove `EmbeddingProviderAdapter`
+**Phase B — Clean break:** ~~NEXT MAJOR VERSION~~ → **COMPLETED**
+1. ✅ `IEmbeddingProvider` interface **DELETED** from Abstractions
+2. ✅ All services now use `IEmbeddingGenerator<string, Embedding<float>>` exclusively
+3. ✅ Migration complete — no adapter layer needed
 
 ### NuGet Dependency Footprint
 
@@ -237,7 +234,9 @@ Microsoft.Extensions.AI.Abstractions (10.4.1)
 
 **Net new dependency for Abstractions: 1 package, ~100KB.** This is well within acceptable bounds. It's the same approach as referencing `Microsoft.Extensions.Logging.Abstractions` — an industry-standard pattern.
 
-### Proposed Abstractions.csproj
+### Proposed Abstractions.csproj — NOW IMPLEMENTED ✅
+
+**Actual Abstractions.csproj after migration:**
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
@@ -246,7 +245,7 @@ Microsoft.Extensions.AI.Abstractions (10.4.1)
     <Description>Abstractions and domain models for the Neo4j Agent Memory library.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Lightweight: interfaces only, ~100KB -->
+    <!-- ✅ MIGRATION COMPLETED: Now using MEAI standard interface -->
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
   </ItemGroup>
 </Project>
@@ -322,8 +321,8 @@ Neo4j.AgentMemory (full stack)
 | MCP server | ❌ | ✅ |
 | OpenTelemetry | ❌ | ✅ |
 | MEAI `IChatClient` | ❌ | ✅ |
-| MEAI `IEmbeddingGenerator` | ✅ | ✅ (GraphRagAdapter) |
-| Our `IEmbeddingProvider` | ❌ | ✅ (Core, AgentFramework) |
+| MEAI `IEmbeddingGenerator` | ✅ | ✅ (ALL packages — migration completed) |
+| ~~Our `IEmbeddingProvider`~~ | ❌ | ~~✅~~ (DELETED — migration completed) |
 
 ### Could neo4j-maf-provider Be Replaced?
 

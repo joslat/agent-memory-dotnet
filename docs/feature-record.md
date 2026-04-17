@@ -3,7 +3,7 @@
 > **Generated:** 2025-07-13 | **Updated:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)
 > **Author:** Sebastian (GraphRAG Interop Engineer) | **Reviewer:** Deckard (Lead Architect)
 > **Project:** Neo4j.AgentMemory for .NET 9
-> **Total Unit Tests:** 1058 | **Integration Tests:** 71 | **Test Files:** 55+
+> **Total Unit Tests:** 1059 | **Integration Tests:** 71+ | **Test Files:** 111+ test class files
 
 ---
 
@@ -19,7 +19,7 @@
 | 6 | **Reasoning Traces** | 4 | Trace recording, steps, tool calls, similar trace search | 80 | Enables agent self-reflection and learning from past tasks | 10 tests |
 | 7 | **Graph Schema** | 4 | Constraints, indexes, vector indexes, migration runner | 85 | Data integrity + query performance — foundation for all persistence | 14 tests |
 | 8 | **Vector Search** | 3 | Embedding generation, similarity search, configurable dimensions | 90 | Semantic retrieval across all memory layers — core to context assembly | 7 tests |
-| 9 | **MCP Server** | 10 | 21 tools, 6 resources (Conversations, Entities, Preferences, Context, MemoryStatus, Schema), 3 prompts | 85 | Primary integration surface — any MCP-compatible agent can use memory | 53+ tests |
+| 9 | **MCP Server** | 10 | 28 tools, 6 resources (Conversations, Entities, Preferences, Context, MemoryStatus, Schema), 3 prompts | 85 | Primary integration surface — any MCP-compatible agent can use memory | 53+ tests |
 | 10 | **MAF Integration** | 6 | Context provider, chat message store, trace recorder, memory facade, tool factory, type mapper | 80 | Microsoft Agent Framework interop — enterprise agent platform support | 52 tests |
 | 11 | **GraphRAG Adapter** | 5 | Vector/fulltext/hybrid/graph retrievers, stop word filter, context source | 85 | External knowledge graph retrieval — complements internal memory | 19 tests |
 | 12 | **Azure Language Extraction** | 3 | Named entity extraction, fact extraction, relationship extraction via Azure AI | 70 | Cloud-native extraction alternative — no LLM needed | 22 tests |

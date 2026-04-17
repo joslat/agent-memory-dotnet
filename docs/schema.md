@@ -159,7 +159,7 @@
 | `tool_name` | string | ✅ | — | Name of tool called |
 | `arguments` | string (JSON) | ✅ | — | Serialized arguments |
 | `result` | string (JSON) | ❌ | — | Serialized result |
-| `status` | string | ✅ | — | `"pending"`, `"success"`, `"failure"`, `"error"`, `"timeout"`, `"cancelled"` |
+| `status` | string | ✅ | — | `"pending"`, `"success"`, `"error"`, `"cancelled"`, `"failure"`, `"timeout"` |
 | `duration_ms` | int | ❌ | — | Execution time |
 | `error` | string | ❌ | — | Error message |
 | `timestamp` | datetime | ✅ | `datetime()` | Auto-set |
@@ -266,27 +266,29 @@
 |------------|-------|----------|-------|
 | `entity_location_idx` | `Entity` | `location` | For geospatial queries |
 
-#### Property Indexes (12)
+#### Property Indexes (12 + 2 .NET extensions)
 
-| Index Name | Label | Property |
-|------------|-------|----------|
-| `conversation_session_idx` | `Conversation` | `session_id` |
-| `message_timestamp_idx` | `Message` | `timestamp` |
-| `message_role_idx` | `Message` | `role` |
-| `entity_type_idx` | `Entity` | `type` |
-| `entity_name_idx` | `Entity` | `name` |
-| `entity_canonical_idx` | `Entity` | `canonical_name` |
-| `preference_category_idx` | `Preference` | `category` |
-| `trace_session_idx` | `ReasoningTrace` | `session_id` |
-| `trace_success_idx` | `ReasoningTrace` | `success` |
-| `tool_call_status_idx` | `ToolCall` | `status` |
+| Index Name | Label | Property | Notes |
+|------------|-------|----------|-------|
+| `conversation_session_idx` | `Conversation` | `session_id` | |
+| `message_timestamp_idx` | `Message` | `timestamp` | |
+| `message_role_idx` | `Message` | `role` | |
+| `entity_type_idx` | `Entity` | `type` | |
+| `entity_name_idx` | `Entity` | `name` | |
+| `entity_canonical_idx` | `Entity` | `canonical_name` | |
+| `fact_category` | `Fact` | `category` | .NET extension |
+| `preference_category_idx` | `Preference` | `category` | |
+| `trace_session_idx` | `ReasoningTrace` | `session_id` | |
+| `trace_success_idx` | `ReasoningTrace` | `success` | |
+| `reasoning_step_timestamp` | `ReasoningStep` | `timestamp` | .NET extension |
+| `tool_call_status_idx` | `ToolCall` | `status` | |
 
 #### Schema Persistence Indexes (2)
 
-| Index Name | Label | Property |
-|------------|-------|----------|
-| `schema_name_idx` | `Schema` | `name` |
-| `schema_version_idx` | `Schema` | `version` |
+| Index Name | Label | Property | Notes |
+|------------|-------|----------|-------|
+| `schema_name_idx` | `Schema` | `name` | |
+| `schema_version_idx` | `Schema` | `version` | .NET uses `version`; Python uses `id` |
 
 ---
 

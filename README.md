@@ -21,7 +21,7 @@ It is designed to support:
 - **Neo4j-backed persistent memory**
 - **Graph-native retrieval and memory recall**
 - **GraphRAG interoperability**
-- **MCP Server for external clients and tools** (21 tools, 6 resources, 3 prompts)
+- **MCP Server for external clients and tools** (28 tools, 6 resources, 3 prompts)
 
 ## Why this exists
 
@@ -89,7 +89,7 @@ A separate adapter that composes with the existing .NET Neo4j GraphRAG provider 
 - combined memory + GraphRAG scenarios
 
 ### 5. MCP layer
-A .NET MCP server exposing 21 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
+A .NET MCP server exposing 28 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
 
 ## Planned capabilities
 
