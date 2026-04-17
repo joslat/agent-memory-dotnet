@@ -455,38 +455,128 @@ Issues:
 - No query reuse (some patterns repeat)
 - Python reference centralizes all 60+ queries in `queries.py`
 
-**Solution: CypherQueries Static Classes**
+#### Alternatives Analysis
 
-Create per-domain query constant classes:
+Six approaches were evaluated for centralizing Cypher queries. The analysis considers compile-time safety, IDE support, Python parity, maintainability, and .NET idiom fit.
+
+| Approach | Compile-Time Safety | IDE Support | Python Parity | Dynamic Queries | Verdict |
+|----------|:---:|:---:|:---:|:---:|---------|
+| **(a) Static C# classes with const strings** | ✅ | ✅ F12, IntelliSense | ✅ Direct equivalent | ✅ via methods | **✅ Recommended** |
+| **(b) `.cypher` files (embedded resources)** | ❌ Runtime load | ⚠️ Separate files | ❌ No equivalent | ❌ | ❌ Over-engineered |
+| **(c) JSON/YAML storage** | ❌ Runtime load | ❌ No Cypher support | ❌ | ❌ Escaping nightmare | ❌ Worst option |
+| **(d) Fluent query builder / DSL** | ✅ | ⚠️ Custom API | ❌ | ✅ | ❌ Wrapping a DSL in a DSL |
+| **(e) Single CypherQueries.cs file** | ✅ | ✅ | ✅ 1:1 with queries.py | ✅ | ⚠️ Viable but unwieldy at 207+ |
+| **(f) Neo4j OGM / query DSL library** | ⚠️ | ⚠️ | ❌ | ✅ | ❌ No mature .NET OGM exists |
+
+**Why NOT JSON/YAML:** Multi-line Cypher in JSON requires escaping every newline and quotation mark. Parameter names are disconnected from call sites. No IDE navigation from query usage to definition. No compile-time checking. Hot-reloading queries against a database is a security anti-pattern. Zero benefits over const strings.
+
+**Why NOT .cypher files:** Embedded resources add runtime loading complexity, lose compile-time const verification, break F12 navigation, and create a disconnect between query definition and parameter contracts. The IDE Cypher highlighting benefit is marginal — developers spend more time on the C# call site than the query file.
+
+**Why NOT a fluent builder:** Cypher IS the DSL. Wrapping it in a C# fluent API creates a maintenance burden (the builder must track Cypher grammar evolution), reduces readability for anyone who knows Cypher, and makes debugging harder (you can't copy-paste from the builder output to Neo4j Browser).
+
+**Why per-domain classes, not a single file:** Python's `queries.py` (1,248 lines, ~95 constants) works because Python modules don't have the same navigability pressure as C# classes. In .NET, a 207+-constant class is unwieldy. Per-domain classes (EntityQueries, FactQueries, etc.) give:
+- Repository ↔ Queries 1:1 mapping (easy to find)
+- Each file stays under ~50 constants (manageable)
+- Domain teams can own their query files independently
+- Matches the repository structure already in place
+
+**Python reference approach:** `queries.py` uses module-level string constants with multi-line triple-quoted strings, organized by 11 semantic domain comments. `query_builder.py` handles dynamic label generation with validation. Our per-domain static classes ARE the .NET-idiomatic translation of this pattern — the split is structural, not conceptual.
+
+#### Cypher Validation Strategy
+
+**Can we validate Cypher syntax at build time?** No. There is no .NET Cypher parser or linter. The Neo4j driver has no offline validation API.
+
+**Can we validate without executing?** Yes — `EXPLAIN` returns the query plan without executing the query. This is the standard Neo4j approach.
+
+**Recommended: Integration-time EXPLAIN validation.** Create a `CypherQueryValidator` that runs `EXPLAIN` on all registered query constants during integration tests or application startup (opt-in). This catches syntax errors, missing indexes, and typos in property names before any data flows:
+
+```csharp
+// Integration test or startup validation
+public class CypherQueryValidator
+{
+    public async Task ValidateAllAsync(IAsyncSession session)
+    {
+        var allQueries = CypherQueryRegistry.GetAll(); // reflection or explicit registration
+        foreach (var (name, cypher) in allQueries)
+        {
+            await session.RunAsync($"EXPLAIN {cypher}"); // throws on syntax error
+        }
+    }
+}
+```
+
+This is strictly additive — opt-in, no production overhead, runs in Testcontainers integration tests.
+
+#### Query Classification
+
+Our 207+ queries break down by operation type and domain:
+
+| Domain | MERGE | MATCH | CREATE | CALL | DELETE | Other |
+|--------|:---:|:---:|:---:|:---:|:---:|:---:|
+| Entity | 8 | 20 | 4 | 6 | 4 | 12 |
+| Fact | 3 | 10 | 2 | 4 | 2 | 6 |
+| Message | 3 | 8 | 3 | 4 | 2 | 4 |
+| Preference | 3 | 6 | 2 | 4 | 2 | 2 |
+| Schema | — | — | 34 | — | — | — |
+| Other | 5 | 15 | 3 | 5 | 4 | 7 |
+
+~88% are static `const string` (extractable as-is). ~7% use string interpolation for conditional clauses (e.g., optional session filters). ~5% use ternary selection between two complete queries. The dynamic queries become static helper methods returning strings, placed in the same domain query class.
+
+**Solution: Per-Domain Static Query Classes (Confirmed)**
+
+The original plan is correct. Enhancements added based on analysis:
 
 ```
 src/Neo4j.AgentMemory.Neo4j/Queries/
-├── EntityQueries.cs
-├── FactQueries.cs
-├── MessageQueries.cs
-├── PreferenceQueries.cs
-├── RelationshipQueries.cs
-├── ConversationQueries.cs
-├── ReasoningQueries.cs
-├── ToolCallQueries.cs
-├── ExtractorQueries.cs
-└── SchemaQueries.cs
+├── MetadataFilterBuilder.cs       (ALREADY EXISTS — shared WHERE clause builder)
+├── EntityQueries.cs               (~54 constants + 2 methods for dynamic queries)
+├── FactQueries.cs                 (~27 constants)
+├── MessageQueries.cs              (~24 constants + 1 method for dynamic filter)
+├── PreferenceQueries.cs           (~19 constants)
+├── RelationshipQueries.cs         (~9 constants)
+├── ConversationQueries.cs         (~6 constants)
+├── ReasoningQueries.cs            (~18 constants — traces + steps combined)
+├── ToolCallQueries.cs             (~12 constants)
+├── ExtractorQueries.cs            (~10 constants)
+├── SchemaQueries.cs               (~34 constants — constraints, indexes, DDL)
+├── SharedFragments.cs             (reusable Cypher fragments: vector search CALL, datetime patterns)
+└── CypherQueryRegistry.cs         (collects all queries for EXPLAIN validation)
+```
+
+**Naming convention** (matches Python `queries.py` style):
+```csharp
+public static class EntityQueries
+{
+    public const string Upsert = @"MERGE (e:Entity {id: $id}) ...";
+    public const string GetById = "MATCH (e:Entity {id: $id}) RETURN e";
+    public const string SearchByVector = @"CALL db.index.vector.queryNodes(...) ...";
+    public const string GetByNameWithAliases = "MATCH (e:Entity) WHERE e.name = $name OR $name IN e.aliases RETURN e";
+
+    // Dynamic queries that need conditional logic
+    public static string GetByName(bool includeAliases) => includeAliases
+        ? GetByNameWithAliases
+        : "MATCH (e:Entity {name: $name}) RETURN e";
+}
 ```
 
 **Implementation Steps:**
 
-1. Create `Queries/` directory structure
-2. Extract all Cypher from each repository into corresponding `*Queries.cs` static class
-3. Replace inline strings with constant references
-4. Verify all tests pass (behavior unchanged)
+1. Create per-domain `*Queries.cs` files in `Queries/` directory
+2. Extract all `const string cypher` into named constants following `DOMAIN_OPERATION` naming
+3. Extract dynamic queries (`var cypher = ...`) into static methods with the same conditional logic
+4. Create `SharedFragments.cs` for reusable patterns (vector search CALL, EXPLAIN prefix)
+5. Create `CypherQueryRegistry.cs` that collects all query constants via reflection
+6. Replace all inline strings in repositories with constant/method references
+7. Add integration test: `CypherQueryValidationTests` that runs `EXPLAIN` on all registered queries
+8. Verify all 1,058+ existing tests pass (behavior unchanged)
 
-**Files to Create:** 10 query constant files (as listed above)
+**Files to Create:** 12 query files (10 domain + SharedFragments + CypherQueryRegistry)
 
 **Files to Modify:** All 15 Neo4j repository/infrastructure files
 
-**Test Impact:** Zero — purely structural refactor.
+**Test Impact:** Zero behavior change to existing tests. New: `CypherQueryValidationTests` (integration test running EXPLAIN on all queries).
 
-**Risk:** Low. Mechanical extraction. No behavior change.
+**Risk:** Low. Mechanical extraction. The EXPLAIN validation is additive and opt-in. No behavior change to any existing query.
 
 ---
 

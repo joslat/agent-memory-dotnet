@@ -467,18 +467,37 @@ We adapted **3 retriever types** and supporting utilities:
 
 ### Key Findings
 
-| Finding | Category | Severity |
-|---------|----------|----------|
-| Embedding generation scattered across 5+ call sites | DRY | 🔴 High |
-| Extraction.Llm and Extraction.AzureLanguage ~95% structurally identical | DRY | 🔴 High |
-| `MemoryExtractionPipeline` (393 LOC) does extraction + validation + resolution + persistence | SRP | 🟡 Medium |
-| Dual pipeline ambiguity (MemoryExtractionPipeline vs MultiExtractorPipeline) | KISS | 🟡 Medium |
-| Cypher queries inline in C# strings across 10 repositories | Maintainability | 🟡 Medium |
-| Confidence thresholds hardcoded (0.5, 0.8, 0.85, 0.95) | DRY | 🟡 Medium |
-| AzureLanguageRelationshipExtractor re-calls entity recognition (API waste) | Performance | 🟡 Medium |
-| Zero circular dependencies | Architecture | ✅ Positive |
-| Zero boundary violations | Architecture | ✅ Positive |
-| Zero TODO/FIXME/HACK comments | Quality | ✅ Positive |
+| Finding | Category | Severity | Refactoring Plan |
+|---------|----------|----------|-----------------|
+| Embedding generation scattered across 12+ call sites in 5 services | DRY | 🔴 High | Wave 1 — `IEmbeddingOrchestrator` service |
+| Extraction.Llm and Extraction.AzureLanguage ~95% structurally identical | DRY | 🔴 High | Wave 1 — `ExtractorBase<T>` shared base class |
+| `MemoryExtractionPipeline` (393 LOC, 14 deps) does extraction + validation + resolution + persistence | SRP | 🟡 Medium | Wave 2 — Split into ExtractionStage + PersistenceStage |
+| Dual pipeline ambiguity (MemoryExtractionPipeline vs MultiExtractorPipeline) | KISS | 🟡 Medium | Wave 2 — Merge into unified pipeline |
+| 207+ Cypher queries inline in C# strings across 15 files | Maintainability | 🟡 Medium | Wave 3 — Per-domain static query classes (see §7.1) |
+| Confidence thresholds hardcoded (0.5, 0.8, 0.85, 0.95) across 7 files | DRY | 🟡 Medium | Wave 2 — Parameterize via Options |
+| AzureLanguageRelationshipExtractor re-calls entity recognition (API waste) | Performance | 🟡 Medium | Wave 2 — Shared ExtractionContext cache |
+| Zero circular dependencies | Architecture | ✅ Positive | — |
+| Zero boundary violations | Architecture | ✅ Positive | — |
+| Zero TODO/FIXME/HACK comments | Quality | ✅ Positive | — |
+
+### 7.1 Cypher Query Strategy
+
+**Current state:** 207+ Cypher queries inline across 15 files. 88% use `const string cypher = @"..."` (fully parameterized, safe). 7% use string interpolation for conditional clauses (e.g., optional session filters in vector search). 5% use ternary selection between two static queries. 100% of queries use `$parameter` syntax — no string concatenation for values. `MetadataFilterBuilder.cs` already exists as a shared query fragment builder.
+
+**Decided approach: Per-domain static C# classes** (the .NET-idiomatic equivalent of Python's `queries.py`). Six alternatives were evaluated:
+
+| Approach | Verdict | Why |
+|----------|---------|-----|
+| Static C# classes (per domain) | **✅ Chosen** | Compile-time safety, IDE F12 navigation, IntelliSense, zero runtime overhead, matches Python pattern |
+| `.cypher` embedded resources | ❌ Rejected | Runtime loading, no compile-time safety, disconnects parameters from call sites |
+| JSON/YAML storage | ❌ Rejected | Multi-line Cypher requires escaping, no IDE support, no compile-time checks, security concern |
+| Fluent query builder / DSL | ❌ Rejected | Wrapping a DSL (Cypher) in another DSL; maintenance burden, reduced readability |
+| Single CypherQueries.cs file | ⚠️ Viable | Direct Python translation, but 207+ constants in one file is unwieldy in C# |
+| Neo4j OGM library | ❌ Rejected | No mature .NET Neo4j OGM exists |
+
+**Validation strategy:** No .NET Cypher parser exists. The Neo4j driver has no offline validation API. Validation via `EXPLAIN` queries in integration tests (runs query planner without executing) catches syntax errors, missing indexes, and property name typos at test time rather than production.
+
+See `docs/refactoring-plan.md` Finding 5 for full implementation details, file list, and naming conventions.
 
 ### What's Working Well (Don't Touch)
 
@@ -490,6 +509,7 @@ We adapted **3 retriever types** and supporting utilities:
 6. **Stub implementations** — Enable testing without external services. Excellent DX.
 7. **Options pattern** — Consistent `IOptions<T>` usage throughout all packages.
 8. **Sealed classes** — Appropriate use prevents unintended inheritance.
+9. **Cypher parameterization** — 100% of queries use `$parameter` syntax. Zero Cypher injection risk.
 
 ---
 
@@ -647,10 +667,10 @@ Pragmatic improvements I'd make if starting a new sprint, ordered by impact/effo
 
 | Change | Why | Impact | Effort |
 |--------|-----|--------|--------|
-| **Consolidate embedding generation** into `IEmbeddingOrchestrator` | DRY — 5+ duplicate call sites | High | Medium |
+| **Consolidate embedding generation** into `IEmbeddingOrchestrator` | DRY — 12+ duplicate call sites across 5 services | High | Medium |
 | **Fix Azure redundant API calls** — Share entity recognition results between extractors | Halves Azure API costs | Medium | Low |
 | **Externalize LLM system prompts** — Move to embedded resources or configurable options | Prompt tuning without deploy | Medium | Low |
-| **Centralize Cypher queries** into `CypherQueries` static classes | Maintainability, query auditing | Medium | Medium |
+| **Centralize Cypher queries** into per-domain static classes + EXPLAIN validation | Maintainability, query auditing, syntax validation at test time. See §7.1 | Medium | Medium |
 | **Resolve dual pipeline** — Clarify MemoryExtractionPipeline vs MultiExtractorPipeline roles | KISS — consumer confusion | Medium | Low |
 
 ### Larger Refactors (3-5 days, design review needed)

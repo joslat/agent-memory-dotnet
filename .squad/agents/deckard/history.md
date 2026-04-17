@@ -802,3 +802,31 @@ Items from Python parity comparison that need implementation:
 ### Artifacts Created
 - `docs/refactoring-plan.md` — 3-wave implementation plan for all 7 findings
 - `.squad/decisions/inbox/deckard-refactoring-plan.md` — Decision record
+
+### 2026-07-21 — Cypher Strategy Deep Analysis (Jose Review)
+
+**Trigger:** Jose reviewed refactoring-plan.md Finding 5 and challenged whether static C# classes are the best approach. Asked about JSON storage, .cypher files, fluent builders, and whether Cypher syntax can be validated.
+
+**Analysis Performed:**
+1. Evaluated 6 alternative approaches for Cypher query centralization
+2. Assessed JSON/YAML (rejected — escaping nightmare, no compile-time safety, security concern)
+3. Assessed .cypher embedded resources (rejected — runtime loading, disconnected parameters)
+4. Assessed fluent builder/DSL (rejected — wrapping a DSL in a DSL)
+5. Assessed single CypherQueries.cs (viable but 207+ constants unwieldy)
+6. Assessed Neo4j OGM (rejected — no mature .NET library)
+7. Researched Cypher validation options (no .NET parser exists; EXPLAIN-based validation recommended)
+8. Confirmed per-domain static classes as correct approach with enhancements
+
+**Enhancements Added to Original Plan:**
+- `SharedFragments.cs` for reusable Cypher patterns (vector search CALL, datetime)
+- `CypherQueryRegistry.cs` for EXPLAIN-based integration test validation
+- Dynamic queries as static methods on domain query classes (not just const strings)
+- Naming convention documented (matches Python `queries.py` style)
+- Query classification table (by operation type and domain)
+
+**Documents Updated:**
+- `docs/refactoring-plan.md` Finding 5 — comprehensive rewrite with alternatives analysis
+- `docs/architecture-review-assessment.md` §7 — added §7.1 Cypher Query Strategy, updated findings table, updated §11 medium-effort items
+- `.squad/decisions/inbox/deckard-cypher-strategy.md` — 4 decisions (D-CQ-1 through D-CQ-4)
+
+**Key Insight:** The question "should we use JSON?" has a clear answer: NO. Cypher queries are code — they should live in code files with compile-time safety, IDE navigation, and type-checked parameter contracts. The Python reference validates this: queries.py uses Python source code, not external files.
