@@ -1,7 +1,7 @@
 # Python neo4j-agent-memory vs .NET agent-memory-dotnet — Comprehensive Comparison
 
 > **Document authored by:** Sebastian (GraphRAG Interop Engineer) | Updated by Deckard (P1 Sprint + Gap Closure Sprint)  
-> **Date:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C + MEAI Migration)  
+> **Date:** 2026-04-17 (Post Gap Closure Sprint — Waves A/B/C + MEAI Migration)  
 > **Scope:** Exhaustive feature-by-feature comparison of the Python `neo4j-agent-memory` library
 > (`Neo4j/agent-memory/`) and the .NET `agent-memory-dotnet` project (`src/`).
 

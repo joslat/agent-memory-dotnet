@@ -1,7 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Neo4j.AgentFramework.GraphRAG.Retrieval;
+using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.GraphRagAdapter.Internal;

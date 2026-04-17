@@ -2,7 +2,7 @@
 
 **Author:** Deckard (Lead / Solution Architect)  
 **Requested by:** Jose Luis Latorre Millas  
-**Date:** July 2026  
+**Date:** April 2026  
 **Scope:** Architecture re-evaluation, MEAI integration strategy, killer package proposal  
 **Codebase State:** 10 packages, ~14,650 LOC, 1,058+ unit tests, 71+ integration tests  
 **Post-migration state (planned):** MEAI-native embedding contract (`IEmbeddingGenerator<T>` everywhere), unified extraction pipeline via `IExtractionEngine` strategy pattern. Rachael is implementing the MEAI migration; Roy is implementing the ToolCallStatus fix (adding `Failure` and `Timeout` values per D-GAFF-1).
@@ -810,4 +810,4 @@ All claims in this document are based on:
 
 ---
 
-*This review reflects the codebase as of July 2026. Recommendations should be acted on in order of the decision table above. The MEAI migration (D-AR2-1) is the highest-impact architectural change and should precede all others.*
+*This review reflects the codebase as of April 2026. Recommendations should be acted on in order of the decision table above. The MEAI migration (D-AR2-1) is the highest-impact architectural change and should precede all others.*

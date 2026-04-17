@@ -1,7 +1,7 @@
 # Root Cause Analysis — Schema Divergence
 
 > **Author:** Deckard (Lead / Solution Architect)
-> **Date:** 2025-07-21
+> **Date:** 2026-04-17
 > **Severity:** Critical
 > **Affected:** Every Neo4j query in the .NET implementation
 
@@ -66,7 +66,7 @@ Similarly, relationship names drifted:
 
 ### 1.5 Was the Divergence Intentional?
 
-**Partially.** Roy's history explicitly states (2025-07-20):
+**Partially.** Roy's history explicitly states (2026-04-17):
 
 > *"Schema Incompatibilities (same Neo4j instance won't work for both): property naming — snake_case (Python) vs camelCase (.NET) throughout; relationship type names differ: RELATED_TO vs RELATES_TO, USES_TOOL vs USED_TOOL, INSTANCE_OF vs CALLS"*
 
@@ -270,7 +270,7 @@ Additionally, add a **Cypher linter** to CI that greps all `.cs` files for Cyphe
 | 2025-01-28 | Spec §3.5 written with camelCase index property names | Misled developers |
 | 2025-01-28+ | First repository implemented with camelCase | Set the pattern |
 | 2025-01-28+ | All subsequent repositories copied camelCase | Drift amplified |
-| 2025-07-12 | Python analysis revealed missing indexes | Partial fix (added to spec) |
-| 2025-07-13 | Spec updated with 18 indexes, cross-memory relationships | Indexes added but still camelCase |
-| 2025-07-20 | Roy documented schema incompatibilities | Acknowledged but not treated as bug |
-| 2025-07-21 | Jose discovers divergence: "WE MUST USE THE SAME SCHEMA!!!" | This document |
+| 2026-04-17 | Python analysis revealed missing indexes | Partial fix (added to spec) |
+| 2026-04-17 | Spec updated with 18 indexes, cross-memory relationships | Indexes added but still camelCase |
+| 2026-04-17 | Roy documented schema incompatibilities | Acknowledged but not treated as bug |
+| 2026-04-17 | Jose discovers divergence: "WE MUST USE THE SAME SCHEMA!!!" | This document |

@@ -2,7 +2,7 @@
 
 **Author:** Deckard (Lead / Solution Architect)  
 **Requested by:** Jose Luis Latorre Millas  
-**Date:** July 2026  
+**Date:** April 2026  
 **Scope:** Full architecture audit of all 10 source packages + improvement roadmap
 
 ---
@@ -445,13 +445,13 @@ All assessments are based on verified codebase state:
 
 ---
 
-*This assessment reflects the codebase as of July 2026 against commit state with 1,058 passing unit tests. Recommendations should be revisited after each major refactor.*
+*This assessment reflects the codebase as of April 2026 against commit state with 1,058 passing unit tests. Recommendations should be revisited after each major refactor.*
 
 ---
 
 ## 5. Creative & Out-of-Box Improvements
 
-**Added:** July 2026 (Architecture Review 2 — Deep Analysis Sprint)  
+**Added:** April 2026 (Architecture Review 2 — Deep Analysis Sprint)  
 **Author:** Deckard (Lead / Solution Architect)
 
 These ideas push beyond conventional memory patterns into cognitive-science-inspired territory. Each is scored on Impact (1-10), Novelty (1-10), Feasibility (1-10), with a pragmatic implementation sketch.
@@ -749,7 +749,7 @@ opts.MemoryDecay.Curve = DecayCurve.Exponential;
 
 ## 6. What AI Models Want From Memory — An Agent's Perspective
 
-**Added:** July 2026 (Architecture Review 2 — Deep Analysis Sprint)  
+**Added:** April 2026 (Architecture Review 2 — Deep Analysis Sprint)  
 **Author:** Deckard (Lead / Solution Architect)  
 **Perspective:** Written from the AI agent's point of view — what *I* as an AI would want from a memory system
 

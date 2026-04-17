@@ -1,6 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Neo4j.AgentFramework.GraphRAG.Retrieval;
+using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.GraphRagAdapter;
 using NSubstitute;

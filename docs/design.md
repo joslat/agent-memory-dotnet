@@ -1,6 +1,6 @@
 # Software Design Document — Agent Memory for .NET
 
-**Last Updated:** 2025-07-22 (Post Wave 4A/4B/4C — Schema Parity Review)  
+**Last Updated:** 2026-04-17 (Post Wave 4A/4B/4C — Schema Parity Review)  
 **Author:** Deckard (Lead Architect), domain model by Roy (Core Memory Domain Engineer)  
 **Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)  
 **Architecture Overview:** [architecture.md](architecture.md)

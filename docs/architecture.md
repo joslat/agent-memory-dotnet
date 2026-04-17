@@ -577,7 +577,7 @@ All 6 implementation phases plus the gap closure sprint are complete. The projec
 
 ## 9. Package Strategy Analysis
 
-**Added:** 2025-07-17  
+**Added:** 2026-04-17  
 **Author:** Deckard (Lead Architect)
 
 ### 9.1 Why 10 Packages? Dependency Isolation Audit
@@ -666,13 +666,13 @@ The only debatable merge is **Extraction.Llm → Core**, and even that should be
 
 ## 10. DateTime Assessment — ISO Strings vs. Native `datetime()` (P1-9)
 
-**Added:** 2025-07-17  
+**Added:** 2026-04-17  
 **Author:** Deckard (Lead Architect)  
 **Tracking:** P1-9 (from package-strategy-and-features.md feature proposals)
 
 ### 10.1 Current State
 
-All timestamps are stored as **ISO 8601 strings** using C#'s `DateTimeOffset.ToString("O")` roundtrip format (e.g., `"2025-07-17T14:30:00.0000000+00:00"`). They are parsed back using `DateTimeOffset.Parse(value, null, DateTimeStyles.RoundtripKind)`.
+All timestamps are stored as **ISO 8601 strings** using C#'s `DateTimeOffset.ToString("O")` roundtrip format (e.g., `"2026-04-17T14:30:00.0000000+00:00"`). They are parsed back using `DateTimeOffset.Parse(value, null, DateTimeStyles.RoundtripKind)`.
 
 **Domain model types:** All timestamp properties use `DateTimeOffset` (correct .NET practice).
 

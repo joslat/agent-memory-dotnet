@@ -1,4 +1,4 @@
-using Neo4j.AgentFramework.GraphRAG.Retrieval;
+using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.GraphRagAdapter.Internal;

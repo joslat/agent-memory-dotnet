@@ -2,7 +2,7 @@
 
 > **Authority:** This document is the single source of truth for the Neo4j graph schema.
 > **Canonical source:** Python reference implementation (`Neo4j/agent-memory/src/neo4j_agent_memory/`)
-> **Date:** 2025-07-24 (Post Gap Closure Sprint — Waves A/B/C)
+> **Date:** 2026-04-17 (Post Gap Closure Sprint — Waves A/B/C)
 > **Author:** Deckard (Lead / Solution Architect)
 
 ---
@@ -311,7 +311,7 @@
 
 ## 2. Schema Difference Map — Post P1 Schema Parity Sprint
 
-> **Audit date:** 2025-07-23 | **Auditor:** Deckard | **Method:** Line-by-line comparison of Python `queries.py` + `query_builder.py` vs .NET `Repositories/*.cs` + `SchemaBootstrapper.cs`
+> **Audit date:** 2026-04-17 | **Auditor:** Deckard | **Method:** Line-by-line comparison of Python `queries.py` + `query_builder.py` vs .NET `Repositories/*.cs` + `SchemaBootstrapper.cs`
 
 ### 2.1 Relationship Name Differences
 
