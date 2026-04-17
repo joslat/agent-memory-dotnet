@@ -7,9 +7,19 @@
 - **Role focus:** MAF adapter — context provider, message store, tools, lifecycle
 - **Reference:** /Neo4j/neo4j-maf-provider/dotnet/ for MAF integration patterns
 
-## Recent Sprint (2026-07-18)
+## Recent Work (Wave 1, 2026-07-18)
 
-**Deep Review Sprint — MEAI/MAF/SK Ecosystem Analysis**
+**Sprint:** MEAI Migration & Phase Unblocking
+
+1. **IEmbeddingProvider → IEmbeddingGenerator<T> Migration (D-AR2-1)** — Full migration across 30 files (Abstractions, Core, AgentFramework, Stubs, Samples, Tests). 401 insertions, 361 deletions. Breaking change: consumers must update DI registrations. Consumer migration guide provided.
+2. **Dependency Update** — Abstractions.csproj now depends on Microsoft.Extensions.AI.Abstractions 10.4.1 (previously zero external deps). Uses batch `GenerateAsync([text])` API.
+3. **Ecosystem Analysis** — Confirmed MEAI as foundational; migration unblocks SK integration (effort drops from medium to trivial ~200 LOC). Test suite complete: 1,059 tests green ✅
+
+---
+
+## Learnings
+
+### MAF Post-Run Lifecycle (2026-04-14)
 
 Comprehensive ecosystem integration strategy assessment:
 

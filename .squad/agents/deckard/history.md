@@ -10,7 +10,25 @@
 
 ## Recent Sprint (2026-07-18)
 
-**Deep Review Sprint — Architecture Review 2**
+**Wave 1 Sprint — Architecture Review 2 Finalization & Killer Package Planning**
+
+1. **D-AR2-1 (MEAI Migration) — APPROVED ✅** — Cornerstone decision replacing custom IEmbeddingProvider with MEAI's IEmbeddingGenerator<string, Embedding<float>>. Owner: Rachael (1,059 tests green). Unblocks D-AR2-4 (SK integration).
+
+2. **D-AR2-2 (Extraction Merge) — PRAGMATIC OVERRIDE ✅** — Proposed: merge Extraction.Llm + Extraction.AzureLanguage via IExtractionEngine. Analysis by Roy: 9.7% actual duplication (100 LOC / 1,031 LOC). Decision: REJECT. Keep separate, remove unnecessary Core dep instead. Rationale: <10% duplication insufficient; no shared pipeline; complexity cost > benefit.
+
+3. **D-AR2-3 to D-AR2-5 → Killer Package Plan ✅**
+   - **D-KP-1:** Meta-package bundles Abstractions + Core + Neo4j + Extraction.Llm (excludes framework adapters)
+   - **D-KP-2:** Fluent DI builder `AddNeo4jAgentMemory()` in meta-package
+   - **D-KP-3:** Auto-bootstrap schema (default `BootstrapSchema = true`)
+   - **D-KP-4:** Implementation timeline ~5.5 weeks, critical path documented
+
+4. **Architecture Documentation** — Updated architecture-review-2.md with Python column, neo4j-maf-provider clarification, killer package plan, 2 creative ideas.
+
+---
+
+## Learnings
+
+### 2025-01-28 — Phase 1 Onboarding Analysis
 
 Conducted comprehensive architecture re-evaluation with team alignment on strategic direction:
 

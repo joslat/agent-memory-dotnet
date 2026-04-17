@@ -7,7 +7,16 @@
 - **Role focus:** Core memory domain — Abstractions + Core packages
 - **Architecture:** Framework-agnostic core, ports-and-adapters
 
-## Learnings
+## Recent Work (Wave 1, 2026-07-18)
+
+**Sprint:** MEAI Migration & Architecture Review Finalization
+
+1. **ToolCallStatus Enum Expansion** — Added `Failure` and `Timeout` values. Fixed related Cypher bug. (1,059 tests green ✅)
+2. **Extraction Package Merge Analysis** — Deep code audit of Extraction.Llm and Extraction.AzureLanguage. Finding: 9.7% actual duplication (100 LOC / 1,031 LOC) — below 10% threshold. **Decision:** Keep separate; remove unnecessary Core dependency instead (pragmatic override of D-AR2-2).
+3. **Team Synchronization** — Validated D-KP-1 meta-package scope with Deckard's architect team. Extraction decision supports lean meta-bundle design.
+
+---
+
 ## Learnings
 
 ### 2025-01-XX: Extraction Package Merge Analysis

@@ -1294,3 +1294,203 @@ This allows:
 - The `Action<MemoryOptions>` configure callback only works for non-init properties or via programmatic `Options.Create` patterns.
 - For production use, callers should prefer configuration binding via `services.Configure<MemoryOptions>(config.GetSection("Memory"))` which uses reflection to set init properties.
 - Phase 2 may want to revisit making options classes mutable POCOs instead of records, or providing a builder pattern.
+
+---
+
+## Decision: Extraction Package Merge Analysis — Decision Not to Merge
+
+**Author:** Roy (Core Memory Domain Engineer)  
+**Date:** 2025  
+**Task Reference:** Section 1.3 Change 1 from architecture-review-2.md  
+**Status:** REJECTED (lighter approach taken instead)
+
+### Context
+
+Architecture Review 2 identified the two extraction packages as consolidation candidates, claiming "~95% structural duplication." The proposed solution was to create a new `Neo4j.AgentMemory.Extraction` base package with an `IExtractionEngine` strategy interface, with the Llm and AzureLanguage packages becoming thin engine implementations.
+
+### Analysis Performed
+
+I thoroughly analyzed both packages:
+
+**Extraction.Llm (522 LOC total):**
+- 4 extractors × ~100 LOC each = ~400 LOC
+- LlmExtractionOptions: ~30 LOC
+- ServiceCollectionExtensions: ~30 LOC
+- Internal/LlmResponseModels: ~60 LOC
+- **Approach:** Chat-based with system prompts, JSON deserialization, LLM-specific error handling
+
+**Extraction.AzureLanguage (509 LOC total):**
+- 4 extractors × ~75 LOC each = ~300 LOC
+- AzureLanguageOptions: ~30 LOC  
+- ServiceCollectionExtensions: ~55 LOC
+- Internal wrapper + models: ~100 LOC
+- **Approach:** Direct Azure API calls (RecognizeEntitiesAsync, ExtractKeyPhrasesAsync, AnalyzeSentimentAsync), batch processing, Azure-specific result transformation
+
+**Actual Duplication Found:**
+1. Try-catch error handling pattern (5 lines × 4 extractors × 2 packages = ~40 LOC)
+2. Options class boilerplate (~30 LOC shared pattern)
+3. DI registration pattern (~30 LOC shared pattern)
+4. **Total: ~100 LOC out of 1,031 LOC = 9.7% duplication**
+
+**NOT Duplicated:**
+- Extraction logic is completely different (chat/JSON vs. Azure API calls)
+- Each extractor type uses different Azure APIs (entities vs. key phrases vs. sentiment)
+- LLM uses prompt engineering; Azure uses API-specific transformations
+- No shared "pipeline" exists — the approaches are fundamentally different
+
+### Decision
+
+**DO NOT create a base extraction package with IExtractionEngine.**
+
+**Rationale:**
+1. **Insufficient duplication:** 9.7% actual duplication does not justify a new package
+2. **No shared pipeline:** The "pipeline" differs fundamentally between implementations
+3. **Complexity cost > benefit:** Creating a strategy interface + base package would:
+   - Add ~200 LOC of new abstraction code
+   - Save ~100 LOC of duplicated boilerplate  
+   - Net result: +100 LOC, more complexity, harder to understand
+4. **Open/Closed already achieved:** Both packages implement the same 4 interfaces from Abstractions. New extraction approaches can be added as new packages without changing existing code.
+5. **KISS principle:** Two simple, understandable packages > one complex abstraction layer
+
+### Action Taken Instead
+
+**Lightweight cleanup:**
+1. ✅ Removed unnecessary `Core` dependency from `Extraction.Llm` project
+   - The package referenced Core but never used it
+   - This was a leftover dependency
+2. ✅ All unit tests pass (1,059 passed)
+3. ✅ Solution builds cleanly
+
+### Recommendations
+
+**Keep the packages separate.** If future extraction implementations emerge (e.g., `Extraction.Anthropic`, `Extraction.LocalModels`), evaluate consolidation again when we have 3+ implementations and can identify true patterns.
+
+**Future consolidation opportunity:** If we add 2-3 more extraction packages and discover common error handling / validation utilities, consider:
+- Shared utilities in `Abstractions` (not a new package)
+- Extension methods for common patterns
+- But NOT a strategy interface that obscures the fundamentally different approaches
+
+### Alignment with Task Instructions
+
+Task step 9 explicitly states:
+> "Be pragmatic. If the duplication between packages turns out to be less than expected (each extractor has unique logic), consider a lighter approach... Skip creating a new base package if it doesn't actually reduce duplication significantly. The goal is DRY + Open/Closed, not creating packages for their own sake."
+
+This decision follows that guidance.
+
+### Impact
+
+- **Package count:** Stays at 10 (not reduced to 9)
+- **Code duplication:** ~100 LOC remains (acceptable trade-off for clarity)
+- **Maintainability:** Improved (removed unnecessary dependency)
+- **Extensibility:** Unchanged (still easy to add new extraction approaches)
+- **Test coverage:** Unchanged (all 1,059 tests pass)
+
+---
+
+**Conclusion:** The architecture review's "95% structural duplication" assessment was based on external structure (same interfaces, same patterns), not internal logic. After deep code analysis, the actual duplication is <10%. The current separation is architecturally sound and should be maintained.
+
+---
+
+## Decision: Killer Package Implementation Plan — Decisions
+
+**Author:** Deckard (Lead / Solution Architect)  
+**Date:** July 2026  
+**Context:** User feedback on architecture-review-2.md, resulting in concrete implementation plan
+
+---
+
+### D-KP-0: MEAI Migration — Status Update
+
+**Status:** ACCEPTED → In Progress (Rachael implementing)  
+**Impact:** HIGH  
+
+User approved this decision. Rachael is actively implementing. This is the foundation for all subsequent killer package work.
+
+---
+
+### D-KP-1: Meta-Package Bundles Abstractions + Core + Neo4j + Extraction.Llm
+
+**Status:** Proposed  
+**Impact:** HIGH (DX)
+
+The `Neo4j.AgentMemory` meta-package contains exactly these four dependencies. Framework adapters (MAF, SK, MCP) are NOT included — they are separate optional add-ons. This ensures `dotnet add package Neo4j.AgentMemory` gives you everything for the common case without pulling in MAF or SK dependencies you may not need.
+
+**Rationale:** The 4-package install problem is a real DX barrier. One install must give you everything needed for the "raw .NET" scenario.
+
+---
+
+### D-KP-2: Fluent DI Builder Lives in Meta-Package
+
+**Status:** Proposed  
+**Impact:** HIGH (DX)
+
+`AddNeo4jAgentMemory()` extension method and `AgentMemoryBuilder` live in the meta-package itself (not a separate Extensions package). The meta-package is the entry point — it should own the DX.
+
+**Rationale:** Putting the builder in a separate package defeats the purpose. One package, one entry point.
+
+---
+
+### D-KP-3: Schema Auto-Bootstrap as Default Behavior
+
+**Status:** Proposed  
+**Impact:** MEDIUM (DX)
+
+`AddNeo4jAgentMemory()` registers an `IHostedService` that calls `ISchemaRepository.SetupAsync()` on application startup. Enabled by default (`BootstrapSchema = true`). Can be disabled for production environments that manage schema externally.
+
+**Rationale:** First-time users shouldn't need to think about schema. It should just work.
+
+---
+
+### D-KP-4: Implementation Plan Timeline Acknowledged
+
+**Status:** Informational  
+**Impact:** Planning
+
+4-phase implementation plan documented in architecture-review-2.md §6. Estimated ~5.5 weeks for 2-person team. Critical path: MEAI migration → meta-package → fluent DI → SK adapter → README.
+
+Phase 1 is already in progress (Rachael: MEAI, Roy: ToolCallStatus).
+
+---
+
+## Decision: MEAI Migration Executed — IEmbeddingProvider → IEmbeddingGenerator<T>
+
+**Author:** Rachael (MAF Integration Engineer)
+**Date:** 2025-07-18
+**Status:** IMPLEMENTED
+**Implements:** D-AR2-1 (Option A) from architecture-review-2.md
+
+### Summary
+
+Replaced the custom `IEmbeddingProvider` interface with MEAI's standard `IEmbeddingGenerator<string, Embedding<float>>` across all packages. This is a **breaking change** — consumers must update their DI registrations.
+
+### What Changed
+
+| Area | Before | After |
+|------|--------|-------|
+| Abstractions | `IEmbeddingProvider` (zero deps) | `IEmbeddingGenerator<T>` via M.E.AI.Abstractions 10.4.1 |
+| Core services | 7 files using IEmbeddingProvider | 7 files using IEmbeddingGenerator |
+| AgentFramework | 2 files using IEmbeddingProvider | 2 files using IEmbeddingGenerator |
+| GraphRagAdapter | Already on IEmbeddingGenerator | No change needed |
+| Stubs | StubEmbeddingProvider | StubEmbeddingGenerator |
+| Samples | Dual registration (both interfaces) | Single IEmbeddingGenerator registration |
+| Tests | 11 test files updated | MockFactory.EmbeddingResult() helpers added |
+
+**30 files changed, 401 insertions, 361 deletions. All 1059 unit tests pass.**
+
+### Consumer Migration Guide
+
+```csharp
+// BEFORE:
+services.AddSingleton<IEmbeddingProvider, MyProvider>();
+// Plus for GraphRAG:
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, MyAdapter>();
+
+// AFTER (single registration serves all packages):
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, MyGenerator>();
+```
+
+### Technical Notes
+
+- Abstractions.csproj now depends on Microsoft.Extensions.AI.Abstractions 10.4.1 (previously zero external deps)
+- The `GenerateEmbeddingAsync` extension method is not available in v10.4.1 — all call sites use batch `GenerateAsync([text])` API
+- `EmbeddingDimensions` property removed — no direct equivalent in IEmbeddingGenerator; use metadata or first-result inspection
