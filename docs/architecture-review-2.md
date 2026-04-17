@@ -4,7 +4,8 @@
 **Requested by:** Jose Luis Latorre Millas  
 **Date:** July 2026  
 **Scope:** Architecture re-evaluation, MEAI integration strategy, killer package proposal  
-**Codebase State:** 10 packages, ~14,650 LOC, 1,058+ unit tests, 71+ integration tests
+**Codebase State:** 10 packages, ~14,650 LOC, 1,058+ unit tests, 71+ integration tests  
+**Post-migration state (planned):** MEAI-native embedding contract (`IEmbeddingGenerator<T>` everywhere), unified extraction pipeline via `IExtractionEngine` strategy pattern. Rachael is implementing the MEAI migration; Roy is implementing the ToolCallStatus fix (adding `Failure` and `Timeout` values per D-GAFF-1).
 
 ---
 
@@ -15,6 +16,7 @@
 3. ["Killer Package" Proposal](#3-killer-package-proposal)
 4. [Creative Improvement Ideas](#4-creative-improvement-ideas)
 5. [What AI Models Want From Memory](#5-what-ai-models-want-from-memory)
+6. [Killer Package Implementation Plan](#6-killer-package-implementation-plan)
 
 ---
 
@@ -280,6 +282,8 @@ With MEAI as our integration point, the adapter landscape transforms:
 
 The `Neo4j.AgentFramework.GraphRAG` package in `Neo4j/neo4j-maf-provider/dotnet/` is a **read-only graph context provider for MAF**:
 
+**In plain terms:** neo4j-maf-provider is a read-only context retrieval layer for MAF. It queries an existing Neo4j graph via vector/fulltext/hybrid search and injects results into a MAF agent's context. It does NOT support writing, entity extraction, entity resolution, conversation tracking, reasoning traces, or any memory lifecycle operations. It is a "plug any Neo4j graph into MAF" utility — generic but shallow.
+
 | Component | Purpose | Limitations |
 |-----------|---------|-------------|
 | `Neo4jContextProvider : AIContextProvider` | MAF lifecycle hook — provides graph context before agent runs | **Read-only**, no memory write, **MAF-specific** |
@@ -297,6 +301,8 @@ The `Neo4j.AgentFramework.GraphRAG` package in `Neo4j/neo4j-maf-provider/dotnet/
 - ❌ No enrichment or cross-memory linking
 - ❌ MAF 0.3 API (stale — MAF is now 1.1.0)
 - ❌ No DI integration patterns
+
+**How we consume neo4j-maf-provider:** Our `GraphRagAdapter` wraps their retriever implementations (`VectorRetriever`, `FulltextRetriever`, `HybridRetriever`) via a ProjectReference. We do NOT use their `AIContextProvider` — we implemented our own full `Neo4jMemoryContextProvider` that provides the complete memory lifecycle (pre-run recall + post-run extraction + persistence). Their package is consumed only for its retriever utilities.
 
 ### 3.2 What We Provide (Full Inventory)
 
@@ -375,25 +381,73 @@ src/Neo4j.AgentMemory.McpServer/        → MCP server (24 tools, 4 resources, 3
 
 ### 3.3 The Gap: Why Neither Is the "Killer Package"
 
-| Capability | neo4j-maf-provider | Our Agent Memory | The Killer Package |
-|------------|-------------------|-----------------|-------------------|
-| Graph search (vector/fulltext/hybrid) | ✅ | ✅ (via GraphRagAdapter) | ✅ |
-| Memory write (messages, entities, facts) | ❌ | ✅ | ✅ |
-| Entity extraction & resolution | ❌ | ✅ | ✅ |
-| Cross-memory relationships | ❌ | ✅ (partial) | ✅ (complete) |
-| Framework-agnostic | ❌ (MAF only) | ⚠️ (Core is, but no MEAI-native DX) | ✅ |
-| MEAI-native integration | ⚠️ (uses IEmbeddingGenerator) | ⚠️ (dual abstraction) | ✅ |
-| One-line DI setup | ❌ | ⚠️ (3+ packages to install) | ✅ |
-| Semantic Kernel support | ❌ | ❌ | ✅ |
-| MCP server | ❌ | ✅ | ✅ |
-| Production-ready observability | ❌ | ✅ | ✅ |
-| Works without ANY AI framework | ❌ | ⚠️ (possible but not DX-optimized) | ✅ |
+| Capability | agent-memory (Python) | neo4j-maf-provider | Our Agent Memory | The Killer Package |
+|------------|----------------------|-------------------|-----------------|-------------------|
+| Graph search (vector/fulltext/hybrid) | ✅ | ✅ | ✅ (via GraphRagAdapter) | ✅ |
+| Memory write (messages, entities, facts) | ✅ | ❌ | ✅ | ✅ |
+| Entity extraction & resolution | ✅ | ❌ | ✅ | ✅ |
+| Cross-memory relationships | ✅ (complete) | ❌ | ✅ (partial) | ✅ (complete) |
+| Multi-tier memory (short/long/reasoning) | ✅ | ❌ | ✅ | ✅ |
+| Entity extraction + resolution | ✅ (spaCy/GLiNER/LLM) | ❌ | ✅ (LLM/Azure) | ✅ |
+| Graph relationships | ✅ (Neo4j native) | ⚠️ (read-only queries) | ✅ (Neo4j native) | ✅ |
+| Framework-agnostic | ❌ (Python-only, no .NET) | ❌ (MAF only) | ⚠️ (Core is, but no MEAI-native DX) | ✅ |
+| MEAI-native integration | ❌ (Python has no MEAI) | ⚠️ (uses IEmbeddingGenerator) | ⚠️ (dual abstraction) | ✅ |
+| One-line DI setup | ❌ (Python uses manual wiring) | ❌ | ⚠️ (3+ packages to install) | ✅ |
+| Semantic Kernel support | ❌ (Python, no SK) | ❌ | ❌ | ✅ |
+| MCP server | ✅ | ❌ | ✅ | ✅ |
+| Production-ready observability | ⚠️ (basic logging, no OpenTelemetry) | ❌ | ✅ | ✅ |
+| Works without ANY AI framework | ❌ (tied to Python ecosystem) | ❌ | ⚠️ (possible but not DX-optimized) | ✅ |
+
+**Key insight on the Python reference:** The Python `agent-memory` is our porting source and excels at graph-native memory with complete cross-memory relationships, multi-tier architecture, and entity resolution — all things we've successfully ported. But it's inherently Python-only (LangChain, OpenAI Agents, Pydantic AI, CrewAI, etc.), has no concept of MEAI or DI containers, and requires manual wiring. The Killer Package takes the Python's functional depth and wraps it in .NET-native DX with MEAI, fluent DI, and framework-agnostic design.
 
 ### 3.4 The Killer Package Vision
 
 **Name:** `Neo4j.AgentMemory` (meta-package) backed by the existing architecture.
 
 **Tagline:** *"Persistent graph memory for .NET AI agents — works with any LLM, any framework, any scale."*
+
+#### The Core Problem: Why NOT 3-4 Packages?
+
+Today, getting started with Agent Memory for .NET requires installing **4 separate NuGet packages**:
+
+```bash
+dotnet add package Neo4j.AgentMemory.Abstractions
+dotnet add package Neo4j.AgentMemory.Core
+dotnet add package Neo4j.AgentMemory.Neo4j
+dotnet add package Neo4j.AgentMemory.Extraction.Llm
+```
+
+Then you need 8+ lines of DI registration to wire everything together. That's a terrible first-time experience. Compare to what the Killer Package should feel like:
+
+```bash
+# ONE install. That's it.
+dotnet add package Neo4j.AgentMemory
+```
+
+The meta-package `Neo4j.AgentMemory` bundles Abstractions + Core + Neo4j + Extraction.Llm — everything you need for the common case. Framework adapters (MAF, SK, MCP) are **optional add-ons**, not required for the core experience. You install them ONLY when you need a specific framework integration:
+
+```bash
+# Optional: only if you're using MAF
+dotnet add package Neo4j.AgentMemory.AgentFramework
+
+# Optional: only if you're using Semantic Kernel
+dotnet add package Neo4j.AgentMemory.SemanticKernel
+
+# Optional: only if you want an MCP server
+dotnet add package Neo4j.AgentMemory.McpServer
+```
+
+The 3-lines-of-DI scenario must be crystal clear and achievable with the single meta-package install:
+
+```csharp
+// After: dotnet add package Neo4j.AgentMemory
+services.AddNeo4jAgentMemory(opts => {
+    opts.Neo4j.Uri = "bolt://localhost:7687";
+    opts.Embedding.UseOpenAI(apiKey);
+    opts.Extraction.UseLlm();
+});
+// Done. Schema bootstrapped. Embedding wired. Extraction ready. Memory operational.
+```
 
 #### Target Use Cases
 
@@ -480,18 +534,19 @@ META-PACKAGE:
 
 ### 3.6 Competitive Positioning
 
-| Feature | Our Killer Package | Kernel Memory (SK) | LangChain.NET | Raw Vector DB |
-|---------|-------------------|-------------------|---------------|--------------|
-| **Multi-tier memory** (short/long/reasoning) | ✅ | ❌ (flat docs) | ❌ | ❌ |
-| **Entity extraction + resolution** | ✅ | ❌ | Partial | ❌ |
-| **Graph relationships** | ✅ (Neo4j native) | ❌ | ❌ | ❌ |
-| **Cross-memory traversal** | ✅ | ❌ | ❌ | ❌ |
-| **MEAI-native** | ✅ | ✅ | ❌ | Varies |
-| **Framework-agnostic** | ✅ | SK-specific | LangChain-specific | ✅ |
-| **Production observability** | ✅ | Partial | ❌ | ❌ |
-| **MCP server** | ✅ | ❌ | ❌ | ❌ |
+| Feature | Our Killer Package | agent-memory (Python) | Kernel Memory (SK) | LangChain.NET | Raw Vector DB |
+|---------|-------------------|----------------------|-------------------|---------------|--------------|
+| **Multi-tier memory** (short/long/reasoning) | ✅ | ✅ | ❌ (flat docs) | ❌ | ❌ |
+| **Entity extraction + resolution** | ✅ | ✅ (spaCy/GLiNER/LLM) | ❌ | Partial | ❌ |
+| **Graph relationships** | ✅ (Neo4j native) | ✅ (Neo4j native) | ❌ | ❌ | ❌ |
+| **Cross-memory traversal** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **MEAI-native** | ✅ | ❌ (Python) | ✅ | ❌ | Varies |
+| **Framework-agnostic** | ✅ | ❌ (Python-only) | SK-specific | LangChain-specific | ✅ |
+| **Production observability** | ✅ (OpenTelemetry) | ⚠️ (basic logging) | Partial | ❌ | ❌ |
+| **MCP server** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **.NET native** | ✅ | ❌ | ✅ | ✅ | Varies |
 
-**Our unique differentiator:** Graph-powered multi-tier memory with entity resolution and cross-memory relationships. No other .NET memory package offers this.
+**Our unique differentiator:** Graph-powered multi-tier memory with entity resolution and cross-memory relationships, with MEAI-native .NET DX. The Python agent-memory has equivalent functional depth but lives in a different ecosystem. No other .NET memory package offers this combination.
 
 ---
 
@@ -499,20 +554,85 @@ META-PACKAGE:
 
 *Detailed content added to `docs/improvement-suggestions.md` as Section 5.*
 
-**Summary of top ideas by composite score:**
+### 4.1 Reassessment in Light of MEAI Migration & Extraction Merge
 
-| # | Idea | Impact | Novelty | Feasibility | Score |
-|---|------|--------|---------|-------------|-------|
-| C1 | Memory Provenance Chains | 9 | 7 | 8 | **8.0** |
-| C2 | Memory Conflict Detection | 9 | 6 | 7 | **7.3** |
-| C3 | Self-Improving Memory | 8 | 9 | 6 | **7.7** |
-| C4 | Temporal Memory Retrieval | 7 | 7 | 8 | **7.3** |
-| C5 | Memory Decay / Forgetting | 7 | 6 | 9 | **7.3** |
-| C6 | Cross-Agent Memory Sharing | 8 | 7 | 5 | **6.7** |
-| C7 | Memory Consolidation Cycles | 7 | 8 | 6 | **7.0** |
-| C8 | Emotional Memory Weighting | 6 | 8 | 7 | **7.0** |
-| C9 | Tool Effectiveness Memory | 8 | 7 | 8 | **7.7** |
-| C10 | Dream-like Creative Recombination | 5 | 10 | 4 | **6.3** |
+Now that the MEAI migration (D-AR2-1) is approved and the extraction merge (D-AR2-2) is planned, several creative ideas shift in relevance:
+
+| # | Idea | Previous Score | Revised Score | Change Rationale |
+|---|------|---------------|---------------|-----------------|
+| C1 | Memory Provenance Chains | 8.0 | **8.3** ↑ | EXTRACTED_FROM relationship properties already enriched in P1 sprint. Foundation is 80% built. Feasibility rises from 8→9. |
+| C2 | Memory Conflict Detection | 7.3 | **7.3** = | Unchanged — orthogonal to MEAI/extraction. |
+| C3 | Self-Improving Memory | 7.7 | **8.0** ↑ | MEAI middleware pipeline enables transparent recall-tracking decorators. No code changes to Core needed — just an MEAI middleware. Feasibility rises from 6→7. |
+| C4 | Temporal Memory Retrieval | 7.3 | **7.7** ↑ | Native datetime() storage (post D-GAP1 migration) enables proper temporal queries. Feasibility rises from 8→9. |
+| C5 | Memory Decay / Forgetting | 7.3 | **7.3** = | Unchanged — independent of MEAI. Already highest feasibility. |
+| C6 | Cross-Agent Memory Sharing | 6.7 | **6.7** = | Unchanged — multi-tenant is an orthogonal concern. |
+| C7 | Memory Consolidation Cycles | 7.0 | **7.3** ↑ | Unified extraction pipeline (post D-AR2-2) means consolidation can reuse the same extraction engine. Feasibility rises from 6→7. |
+| C8 | Emotional Memory Weighting | 7.0 | **7.3** ↑ | MEAI `IChatClient` makes sentiment extraction trivial (one prompt). Azure Language already has built-in sentiment. Extraction merge means one place to add it. Feasibility rises from 7→8. |
+| C9 | Tool Effectiveness Memory | 7.7 | **7.7** = | Unchanged — extends existing ToolCall infrastructure. |
+| C10 | Dream-like Recombination | 6.3 | **6.3** = | Unchanged — remains experimental. |
+
+### 4.2 New Ideas (Post-Architecture Review)
+
+#### C11: Adaptive Memory Warm-Up — "Pre-Load Based on Trajectory"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 8/10 |
+| **Novelty** | 9/10 |
+| **Feasibility** | 6/10 |
+| **Composite** | **7.7** |
+
+**Concept:** Instead of waiting for a `RecallAsync` call, proactively pre-load relevant memories based on the conversation trajectory. After 2-3 messages, the system predicts what the user is heading toward and pre-warms the memory cache with likely-needed entities, facts, and tool effectiveness data.
+
+**Implementation:**
+- MEAI middleware intercepts incoming messages and maintains a sliding window of conversation topics
+- After N messages (configurable, default 2), invoke a lightweight LLM call: "Given this conversation so far, what topics/entities will likely come up next?"
+- Pre-fetch those memories into an in-memory cache (keyed by session)
+- `RecallAsync` checks cache first → cache hit = instant recall with no Neo4j round-trip
+- Cache invalidated on session change or after configurable TTL
+
+**Why this is powerful:** Current memory is reactive — the agent asks for memories and waits. Warm-up makes it proactive — memories are ready before the agent needs them. This mimics how humans think: "Oh, they're talking about their project — I should already be thinking about their team, their tech stack, and what we discussed last time."
+
+**Neo4j advantage:** Graph traversal is perfect for warm-up. From a starting entity, traverse 2 hops to pre-load related entities, facts, and preferences in a single Cypher query.
+
+#### C12: Memory Lineage Graphs — "How Did I Learn This?"
+
+| Attribute | Value |
+|-----------|-------|
+| **Impact** | 7/10 |
+| **Novelty** | 8/10 |
+| **Feasibility** | 7/10 |
+| **Composite** | **7.3** |
+
+**Concept:** For any fact or entity in memory, render its complete learning lineage: which messages contributed, which extraction runs produced it, what confirmations/contradictions exist, and how confidence evolved over time. Expose this as both an API endpoint and an MCP tool.
+
+**Implementation:**
+- Cypher query: `MATCH lineage = (fact)-[:EXTRACTED_FROM|CONFIRMED_BY|CONTRADICTED_BY*1..5]->(msg) RETURN lineage`
+- New `IMemoryLineageService` in Core with `GetLineageAsync(memoryNodeId)` method
+- Return a `MemoryLineage` record: source messages, extraction timestamps, confidence history, confirmation count
+- MCP tool: `memory_explain` — "Why do I believe X?" returns human-readable lineage
+- Builds on C1 (Provenance Chains) infrastructure
+
+**Use case:** Debugging, auditing, and trust. When an agent says "You told me you like Italian food," the user (or developer) can ask "When did I say that?" and get a precise answer with timestamps and source messages.
+
+### 4.3 Revised Rankings (Post-MEAI)
+
+| Rank | # | Idea | Composite | Key Change |
+|------|---|------|-----------|-----------|
+| 1 | C1 | Memory Provenance Chains | **8.3** | ↑ Foundation already built |
+| 2 | C3 | Self-Improving Memory | **8.0** | ↑ MEAI middleware enables it |
+| 3 | C11 | Adaptive Memory Warm-Up | **7.7** | NEW — proactive memory |
+| 4 | C4 | Temporal Memory Retrieval | **7.7** | ↑ datetime() migration enables it |
+| 5 | C9 | Tool Effectiveness Memory | **7.7** | = |
+| 6 | C2 | Memory Conflict Detection | **7.3** | = |
+| 7 | C5 | Memory Decay / Forgetting | **7.3** | = |
+| 8 | C7 | Memory Consolidation Cycles | **7.3** | ↑ Unified extraction pipeline |
+| 9 | C8 | Emotional Memory Weighting | **7.3** | ↑ MEAI + Azure Language |
+| 10 | C12 | Memory Lineage Graphs | **7.3** | NEW — audit/trust |
+| 11 | C6 | Cross-Agent Memory Sharing | **6.7** | = |
+| 12 | C10 | Dream-like Recombination | **6.3** | = |
+
+**Recommended implementation order (revised):** C5 (decay — simplest, pure infra) → C1 (provenance — foundation for C12, C3) → C11 (warm-up — MEAI middleware, huge DX win) → C9 (tool effectiveness — extends existing ToolCall) → C2 (conflicts — enables C4)
 
 ---
 
@@ -542,15 +662,141 @@ META-PACKAGE:
 
 ---
 
+## 6. Killer Package Implementation Plan
+
+This section provides a concrete, phased implementation plan for achieving the killer package vision described in Section 3. Each phase lists specific tasks, affected files, estimated complexity, and dependencies.
+
+### Phase 1: Foundation (In Progress)
+
+**Goal:** Unify the codebase on MEAI and clean up architectural debt. This is the prerequisite for everything else.
+
+| # | Task | Owner | Affected Files | Complexity | Status |
+|---|------|-------|---------------|------------|--------|
+| 1.1 | **MEAI migration** — Replace `IEmbeddingProvider` with `IEmbeddingGenerator<string, Embedding<float>>` across all packages | Rachael | `Abstractions/Services/IEmbeddingProvider.cs` (DELETE), `Abstractions/*.csproj` (+M.E.AI.Abstractions ref), `Core/Services/*.cs` (11 files), `AgentFramework/Neo4jMemoryContextProvider.cs`, `Core/Stubs/StubEmbeddingProvider.cs` → `StubEmbeddingGenerator.cs` | **L** | 🔄 In Progress |
+| 1.2 | **ToolCallStatus fix** — Add `Failure` and `Timeout` enum values, fix dead Cypher branch | Roy | `Abstractions/Domain/Reasoning/ToolCallStatus.cs`, `Neo4j/Repositories/Neo4jToolCallRepository.cs:61` | **S** | 🔄 In Progress |
+| 1.3 | **Extraction merge** — Create `IExtractionEngine` strategy pattern, merge shared pipeline code | TBD | `src/Neo4j.AgentMemory.Extraction/` (NEW base package), `src/Neo4j.AgentMemory.Extraction.Llm/` (thin engine only), `src/Neo4j.AgentMemory.Extraction.AzureLanguage/` (thin engine only), `Neo4j.AgentMemory.slnx` (solution update) | **L** | ⏳ Next |
+
+**Phase 1 Exit Criteria:**
+- Zero occurrences of `IEmbeddingProvider` in codebase
+- `ToolCallStatus` has 6 values matching Python
+- Extraction.Llm and Extraction.AzureLanguage share a common base with `IExtractionEngine`
+- All existing tests pass (1,058+ unit, 71+ integration)
+
+### Phase 2: Meta-Package & Developer Experience
+
+**Goal:** Make the "3 lines to memory" scenario real. ONE NuGet install, ONE DI call, DONE.
+
+| # | Task | Affected Files | Complexity | Dependencies |
+|---|------|---------------|------------|-------------|
+| 2.1 | **Create `Neo4j.AgentMemory` meta-package** — nuspec/csproj that references Abstractions + Core + Neo4j + Extraction.Llm as dependencies. No code — just a dependency bundle. | `src/Neo4j.AgentMemory/Neo4j.AgentMemory.csproj` (NEW), `Neo4j.AgentMemory.slnx` | **S** | Phase 1.1 (MEAI) |
+| 2.2 | **Implement `AddNeo4jAgentMemory()` fluent DI builder** — Single entry point that wires all subsystems. Builder pattern with sane defaults. | `src/Neo4j.AgentMemory/AgentMemoryBuilder.cs` (NEW), `src/Neo4j.AgentMemory/AgentMemoryBuilderOptions.cs` (NEW), `src/Neo4j.AgentMemory/ServiceCollectionExtensions.cs` (NEW) | **M** | Phase 2.1 |
+| 2.3 | **Fluent API for subsystem configuration** — `.WithEmbeddings(o => o.UseOpenAI(key))`, `.WithExtraction(o => o.UseLlm())`, `.WithNeo4j(o => o.Uri(...))`, `.WithObservability()`, `.WithEnrichment()` | Same as 2.2 — fluent methods on `AgentMemoryBuilder` | **M** | Phase 2.2 |
+| 2.4 | **Schema auto-bootstrap on startup** — `AddNeo4jAgentMemory()` registers `IHostedService` that calls `ISchemaRepository.SetupAsync()` on first connection | `src/Neo4j.AgentMemory/SchemaBootstrapHostedService.cs` (NEW) | **S** | Phase 2.2 |
+| 2.5 | **Verify meta-package install experience** — Create a blank console app, `dotnet add package Neo4j.AgentMemory`, confirm 3-line setup works end-to-end | `samples/QuickStart/` (NEW minimal sample) | **S** | Phase 2.1-2.4 |
+
+**Phase 2 Fluent API Design:**
+
+```csharp
+services.AddNeo4jAgentMemory(memory => {
+    // Required: Neo4j connection
+    memory.WithNeo4j(neo4j => {
+        neo4j.Uri = "bolt://localhost:7687";
+        neo4j.Username = "neo4j";
+        neo4j.Password = "password";
+        neo4j.BootstrapSchema = true; // default: true
+    });
+
+    // Required: Embedding provider (any IEmbeddingGenerator<T> implementation)
+    memory.WithEmbeddings(embeddings => {
+        embeddings.UseOpenAI(apiKey);    // or:
+        // embeddings.UseOllama("http://localhost:11434");
+        // embeddings.UseAzureOpenAI(endpoint, key);
+        // embeddings.UseCustom<MyEmbeddingGenerator>();
+    });
+
+    // Optional: Extraction engine (default: LLM)
+    memory.WithExtraction(extraction => {
+        extraction.UseLlm();             // IChatClient-based (default)
+        // extraction.UseAzureLanguage(endpoint, key);
+        // extraction.UseMultiProvider(providers => { ... });
+    });
+
+    // Optional: Observability
+    memory.WithObservability();
+
+    // Optional: Enrichment
+    memory.WithEnrichment(enrichment => {
+        enrichment.UseWikipedia();
+    });
+});
+```
+
+**Phase 2 Exit Criteria:**
+- `dotnet add package Neo4j.AgentMemory` installs all required packages
+- `services.AddNeo4jAgentMemory(...)` wires Neo4j, embedding, extraction, schema in one call
+- QuickStart sample works in < 3 minutes from `dotnet new console`
+
+### Phase 3: Framework Adapters
+
+**Goal:** Framework-specific integrations as thin, optional add-on packages.
+
+| # | Task | Affected Files | Complexity | Dependencies |
+|---|------|---------------|------------|-------------|
+| 3.1 | **`Neo4j.AgentMemory.SemanticKernel`** — SK plugin wrapper that exposes memory operations as kernel functions: `memory-recall`, `memory-store`, `memory-extract`, `memory-search-entities` | `src/Neo4j.AgentMemory.SemanticKernel/` (NEW — ~200 LOC), `Neo4jMemoryPlugin.cs`, `ServiceCollectionExtensions.cs` | **S** | Phase 1.1 (MEAI migration — SK uses IEmbeddingGenerator<T> natively) |
+| 3.2 | **Thin the AgentFramework adapter** — Remove `IEmbeddingProvider` bridge code now that MEAI is native. Simplify DI registration. | `src/Neo4j.AgentMemory.AgentFramework/` (existing, reduce LOC) | **S** | Phase 1.1 |
+| 3.3 | **MCP Server — no changes needed** — Already feature-complete with 24 tools, 4+ resources, 3 prompts. Depends only on Abstractions. | `src/Neo4j.AgentMemory.McpServer/` (existing, stable) | **—** | None |
+| 3.4 | **Adapter DI integration** — Each adapter registers with a single extension method that chains onto the fluent builder: `.AddSemanticKernel()`, `.AddAgentFramework()`, `.AddMcpServer()` | Adapter `ServiceCollectionExtensions.cs` files | **S** | Phase 2.2 |
+
+**Phase 3 Exit Criteria:**
+- SK plugin works with `kernel.Plugins.AddFromObject(new Neo4jMemoryPlugin(memory), "Memory")`
+- AgentFramework adapter has zero references to `IEmbeddingProvider`
+- All three adapters register via single extension methods
+
+### Phase 4: Market Readiness
+
+**Goal:** Documentation, samples, NuGet metadata — everything needed for public release.
+
+| # | Task | Affected Files | Complexity | Dependencies |
+|---|------|---------------|------------|-------------|
+| 4.1 | **Sample: Raw .NET** — Minimal console app using `IMemoryService` directly. Store a conversation, extract entities, recall by query. | `samples/RawDotNet/` (NEW or update existing MinimalAgent) | **S** | Phase 2 |
+| 4.2 | **Sample: MAF Agent** — Agent using `Neo4jMemoryContextProvider` with auto-recall/extract lifecycle. | `samples/MafAgent/` (NEW or update existing BlendedAgent) | **S** | Phase 3.2 |
+| 4.3 | **Sample: Semantic Kernel** — SK agent with Neo4j memory plugin for persistent conversational memory. | `samples/SemanticKernelAgent/` (NEW) | **M** | Phase 3.1 |
+| 4.4 | **Sample: MCP Host** — MCP server hosting the full memory toolset for Claude Desktop / other MCP clients. | `samples/McpHost/` (existing, update) | **S** | Phase 3.3 |
+| 4.5 | **NuGet package metadata** — Icons, descriptions, tags, license, repository URL, README inclusion for all packages. | All `.csproj` files (NuGet properties section) | **S** | Phase 2.1 |
+| 4.6 | **Getting-started guide** — "3 minutes to memory" walkthrough: install → configure → store → recall. | `docs/getting-started.md` (NEW) | **M** | Phase 2.5 |
+| 4.7 | **README rewrite** — Hero section with badge row, 30-second code example, feature table, framework comparison, architecture diagram. Optimized for NuGet.org and GitHub landing page. | `README.md` (rewrite) | **M** | Phase 4.1-4.4 |
+| 4.8 | **API documentation** — XML doc comments on all public types, `<inheritdoc/>` where appropriate. Verify IntelliSense experience. | All public types in `Abstractions/`, `Core/Services/` | **L** | Phase 2 |
+
+**Phase 4 Exit Criteria:**
+- 4 working samples covering all target use cases
+- NuGet packages have professional metadata and descriptions
+- README enables "3 minutes to memory" experience
+- All public APIs have XML doc comments
+
+### Implementation Timeline (Estimated)
+
+```
+Phase 1: Foundation          ████████████████░░░░   ~2 weeks (MEAI migration is the long pole)
+Phase 2: Meta-Package & DX   ████████░░░░░░░░░░░░   ~1 week
+Phase 3: Framework Adapters  ██████░░░░░░░░░░░░░░   ~1 week (SK adapter is trivial post-MEAI)
+Phase 4: Market Readiness    ████████████░░░░░░░░   ~1.5 weeks
+                             ──────────────────────
+                             Total: ~5.5 weeks for 2-person team
+```
+
+**Critical path:** Phase 1.1 (MEAI migration) → Phase 2.1 (meta-package) → Phase 2.2 (fluent DI) → Phase 3.1 (SK adapter) → Phase 4.7 (README)
+
+---
+
 ## Appendix A: Decision Summary
 
 | Decision | Status | Impact |
 |----------|--------|--------|
-| D-AR2-1: Adopt MEAI `IEmbeddingGenerator<T>` as primary embedding contract | **Proposed** | HIGH — eliminates dual abstraction |
-| D-AR2-2: Merge Extraction packages with strategy pattern | **Proposed** | MEDIUM — eliminates ~500 LOC duplication |
-| D-AR2-3: Publish `Neo4j.AgentMemory` meta-package | **Proposed** | HIGH — onboarding DX |
-| D-AR2-4: Add `Neo4j.AgentMemory.SemanticKernel` adapter (future) | **Proposed** | HIGH — market reach |
-| D-AR2-5: Unify DI builder with `AddNeo4jAgentMemory()` fluent API | **Proposed** | MEDIUM — DX improvement |
+| D-AR2-1: Adopt MEAI `IEmbeddingGenerator<T>` as primary embedding contract | **ACCEPTED** | HIGH — eliminates dual abstraction |
+| D-AR2-2: Merge Extraction packages with strategy pattern | **Proposed** (approved in principle, pending implementation schedule) | MEDIUM — eliminates ~500 LOC duplication |
+| D-AR2-3: Publish `Neo4j.AgentMemory` meta-package | **Proposed** (approved in principle) | HIGH — onboarding DX |
+| D-AR2-4: Add `Neo4j.AgentMemory.SemanticKernel` adapter (future) | **Proposed** (blocked on D-AR2-1 completion) | HIGH — market reach |
+| D-AR2-5: Unify DI builder with `AddNeo4jAgentMemory()` fluent API | **Proposed** (approved in principle) | MEDIUM — DX improvement |
 
 ## Appendix B: Verification
 

@@ -462,3 +462,23 @@
 
 **Build Outcome:** `dotnet build` — 0 new errors
 **Test Outcome:** 1003/1003 tests pass (54 new tests for streaming pipeline) ✅
+
+### 2025-07-15: ToolCallStatus Enum Fix — Added Failure and Timeout
+
+**Task:** Added missing ToolCallStatus.Failure and ToolCallStatus.Timeout enum values to achieve Python parity (6 status values total).
+
+**Problem:** Python agent-memory has 6 ToolCallStatus values (pending, success, error, cancelled, failure, timeout), but .NET had only 4 (Pending, Success, Error, Cancelled). This created a dead Cypher branch when tool calls had failure/timeout statuses.
+
+**Files Modified:**
+1. `src/Neo4j.AgentMemory.Abstractions/Domain/Reasoning/ToolCallStatus.cs` — Added Failure and Timeout enum values with XML docs
+2. `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jToolCallRepository.cs` — Updated Cypher query to count 'failure' in failed_calls: `CASE WHEN $status IN ['error', 'failure', 'timeout']`
+3. `src/Neo4j.AgentMemory.McpServer/Tools/AdvancedMemoryTools.cs` — Updated description parameter to include Failure and Timeout
+4. `tests/Neo4j.AgentMemory.Tests.Unit/Repositories/SchemaParityP1Tests.cs` — Updated test assertion to verify new Cypher includes 'failure'
+
+**Key Findings:**
+1. **No switch statements on ToolCallStatus** — No dead branches found; all code uses pattern matching or string comparisons after `.ToString().ToLowerInvariant()`
+2. **Cypher bug caught** — Line 61 in Neo4jToolCallRepository only counted `['error', 'timeout']` as failed calls. Now includes 'failure'.
+3. `docs/schema.md` already documented all 6 status values — Documentation was ahead of implementation.
+
+**Build Outcome:** `dotnet build` — Success, 0 errors
+**Test Outcome:** 1,058 unit tests passed (0 failures)

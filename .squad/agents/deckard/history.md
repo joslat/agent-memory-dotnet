@@ -709,3 +709,32 @@ Items from Python parity comparison that need implementation:
 - improvement-suggestions.md fully read (448 lines) and extended
 - All findings consistent with prior reviews and decisions
 
+### 2026-07-21 — Architecture Review 2 Update: User Feedback + Killer Package Implementation Plan
+
+**Trigger:** Jose reviewed architecture-review-2.md and provided specific feedback requiring 7 changes.
+
+**Changes Made to `docs/architecture-review-2.md`:**
+
+1. **Section 3.3 Gap Table — Added Python agent-memory column.** The comparison table now includes the Python reference implementation with full capability mapping (✅ graph search, memory write, entity extraction, cross-memory relationships, multi-tier memory, MCP server; ❌ framework-agnostic, MEAI-native, one-line DI, SK support; ⚠️ observability). Key insight paragraph added explaining Python's strengths and .NET's DX advantages.
+
+2. **Section 3.1 — Clarified neo4j-maf-provider role.** Added explicit statement that it's a "read-only context retrieval layer" that's "generic but shallow." Clarified that our GraphRagAdapter wraps their retriever implementations via ProjectReference but we do NOT use their AIContextProvider — we built our own full Neo4jMemoryContextProvider.
+
+3. **Section 3.4 — Fixed Killer Package Vision with "Why NOT 3-4 Packages" subsection.** Added explicit problem statement showing the 4-package install problem. Crystal clear "3 lines of DI" scenario with `dotnet add package Neo4j.AgentMemory` → done. Framework adapters positioned as optional add-ons.
+
+4. **Section 4 — Revised Creative Improvement Ideas.** Reassessed all 10 ideas against MEAI migration and extraction merge. 5 ideas scored higher (C1↑, C3↑, C4↑, C7↑, C8↑). Added 2 new ideas: C11 "Adaptive Memory Warm-Up" (proactive pre-loading, composite 7.7) and C12 "Memory Lineage Graphs" (audit/trust, composite 7.3). Re-ranked all 12 ideas.
+
+5. **NEW Section 6 — Killer Package Implementation Plan.** Concrete 4-phase plan:
+   - Phase 1: Foundation (MEAI migration, ToolCallStatus fix, extraction merge) — ~2 weeks
+   - Phase 2: Meta-Package & DX (meta-package, fluent DI builder, schema auto-bootstrap) — ~1 week
+   - Phase 3: Framework Adapters (SK plugin ~200 LOC, thin AgentFramework, MCP stable) — ~1 week
+   - Phase 4: Market Readiness (4 samples, NuGet metadata, getting-started guide, README rewrite) — ~1.5 weeks
+   - Total: ~5.5 weeks for 2-person team. Each task has affected files, complexity (S/M/L), and dependencies.
+
+6. **Appendix A — D-AR2-1 marked ACCEPTED.** Other decisions updated with approval-in-principle status and blocking dependencies noted.
+
+7. **Line 7 — Updated codebase state.** Added post-migration state note about MEAI-native embedding contract and unified extraction pipeline. Named Rachael and Roy's active work.
+
+8. **Section 3.6 — Updated competitive positioning table** to include Python agent-memory column.
+
+**Key Architectural Insight:** The fluent DI builder API design (Phase 2) is the linchpin of the entire killer package experience. Without it, the meta-package is just a convenience bundle. With it, it's a transformative DX improvement.
+
