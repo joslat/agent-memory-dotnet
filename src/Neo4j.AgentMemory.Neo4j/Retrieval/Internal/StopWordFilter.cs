@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Neo4j.AgentMemory.GraphRagAdapter.Internal;
+namespace Neo4j.AgentMemory.Neo4j.Retrieval.Internal;
 
 /// <summary>
 /// Common English stop words for fulltext search query filtering.

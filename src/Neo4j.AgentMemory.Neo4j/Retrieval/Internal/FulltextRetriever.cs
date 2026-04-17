@@ -1,19 +1,18 @@
-using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
 using Neo4j.Driver;
 
-namespace Neo4j.AgentMemory.GraphRagAdapter.Internal;
+namespace Neo4j.AgentMemory.Neo4j.Retrieval.Internal;
 
 /// <summary>
 /// BM25 fulltext retriever backed by a Neo4j fulltext index.
 /// </summary>
-internal sealed class AdapterFulltextRetriever : IRetriever
+internal sealed class FulltextRetriever : IRetriever
 {
     private readonly IDriver _driver;
     private readonly string _indexName;
     private readonly string? _retrievalQuery;
     private readonly bool _filterStopWords;
 
-    internal AdapterFulltextRetriever(
+    internal FulltextRetriever(
         IDriver driver,
         string indexName,
         string? retrievalQuery = null,
@@ -74,7 +73,7 @@ internal sealed class AdapterFulltextRetriever : IRetriever
     private static RetrieverResultItem FormatRecord(IRecord record)
     {
         if (record.Keys.Contains("text"))
-            return AdapterVectorRetriever.FormatCypherResult(record);
+            return VectorRetriever.FormatCypherResult(record);
 
         var node = record["node"].As<INode>();
         var score = record["score"].As<double>();

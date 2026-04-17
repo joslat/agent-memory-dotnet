@@ -14,7 +14,6 @@
     <Project Path="src/Neo4j.AgentMemory.Abstractions/Neo4j.AgentMemory.Abstractions.csproj" />
     <Project Path="src/Neo4j.AgentMemory.AgentFramework/Neo4j.AgentMemory.AgentFramework.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Core/Neo4j.AgentMemory.Core.csproj" />
-    <Project Path="src/Neo4j.AgentMemory.GraphRagAdapter/Neo4j.AgentMemory.GraphRagAdapter.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Neo4j/Neo4j.AgentMemory.Neo4j.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Enrichment/Neo4j.AgentMemory.Enrichment.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Extraction.AzureLanguage/Neo4j.AgentMemory.Extraction.AzureLanguage.csproj" />

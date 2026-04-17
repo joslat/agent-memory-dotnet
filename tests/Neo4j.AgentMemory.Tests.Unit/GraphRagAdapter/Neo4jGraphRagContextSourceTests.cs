@@ -1,8 +1,9 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
+using Neo4j.AgentMemory.Neo4j.Retrieval;
 using Neo4j.AgentMemory.Abstractions.Domain;
-using Neo4j.AgentMemory.GraphRagAdapter;
+using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Services;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -10,7 +11,7 @@ namespace Neo4j.AgentMemory.Tests.Unit.GraphRagAdapter;
 
 public sealed class Neo4jGraphRagContextSourceTests
 {
-    private static readonly GraphRagAdapterOptions DefaultOptions = new()
+    private static readonly GraphRagOptions DefaultOptions = new()
     {
         IndexName = "test_vector_index",
         FulltextIndexName = "test_fulltext_index",
@@ -20,7 +21,7 @@ public sealed class Neo4jGraphRagContextSourceTests
 
     private static Neo4jGraphRagContextSource CreateSut(
         IRetriever retriever,
-        GraphRagAdapterOptions? options = null)
+        GraphRagOptions? options = null)
     {
         return new Neo4jGraphRagContextSource(
             retriever,
@@ -126,7 +127,7 @@ public sealed class Neo4jGraphRagContextSourceTests
         retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([]));
 
-        var options = new GraphRagAdapterOptions { IndexName = "idx", TopK = 10 };
+        var options = new GraphRagOptions { IndexName = "idx", TopK = 10 };
         var sut = CreateSut(retriever, options);
         var request = new GraphRagContextRequest { SessionId = "s", Query = "q", TopK = 0 };
         await sut.GetContextAsync(request);
@@ -217,7 +218,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     [Fact]
     public void Options_DefaultsAreCorrect()
     {
-        var options = new GraphRagAdapterOptions { IndexName = "my_index" };
+        var options = new GraphRagOptions { IndexName = "my_index" };
 
         options.TopK.Should().Be(5);
         options.SearchMode.Should().Be(GraphRagSearchMode.Hybrid);

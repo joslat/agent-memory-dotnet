@@ -28,7 +28,6 @@ using Neo4j.AgentMemory.AgentFramework;
 using Neo4j.AgentMemory.AgentFramework.Tools;
 using Neo4j.AgentMemory.Core;
 using Neo4j.AgentMemory.Core.Stubs;
-using Neo4j.AgentMemory.GraphRagAdapter;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
 using Neo4j.AgentMemory.Observability;
 

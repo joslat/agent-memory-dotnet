@@ -48,5 +48,21 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registers <see cref="Neo4jGraphRagContextSource"/> as the <see cref="IGraphRagContextSource"/>
+    /// implementation and configures <see cref="GraphRagOptions"/>.
+    /// </summary>
+    public static IServiceCollection AddGraphRagAdapter(
+        this IServiceCollection services,
+        Action<GraphRagOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        services.AddOptions<GraphRagOptions>().Configure(configure);
+        services.TryAddScoped<IGraphRagContextSource, Neo4jGraphRagContextSource>();
+        return services;
+    }
 }
 

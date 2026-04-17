@@ -1,19 +1,18 @@
 using Microsoft.Extensions.AI;
-using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
 using Neo4j.Driver;
 
-namespace Neo4j.AgentMemory.GraphRagAdapter.Internal;
+namespace Neo4j.AgentMemory.Neo4j.Retrieval.Internal;
 
 /// <summary>
 /// Combined vector + fulltext retriever. Runs both searches concurrently and
 /// merges results, taking the highest score for duplicate content.
 /// </summary>
-internal sealed class AdapterHybridRetriever : IRetriever
+internal sealed class HybridRetriever : IRetriever
 {
-    private readonly AdapterVectorRetriever _vector;
-    private readonly AdapterFulltextRetriever _fulltext;
+    private readonly VectorRetriever _vector;
+    private readonly FulltextRetriever _fulltext;
 
-    internal AdapterHybridRetriever(
+    internal HybridRetriever(
         IDriver driver,
         string vectorIndexName,
         string fulltextIndexName,
@@ -21,8 +20,8 @@ internal sealed class AdapterHybridRetriever : IRetriever
         string? retrievalQuery = null,
         bool filterStopWords = false)
     {
-        _vector = new AdapterVectorRetriever(driver, vectorIndexName, embeddingGenerator, retrievalQuery);
-        _fulltext = new AdapterFulltextRetriever(driver, fulltextIndexName, retrievalQuery, filterStopWords);
+        _vector = new VectorRetriever(driver, vectorIndexName, embeddingGenerator, retrievalQuery);
+        _fulltext = new FulltextRetriever(driver, fulltextIndexName, retrievalQuery, filterStopWords);
     }
 
     public async Task<RetrieverResult> SearchAsync(

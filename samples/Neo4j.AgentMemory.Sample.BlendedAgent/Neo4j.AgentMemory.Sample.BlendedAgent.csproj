@@ -9,7 +9,7 @@
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Core\Neo4j.AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Neo4j\Neo4j.AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.AgentFramework\Neo4j.AgentMemory.AgentFramework.csproj" />
-    <ProjectReference Include="..\..\src\Neo4j.AgentMemory.GraphRagAdapter\Neo4j.AgentMemory.GraphRagAdapter.csproj" />
+
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Observability\Neo4j.AgentMemory.Observability.csproj" />
   </ItemGroup>
   <ItemGroup>

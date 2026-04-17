@@ -1,4 +1,4 @@
-namespace Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
+namespace Neo4j.AgentMemory.Neo4j.Retrieval;
 
 /// <summary>
 /// Interface for retrieving search results from Neo4j.

@@ -756,3 +756,27 @@ Items from Python parity comparison that need implementation:
 
 **Key Architectural Insight:** The fluent DI builder API design (Phase 2) is the linchpin of the entire killer package experience. Without it, the meta-package is just a convenience bundle. With it, it's a transformative DX improvement.
 
+### 2026-04-17 — Merge GraphRagAdapter into Neo4j Package
+
+**Decision:** D-MERGE-GRAPHRAG-NEO4J — Merged `Neo4j.AgentMemory.GraphRagAdapter` into `Neo4j.AgentMemory.Neo4j` creating a single unified graph database infrastructure layer.
+
+**Key Changes:**
+- Retrieval types moved to `Neo4j.AgentMemory.Neo4j.Retrieval` namespace
+- Internal retrievers renamed: `AdapterVectorRetriever` → `VectorRetriever`, etc. (in `Retrieval/Internal/`)
+- `GraphRagAdapterOptions` → `GraphRagOptions` (in `Infrastructure/`)
+- `Neo4jGraphRagContextSource` → `Services/` folder
+- `AddGraphRagAdapter()` merged into existing `ServiceCollectionExtensions.cs`
+- Package count reduced from 10 → 9
+- Added `Microsoft.Extensions.AI.Abstractions 10.4.1` to Neo4j.csproj
+
+**Results:** Build 0 errors/0 warnings, 1,059 unit tests green.
+
+**Architecture Pattern:** Single package owns all Neo4j.Driver access. Clean three-tier layering: Abstractions (contracts) → Core (logic) → Neo4j (all graph database access including retrieval).
+
+**Key File Paths:**
+- `src/Neo4j.AgentMemory.Neo4j/Retrieval/` — IRetriever, RetrieverResult
+- `src/Neo4j.AgentMemory.Neo4j/Retrieval/Internal/` — VectorRetriever, FulltextRetriever, HybridRetriever, StopWordFilter
+- `src/Neo4j.AgentMemory.Neo4j/Services/Neo4jGraphRagContextSource.cs`
+- `src/Neo4j.AgentMemory.Neo4j/Infrastructure/GraphRagOptions.cs`
+- `.squad/decisions/inbox/deckard-merge-graphrag-neo4j.md`
+

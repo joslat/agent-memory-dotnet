@@ -1,13 +1,14 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Neo4j.AgentMemory.GraphRagAdapter.Retrieval;
+using Neo4j.AgentMemory.Neo4j.Retrieval;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
-using Neo4j.AgentMemory.GraphRagAdapter.Internal;
+using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Retrieval.Internal;
 using Neo4j.Driver;
 
-namespace Neo4j.AgentMemory.GraphRagAdapter;
+namespace Neo4j.AgentMemory.Neo4j.Services;
 
 /// <summary>
 /// Implements <see cref="IGraphRagContextSource"/> by delegating to a Neo4j-backed
@@ -16,7 +17,7 @@ namespace Neo4j.AgentMemory.GraphRagAdapter;
 public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
 {
     private readonly IRetriever _retriever;
-    private readonly GraphRagAdapterOptions _options;
+    private readonly GraphRagOptions _options;
     private readonly ILogger<Neo4jGraphRagContextSource> _logger;
 
     /// <summary>
@@ -25,7 +26,7 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
     public Neo4jGraphRagContextSource(
         IDriver driver,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-        IOptions<GraphRagAdapterOptions> options,
+        IOptions<GraphRagOptions> options,
         ILogger<Neo4jGraphRagContextSource> logger)
     {
         ArgumentNullException.ThrowIfNull(driver);
@@ -43,7 +44,7 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
     /// </summary>
     internal Neo4jGraphRagContextSource(
         IRetriever retriever,
-        GraphRagAdapterOptions options,
+        GraphRagOptions options,
         ILogger<Neo4jGraphRagContextSource> logger)
     {
         _retriever = retriever;
@@ -99,23 +100,23 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
     private static IRetriever CreateRetriever(
         IDriver driver,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-        GraphRagAdapterOptions options)
+        GraphRagOptions options)
     {
         return options.SearchMode switch
         {
-            GraphRagSearchMode.Vector => new AdapterVectorRetriever(
+            GraphRagSearchMode.Vector => new VectorRetriever(
                 driver,
                 options.IndexName,
                 embeddingGenerator,
                 options.RetrievalQuery),
 
-            GraphRagSearchMode.Fulltext => new AdapterFulltextRetriever(
+            GraphRagSearchMode.Fulltext => new FulltextRetriever(
                 driver,
                 options.FulltextIndexName ?? options.IndexName,
                 options.RetrievalQuery,
                 options.FilterStopWords),
 
-            GraphRagSearchMode.Hybrid => new AdapterHybridRetriever(
+            GraphRagSearchMode.Hybrid => new HybridRetriever(
                 driver,
                 options.IndexName,
                 options.FulltextIndexName ?? options.IndexName,
@@ -124,7 +125,7 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
                 options.FilterStopWords),
 
             // Graph mode uses vector search with a custom graph traversal query
-            GraphRagSearchMode.Graph => new AdapterVectorRetriever(
+            GraphRagSearchMode.Graph => new VectorRetriever(
                 driver,
                 options.IndexName,
                 embeddingGenerator,

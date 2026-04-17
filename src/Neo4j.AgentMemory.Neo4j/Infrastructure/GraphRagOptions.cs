@@ -1,11 +1,11 @@
 using Neo4j.AgentMemory.Abstractions.Domain;
 
-namespace Neo4j.AgentMemory.GraphRagAdapter;
+namespace Neo4j.AgentMemory.Neo4j.Infrastructure;
 
 /// <summary>
-/// Configuration options for <see cref="Neo4jGraphRagContextSource"/>.
+/// Configuration options for <see cref="Services.Neo4jGraphRagContextSource"/>.
 /// </summary>
-public sealed class GraphRagAdapterOptions
+public sealed class GraphRagOptions
 {
     /// <summary>
     /// Name of the vector index. Required.
