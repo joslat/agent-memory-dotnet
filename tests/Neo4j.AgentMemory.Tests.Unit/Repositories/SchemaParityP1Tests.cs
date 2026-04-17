@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.AgentMemory.Neo4j.Repositories;
 using Neo4j.Driver;
 using NSubstitute;
@@ -281,49 +282,35 @@ public sealed class SchemaParityP1Tests
     [Fact]
     public void ToolCallRepository_ToolMergeCypher_ContainsAggregateStats()
     {
-        // Verify by reading the source code's cypher string
-        // The actual Cypher is embedded in Neo4jToolCallRepository.AddAsync
-        var repoType = typeof(Neo4jToolCallRepository);
-        var sourceCode = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "src", "Neo4j.AgentMemory.Neo4j",
-                "Repositories", "Neo4jToolCallRepository.cs"));
+        // Verify the centralized query constant contains aggregate stats
+        var cypher = ToolCallQueries.UpsertToolInstance;
 
-        sourceCode.Should().Contain("tool.successful_calls");
-        sourceCode.Should().Contain("tool.failed_calls");
-        sourceCode.Should().Contain("tool.total_duration_ms");
-        sourceCode.Should().Contain("tool.last_used_at = datetime()");
+        cypher.Should().Contain("tool.successful_calls");
+        cypher.Should().Contain("tool.failed_calls");
+        cypher.Should().Contain("tool.total_duration_ms");
+        cypher.Should().Contain("tool.last_used_at = datetime()");
     }
 
     [Fact]
     public void ToolCallRepository_ToolMergeCypher_OnCreateInitializesCounters()
     {
-        var sourceCode = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "src", "Neo4j.AgentMemory.Neo4j",
-                "Repositories", "Neo4jToolCallRepository.cs"));
+        var cypher = ToolCallQueries.UpsertToolInstance;
 
-        sourceCode.Should().Contain("ON CREATE SET tool.created_at = datetime()");
-        sourceCode.Should().Contain("tool.total_calls = 0");
-        sourceCode.Should().Contain("tool.successful_calls = 0");
-        sourceCode.Should().Contain("tool.failed_calls = 0");
-        sourceCode.Should().Contain("tool.total_duration_ms = 0");
+        cypher.Should().Contain("ON CREATE SET tool.created_at = datetime()");
+        cypher.Should().Contain("tool.total_calls = 0");
+        cypher.Should().Contain("tool.successful_calls = 0");
+        cypher.Should().Contain("tool.failed_calls = 0");
+        cypher.Should().Contain("tool.total_duration_ms = 0");
     }
 
     [Fact]
     public void ToolCallRepository_ToolMergeCypher_IncrementsBasedOnStatus()
     {
-        var sourceCode = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "src", "Neo4j.AgentMemory.Neo4j",
-                "Repositories", "Neo4jToolCallRepository.cs"));
+        var cypher = ToolCallQueries.UpsertToolInstance;
 
-        sourceCode.Should().Contain("CASE WHEN $status = 'success' THEN 1 ELSE 0 END");
-        sourceCode.Should().Contain("CASE WHEN $status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END");
-        sourceCode.Should().Contain("COALESCE($durationMs, 0)");
+        cypher.Should().Contain("CASE WHEN $status = 'success' THEN 1 ELSE 0 END");
+        cypher.Should().Contain("CASE WHEN $status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END");
+        cypher.Should().Contain("COALESCE($durationMs, 0)");
     }
 
     // ── P1-7: SAME_AS with status + ON CREATE/ON MATCH ──

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Infrastructure;
@@ -63,8 +64,7 @@ public sealed class MigrationRunner : IMigrationRunner
 
     private async Task EnsureMigrationConstraintAsync(CancellationToken cancellationToken)
     {
-        const string cypher = "CREATE CONSTRAINT migration_version IF NOT EXISTS FOR (m:Migration) REQUIRE m.version IS UNIQUE";
-        await _txRunner.WriteAsync(async tx => { await tx.RunAsync(cypher); }, cancellationToken);
+        await _txRunner.WriteAsync(async tx => { await tx.RunAsync(SchemaQueries.MigrationVersionConstraint); }, cancellationToken);
     }
 
     private async Task<bool> IsMigrationAppliedAsync(string version, CancellationToken cancellationToken)
@@ -72,7 +72,7 @@ public sealed class MigrationRunner : IMigrationRunner
         return await _txRunner.ReadAsync(async tx =>
         {
             var cursor = await tx.RunAsync(
-                "MATCH (m:Migration {version: $version}) RETURN m LIMIT 1",
+                SchemaQueries.IsMigrationApplied,
                 new { version });
             return await cursor.FetchAsync();
         }, cancellationToken);
@@ -88,7 +88,7 @@ public sealed class MigrationRunner : IMigrationRunner
         {
             await tx.RunAsync(cypher);
             await tx.RunAsync(
-                "MERGE (m:Migration {version: $version}) SET m.appliedAtUtc = $appliedAtUtc",
+                SchemaQueries.RecordMigration,
                 new { version, appliedAtUtc = DateTime.UtcNow.ToString("O") });
         }, cancellationToken);
 

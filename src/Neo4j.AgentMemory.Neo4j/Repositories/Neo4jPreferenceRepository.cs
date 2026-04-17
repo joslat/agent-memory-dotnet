@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,25 +23,6 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
     {
         _logger.LogDebug("Upserting preference {Id}", preference.PreferenceId);
 
-        const string cypher = @"
-            MERGE (p:Preference {id: $id})
-            ON CREATE SET
-                p.category           = $category,
-                p.preference         = $preferenceText,
-                p.context            = $context,
-                p.confidence         = $confidence,
-                p.source_message_ids = $sourceMessageIds,
-                p.created_at         = datetime($createdAtUtc),
-                p.metadata           = $metadata
-            ON MATCH SET
-                p.category           = $category,
-                p.preference         = $preferenceText,
-                p.context            = $context,
-                p.confidence         = $confidence,
-                p.source_message_ids = $sourceMessageIds,
-                p.metadata           = $metadata
-            RETURN p";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -55,25 +37,22 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
                 ["metadata"]         = SerializeMetadata(preference.Metadata)
             };
 
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(PreferenceQueries.Upsert, parameters);
             var record = await cursor.SingleAsync();
             var node = record["p"].As<INode>();
 
             if (preference.Embedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (p:Preference {id: $id}) SET p.embedding = $embedding",
+                    PreferenceQueries.SetEmbedding,
                     new { id = preference.PreferenceId, embedding = preference.Embedding.ToList() });
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
             if (preference.SourceMessageIds.Count > 0)
             {
-                await runner.RunAsync(@"
-                    MATCH (p:Preference {id: $id})
-                    UNWIND $sourceMessageIds AS msgId
-                    MATCH (m:Message {id: msgId})
-                    MERGE (p)-[:EXTRACTED_FROM]->(m)",
+                await runner.RunAsync(
+                    PreferenceQueries.CreateExtractedFromMessages,
                     new { id = preference.PreferenceId, sourceMessageIds = preference.SourceMessageIds.ToList() });
             }
 
@@ -85,11 +64,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
     {
         _logger.LogDebug("Getting preference {Id}", preferenceId);
 
-        const string cypher = "MATCH (p:Preference {id: $id}) RETURN p";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = preferenceId });
+            var cursor = await runner.RunAsync(PreferenceQueries.GetById, new { id = preferenceId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["p"].As<INode>();
@@ -101,11 +78,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
     {
         _logger.LogDebug("Getting preferences by category '{Category}'", category);
 
-        const string cypher = "MATCH (p:Preference {category: $category}) RETURN p";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { category });
+            var cursor = await runner.RunAsync(PreferenceQueries.GetByCategory, new { category });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -123,16 +98,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
     {
         _logger.LogDebug("Vector search preferences, limit={Limit}", limit);
 
-        const string cypher = @"
-            CALL db.index.vector.queryNodes('preference_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new
+            var cursor = await runner.RunAsync(PreferenceQueries.SearchByVector, new
             {
                 embedding = queryEmbedding.ToList(),
                 limit,
@@ -155,7 +123,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         await _tx.WriteAsync(async runner =>
         {
             await runner.RunAsync(
-                "MATCH (p:Preference {id: $id}) DETACH DELETE p",
+                PreferenceQueries.Delete,
                 new { id = preferenceId });
         }, cancellationToken);
     }
@@ -166,9 +134,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (p:Preference {id: $preferenceId}), (m:Message {id: $messageId})
-                MERGE (p)-[:EXTRACTED_FROM]->(m)",
+            await runner.RunAsync(
+                PreferenceQueries.CreateExtractedFromRelationship,
                 new { preferenceId, messageId });
         }, cancellationToken);
     }
@@ -179,9 +146,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (p:Preference {id: $preferenceId}), (e:Entity {id: $entityId})
-                MERGE (p)-[:ABOUT]->(e)",
+            await runner.RunAsync(
+                PreferenceQueries.CreateAboutRelationship,
                 new { preferenceId, entityId });
         }, cancellationToken);
     }
@@ -192,9 +158,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (c:Conversation {id: $conversationId}), (p:Preference {id: $preferenceId})
-                MERGE (c)-[:HAS_PREFERENCE]->(p)",
+            await runner.RunAsync(
+                PreferenceQueries.CreateConversationPreferenceRelationship,
                 new { conversationId, preferenceId });
         }, cancellationToken);
     }
@@ -227,11 +192,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
     {
         _logger.LogDebug("Getting up to {Limit} preferences without embeddings", limit);
 
-        const string cypher = "MATCH (p:Preference) WHERE p.embedding IS NULL RETURN p LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { limit });
+            var cursor = await runner.RunAsync(PreferenceQueries.GetPageWithoutEmbedding, new { limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -251,7 +214,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         await _tx.WriteAsync(async runner =>
         {
             await runner.RunAsync(
-                "MATCH (p:Preference {id: $id}) SET p.embedding = $embedding",
+                PreferenceQueries.UpdateEmbedding,
                 new { id = preferenceId, embedding = embedding.ToList() });
         }, cancellationToken);
     }

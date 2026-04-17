@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,23 +23,6 @@ public sealed class Neo4jConversationRepository : IConversationRepository
     {
         _logger.LogDebug("Upserting conversation {Id}", conversation.ConversationId);
 
-        const string cypher = @"
-            MERGE (c:Conversation {id: $id})
-            ON CREATE SET
-                c.session_id  = $sessionId,
-                c.user_id     = $userId,
-                c.title       = $title,
-                c.created_at  = datetime($createdAtUtc),
-                c.updated_at  = datetime($updatedAtUtc),
-                c.metadata    = $metadata
-            ON MATCH SET
-                c.session_id  = $sessionId,
-                c.user_id     = $userId,
-                c.title       = $title,
-                c.updated_at  = datetime($updatedAtUtc),
-                c.metadata    = $metadata
-            RETURN c";
-
         var parameters = new
         {
             id           = conversation.ConversationId,
@@ -52,7 +36,7 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(ConversationQueries.Upsert, parameters);
             var record = await cursor.SingleAsync();
             return MapToConversation(record["c"].As<INode>());
         }, cancellationToken);
@@ -62,11 +46,9 @@ public sealed class Neo4jConversationRepository : IConversationRepository
     {
         _logger.LogDebug("Getting conversation {Id}", conversationId);
 
-        const string cypher = "MATCH (c:Conversation {id: $id}) RETURN c";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = conversationId });
+            var cursor = await runner.RunAsync(ConversationQueries.GetById, new { id = conversationId });
             var records = await cursor.ToListAsync();
             return records.Count == 0 ? null : MapToConversation(records[0]["c"].As<INode>());
         }, cancellationToken);
@@ -76,14 +58,9 @@ public sealed class Neo4jConversationRepository : IConversationRepository
     {
         _logger.LogDebug("Getting conversations for session {SessionId}", sessionId);
 
-        const string cypher = @"
-            MATCH (c:Conversation {session_id: $sessionId})
-            RETURN c
-            ORDER BY c.updated_at DESC";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { sessionId });
+            var cursor = await runner.RunAsync(ConversationQueries.GetBySession, new { sessionId });
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToConversation(r["c"].As<INode>())).ToList();
         }, cancellationToken);
@@ -93,11 +70,9 @@ public sealed class Neo4jConversationRepository : IConversationRepository
     {
         _logger.LogDebug("Deleting conversation {Id}", conversationId);
 
-        const string cypher = "MATCH (c:Conversation {id: $id}) DETACH DELETE c";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { id = conversationId });
+            await runner.RunAsync(ConversationQueries.Delete, new { id = conversationId });
         }, cancellationToken);
     }
 

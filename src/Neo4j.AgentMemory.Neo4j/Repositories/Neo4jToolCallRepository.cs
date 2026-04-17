@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,46 +23,16 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
     {
         _logger.LogDebug("Adding tool call {Id} to step {StepId}", toolCall.ToolCallId, toolCall.StepId);
 
-        const string cypher = @"
-            MATCH (s:ReasoningStep {id: $stepId})
-            CREATE (tc:ToolCall {
-                id:          $id,
-                step_id:     $stepId,
-                tool_name:   $toolName,
-                arguments:   $arguments,
-                result:      $result,
-                status:      $status,
-                duration_ms: $durationMs,
-                error:       $error,
-                metadata:    $metadata,
-                timestamp:   datetime()
-            })
-            CREATE (s)-[:USES_TOOL]->(tc)
-            RETURN tc";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildToolCallParameters(toolCall);
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(ToolCallQueries.Add, parameters);
             var record = await cursor.SingleAsync();
             var tcNode = record["tc"].As<INode>();
 
             // Create INSTANCE_OF relationship to a Tool node (auto-created on first encounter)
-            await runner.RunAsync(@"
-                MATCH (tc:ToolCall {id: $id})
-                MERGE (tool:Tool {name: $toolName})
-                ON CREATE SET tool.created_at = datetime(),
-                              tool.description = $description,
-                              tool.total_calls = 0,
-                              tool.successful_calls = 0,
-                              tool.failed_calls = 0,
-                              tool.total_duration_ms = 0
-                MERGE (tc)-[:INSTANCE_OF]->(tool)
-                SET tool.total_calls = COALESCE(tool.total_calls, 0) + 1,
-                    tool.successful_calls = COALESCE(tool.successful_calls, 0) + CASE WHEN $status = 'success' THEN 1 ELSE 0 END,
-                    tool.failed_calls = COALESCE(tool.failed_calls, 0) + CASE WHEN $status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END,
-                    tool.total_duration_ms = COALESCE(tool.total_duration_ms, 0) + COALESCE($durationMs, 0),
-                    tool.last_used_at = datetime()",
+            await runner.RunAsync(
+                ToolCallQueries.UpsertToolInstance,
                 new { id = toolCall.ToolCallId, toolName = toolCall.ToolName,
                       status = toolCall.Status.ToString().ToLowerInvariant(),
                       durationMs = (object?)toolCall.DurationMs,
@@ -75,22 +46,10 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
     {
         _logger.LogDebug("Updating tool call {Id}", toolCall.ToolCallId);
 
-        const string cypher = @"
-            MATCH (tc:ToolCall {id: $id})
-            SET
-                tc.tool_name   = $toolName,
-                tc.arguments   = $arguments,
-                tc.result      = $result,
-                tc.status      = $status,
-                tc.duration_ms = $durationMs,
-                tc.error       = $error,
-                tc.metadata    = $metadata
-            RETURN tc";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildToolCallParameters(toolCall);
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(ToolCallQueries.Update, parameters);
             var record = await cursor.SingleAsync();
             return MapToToolCall(record["tc"].As<INode>());
         }, cancellationToken);
@@ -100,14 +59,9 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
     {
         _logger.LogDebug("Getting tool calls for step {StepId}", stepId);
 
-        const string cypher = @"
-            MATCH (s:ReasoningStep {id: $stepId})-[:USES_TOOL]->(tc:ToolCall)
-            RETURN tc
-            ORDER BY tc.tool_name";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { stepId });
+            var cursor = await runner.RunAsync(ToolCallQueries.GetByStep, new { stepId });
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToToolCall(r["tc"].As<INode>())).ToList();
         }, cancellationToken);
@@ -117,11 +71,9 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
     {
         _logger.LogDebug("Getting tool call {Id}", toolCallId);
 
-        const string cypher = "MATCH (tc:ToolCall {id: $id}) RETURN tc";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = toolCallId });
+            var cursor = await runner.RunAsync(ToolCallQueries.GetById, new { id = toolCallId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             return MapToToolCall(records[0]["tc"].As<INode>());
@@ -174,9 +126,8 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (tc:ToolCall {id: $toolCallId}), (m:Message {id: $messageId})
-                MERGE (tc)-[:TRIGGERED_BY]->(m)",
+            await runner.RunAsync(
+                ToolCallQueries.CreateTriggeredByRelationship,
                 new { toolCallId, messageId });
         }, cancellationToken);
     }

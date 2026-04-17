@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,34 +23,6 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Upserting entity {Id} ({Name})", entity.EntityId, entity.Name);
 
-        const string cypher = @"
-            MERGE (e:Entity {id: $id})
-            ON CREATE SET
-                e.name               = $name,
-                e.canonical_name     = $canonicalName,
-                e.type               = $type,
-                e.subtype            = $subtype,
-                e.description        = $description,
-                e.confidence         = $confidence,
-                e.aliases            = $aliases,
-                e.attributes         = $attributes,
-                e.source_message_ids = $sourceMessageIds,
-                e.created_at         = datetime($createdAtUtc),
-                e.metadata           = $metadata
-            ON MATCH SET
-                e.name               = $name,
-                e.canonical_name     = $canonicalName,
-                e.type               = $type,
-                e.subtype            = $subtype,
-                e.description        = $description,
-                e.confidence         = $confidence,
-                e.aliases            = $aliases,
-                e.attributes         = $attributes,
-                e.source_message_ids = $sourceMessageIds,
-                e.metadata           = $metadata,
-                e.updated_at         = datetime()
-            RETURN e";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -68,7 +41,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 ["metadata"]       = SerializeMetadata(entity.Metadata)
             };
 
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(EntityQueries.Upsert, parameters);
             var records = await cursor.ToListAsync();
             var node = records.Count > 0 ? records[0]["e"].As<INode>() : null;
 
@@ -76,14 +49,14 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             if (entity.Latitude.HasValue && entity.Longitude.HasValue)
             {
                 await runner.RunAsync(
-                    "MATCH (e:Entity {id: $id}) SET e.location = point({latitude: $lat, longitude: $lon})",
+                    SharedFragments.SetEntityLocation,
                     new { id = entity.EntityId, lat = entity.Latitude.Value, lon = entity.Longitude.Value });
             }
 
             if (entity.Embedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
+                    SharedFragments.SetEntityEmbedding,
                     new { id = entity.EntityId, embedding = entity.Embedding.ToList() });
             }
 
@@ -98,11 +71,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             // Auto-create EXTRACTED_FROM relationships for all source messages
             if (entity.SourceMessageIds.Count > 0)
             {
-                await runner.RunAsync(@"
-                    MATCH (e:Entity {id: $id})
-                    UNWIND $sourceMessageIds AS msgId
-                    MATCH (m:Message {id: msgId})
-                    MERGE (e)-[:EXTRACTED_FROM]->(m)",
+                await runner.RunAsync(
+                    SharedFragments.LinkEntityExtractedFrom,
                     new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
             }
 
@@ -114,11 +84,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Getting entity {Id}", entityId);
 
-        const string cypher = "MATCH (e:Entity {id: $id}) RETURN e";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = entityId });
+            var cursor = await runner.RunAsync(EntityQueries.GetById, new { id = entityId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["e"].As<INode>();
@@ -130,9 +98,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Getting entities by name '{Name}', includeAliases={IncludeAliases}", name, includeAliases);
 
-        var cypher = includeAliases
-            ? "MATCH (e:Entity) WHERE e.name = $name OR $name IN e.aliases RETURN e"
-            : "MATCH (e:Entity {name: $name}) RETURN e";
+        var cypher = EntityQueries.GetByName(includeAliases);
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -154,16 +120,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Vector search entities, limit={Limit}", limit);
 
-        const string cypher = @"
-            CALL db.index.vector.queryNodes('entity_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new
+            var cursor = await runner.RunAsync(EntityQueries.SearchByVector, new
             {
                 embedding = queryEmbedding.ToList(),
                 limit,
@@ -183,11 +142,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Getting entities by type {Type}", type);
 
-        const string cypher = "MATCH (e:Entity {type: $type}) RETURN e";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { type });
+            var cursor = await runner.RunAsync(EntityQueries.GetByType, new { type });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -201,9 +158,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Searching entities by name '{Name}', type={Type}", name, type);
 
-        var cypher = type is null
-            ? "MATCH (e:Entity) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name) RETURN e"
-            : "MATCH (e:Entity {type: $type}) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name) RETURN e";
+        var cypher = EntityQueries.SearchByNameFiltered(type);
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -221,15 +176,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Adding MENTIONS: Message {MessageId} -> Entity {EntityId}", messageId, entityId);
 
-        const string cypher = @"
-            MATCH (m:Message {id: $messageId})
-            MATCH (e:Entity {id: $entityId})
-            MERGE (m)-[r:MENTIONS]->(e)
-            ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos, r.context = $context, r.created_at = datetime()";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
+            await runner.RunAsync(EntityQueries.AddMention, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
         }, cancellationToken);
     }
 
@@ -237,16 +186,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Adding {Count} MENTIONS for Message {MessageId}", entityIds.Count, messageId);
 
-        const string cypher = @"
-            MATCH (m:Message {id: $messageId})
-            UNWIND $entityIds AS eid
-            MATCH (e:Entity {id: eid})
-            MERGE (m)-[r:MENTIONS]->(e)
-            ON CREATE SET r.confidence = $confidence, r.created_at = datetime()";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { messageId, entityIds = entityIds.ToList(), confidence = (object?)confidence });
+            await runner.RunAsync(EntityQueries.AddMentionsBatch, new { messageId, entityIds = entityIds.ToList(), confidence = (object?)confidence });
         }, cancellationToken);
     }
 
@@ -255,16 +197,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         _logger.LogDebug("Adding SAME_AS: {EntityId1} <-> {EntityId2} (confidence={Confidence}, matchType={MatchType})",
             entityId1, entityId2, confidence, matchType);
 
-        const string cypher = @"
-            MATCH (e1:Entity {id: $entityId1})
-            MATCH (e2:Entity {id: $entityId2})
-            MERGE (e1)-[r:SAME_AS]->(e2)
-            ON CREATE SET r.confidence = $confidence, r.match_type = $matchType, r.created_at = datetime(), r.status = $status
-            ON MATCH SET r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END, r.updated_at = datetime()";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { entityId1, entityId2, confidence, matchType, status });
+            await runner.RunAsync(EntityQueries.AddSameAs, new { entityId1, entityId2, confidence, matchType, status });
         }, cancellationToken);
     }
 
@@ -272,13 +207,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Getting SAME_AS entities for {EntityId}", entityId);
 
-        const string cypher = @"
-            MATCH (e:Entity {id: $entityId})-[r:SAME_AS]-(other:Entity)
-            RETURN other, r.confidence AS confidence, r.match_type AS matchType";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { entityId });
+            var cursor = await runner.RunAsync(EntityQueries.GetSameAsEntities, new { entityId });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -295,35 +226,6 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         if (entities.Count == 0) return Array.Empty<Entity>();
 
         _logger.LogDebug("Batch upserting {Count} entities", entities.Count);
-
-        const string mergeCypher = @"
-            UNWIND $items AS item
-            MERGE (e:Entity {id: item.id})
-            ON CREATE SET
-                e.name               = item.name,
-                e.canonical_name     = item.canonical_name,
-                e.type               = item.type,
-                e.subtype            = item.subtype,
-                e.description        = item.description,
-                e.confidence         = item.confidence,
-                e.aliases            = item.aliases,
-                e.attributes         = item.attributes,
-                e.source_message_ids = item.source_message_ids,
-                e.created_at         = datetime(item.created_at),
-                e.metadata           = item.metadata
-            ON MATCH SET
-                e.name               = item.name,
-                e.canonical_name     = item.canonical_name,
-                e.type               = item.type,
-                e.subtype            = item.subtype,
-                e.description        = item.description,
-                e.confidence         = item.confidence,
-                e.aliases            = item.aliases,
-                e.attributes         = item.attributes,
-                e.source_message_ids = item.source_message_ids,
-                e.metadata           = item.metadata,
-                e.updated_at         = datetime()
-            RETURN e";
 
         var items = entities.Select(e => new Dictionary<string, object?>
         {
@@ -343,14 +245,14 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(mergeCypher, new { items });
+            var cursor = await runner.RunAsync(EntityQueries.UpsertBatch, new { items });
             var records = await cursor.ToListAsync();
 
             // Set embeddings individually
             foreach (var entity in entities.Where(e => e.Embedding is not null))
             {
                 await runner.RunAsync(
-                    "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
+                    SharedFragments.SetEntityEmbedding,
                     new { id = entity.EntityId, embedding = entity.Embedding!.ToList() });
             }
 
@@ -368,11 +270,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             // Auto-create EXTRACTED_FROM relationships
             foreach (var entity in entities.Where(e => e.SourceMessageIds.Count > 0))
             {
-                await runner.RunAsync(@"
-                    MATCH (e:Entity {id: $id})
-                    UNWIND $sourceMessageIds AS msgId
-                    MATCH (m:Message {id: msgId})
-                    MERGE (e)-[:EXTRACTED_FROM]->(m)",
+                await runner.RunAsync(
+                    SharedFragments.LinkEntityExtractedFrom,
                     new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
             }
 
@@ -392,11 +291,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (e:Entity {id: $entityId}), (m:Message {id: $messageId})
-                MERGE (e)-[r:EXTRACTED_FROM]->(m)
-                ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos, r.context = $context, r.created_at = datetime()
-                ON MATCH SET r.confidence = CASE WHEN $confidence IS NOT NULL AND ($confidence > r.confidence OR r.confidence IS NULL) THEN $confidence ELSE r.confidence END",
+            await runner.RunAsync(
+                EntityQueries.CreateExtractedFrom,
                 new { entityId, messageId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
         }, cancellationToken);
     }
@@ -405,39 +301,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Merging entity {SourceId} into {TargetId}", sourceEntityId, targetEntityId);
 
-        const string cypher = @"
-            MATCH (source:Entity {id: $sourceEntityId})
-            MATCH (target:Entity {id: $targetEntityId})
-            CALL (source, target) {
-                MATCH (source)<-[:MENTIONS]-(m:Message)
-                WHERE NOT (m)-[:MENTIONS]->(target)
-                MERGE (m)-[:MENTIONS]->(target)
-                RETURN count(*) AS mentionsTransferred
-            }
-            CALL (source, target) {
-                MATCH (source)-[r:SAME_AS]-(other:Entity)
-                WHERE other <> target AND NOT (target)-[:SAME_AS]-(other)
-                MERGE (target)-[:SAME_AS {confidence: r.confidence, match_type: r.match_type, created_at: datetime()}]-(other)
-                RETURN count(*) AS sameAsTransferred
-            }
-            SET source.merged_into = target.id, source.merged_at = datetime()
-            WITH source, target,
-                 coalesce(target.aliases, []) +
-                 [x IN ([source.name] + coalesce(source.aliases, []))
-                  WHERE NOT x IN coalesce(target.aliases, [])] AS mergedAliases
-            SET target.aliases = mergedAliases,
-                target.description = CASE
-                    WHEN target.description IS NULL THEN source.description
-                    WHEN source.description IS NULL OR target.description CONTAINS source.description THEN target.description
-                    ELSE target.description + ' ' + source.description
-                END,
-                target.embedding = null,
-                target.updated_at = datetime()
-            RETURN source, target";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId });
+            await runner.RunAsync(EntityQueries.MergeEntities, new { sourceEntityId, targetEntityId });
         }, cancellationToken);
 
         await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken);
@@ -447,15 +313,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Refreshing search fields for entity {Id}", entityId);
 
-        const string cypher = @"
-            MATCH (e:Entity {id: $entityId})
-            SET e.updated_at = datetime($updatedAt),
-                e.aliases    = [x IN coalesce(e.aliases, []) WHERE x IS NOT NULL AND size(toString(x)) > 0]
-            RETURN e";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new
+            await runner.RunAsync(EntityQueries.RefreshSearchFields, new
             {
                 entityId,
                 updatedAt = DateTimeOffset.UtcNow.ToString("O")
@@ -507,17 +367,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Searching entities near ({Lat},{Lon}) radius={RadiusKm}km", latitude, longitude, radiusKm);
 
-        const string cypher = @"
-            MATCH (e:Entity)
-            WHERE e.location IS NOT NULL
-              AND point.distance(e.location, point({latitude: $lat, longitude: $lon})) < $radiusMeters
-            RETURN e
-            ORDER BY point.distance(e.location, point({latitude: $lat, longitude: $lon}))
-            LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new
+            var cursor = await runner.RunAsync(EntityQueries.SearchByLocation, new
             {
                 lat = latitude,
                 lon = longitude,
@@ -544,19 +396,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         _logger.LogDebug("Searching entities in bounding box ({MinLat},{MinLon})-({MaxLat},{MaxLon})",
             minLat, minLon, maxLat, maxLon);
 
-        const string cypher = @"
-            MATCH (e:Entity)
-            WHERE e.location IS NOT NULL
-              AND point.withinBBox(
-                    e.location,
-                    point({longitude: $minLon, latitude: $minLat}),
-                    point({longitude: $maxLon, latitude: $maxLat}))
-            RETURN e
-            LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit });
+            var cursor = await runner.RunAsync(EntityQueries.SearchInBoundingBox, new { minLat, minLon, maxLat, maxLon, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -572,11 +414,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Getting up to {Limit} entities without embeddings", limit);
 
-        const string cypher = "MATCH (e:Entity) WHERE e.embedding IS NULL RETURN e LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { limit });
+            var cursor = await runner.RunAsync(EntityQueries.GetPageWithoutEmbedding, new { limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -596,7 +436,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         await _tx.WriteAsync(async runner =>
         {
             await runner.RunAsync(
-                "MATCH (e:Entity {id: $id}) SET e.embedding = $embedding",
+                EntityQueries.UpdateEmbedding,
                 new { id = entityId, embedding = embedding.ToList() });
         }, cancellationToken);
     }
@@ -605,14 +445,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         _logger.LogDebug("Deleting entity {Id}", entityId);
 
-        const string cypher = @"
-            MATCH (e:Entity {id: $entityId})
-            DETACH DELETE e
-            RETURN count(e) > 0 AS deleted";
-
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { entityId });
+            var cursor = await runner.RunAsync(EntityQueries.Delete, new { entityId });
             var records = await cursor.ToListAsync();
             return records.Count > 0 && records[0]["deleted"].As<bool>();
         }, cancellationToken);

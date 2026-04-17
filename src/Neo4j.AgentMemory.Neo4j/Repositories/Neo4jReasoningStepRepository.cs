@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,21 +23,6 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
     {
         _logger.LogDebug("Adding reasoning step {Id} to trace {TraceId}", step.StepId, step.TraceId);
 
-        const string cypher = @"
-            MATCH (t:ReasoningTrace {id: $traceId})
-            CREATE (s:ReasoningStep {
-                id:          $id,
-                trace_id:    $traceId,
-                step_number: $stepNumber,
-                thought:     $thought,
-                action:      $action,
-                observation: $observation,
-                metadata:    $metadata,
-                timestamp:   datetime()
-            })
-            CREATE (t)-[:HAS_STEP {order: $stepNumber}]->(s)
-            RETURN s";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -50,14 +36,14 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
                 ["metadata"]    = SerializeMetadata(step.Metadata)
             };
 
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(ReasoningQueries.AddStep, parameters);
             var record = await cursor.SingleAsync();
             var node = record["s"].As<INode>();
 
             if (step.Embedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (s:ReasoningStep {id: $id}) SET s.embedding = $embedding",
+                    ReasoningQueries.SetStepEmbedding,
                     new { id = step.StepId, embedding = step.Embedding.ToList() });
             }
 
@@ -69,14 +55,9 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
     {
         _logger.LogDebug("Getting steps for trace {TraceId}", traceId);
 
-        const string cypher = @"
-            MATCH (t:ReasoningTrace {id: $traceId})-[:HAS_STEP]->(s:ReasoningStep)
-            RETURN s
-            ORDER BY s.step_number";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { traceId });
+            var cursor = await runner.RunAsync(ReasoningQueries.GetStepsByTrace, new { traceId });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -90,11 +71,9 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
     {
         _logger.LogDebug("Getting reasoning step {Id}", stepId);
 
-        const string cypher = "MATCH (s:ReasoningStep {id: $id}) RETURN s";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = stepId });
+            var cursor = await runner.RunAsync(ReasoningQueries.GetStepById, new { id = stepId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["s"].As<INode>();

@@ -23,30 +23,6 @@ public sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Adding message {Id} to conversation {ConvId}", message.MessageId, message.ConversationId);
 
-        const string createCypher = @"
-            MATCH (conv:Conversation {id: $conversationId})
-            CREATE (m:Message {
-                id:              $id,
-                conversation_id: $conversationId,
-                session_id:      $sessionId,
-                role:            $role,
-                content:         $content,
-                timestamp:       datetime($timestamp),
-                tool_call_ids:   $toolCallIds,
-                metadata:        $metadata
-            })
-            CREATE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m";
-
-        const string linkedListCypher = @"
-            MATCH (conv:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(prev:Message)
-            WHERE prev.id <> $id
-            WITH prev ORDER BY prev.timestamp DESC LIMIT 1
-            MATCH (m:Message {id: $id})
-            CREATE (prev)-[:NEXT_MESSAGE]->(m)";
-
-        var parameters = BuildMessageParameters(message);
-
         return await _tx.WriteAsync(async runner =>
         {
             // Store embedding separately to handle null
@@ -62,26 +38,24 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                 ["metadata"]       = SerializeMetadata(message.Metadata)
             };
 
-            var cursor = await runner.RunAsync(createCypher, createParams);
+            var cursor = await runner.RunAsync(MessageQueries.Add, createParams);
             var record = await cursor.SingleAsync();
             var node = record["m"].As<INode>();
 
             if (message.Embedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (m:Message {id: $id}) SET m.embedding = $embedding",
+                    SharedFragments.SetMessageEmbedding,
                     new { id = message.MessageId, embedding = message.Embedding.ToList() });
             }
 
             // Create FIRST_MESSAGE if this is the first message in the conversation
-            await runner.RunAsync(@"
-                MATCH (conv:Conversation {id: $conversationId}), (m:Message {id: $id})
-                WHERE NOT EXISTS { MATCH (conv)-[:FIRST_MESSAGE]->() }
-                MERGE (conv)-[:FIRST_MESSAGE]->(m)",
+            await runner.RunAsync(
+                MessageQueries.CreateFirstMessageLink,
                 new { conversationId = message.ConversationId, id = message.MessageId });
 
             // Establish NEXT_MESSAGE link from the previous last message
-            await runner.RunAsync(linkedListCypher, new { conversationId = message.ConversationId, id = message.MessageId });
+            await runner.RunAsync(MessageQueries.LinkNextMessage, new { conversationId = message.ConversationId, id = message.MessageId });
 
             return MapToMessage(node, message.Embedding);
         }, cancellationToken);
@@ -93,22 +67,6 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         if (ordered.Count == 0) return Array.Empty<Message>();
 
         _logger.LogDebug("Batch adding {Count} messages", ordered.Count);
-
-        const string createCypher = @"
-            UNWIND $messages AS msg
-            MATCH (conv:Conversation {id: msg.conversation_id})
-            CREATE (m:Message {
-                id:              msg.id,
-                conversation_id: msg.conversation_id,
-                session_id:      msg.session_id,
-                role:            msg.role,
-                content:         msg.content,
-                timestamp:       datetime(msg.timestamp),
-                tool_call_ids:   msg.tool_call_ids,
-                metadata:        msg.metadata
-            })
-            CREATE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m";
 
         var msgParams = ordered.Select(m => new Dictionary<string, object?>
         {
@@ -124,7 +82,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(createCypher, new { messages = msgParams });
+            var cursor = await runner.RunAsync(MessageQueries.AddBatch, new { messages = msgParams });
             // consume result
             await cursor.ConsumeAsync();
 
@@ -132,7 +90,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             foreach (var msg in ordered.Where(m => m.Embedding is not null))
             {
                 await runner.RunAsync(
-                    "MATCH (m:Message {id: $id}) SET m.embedding = $embedding",
+                    SharedFragments.SetMessageEmbedding,
                     new { id = msg.MessageId, embedding = msg.Embedding!.ToList() });
             }
 
@@ -140,19 +98,15 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             for (int i = 1; i < ordered.Count; i++)
             {
                 await runner.RunAsync(
-                    "MATCH (prev:Message {id: $prevId}), (next:Message {id: $nextId}) CREATE (prev)-[:NEXT_MESSAGE]->(next)",
+                    MessageQueries.CreateNextMessageLink,
                     new { prevId = ordered[i - 1].MessageId, nextId = ordered[i].MessageId });
             }
 
             // Connect first batch message to any existing last message in the conversation
             if (ordered.Count > 0)
             {
-                await runner.RunAsync(@"
-                    MATCH (conv:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(prev:Message)
-                    WHERE NOT prev.id IN $batchIds
-                    WITH prev ORDER BY prev.timestamp DESC LIMIT 1
-                    MATCH (first:Message {id: $firstId})
-                    CREATE (prev)-[:NEXT_MESSAGE]->(first)",
+                await runner.RunAsync(
+                    MessageQueries.LinkBatchToExisting,
                     new
                     {
                         conversationId = ordered[0].ConversationId,
@@ -163,7 +117,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
             // Re-read all created messages
             var readCursor = await runner.RunAsync(
-                "MATCH (m:Message) WHERE m.id IN $ids RETURN m ORDER BY m.timestamp",
+                MessageQueries.GetByIds,
                 new { ids = ordered.Select(m => m.MessageId).ToList() });
             var records = await readCursor.ToListAsync();
 
@@ -181,11 +135,9 @@ public sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Getting message {Id}", messageId);
 
-        const string cypher = "MATCH (m:Message {id: $id}) RETURN m";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = messageId });
+            var cursor = await runner.RunAsync(MessageQueries.GetById, new { id = messageId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["m"].As<INode>();
@@ -197,14 +149,9 @@ public sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Getting messages for conversation {Id}", conversationId);
 
-        const string cypher = @"
-            MATCH (c:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(m:Message)
-            RETURN m
-            ORDER BY m.timestamp";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { conversationId });
+            var cursor = await runner.RunAsync(MessageQueries.GetByConversation, new { conversationId });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -218,15 +165,9 @@ public sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Getting {Limit} recent messages for session {SessionId}", limit, sessionId);
 
-        const string cypher = @"
-            MATCH (m:Message {session_id: $sessionId})
-            RETURN m
-            ORDER BY m.timestamp DESC
-            LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { sessionId, limit });
+            var cursor = await runner.RunAsync(MessageQueries.GetRecentBySession, new { sessionId, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -250,13 +191,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         var sessionFilter = sessionId is null ? string.Empty : "AND node.session_id = $sessionId";
 
-        var cypher = $@"
-            CALL db.index.vector.queryNodes('message_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore {sessionFilter}
-            {filterClause}
-            RETURN node, score
-            ORDER BY score DESC";
+        var cypher = MessageQueries.SearchByVector(sessionFilter, filterClause);
 
         var parameters = new Dictionary<string, object>
         {
@@ -284,11 +219,9 @@ public sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Deleting messages for session {SessionId}", sessionId);
 
-        const string cypher = "MATCH (m:Message {session_id: $sessionId}) DETACH DELETE m";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { sessionId });
+            await runner.RunAsync(MessageQueries.DeleteBySession, new { sessionId });
         }, cancellationToken);
     }
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,26 +23,6 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Upserting fact {Id}", fact.FactId);
 
-        const string cypher = @"
-            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})
-            ON CREATE SET
-                f.id                 = $id,
-                f.confidence         = $confidence,
-                f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
-                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
-                f.source_message_ids = $sourceMessageIds,
-                f.created_at         = datetime($createdAtUtc),
-                f.metadata           = $metadata
-            ON MATCH SET
-                f.id                 = $id,
-                f.confidence         = $confidence,
-                f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
-                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
-                f.source_message_ids = $sourceMessageIds,
-                f.updated_at         = datetime($updatedAtUtc),
-                f.metadata           = $metadata
-            RETURN f";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -59,25 +40,22 @@ public sealed class Neo4jFactRepository : IFactRepository
                 ["metadata"]         = SerializeMetadata(fact.Metadata)
             };
 
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(FactQueries.Upsert, parameters);
             var record = await cursor.SingleAsync();
             var node = record["f"].As<INode>();
 
             if (fact.Embedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding",
+                    SharedFragments.SetFactEmbedding,
                     new { id = fact.FactId, embedding = fact.Embedding.ToList() });
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
             if (fact.SourceMessageIds.Count > 0)
             {
-                await runner.RunAsync(@"
-                    MATCH (f:Fact {id: $id})
-                    UNWIND $sourceMessageIds AS msgId
-                    MATCH (m:Message {id: msgId})
-                    MERGE (f)-[:EXTRACTED_FROM]->(m)",
+                await runner.RunAsync(
+                    SharedFragments.LinkFactExtractedFrom,
                     new { id = fact.FactId, sourceMessageIds = fact.SourceMessageIds.ToList() });
             }
 
@@ -90,30 +68,6 @@ public sealed class Neo4jFactRepository : IFactRepository
         if (facts.Count == 0) return Array.Empty<Fact>();
 
         _logger.LogDebug("Batch upserting {Count} facts", facts.Count);
-
-        const string mergeCypher = @"
-            UNWIND $items AS item
-            MERGE (f:Fact {id: item.id})
-            ON CREATE SET
-                f.subject            = item.subject,
-                f.predicate          = item.predicate,
-                f.object             = item.object,
-                f.confidence         = item.confidence,
-                f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
-                f.source_message_ids = item.source_message_ids,
-                f.created_at         = datetime(item.created_at),
-                f.metadata           = item.metadata
-            ON MATCH SET
-                f.subject            = item.subject,
-                f.predicate          = item.predicate,
-                f.object             = item.object,
-                f.confidence         = item.confidence,
-                f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
-                f.source_message_ids = item.source_message_ids,
-                f.metadata           = item.metadata
-            RETURN f";
 
         var items = facts.Select(f => new Dictionary<string, object?>
         {
@@ -131,14 +85,14 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(mergeCypher, new { items });
+            var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items });
             var records = await cursor.ToListAsync();
 
             // Set embeddings individually
             foreach (var fact in facts.Where(f => f.Embedding is not null))
             {
                 await runner.RunAsync(
-                    "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding",
+                    SharedFragments.SetFactEmbedding,
                     new { id = fact.FactId, embedding = fact.Embedding!.ToList() });
             }
 
@@ -148,11 +102,8 @@ public sealed class Neo4jFactRepository : IFactRepository
             {
                 foreach (var fact in factsWithSources)
                 {
-                    await runner.RunAsync(@"
-                        MATCH (f:Fact {id: $id})
-                        UNWIND $sourceMessageIds AS msgId
-                        MATCH (m:Message {id: msgId})
-                        MERGE (f)-[:EXTRACTED_FROM]->(m)",
+                    await runner.RunAsync(
+                        SharedFragments.LinkFactExtractedFrom,
                         new { id = fact.FactId, sourceMessageIds = fact.SourceMessageIds.ToList() });
                 }
             }
@@ -171,11 +122,9 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Getting fact {Id}", factId);
 
-        const string cypher = "MATCH (f:Fact {id: $id}) RETURN f";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = factId });
+            var cursor = await runner.RunAsync(FactQueries.GetById, new { id = factId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();
@@ -187,11 +136,9 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Getting facts by subject '{Subject}'", subject);
 
-        const string cypher = "MATCH (f:Fact {subject: $subject}) RETURN f";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { subject });
+            var cursor = await runner.RunAsync(FactQueries.GetBySubject, new { subject });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -209,16 +156,9 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Vector search facts, limit={Limit}", limit);
 
-        const string cypher = @"
-            CALL db.index.vector.queryNodes('fact_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new
+            var cursor = await runner.RunAsync(FactQueries.SearchByVector, new
             {
                 embedding = queryEmbedding.ToList(),
                 limit,
@@ -240,9 +180,8 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (f:Fact {id: $factId}), (m:Message {id: $messageId})
-                MERGE (f)-[:EXTRACTED_FROM]->(m)",
+            await runner.RunAsync(
+                FactQueries.CreateExtractedFrom,
                 new { factId, messageId });
         }, cancellationToken);
     }
@@ -253,9 +192,8 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (f:Fact {id: $factId}), (e:Entity {id: $entityId})
-                MERGE (f)-[:ABOUT]->(e)",
+            await runner.RunAsync(
+                FactQueries.CreateAbout,
                 new { factId, entityId });
         }, cancellationToken);
     }
@@ -266,9 +204,8 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (c:Conversation {id: $conversationId}), (f:Fact {id: $factId})
-                MERGE (c)-[:HAS_FACT]->(f)",
+            await runner.RunAsync(
+                FactQueries.CreateConversationFact,
                 new { conversationId, factId });
         }, cancellationToken);
     }
@@ -307,11 +244,9 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Getting up to {Limit} facts without embeddings", limit);
 
-        const string cypher = "MATCH (f:Fact) WHERE f.embedding IS NULL RETURN f LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { limit });
+            var cursor = await runner.RunAsync(FactQueries.GetPageWithoutEmbedding, new { limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -331,7 +266,7 @@ public sealed class Neo4jFactRepository : IFactRepository
         await _tx.WriteAsync(async runner =>
         {
             await runner.RunAsync(
-                "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding",
+                FactQueries.UpdateEmbedding,
                 new { id = factId, embedding = embedding.ToList() });
         }, cancellationToken);
     }
@@ -340,14 +275,9 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Deleting fact {Id}", factId);
 
-        const string cypher = @"
-            MATCH (f:Fact {id: $factId})
-            DETACH DELETE f
-            RETURN count(f) > 0 AS deleted";
-
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { factId });
+            var cursor = await runner.RunAsync(FactQueries.Delete, new { factId });
             var records = await cursor.ToListAsync();
             return records.Count > 0 && records[0]["deleted"].As<bool>();
         }, cancellationToken);
@@ -357,16 +287,9 @@ public sealed class Neo4jFactRepository : IFactRepository
     {
         _logger.LogDebug("Finding fact by triple ({Subject}, {Predicate}, {Object})", subject, predicate, @object);
 
-        const string cypher = @"
-            MATCH (f:Fact)
-            WHERE toLower(f.subject) = toLower($subject)
-              AND toLower(f.predicate) = toLower($predicate)
-              AND toLower(f.object) = toLower($object)
-            RETURN f LIMIT 1";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { subject, predicate, @object });
+            var cursor = await runner.RunAsync(FactQueries.FindByTriple, new { subject, predicate, @object });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();

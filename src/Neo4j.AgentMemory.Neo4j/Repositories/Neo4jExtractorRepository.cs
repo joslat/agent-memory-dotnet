@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -28,15 +29,9 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
     {
         _logger.LogDebug("Upserting extractor {Name}", extractor.Name);
 
-        const string cypher = @"
-            MERGE (ex:Extractor {name: $name})
-            ON CREATE SET ex.id = $id, ex.version = $version, ex.config = $config, ex.created_at = datetime()
-            ON MATCH SET ex.version = COALESCE($version, ex.version), ex.config = COALESCE($config, ex.config)
-            RETURN ex";
-
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new
+            var cursor = await runner.RunAsync(ExtractorQueries.Upsert, new
             {
                 id = extractor.ExtractorId,
                 name = extractor.Name,
@@ -55,11 +50,9 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
     {
         _logger.LogDebug("Getting extractor by name {Name}", name);
 
-        const string cypher = "MATCH (ex:Extractor {name: $name}) RETURN ex";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { name });
+            var cursor = await runner.RunAsync(ExtractorQueries.GetByName, new { name });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             return MapToExtractor(records[0]["ex"].As<INode>());
@@ -71,11 +64,9 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
     {
         _logger.LogDebug("Listing all extractors");
 
-        const string cypher = "MATCH (ex:Extractor) RETURN ex ORDER BY ex.name";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { });
+            var cursor = await runner.RunAsync(ExtractorQueries.List, new { });
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToExtractor(r["ex"].As<INode>())).ToList();
         }, ct);
@@ -91,16 +82,9 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
     {
         _logger.LogDebug("Creating EXTRACTED_BY: Entity {EntityId} -> Extractor {Extractor}", entityId, extractorName);
 
-        const string cypher = @"
-            MATCH (e:Entity {id: $entity_id})
-            MATCH (ex:Extractor {name: $extractor_name})
-            MERGE (e)-[r:EXTRACTED_BY]->(ex)
-            ON CREATE SET r.confidence = $confidence, r.extraction_time_ms = $extraction_time_ms, r.created_at = datetime()
-            RETURN r";
-
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new
+            await runner.RunAsync(ExtractorQueries.CreateExtractedByRelationship, new
             {
                 entity_id = entityId,
                 extractor_name = extractorName,
@@ -118,15 +102,9 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
     {
         _logger.LogDebug("Getting entities by extractor {Extractor}, limit={Limit}", extractorName, limit);
 
-        const string cypher = @"
-            MATCH (ex:Extractor {name: $extractor_name})<-[r:EXTRACTED_BY]-(e:Entity)
-            RETURN e, r.confidence AS confidence
-            ORDER BY e.created_at DESC
-            LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { extractor_name = extractorName, limit });
+            var cursor = await runner.RunAsync(ExtractorQueries.GetEntitiesByExtractor, new { extractor_name = extractorName, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -22,30 +23,17 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         _logger.LogDebug("Adding reasoning trace {Id}", trace.TraceId);
 
-        const string cypher = @"
-            CREATE (t:ReasoningTrace {
-                id:           $id,
-                session_id:   $sessionId,
-                task:         $task,
-                outcome:      $outcome,
-                success:      $success,
-                metadata:     $metadata
-            })
-            SET t.started_at   = datetime($startedAt),
-                t.completed_at = CASE WHEN $completedAt IS NOT NULL THEN datetime($completedAt) ELSE null END
-            RETURN t";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildTraceParameters(trace);
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(ReasoningQueries.AddTrace, parameters);
             var record = await cursor.SingleAsync();
             var node = record["t"].As<INode>();
 
             if (trace.TaskEmbedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (t:ReasoningTrace {id: $id}) SET t.task_embedding = $taskEmbedding",
+                    ReasoningQueries.SetTraceTaskEmbedding,
                     new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() });
             }
 
@@ -57,28 +45,17 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         _logger.LogDebug("Updating reasoning trace {Id}", trace.TraceId);
 
-        const string cypher = @"
-            MATCH (t:ReasoningTrace {id: $id})
-            SET
-                t.task         = $task,
-                t.outcome      = $outcome,
-                t.success      = $success,
-                t.started_at   = datetime($startedAt),
-                t.completed_at = CASE WHEN $completedAt IS NOT NULL THEN datetime($completedAt) ELSE null END,
-                t.metadata     = $metadata
-            RETURN t";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildTraceParameters(trace);
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(ReasoningQueries.UpdateTrace, parameters);
             var record = await cursor.SingleAsync();
             var node = record["t"].As<INode>();
 
             if (trace.TaskEmbedding is not null)
             {
                 await runner.RunAsync(
-                    "MATCH (t:ReasoningTrace {id: $id}) SET t.task_embedding = $taskEmbedding",
+                    ReasoningQueries.SetTraceTaskEmbedding,
                     new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() });
             }
 
@@ -90,11 +67,9 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         _logger.LogDebug("Getting reasoning trace {Id}", traceId);
 
-        const string cypher = "MATCH (t:ReasoningTrace {id: $id}) RETURN t";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = traceId });
+            var cursor = await runner.RunAsync(ReasoningQueries.GetTraceById, new { id = traceId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["t"].As<INode>();
@@ -106,15 +81,9 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         _logger.LogDebug("Listing reasoning traces for session {SessionId}, limit={Limit}", sessionId, limit);
 
-        const string cypher = @"
-            MATCH (t:ReasoningTrace {session_id: $sessionId})
-            RETURN t
-            ORDER BY t.started_at DESC
-            LIMIT $limit";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { sessionId, limit });
+            var cursor = await runner.RunAsync(ReasoningQueries.ListTracesBySession, new { sessionId, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -133,16 +102,7 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         _logger.LogDebug("Vector search reasoning traces, successFilter={Filter}, limit={Limit}", successFilter, limit);
 
-        var whereClause = successFilter.HasValue
-            ? "WHERE score >= $minScore AND node.success = $successFilter"
-            : "WHERE score >= $minScore";
-
-        var cypher = $@"
-            CALL db.index.vector.queryNodes('task_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            {whereClause}
-            RETURN node, score
-            ORDER BY score DESC";
+        var cypher = ReasoningQueries.SearchByTaskVector(successFilter.HasValue);
 
         var parameters = new Dictionary<string, object>
         {
@@ -171,9 +131,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (t:ReasoningTrace {id: $traceId}), (m:Message {id: $messageId})
-                MERGE (t)-[:INITIATED_BY]->(m)",
+            await runner.RunAsync(
+                ReasoningQueries.CreateInitiatedByRelationship,
                 new { traceId, messageId });
         }, cancellationToken);
     }
@@ -184,10 +143,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(@"
-                MATCH (c:Conversation {id: $conversationId}), (t:ReasoningTrace {id: $traceId})
-                MERGE (c)-[:HAS_TRACE]->(t)
-                MERGE (t)-[:IN_SESSION]->(c)",
+            await runner.RunAsync(
+                ReasoningQueries.CreateConversationTraceRelationships,
                 new { conversationId, traceId });
         }, cancellationToken);
     }

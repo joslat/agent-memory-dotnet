@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using Neo4j.AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace Neo4j.AgentMemory.Neo4j.Repositories;
@@ -23,35 +24,6 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
         _logger.LogDebug("Upserting relationship {Id} ({Source}→{Target})",
             relationship.RelationshipId, relationship.SourceEntityId, relationship.TargetEntityId);
 
-        const string cypher = @"
-            MERGE (s:Entity {id: $sourceEntityId})
-            MERGE (t:Entity {id: $targetEntityId})
-            MERGE (s)-[r:RELATED_TO {id: $id}]->(t)
-            ON CREATE SET
-                r.relation_type      = $relationType,
-                r.source_entity_id   = $sourceEntityId,
-                r.target_entity_id   = $targetEntityId,
-                r.confidence         = $confidence,
-                r.description        = $description,
-                r.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
-                r.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
-                r.attributes         = $attributes,
-                r.source_message_ids = $sourceMessageIds,
-                r.created_at         = datetime($createdAt),
-                r.updated_at         = datetime($updatedAt),
-                r.metadata           = $metadata
-            ON MATCH SET
-                r.relation_type      = $relationType,
-                r.confidence         = $confidence,
-                r.description        = $description,
-                r.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
-                r.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
-                r.attributes         = $attributes,
-                r.source_message_ids = $sourceMessageIds,
-                r.updated_at         = datetime($updatedAt),
-                r.metadata           = $metadata
-            RETURN r";
-
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -71,7 +43,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
                 ["metadata"]         = SerializeMetadata(relationship.Metadata)
             };
 
-            var cursor = await runner.RunAsync(cypher, parameters);
+            var cursor = await runner.RunAsync(RelationshipQueries.Upsert, parameters);
             var record = await cursor.SingleAsync();
             return MapToRelationship(record["r"].As<IRelationship>());
         }, cancellationToken);
@@ -81,11 +53,9 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting relationship {Id}", relationshipId);
 
-        const string cypher = "MATCH ()-[r:RELATED_TO {id: $id}]->() RETURN r";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = relationshipId });
+            var cursor = await runner.RunAsync(RelationshipQueries.GetById, new { id = relationshipId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             return MapToRelationship(records[0]["r"].As<IRelationship>());
@@ -96,14 +66,9 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting relationships for entity {EntityId}", entityId);
 
-        const string cypher = @"
-            MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)
-            WHERE s.id = $entityId OR t.id = $entityId
-            RETURN r";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { entityId });
+            var cursor = await runner.RunAsync(RelationshipQueries.GetByEntity, new { entityId });
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
         }, cancellationToken);
@@ -113,11 +78,9 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting outgoing relationships for entity {EntityId}", sourceEntityId);
 
-        const string cypher = "MATCH (s:Entity {id: $sourceEntityId})-[r:RELATED_TO]->() RETURN r";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { sourceEntityId });
+            var cursor = await runner.RunAsync(RelationshipQueries.GetBySourceEntity, new { sourceEntityId });
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
         }, cancellationToken);
@@ -127,11 +90,9 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
     {
         _logger.LogDebug("Getting incoming relationships for entity {EntityId}", targetEntityId);
 
-        const string cypher = "MATCH ()-[r:RELATED_TO]->(t:Entity {id: $targetEntityId}) RETURN r";
-
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { targetEntityId });
+            var cursor = await runner.RunAsync(RelationshipQueries.GetByTargetEntity, new { targetEntityId });
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
         }, cancellationToken);
