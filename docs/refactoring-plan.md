@@ -3,14 +3,14 @@
 **Author:** Deckard (Lead / Solution Architect)  
 **Requested by:** Jose Luis Latorre Millas  
 **Date:** April 2026  
-**Scope:** All 7 code quality findings from architecture-review-assessment.md + additional improvements  
-**Related:** `docs/architecture-review-assessment.md` §7, `docs/improvement-suggestions.md` §4
+**Scope:** 7 code quality findings from architecture-review-assessment.md + 11 functional parity gaps from cypher-analysis.md + additional improvements  
+**Related:** `docs/architecture-review-assessment.md` §7, `docs/cypher-analysis.md` §3, `docs/improvement-suggestions.md` §4
 
 ---
 
 ## Executive Summary
 
-This plan addresses **7 concrete code quality findings** identified in the architecture review, organized into 3 implementation waves by severity. Each finding includes specific file:line references, proposed solution, implementation steps, and risk assessment.
+This plan addresses **7 concrete code quality findings** + **11 functional parity gaps** (from `cypher-analysis.md`) identified in the architecture review and query analysis, organized into **4 implementation waves** by severity and dependency. Waves 1-3 refactor existing code; Wave 4 adds the 11 missing queries directly into the centralized Cypher classes created in Wave 3. Each finding includes specific file:line references, proposed solution, implementation steps, and risk assessment.
 
 **Estimated total effort:** 10–15 developer-days  
 **Test baseline:** 1,058 passing unit tests (must remain green after each wave)
@@ -28,6 +28,7 @@ This plan addresses **7 concrete code quality findings** identified in the archi
 | 5 | Cypher queries inline in C# strings across 10 repositories | Maintainability | 🟡 Medium | 3 |
 | 6 | Confidence thresholds hardcoded (0.5, 0.8, 0.85, 0.95) | DRY | 🟡 Medium | 2 |
 | 7 | AzureLanguageRelationshipExtractor re-calls entity recognition (API waste) | Performance | 🟡 Medium | 2 |
+| 8 | 11 functional parity gaps — missing queries vs Python agent-memory | Parity | 🟡 Medium | 4 (after 3) |
 
 ---
 
@@ -580,6 +581,260 @@ public static class EntityQueries
 
 ---
 
+## Wave 4: Functional Parity Gaps (After Wave 3 — New Queries Into Centralized Classes)
+
+> **Prerequisite:** Wave 3 (Finding 5 — Cypher Centralization) must be complete before starting Wave 4.  
+> New queries go directly into the per-domain query classes (`MessageQueries`, `EntityQueries`, `ExtractorQueries`, `ConversationQueries`) — no double work.
+
+### Finding 8: 11 Functional Parity Gaps — Missing Queries vs Python
+
+**Source:** `docs/cypher-analysis.md` §3 — Genuine Gaps  
+**Parity impact:** Implementing all 11 gaps raises functional parity from **82.1% → 98.5%** (remaining delta = decided omissions only)
+
+These are Python `agent-memory` queries with no .NET equivalent that were NOT decided omissions. Grouped by domain and ordered by priority.
+
+#### Group A: Message Lifecycle (🟡 Medium Priority)
+
+Three missing operations that complete the message CRUD surface:
+
+| Gap | Python Query | What It Does | Interface Change |
+|-----|-------------|--------------|------------------|
+| G1 | `DELETE_MESSAGE` (#14) | Delete a message + cascade-delete MENTIONS relationships | Add `DeleteAsync(messageId, cascade: true)` to `IMessageRepository` |
+| G2 | `DELETE_MESSAGE_NO_CASCADE` (#15) | Delete a message node only (preserve relationships) | Reuse same method with `cascade: false` |
+| G3 | `LIST_SESSIONS` (#16) | List all sessions with conversation count, message count, and preview text | Add `ListSessionsAsync(limit?)` to `IConversationRepository` |
+
+**Implementation — G1 + G2 (Message Delete):**
+
+```csharp
+// IMessageRepository addition:
+Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken ct = default);
+```
+
+Neo4j implementation:
+```csharp
+// Cascade: DETACH DELETE (removes MENTIONS, HAS_MESSAGE, NEXT_MESSAGE, FIRST_MESSAGE)
+const string CascadeDelete = @"
+    MATCH (m:Message {id: $id})
+    OPTIONAL MATCH (m)-[r]-()
+    DELETE r, m
+    RETURN COUNT(m) > 0 AS deleted";
+
+// No cascade: DELETE node only (orphans relationships — caller manages)
+const string SimpleDelete = @"
+    MATCH (m:Message {id: $id})
+    DELETE m
+    RETURN COUNT(m) > 0 AS deleted";
+```
+
+**Files to modify:**
+- `src/Neo4j.AgentMemory.Abstractions/Repositories/IMessageRepository.cs` (add `DeleteAsync`)
+- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jMessageRepository.cs` (implement)
+- New test: `tests/Neo4j.AgentMemory.Neo4j.Tests/Repositories/Neo4jMessageRepositoryTests.cs`
+
+**Implementation — G3 (List Sessions):**
+
+```csharp
+// IConversationRepository addition:
+Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default);
+
+// New domain model:
+public record SessionSummary(
+    string SessionId,
+    int ConversationCount,
+    int MessageCount,
+    string? LastMessagePreview,
+    DateTimeOffset? LastActivity);
+```
+
+Neo4j Cypher (matches Python's `LIST_SESSIONS`):
+```cypher
+MATCH (c:Conversation)
+WITH c.session_id AS sessionId, collect(c) AS conversations
+OPTIONAL MATCH (c2:Conversation {session_id: sessionId})-[:HAS_MESSAGE]->(m:Message)
+WITH sessionId, SIZE(conversations) AS convCount, collect(m) AS messages
+RETURN sessionId,
+       convCount,
+       SIZE(messages) AS msgCount,
+       messages[-1].content AS lastPreview,
+       messages[-1].timestamp AS lastActivity
+ORDER BY lastActivity DESC
+LIMIT $limit
+```
+
+**Files to modify:**
+- `src/Neo4j.AgentMemory.Abstractions/Domain/SessionSummary.cs` (create)
+- `src/Neo4j.AgentMemory.Abstractions/Repositories/IConversationRepository.cs` (add `ListSessionsAsync`)
+- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jConversationRepository.cs` (implement)
+
+**Effort:** Low (2-3 hours for all three)
+
+#### Group B: Provenance Queries (🟡 Medium Priority)
+
+Five missing queries that complete the provenance tracking system. The write-side (EXTRACTED_FROM, EXTRACTED_BY) already exists — these are the read/query side:
+
+| Gap | Python Query | What It Does | Interface Change |
+|-----|-------------|--------------|------------------|
+| G4 | `GET_ENTITY_PROVENANCE` (#65) | Get sources + extractors for an entity (full provenance chain) | Add `GetProvenanceAsync(entityId)` to `IExtractorRepository` |
+| G5 | `GET_ENTITIES_FROM_MESSAGE` (#66) | Get all entities extracted from a specific message | Add `GetEntitiesFromMessageAsync(messageId)` to `IEntityRepository` |
+| G6 | `GET_EXTRACTION_STATS` (#68) | Overall extraction statistics (total entities, avg per message) | Add `GetExtractionStatsAsync()` to `IExtractorRepository` |
+| G7 | `GET_EXTRACTOR_STATS` (#69) | Per-extractor entity counts and confidence averages | Add `GetExtractorStatsAsync(extractorName)` to `IExtractorRepository` |
+| G8 | `DELETE_ENTITY_PROVENANCE` (#71) | Remove all provenance relationships from an entity | Add `DeleteProvenanceAsync(entityId)` to `IExtractorRepository` |
+
+**Implementation — G4 (Entity Provenance):**
+
+```csharp
+// New domain model:
+public record EntityProvenance(
+    string EntityId,
+    IReadOnlyList<ProvenanceSource> Sources,
+    IReadOnlyList<ProvenanceExtractor> Extractors);
+
+public record ProvenanceSource(string MessageId, double? Confidence, int? StartPos, int? EndPos);
+public record ProvenanceExtractor(string ExtractorName, double Confidence, int? ExtractionTimeMs);
+```
+
+```cypher
+MATCH (e:Entity {id: $entityId})
+OPTIONAL MATCH (e)-[ef:EXTRACTED_FROM]->(m:Message)
+OPTIONAL MATCH (e)-[eb:EXTRACTED_BY]->(ex:Extractor)
+RETURN e, collect(DISTINCT {messageId: m.id, confidence: ef.confidence, startPos: ef.start_position, endPos: ef.end_position}) AS sources,
+       collect(DISTINCT {extractorName: ex.name, confidence: eb.confidence, extractionTimeMs: eb.extraction_time_ms}) AS extractors
+```
+
+**Implementation — G5 (Entities From Message):**
+
+```cypher
+MATCH (m:Message {id: $messageId})<-[:EXTRACTED_FROM]-(e:Entity)
+RETURN e ORDER BY e.name
+```
+
+**Implementation — G6 + G7 (Stats):**
+
+```csharp
+// New domain models:
+public record ExtractionStats(int TotalEntities, int TotalMessages, double AvgEntitiesPerMessage);
+public record ExtractorStats(string ExtractorName, int EntityCount, double AvgConfidence, int TotalExtractions);
+```
+
+```cypher
+-- G6: Overall stats
+OPTIONAL MATCH (e:Entity)
+WITH COUNT(e) AS totalEntities
+OPTIONAL MATCH (m:Message)<-[:EXTRACTED_FROM]-(:Entity)
+WITH totalEntities, COUNT(DISTINCT m) AS totalMessages
+RETURN totalEntities, totalMessages,
+       CASE WHEN totalMessages > 0 THEN toFloat(totalEntities) / totalMessages ELSE 0.0 END AS avgPerMessage
+
+-- G7: Per-extractor stats
+MATCH (ex:Extractor {name: $extractorName})
+OPTIONAL MATCH (ex)<-[eb:EXTRACTED_BY]-(e:Entity)
+RETURN ex.name AS name, COUNT(e) AS entityCount, AVG(eb.confidence) AS avgConfidence, COUNT(eb) AS totalExtractions
+```
+
+**Implementation — G8 (Delete Provenance):**
+
+```cypher
+MATCH (e:Entity {id: $entityId})
+OPTIONAL MATCH (e)-[ef:EXTRACTED_FROM]->()
+OPTIONAL MATCH (e)-[eb:EXTRACTED_BY]->()
+DELETE ef, eb
+RETURN COUNT(ef) + COUNT(eb) AS deleted
+```
+
+**Files to modify:**
+- `src/Neo4j.AgentMemory.Abstractions/Domain/EntityProvenance.cs` (create)
+- `src/Neo4j.AgentMemory.Abstractions/Domain/ExtractionStats.cs` (create)
+- `src/Neo4j.AgentMemory.Abstractions/Domain/ExtractorStats.cs` (create)
+- `src/Neo4j.AgentMemory.Abstractions/Repositories/IExtractorRepository.cs` (add 4 methods)
+- `src/Neo4j.AgentMemory.Abstractions/Repositories/IEntityRepository.cs` (add `GetEntitiesFromMessageAsync`)
+- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jExtractorRepository.cs` (implement 4 methods)
+- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs` (implement 1 method)
+
+**Effort:** Low-Medium (3-4 hours for all five)
+
+#### Group C: Deduplication Monitoring (🟡 Medium Priority)
+
+Three missing queries that complete the entity deduplication workflow. The write-side (SAME_AS, MergeEntities) already exists — these are the discovery/monitoring side:
+
+| Gap | Python Query | What It Does | Interface Change |
+|-----|-------------|--------------|------------------|
+| G9 | `FIND_SIMILAR_ENTITIES_BY_EMBEDDING` (#72) | Vector search for potential duplicate entities (excluding self) | Add `FindSimilarByEmbeddingAsync(entityId, threshold, limit)` to `IEntityRepository` |
+| G10 | `GET_POTENTIAL_DUPLICATES` (#74) | Get pending SAME_AS pairs for manual review | Add `GetPendingDuplicatesAsync(limit)` to `IEntityRepository` |
+| G11 | `GET_DEDUPLICATION_STATS` (#79) | Merged/pending/rejected SAME_AS counts | Add `GetDeduplicationStatsAsync()` to `IEntityRepository` |
+
+**Implementation — G9 (Find Similar Entities):**
+
+```csharp
+Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
+    string entityId, double minSimilarity = 0.85, int limit = 10, CancellationToken ct = default);
+```
+
+```cypher
+MATCH (source:Entity {id: $entityId}) WHERE source.embedding IS NOT NULL
+CALL db.index.vector.queryNodes('entity_embedding_idx', $limit + 1, source.embedding)
+YIELD node, score
+WHERE node.id <> $entityId AND score >= $minSimilarity
+RETURN node, score
+ORDER BY score DESC
+LIMIT $limit
+```
+
+**Implementation — G10 (Pending Duplicates):**
+
+```csharp
+public record DuplicatePair(Entity Source, Entity Target, double Similarity, string Status);
+
+Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(int limit = 50, CancellationToken ct = default);
+```
+
+```cypher
+MATCH (a:Entity)-[s:SAME_AS {status: 'pending'}]->(b:Entity)
+RETURN a, b, s.confidence AS similarity, s.status
+ORDER BY s.confidence DESC
+LIMIT $limit
+```
+
+**Implementation — G11 (Deduplication Stats):**
+
+```csharp
+public record DeduplicationStats(int PendingCount, int ConfirmedCount, int RejectedCount, int MergedCount);
+
+Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default);
+```
+
+```cypher
+OPTIONAL MATCH ()-[s:SAME_AS]->()
+WITH s.status AS status, COUNT(s) AS cnt
+RETURN
+  SUM(CASE WHEN status = 'pending' THEN cnt ELSE 0 END) AS pending,
+  SUM(CASE WHEN status = 'confirmed' THEN cnt ELSE 0 END) AS confirmed,
+  SUM(CASE WHEN status = 'rejected' THEN cnt ELSE 0 END) AS rejected,
+  SUM(CASE WHEN status = 'merged' THEN cnt ELSE 0 END) AS merged
+```
+
+**Files to modify:**
+- `src/Neo4j.AgentMemory.Abstractions/Domain/DuplicatePair.cs` (create)
+- `src/Neo4j.AgentMemory.Abstractions/Domain/DeduplicationStats.cs` (create)
+- `src/Neo4j.AgentMemory.Abstractions/Repositories/IEntityRepository.cs` (add 3 methods)
+- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs` (implement 3 methods)
+
+**Effort:** Low (2-3 hours for all three)
+
+#### Finding 8 Summary
+
+| Group | Gaps | Priority | Effort | Parity Impact |
+|-------|------|----------|--------|---------------|
+| A: Message Lifecycle | G1-G3 | 🟡 Medium | 2-3 hours | +3 queries |
+| B: Provenance Queries | G4-G8 | 🟡 Medium | 3-4 hours | +5 queries |
+| C: Dedup Monitoring | G9-G11 | 🟡 Medium | 2-3 hours | +3 queries |
+| **Total** | **11** | **🟡 Medium** | **~1-1.5 days** | **82.1% → 98.5%** |
+
+**Risk:** Low. All additive — new interface methods, new queries, new tests. Zero changes to existing methods or queries. Queries go directly into the per-domain centralized classes from Wave 3 (Finding 5), avoiding double work.
+
+**Sequencing note:** This entire Finding depends on Wave 3 completion. New Cypher goes into `MessageQueries`, `EntityQueries`, `ExtractorQueries`, `ConversationQueries` — not inline in repository files.
+
+---
+
 ## Additional Improvements (from improvement-suggestions.md)
 
 These are not part of the 7 core findings but are recommended based on the architecture review:
@@ -638,6 +893,12 @@ Wave 3 (Days 11-15): Lower Priority
   ├── Finding 5: Cypher centralization            (2-3 days)
   ├── Extra A4: Externalize prompts               (0.5 day)
   └── Buffer for integration testing              (1-2 days)
+
+Wave 4 (Days 16-17): Functional Parity Gaps  ← AFTER Cypher centralization
+  ├── Finding 8A: Message lifecycle gaps (G1-G3)  (2-3 hours)
+  ├── Finding 8B: Provenance queries (G4-G8)      (3-4 hours)
+  ├── Finding 8C: Dedup monitoring (G9-G11)       (2-3 hours)
+  └── New queries go directly into centralized per-domain classes
 ```
 
 ---
@@ -655,7 +916,8 @@ After **all waves**:
 - Architecture review re-assessment (updated scores in improvement-suggestions.md)
 - Core package score: 7/10 → target 9/10
 - Extraction packages: 6-7/10 → target 8-9/10
+- Functional parity: 82.1% → target 98.5% (Wave 4)
 
 ---
 
-*This plan reflects the codebase as of April 2026 with 9 packages and 1,058 passing unit tests. Each finding references verified file:line locations from the actual source code.*
+*This plan reflects the codebase as of April 2026 with 9 packages and 1,058 passing unit tests. Each finding references verified file:line locations from the actual source code. Wave 4 queries slot directly into the centralized Cypher classes created in Wave 3.*
