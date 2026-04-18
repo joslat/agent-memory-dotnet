@@ -325,3 +325,37 @@ Coverage is good to strong overall. Testcontainers framework is production-ready
 
 **Status:** Audit report ready for Jose review. Test implementation can begin immediately.
 
+### 2026-07-xx — Implementation Status Verification + Doc-vs-Code Consistency Audit
+
+**Build result:** Succeeded, 0 errors, 0 src/ warnings.
+
+**Actual test counts:** 1,407 unit (main project) + 31 unit (SemanticKernel project) = **1,438 total unit tests**, 0 failures.
+
+#### Task 1: Feature Implementation Status
+
+| Feature | Status | Note |
+|---------|--------|------|
+| Meta-package | ✅ EXISTS | `src/Neo4j.AgentMemory/Neo4j.AgentMemory.csproj` — references Abstractions, Core, Neo4j, Extraction.Llm + MEDI.Abstractions |
+| Semantic Kernel adapter | ✅ EXISTS | `Neo4jMemoryPlugin.cs`, `Neo4jTextSearch.cs`, `KernelMemoryExtensions.cs` all present |
+| Externalized prompts | ✅ EXISTS | `LlmExtractionOptions` has all 4 `*Prompt` properties; each extractor uses `_options.*Prompt ?? DefaultSystemPrompt` |
+| Observability decorators | ✅ EXISTS (exceeds docs) | 7 decorators registered (not 5): Entity/Fact/Preference/Relationship extractors + EnrichmentService + **MemoryService + GraphRagContextSource** |
+| Config validation tests | ✅ EXISTS (exceeds docs) | 82 `[Fact]` tests in `ConfigurationValidationTests.cs` (docs claim 60) |
+| Temporal retrieval | ✅ EXISTS | `RecallAsOfAsync` in `IMemoryService`, `MemoryService`, and `InstrumentedMemoryService` |
+| Memory decay | ✅ EXISTS | `IMemoryDecayService`, `MemoryDecayService`, `DecayQueries`, `TemporalQueries` all confirmed |
+| MemoryMetrics per-extractor | ✅ EXISTS | 4 per-extractor duration histograms + 4 per-extractor counters in `MemoryMetrics` |
+
+All 8 features are fully implemented.
+
+#### Task 2: Doc-vs-Code Discrepancies
+
+| Doc | Claim | Reality | Verdict |
+|-----|-------|---------|---------|
+| `refactoring-plan.md` | "1,438 unit tests (1,407 + 31 SK)" | 1,438 actual | ✅ Accurate |
+| `refactoring-plan.md` | All ✅ items complete | Verified by code search | ✅ Accurate |
+| `improvement-suggestions.md` | "5 instrumented decorators" | **7 in code** (added InstrumentedMemoryService + InstrumentedGraphRagContextSource) | ⚠️ Understated |
+| `improvement-suggestions.md` | "60 tests covering 20 Options classes" | 82 `[Fact]` tests in file | ⚠️ Understated (tests grew) |
+| `architecture-review-assessment.md` | "9 packages" | **11 packages** (original 9 + `Neo4j.AgentMemory` meta + `Neo4j.AgentMemory.SemanticKernel`) | ❌ Outdated — predates meta+SK additions |
+| `architecture-review-assessment.md` | "1,211 unit tests" | **1,438 actual** | ❌ Outdated by 227 tests |
+
+**Summary:** `refactoring-plan.md` is accurate. `improvement-suggestions.md` understates decorator and test counts (harmless — reality is better). `architecture-review-assessment.md` has stale package count (9→11) and test count (1,211→1,438) — last updated before the meta-package, SemanticKernel, config validation, and Wave 5+ test additions.
+

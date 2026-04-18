@@ -830,3 +830,39 @@ Items from Python parity comparison that need implementation:
 - `.squad/decisions/inbox/deckard-cypher-strategy.md` — 4 decisions (D-CQ-1 through D-CQ-4)
 
 **Key Insight:** The question "should we use JSON?" has a clear answer: NO. Cypher queries are code — they should live in code files with compile-time safety, IDE navigation, and type-checked parameter contracts. The Python reference validates this: queries.py uses Python source code, not external files.
+
+### 2026-07-26 — Architecture Reassessment & Package Strategy Analysis
+
+**Trigger:** Jose requested three major deliverables: (1) architecture reassessment with updated counts, (2) comprehensive package strategy analysis with 4 options, (3) team discussion and resolution.
+
+**Architecture Reassessment:**
+- Updated `docs/architecture-review-assessment.md` to reflect 11 packages (9 original + SemanticKernel + meta-package)
+- Updated test count: 1,438 (1,407 unit + 31 SK), 58 integration tests
+- Updated source metrics: 276 source files, ~16,600 LOC
+- Added SemanticKernel (score: 10/10) and Meta-package (score: 10/10) to per-project assessment table
+- Updated cross-reference matrix with 2 new rows
+- Updated package dependency graph with SK + meta-package branches
+- Updated layer diagram: SK no longer "Future" — now shipped
+- Updated NuGet publishing plan from "single monolithic" to "multi-package with meta-package"
+- Marked SK adapter and meta-package as ✅ Shipped in gap analysis
+
+**Package Strategy Analysis (`docs/package-strategy.md`):**
+
+Four options analyzed with full scoring:
+
+| Option | Verdict | Key Reason |
+|--------|---------|------------|
+| A: Monolithic | ❌ Rejected | Dependency pollution — forces SK/MAF/OTel/Azure on all consumers |
+| B: Two-Layer | ❌ Rejected | Neo4j layer is 100% memory-specific; only ~600 LOC reusable; no proven demand |
+| C: Multi-Package (11) | ✅ Recommended | Architecture and packaging aligned; meta-package handles DX; dependency isolation |
+| D: Consolidated (5) | ❌ Rejected | "Extras" bag architecturally incoherent; marginal improvement over meta-package |
+
+**Critical finding on Option B (Two-Layer):** The Neo4j package contains 10 memory-domain repositories, memory-specific schema, memory-specific migrations. Only retrievers (~500 LOC) and driver factory (~100 LOC) are domain-agnostic. Creating a generic graph layer means writing new code, not extracting existing code. No evidence .NET developers want a mid-level Neo4j framework (Neo4j.Berries.OGM: 99K downloads, abandoned since 2020).
+
+**Ecosystem assessment:** The gap between Neo4j.Driver and a full product exists technically, but no demand signal supports filling it. Python ecosystem shows same pattern — raw driver OR full product, no mid-level framework.
+
+**Team discussion:** All 7 perspectives (Deckard, Roy, Gaff, Rachael, Sebastian, Holden, Joi) unanimously support Option C.
+
+**Decisions recorded:** D-PS-1 through D-PS-5 in `.squad/decisions/inbox/deckard-package-strategy.md`
+
+**Key challenge to Jose:** The two-layer impulse reflects good product thinking, but the current codebase doesn't contain a generalizable graph infrastructure layer. If there's a market for a higher-level Neo4j .NET framework, it should be designed ground-up — not extracted from a memory library. Different charter, different requirements.

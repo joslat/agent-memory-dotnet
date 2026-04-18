@@ -185,6 +185,39 @@ Joi's bulk docs update was reported as successful but edits did not persist to d
 
 ---
 
+### L10: Improvement Suggestions & Docs Completeness Audit (2026-07-24)
+
+**Session:** Full docs audit requested by Jose Luis Latorre Millas
+
+**Scope:** Verified all S1–S15 improvement suggestions and reviewed all 13 docs files for currency.
+
+**Improvement Suggestions Findings:**
+- S1–S6, S8, S10–S15: ALL verified ✅ COMPLETE against actual code
+- S7 (ISP split): ⚠️ Not Recommended — still correct; IEntityRepository is cohesive, pragmatic tradeoff accepted
+- S9 (Truncation strategy extraction): 📅 Deferred — ACCURATELY deferred; MemoryContextAssembler.cs still has inline switch (lines 254–263), no ITruncationStrategy interface
+- C1–C10 (Creative ideas): Conceptual proposals only — not implemented, correct status
+- **improvement-suggestions.md should NOT be deleted** — C1–C10 and Section 6 ("What AI Models Want") contain forward-looking roadmap and design perspective found nowhere else
+
+**README.md Stale Claims Found:**
+- "10 packages" → should be 11 (SemanticKernel + meta-package shipped after this section was written)
+- "1,211 unit tests" → should be ~1,438 (per architecture-review-assessment Appendix A)
+- "MCP Server with 21 tools" in project status paragraph → should be 28
+- Missing `Neo4j.AgentMemory.SemanticKernel` row in package table
+
+**Other Stale Docs:**
+- `architecture-review-assessment.md`: Header says "9 packages, 1,211 tests" but Appendix A correctly says "11 packages, 1,438" — internal inconsistency; SemanticKernel listed as "Future" when it shipped
+- `package-strategy-and-features.md`: Pre-merger diagram (GraphRagAdapter as separate, neo4j-maf-provider dependency) — largely superseded
+- `refactoring-plan.md`: Final test count says 1,211 — stale
+
+**Missing Docs (high priority):**
+- `docs/getting-started.md` — no onboarding path exists; critical DX gap
+- `CHANGELOG.md` — no version history
+- `CONTRIBUTING.md` — placeholder note in README never followed up
+
+**Decision written to:** `.squad/decisions/inbox/joi-docs-recommendations.md`
+
+---
+
 ### L9: Post-Implementation Documentation Synchronization (2025-01-29)
 
 **Session:** Post-MEAI migration + ToolCallStatus fix + Extraction package decision sprint

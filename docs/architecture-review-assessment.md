@@ -1,9 +1,9 @@
 # Architecture Review & Assessment
 
 **Author:** Deckard (Lead / Solution Architect)  
-**Date:** April 2026  
+**Date:** April 2026 (updated)  
 **Scope:** Comprehensive architecture review consolidating all prior assessments  
-**Codebase State:** 9 packages, ~1,211 unit tests, 0 failures, ~98.5% Python parity
+**Codebase State:** 11 packages (9 original + SemanticKernel + meta-package), ~1,438 tests (1,407 unit + 31 SK), 0 failures, ~99% Python parity
 
 ---
 
@@ -13,7 +13,7 @@
 
 ### What We Built
 
-A 9-package .NET solution delivering:
+An 11-package .NET solution delivering:
 - **Three memory tiers:** Short-term (conversations/messages), Long-term (entities/facts/preferences/relationships), Reasoning (traces/steps/tool calls)
 - **Extraction pipeline:** LLM-based or Azure Language NLP extraction of entities, facts, preferences, and relationships from conversation text
 - **Entity resolution:** Exact → Fuzzy → Semantic matching chain with configurable merge thresholds
@@ -31,7 +31,7 @@ A 9-package .NET solution delivering:
 | MEAI as primary integration point | Framework-agnostic; works with MAF, SK, and custom apps | ✅ Shipped |
 | neo4j-maf-provider dependency removed | Internalized 3 retriever types (Vector, Fulltext, Hybrid) to eliminate external dep | ✅ Complete |
 | GraphRagAdapter merged into Neo4j package | Single unified graph DB layer; eliminates redundant package | ✅ Complete |
-| 9-package architecture (down from 10) | Clean separation of concerns with distinct audiences per package | ✅ Current |
+| 11-package architecture (9 original + SK + meta-package) | Clean separation of concerns with distinct audiences per package | ✅ Current |
 | Records for domain models | Immutability, value semantics, C# idiomatic | ✅ Shipped |
 | Stub implementations in Core | Enable testing without external services (Neo4j, LLM, Azure) | ✅ Shipped |
 | `IEmbeddingProvider` removed; MEAI-native | Unified on `IEmbeddingGenerator<string, Embedding<float>>` | ✅ Complete |
@@ -42,9 +42,10 @@ A 9-package .NET solution delivering:
 |--------|-------|
 | Circular dependencies | **0** |
 | Boundary violations | **0** |
-| Tests (Unit) | **1,211 passing** |
-| Source files | ~265 |
-| Total LOC | ~14,650 |
+| Tests (Unit + SK) | **1,438 passing** (1,407 unit + 31 SK) |
+| Tests (Integration) | **58 passing** |
+| Source files | ~276 |
+| Total LOC | ~16,600 |
 | TODO/FIXME/HACK comments | **0** |
 | Build warnings (src/) | 0 errors, 0 warnings |
 | Python parity | **98.5%** (up from 82.1%) |
@@ -59,8 +60,8 @@ A 9-package .NET solution delivering:
 ┌─────────────────────────────────────────────────────────────────────┐
 │  ADAPTER LAYER (thin translation only)                              │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
-│  │  AgentFramework   │  │    McpServer     │  │  (Future: SK)    │  │
-│  │  MAF 1.1.0        │  │  MCP 1.2.0       │  │  Semantic Kernel │  │
+│  │  AgentFramework   │  │    McpServer     │  │  SemanticKernel  │  │
+│  │  MAF 1.1.0        │  │  MCP 1.2.0       │  │  SK 1.74.0       │  │
 │  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘  │
 └───────────┼──────────────────────┼──────────────────────┼───────────┘
             │                      │                      │
@@ -131,7 +132,11 @@ Neo4j.AgentMemory.Abstractions (MEAI.Abstractions 10.4.1)
 │
 ├─→ Neo4j.AgentMemory.Enrichment (+ M.E.Http, M.E.Caching.Memory)
 │
-└─→ Neo4j.AgentMemory.McpServer (+ ModelContextProtocol 1.2.0)
+├─→ Neo4j.AgentMemory.McpServer (+ ModelContextProtocol 1.2.0)
+│
+├─→ Neo4j.AgentMemory.SemanticKernel (+ Microsoft.SemanticKernel 1.74.0)
+│
+└─→ Neo4j.AgentMemory [META-PACKAGE] (Abstractions + Core + Neo4j + Extraction.Llm)
 ```
 
 ### Cross-Reference Matrix
@@ -143,10 +148,12 @@ Neo4j.AgentMemory.Abstractions (MEAI.Abstractions 10.4.1)
 | **Neo4j** | ✅ | ✅ | — | ❌ |
 | **AgentFramework** | ✅ | ✅ | ❌ | ❌ |
 | **Extraction.Llm** | ✅ | ✅ | ❌ | ❌ |
-| **Extraction.Azure** | ✅ | ❌ | ❌ | ❌ |
+| **Extraction.Azure** | ✅ | ✅ | ❌ | ❌ |
 | **Enrichment** | ✅ | ❌ | ❌ | ❌ |
 | **Observability** | ✅ | ✅ | ❌ | ❌ |
 | **McpServer** | ✅ | ❌ | ❌ | ❌ |
+| **SemanticKernel** | ✅ | ❌ | ❌ | ❌ |
+| **Meta-package** | ✅ | ✅ | ✅ | Extraction.Llm |
 
 **Verdict:** Zero inappropriate cross-references. Every dependency arrow is justified and minimal.
 
@@ -166,7 +173,7 @@ Neo4j.AgentMemory.Abstractions (MEAI.Abstractions 10.4.1)
 
 ## 3. Package Strategy
 
-### Why 9 Packages?
+### Why 11 Packages?
 
 Each package serves a **distinct audience** with **distinct external dependencies**:
 
@@ -181,40 +188,52 @@ Each package serves a **distinct audience** with **distinct external dependencie
 | 7 | **Enrichment** | Entity enrichment users | M.E.Http, M.E.Caching | ~770 |
 | 8 | **Observability** | Production deployments | OpenTelemetry.Api 1.12.0 | ~430 |
 | 9 | **McpServer** | MCP tool consumers | ModelContextProtocol 1.2.0 | ~1,300 |
+| 10 | **SemanticKernel** | SK developers | Microsoft.SemanticKernel 1.74.0 | ~277 |
+| 11 | **Meta-package** | Quick-start users | (references 1+2+3+5) | ~33 |
 
 **Rationale:** Non-MAF users shouldn't pull `Microsoft.Agents.AI`. Non-observability users shouldn't pull `OpenTelemetry.Api`. Users not doing LLM extraction shouldn't pull `Microsoft.Extensions.AI`. The package split maps to dependency isolation, not just module organization.
 
 ### NuGet Publishing Plan
 
-**Decision (April 2026):** Publish as **ONE NuGet package** — `Neo4j.AgentMemory`. Internal assembly/DLL separation is maintained for modularity, but consumers install a single package:
+**Decision (April 2026, updated):** Publish as **multi-package with meta-package** — individual NuGet packages per project, plus `Neo4j.AgentMemory` meta-package for convenience. The meta-package bundles Abstractions + Core + Neo4j + Extraction.Llm for the common use case. Framework adapters (SK, MAF) and optional packages (Observability, Enrichment, MCP) are separate NuGet packages.
 
 ```bash
+# Quick start — most users
 dotnet add package Neo4j.AgentMemory
+
+# Semantic Kernel users
+dotnet add package Neo4j.AgentMemory.SemanticKernel
+
+# MAF users
+dotnet add package Neo4j.AgentMemory.AgentFramework
+
+# Production observability
+dotnet add package Neo4j.AgentMemory.Observability
 ```
 
-This single package bundles all assemblies (Abstractions, Core, Neo4j, Extraction.Llm, Extraction.AzureLanguage, Enrichment, Observability, McpServer, AgentFramework). The internal project structure remains as-is for developer separation of concerns — it's only the NuGet packaging that is unified.
+**Package topology:**
+
+```
+Neo4j.AgentMemory (meta-package, convenience)
+├── Neo4j.AgentMemory.Abstractions (standalone NuGet)
+├── Neo4j.AgentMemory.Core (standalone NuGet)
+├── Neo4j.AgentMemory.Neo4j (standalone NuGet)
+└── Neo4j.AgentMemory.Extraction.Llm (standalone NuGet)
+
+Neo4j.AgentMemory.SemanticKernel (standalone NuGet, references Abstractions)
+Neo4j.AgentMemory.AgentFramework (standalone NuGet, references Abstractions + Core)
+Neo4j.AgentMemory.Extraction.AzureLanguage (standalone NuGet, references Abstractions + Core)
+Neo4j.AgentMemory.Enrichment (standalone NuGet, references Abstractions)
+Neo4j.AgentMemory.Observability (standalone NuGet, references Abstractions + Core)
+Neo4j.AgentMemory.McpServer (standalone NuGet, references Abstractions)
+```
 
 **Rationale:**
-- **1-install DX** — No confusion about which packages to install or in what order
-- **Version coherence** — All assemblies ship and version together
-- **Discovery** — One package to find on NuGet.org, one README, one "getting started"
-- **Dependency management** — Users don't need to manually align versions across 9 packages
+- **1-install DX for most users** — `dotnet add package Neo4j.AgentMemory` gets you running
+- **No dependency pollution** — MAF, SK, OpenTelemetry, Azure SDK stay in their own packages
+- **Version coherence** — All assemblies in meta-package ship and version together
+- **Framework adapter independence** — SK and MAF can track their SDK releases independently
 - **Internal modularity preserved** — Separate .csproj files, clean dependency direction, distinct namespaces
-
-```
-Neo4j.AgentMemory (single NuGet package)
-├── Neo4j.AgentMemory.Abstractions.dll
-├── Neo4j.AgentMemory.Core.dll
-├── Neo4j.AgentMemory.Neo4j.dll
-├── Neo4j.AgentMemory.Extraction.Llm.dll
-├── Neo4j.AgentMemory.Extraction.AzureLanguage.dll
-├── Neo4j.AgentMemory.Enrichment.dll
-├── Neo4j.AgentMemory.Observability.dll
-├── Neo4j.AgentMemory.McpServer.dll
-└── Neo4j.AgentMemory.AgentFramework.dll
-```
-
-Future: `Neo4j.AgentMemory.SemanticKernel` (SK adapter, may ship as separate package given distinct audience)
 
 ### What Each Package Does
 
@@ -235,6 +254,10 @@ Future: `Neo4j.AgentMemory.SemanticKernel` (SK adapter, may ship as separate pac
 **Observability** — OpenTelemetry decorator wrappers for `IMemoryService` and `IGraphRagContextSource`. Activity source, counters, histograms. Must be registered last in DI.
 
 **McpServer** — Model Context Protocol server. 28 tools (core memory, entities, facts, preferences, conversations, reasoning, observations, graph queries), 6 resources (status, lists, schema), 3 prompts (conversation, reasoning, review). Static method pattern with `[McpServerTool]` attributes.
+
+**SemanticKernel** — SK adapter. `Neo4jMemoryPlugin` exposes memory operations as SK kernel functions (recall, store_message, extract, search entities/facts/preferences). `Neo4jTextSearch` implements SK's `ITextSearch<TRecord>` for RAG integration. `KernelMemoryExtensions` provides `AddNeo4jMemoryPlugin()` and `AddNeo4jTextSearch()` DI helpers. ~277 LOC.
+
+**Meta-package (Neo4j.AgentMemory)** — Convenience package referencing Abstractions + Core + Neo4j + Extraction.Llm. Provides `AddNeo4jAgentMemory()` unified DI registration that wires all three subsystems in a single call. ~33 LOC.
 
 ---
 
@@ -271,11 +294,11 @@ MEAI (foundation) ←── Agent Memory Core (business logic)
     ↑                         ↑
     │                         │
 MAF Adapter ─────── thin translation layer
-SK Adapter ──────── thin translation layer (future)
+SK Adapter ──────── thin translation layer (shipped)
 MCP Server ──────── thin exposition layer
 ```
 
-MAF integration is a ~940 LOC adapter. It translates between MAF's `AIContextProvider` lifecycle and our `IMemoryService.RecallAsync` / `IMemoryExtractionPipeline.ExtractAndPersistAsync` calls. The core memory engine has **zero knowledge** of MAF, SK, or MCP.
+MAF integration is a ~940 LOC adapter. SK integration is a ~277 LOC adapter. Both translate between their respective framework lifecycles and our `IMemoryService.RecallAsync` / `IMemoryExtractionPipeline.ExtractAndPersistAsync` calls. The core memory engine has **zero knowledge** of MAF, SK, or MCP.
 
 ### Configuration Pattern
 
@@ -445,7 +468,7 @@ We adapted **3 retriever types** and supporting utilities:
 | **Geospatial** | ❌ None | ✅ Point index, bounding box | ✅ Point index + geocoding |
 | **Metadata filtering** | ❌ None | ✅ 5 operators ($eq, $ne, $in, etc.) | ✅ Similar |
 | **Session strategies** | ❌ None | ✅ 3 strategies | ✅ 3 strategies |
-| **Test coverage** | Minimal | 1,211 unit tests | Unknown |
+| **Test coverage** | Minimal | 1,438 unit + SK tests | Unknown |
 
 ---
 
@@ -464,6 +487,8 @@ We adapted **3 retriever types** and supporting utilities:
 | 7 | **Enrichment** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 8 | **Observability** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 9 | **McpServer** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
+| 10 | **SemanticKernel** | ✅ | ✅ | ✅ | ✅ | ✅ | **10/10** |
+| 11 | **Meta-package** | ✅ | ✅ | ✅ | ✅ | ✅ | **10/10** |
 
 ### Key Findings — All Resolved ✅
 
@@ -594,12 +619,12 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 
 | Aspect | neo4j-maf-provider | Agent Memory for .NET | Python agent-memory |
 |--------|-------------------|----------------------|-------------------|
-| Architecture | Monolithic adapter | Layered (4 tiers, 9 packages) | Layered (monorepo) |
+| Architecture | Monolithic adapter | Layered (4 tiers, 11 packages) | Layered (monorepo) |
 | Framework coupling | MAF-only | Framework-agnostic + adapters | Framework-agnostic |
 | External deps | Neo4j.Driver, MEAI, MAF | Neo4j.Driver, MEAI, + opt-in | Neo4j driver, OpenAI |
 | Configuration | Env vars | `IOptions<T>` pattern | YAML/env |
 | DI support | Manual | `IServiceCollection` extensions | Python DI |
-| Testing | Minimal | **1,211 unit tests** | Unit + integration |
+| Testing | Minimal | **1,438 unit + SK tests** | Unit + integration |
 | Observability | None | OpenTelemetry (opt-in) | None |
 | MCP support | None | 28 tools, 6 resources, 3 prompts | 16 tools (FastMCP) |
 
@@ -646,9 +671,9 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 
 | Gap | Severity | Status | Notes |
 |-----|----------|--------|-------|
-| **Semantic Kernel adapter** | High | Not started | SK has >10K GitHub stars; largest .NET AI audience. Adapter would be ~500 LOC. |
+| ~~**Semantic Kernel adapter**~~ | ~~High~~ | ✅ **Shipped** | `Neo4j.AgentMemory.SemanticKernel` — plugin, text search, DI extensions. 31 tests. |
+| ~~**Meta-package**~~ | ~~High~~ | ✅ **Shipped** | `Neo4j.AgentMemory` — Abstractions + Core + Neo4j + Extraction.Llm. Unified DI registration. |
 | **NuGet publishing** | High | Not started | Packages not yet on NuGet. Publish order defined. |
-| **Single NuGet package** | High | Decided | Publish `Neo4j.AgentMemory` bundling all assemblies. See §3 NuGet Publishing Plan. |
 | **Provider tag in enrichment cache keys** | Medium | Not started | Correctness bug: cache key lacks provider name; switching providers returns stale data. |
 | **Fix missing duration metric** | Low | Not started | `InstrumentedMemoryService.ExtractFromSessionAsync` lacks Stopwatch/duration recording. |
 | **Externalize LLM system prompts** | Low | Deferred | Hardcoded prompts work well; low urgency. |
@@ -682,7 +707,7 @@ Pragmatic improvements I'd make if starting a new sprint, ordered by impact/effo
 
 | Change | Why | Impact | Effort | Status |
 |--------|-----|--------|--------|--------|
-| **Single NuGet package** — Publish as `Neo4j.AgentMemory` bundling all assemblies (decided April 2026) | 1-install DX | Very High | Trivial | 📅 Not published yet |
+| ~~**Single NuGet package**~~ — ~~Publish as `Neo4j.AgentMemory` bundling all assemblies~~ | ~~1-install DX~~ | ~~Very High~~ | ~~Trivial~~ | ✅ **Meta-package shipped** |
 | **Provider tag in enrichment cache keys** — Include provider name to prevent stale cache on provider switch | Correctness bug | Medium | Trivial | 📅 Not started |
 | **Fix missing duration metric** in `InstrumentedMemoryService.ExtractFromSessionAsync` | Telemetry gap | Low | Trivial | 📅 Not started |
 | ✅ **Parameterize all confidence thresholds** — Move hardcoded 0.5/0.8/0.85/0.95 to Options | Configurability | Medium | Low | ✅ **Wave 2 Complete** |
@@ -709,7 +734,7 @@ Pragmatic improvements I'd make if starting a new sprint, ordered by impact/effo
 
 | Change | Why | Impact | Effort | Status |
 |--------|-----|--------|--------|--------|
-| **Semantic Kernel adapter** | Largest .NET AI audience (>10K stars) | Very High | Medium | 📅 Not started |
+| ~~**Semantic Kernel adapter**~~ | ~~Largest .NET AI audience (>10K stars)~~ | ~~Very High~~ | ~~Medium~~ | ✅ **Shipped** (31 tests) |
 | **Memory decay with strength scores** | Prevents infinite memory growth | High | High | 📅 Not started |
 | **Conflict detection** | Agents give contradictory advice without it | High | High | 📅 Not started |
 | **Pre-assembled context briefings** | Transform raw lists into structured intelligence | Very High | High | 📅 Not started |
@@ -734,4 +759,4 @@ This document consolidates and supersedes the following individual assessments:
 
 ---
 
-*This assessment reflects the codebase as of July 2025 with 9 packages, 1,211 passing unit tests, 289 source files, all 4 refactoring waves complete (98.5% Python parity), neo4j-maf-provider dependency removed, and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor.*
+*This assessment reflects the codebase as of April 2026 with 11 packages (9 original + SemanticKernel + meta-package), 1,438 passing tests (1,407 unit + 31 SK), 276 source files, all 4 refactoring waves complete (~99% Python parity), neo4j-maf-provider dependency removed, GraphRagAdapter merged into Neo4j, SemanticKernel adapter shipped, and meta-package with fluent DI registration operational. Recommendations should be revisited after each major refactor.*

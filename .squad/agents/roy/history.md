@@ -19,6 +19,33 @@
 
 ## Learnings
 
+### 2026-07-18: Parity Assessment — Schema + Cypher
+
+**Task:** Full parity assessment of .NET implementation vs Python reference implementation.
+
+**Schema Parity: ~99.7% — AHEAD**
+- All 11 Python node labels present; .NET adds `Migration`
+- All 73 Python node properties present; .NET adds 14 extras (user_id, metadata, attributes, source_message_ids, step_id, description, etc.)
+- All 27 Python relationship properties present; .NET adds 5 extra on `RELATED_TO`
+- All 15 Python relationship types present; .NET adds `HAS_FACT`, `HAS_PREFERENCE`, `IN_SESSION`, plus `EXTRACTED_FROM`/`ABOUT` extensions for Facts and Preferences
+- All 9 Python constraints present; .NET adds `extractor_name`
+- All 12 Python property indexes present; .NET adds 2 extras + 3 fulltext indexes Python lacks
+- All 5 Python vector indexes present; .NET adds `reasoning_step_embedding_idx`
+- Only gap: `Schema` CRUD repository — decided P2 omission (static DDL approach)
+
+**Cypher Query Parity: 98.5% functional — AHEAD**
+- Python: 99 constants; .NET: 145 centralized constants in `src/Neo4j.AgentMemory.Neo4j/Queries/`
+- 0 genuine gaps remaining (all 11 Wave 4 gaps closed)
+- 31 Python queries are decided omissions (schema CRUD, visualization, background tooling)
+- ~47 .NET-only extras: decay pruning, temporal point-in-time queries, BM25 fulltext, hybrid retrieval, GraphRAG expansion, batch UNWIND, directional relationships, full provenance chain analytics
+- Remaining minor items: #51 DELETE_SESSION_DATA (partial — messages only), #24/#77 count/with-embedding queries (inferrable)
+
+**Artifacts created:**
+- `docs/parity-assessment.md` — full report with parity tables, gap analysis, extras catalog
+- `.squad/decisions/inbox/roy-parity-findings.md` — team-relevant decision on parity strategy
+
+**Key finding:** We are not just at parity — we exceed the Python reference on schema richness (fulltext indexes, extra relationship types, richer properties) and Cypher capabilities (decay, temporal, BM25, hybrid, GraphRAG). The remaining decided omissions are all correct architectural choices, not bugs.
+
 ### Wave 2 Findings 3+4, 2026-07-18 (Pipeline SRP Split + Multi-extractor Merge)
 
 **Task:** Split `MemoryExtractionPipeline` (14 deps, 4 responsibilities) into `ExtractionStage` + `PersistenceStage`. Merge `MultiExtractorPipeline` into `ExtractionStage`.
