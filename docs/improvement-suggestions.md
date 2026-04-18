@@ -11,7 +11,7 @@
 
 ## 1. Executive Summary
 
-The Agent Memory for .NET solution is **architecturally sound** — zero boundary violations, zero circular dependencies, clean ports-and-adapters layering, and 1,211 passing unit tests across ~289 source files (~14,650 LOC). Since the last audit:
+The Agent Memory for .NET solution is **architecturally sound** — zero boundary violations, zero circular dependencies, clean ports-and-adapters layering, and 1,438 passing unit tests across ~320 source files (~17,000 LOC). Since the last audit:
 
 **Completed since initial review:**
 - ✅ **GraphRagAdapter merged into Neo4j package** — eliminated a separate package; 10→9 packages
@@ -22,12 +22,16 @@ The Agent Memory for .NET solution is **architecturally sound** — zero boundar
 - ✅ **Wave 2 Complete** — Pipeline SRP split + thresholds + Azure API cache (SRP/KISS)
 - ✅ **Wave 3 Complete** — Cypher query centralization (140 constants in 13 domain classes)
 - ✅ **Wave 4 Complete** — 11 functional parity gaps resolved (82.1% → 98.5%)
+- ✅ **Quick Wins Complete** — Cache key provider tag, duration metrics, embedding leak fixes
+- ✅ **NuGet Meta-Package** — `Neo4j.AgentMemory` with `AddNeo4jAgentMemory()` convenience DI
+- ✅ **Semantic Kernel Adapter** — `Neo4j.AgentMemory.SemanticKernel` (plugin + text search + DI extensions)
+- ✅ **Externalized LLM Prompts** — Configurable via `LlmExtractionOptions.*Prompt` properties
+- ✅ **Observability Decorators** — 5 instrumented extractors/enrichment + 9 new metrics
+- ✅ **Configuration Validation Tests** — 60 tests covering all 20 Options classes
+- ✅ **Temporal Memory Retrieval** — `RecallAsOfAsync` with point-in-time snapshots
+- ✅ **Memory Decay/Forgetting** — `MemoryDecayService` with configurable half-life + auto-prune
 
-This reassessment identifies **5 remaining active improvements** (down from 12 — 7 completed items moved to Completed section, 2 in progress by Roy). The top priority remains the NuGet package for 1-install DX, followed by the Semantic Kernel adapter.
-
-**Currently in progress (Roy):**
-- 🔧 S10 — Provider tag in enrichment cache keys
-- 🔧 S13 — Fix duration metric in Observability
+This reassessment identifies **2 remaining active improvements** (S7 ISP split — not recommended, S9 truncation strategies — deferred). All other items are complete.
 
 ---
 
@@ -265,93 +269,61 @@ external dependency has been removed — retriever types were internalized.
 
 ### S10: Add Provider Tag to Enrichment Cache Keys
 
-> **🔧 IN PROGRESS** — Being implemented by Roy. Cache key format will change from `enrichment:{entityName}:{entityType}` to include provider name.
+> **✅ COMPLETE** — Implemented in quick wins sprint. Cache key includes provider type name.
 
 | Attribute | Value |
 |-----------|-------|
-| **Category** | Correctness |
-| **Current State** | Enrichment cache key format is `enrichment:{entityName}:{entityType}` (see `CachedEnrichmentService.cs:36`). If a deployment switches from WikimediaEnrichmentService to DiffbotEnrichmentService, cached results from the old provider will be served without invalidation. |
-| **Proposed Improvement** | Include provider name in cache key: `enrichment:{provider}:{entityName}:{entityType}`. Each implementation passes its provider identifier. |
-| **Impact Score** | 4/10 — Prevents subtle data correctness bugs on provider switch |
-| **Effort Score** | 1/10 — One-line change per cache decorator |
-| **Priority** | **High** (Impact/Effort = 4.0) |
-| **Risk** | None. Cache key format change invalidates old entries (desired behavior). |
-| **Status** | 🔧 **In Progress** |
+| **Status** | ✅ **Complete** |
 
 ---
 
 ### S11: Externalize LLM System Prompts
 
+> **✅ COMPLETE** — Implemented via `LlmExtractionOptions` nullable prompt properties. Defaults preserved as `DefaultSystemPrompt` constants.
+
 | Attribute | Value |
 |-----------|-------|
-| **Category** | KISS / DX |
-| **Current State** | LLM extraction system prompts (entity extraction, fact extraction, relationship extraction, preference extraction) are hardcoded as multi-line strings in C# source files. Changing prompts requires recompilation and redeployment. |
-| **Proposed Improvement** | Move prompts to embedded resources (`.txt` files) or make them configurable via `LlmExtractionOptions`. Provide sensible defaults but allow override. |
-| **Impact Score** | 4/10 — Enables prompt tuning without deployment, useful for production |
-| **Effort Score** | 2/10 — Extract strings to files/options |
-| **Priority** | **Medium** (Impact/Effort = 2.0) |
-| **Risk** | Low. Defaults preserve behavior. |
+| **Status** | ✅ **Complete** |
 
 ---
 
 ### S12: Add Observability to Extraction and Enrichment Services
 
+> **✅ COMPLETE** — 5 instrumented decorators created (Entity/Fact/Preference/Relationship extractors + EnrichmentService). 9 new MemoryMetrics instruments added.
+
 | Attribute | Value |
 |-----------|-------|
-| **Category** | Observability / DX |
-| **Current State** | Observability decorators wrap only `IMemoryService` (9 trace spans) and `IGraphRagContextSource` (1 trace span). Extraction services (Llm, Azure) and Enrichment services have no tracing or metrics. You can see total extraction duration but not which extractor is slow. |
-| **Proposed Improvement** | Add `InstrumentedEntityExtractor`, `InstrumentedEnrichmentService`, etc. decorators to the Observability package. Alternatively, add trace spans directly in extractor implementations (lighter approach). |
-| **Impact Score** | 5/10 — Critical for production debugging of extraction latency |
-| **Effort Score** | 4/10 — Add 4-6 decorator classes following existing pattern |
-| **Priority** | **Medium** (Impact/Effort = 1.25) |
-| **Risk** | Low. Follows established decorator pattern. |
+| **Status** | ✅ **Complete** |
 
 ---
 
 ### S13: Fix Inconsistent Duration Metric in Observability
 
-> **🔧 IN PROGRESS** — Being implemented by Roy. `ExtractFromSessionAsync` needs Stopwatch + metric recording.
+> **✅ COMPLETE** — Implemented in quick wins sprint. All `ExtractFrom*` methods now record duration metrics.
 
 | Attribute | Value |
 |-----------|-------|
-| **Category** | Correctness |
-| **Current State** | `InstrumentedMemoryService.ExtractFromSessionAsync` (line 144-150) is missing the stopwatch/duration metric recording that all other instrumented methods have. It delegates directly to `_inner.ExtractFromSessionAsync` with no measurement. Contrast with `ExtractAndPersistAsync` (line 100-123) which correctly wraps the call with `Stopwatch` and `_metrics.ExtractionDurationMs.Record()`. |
-| **Proposed Improvement** | Add `Stopwatch` and `_metrics.ExtractionDurationMs.Record()` to `ExtractFromSessionAsync`, matching the pattern of `ExtractAndPersistAsync`. |
-| **Impact Score** | 3/10 — Fixes telemetry gap |
-| **Effort Score** | 1/10 — 5-line fix |
-| **Priority** | **High** (Impact/Effort = 3.0) |
-| **Risk** | None. |
-| **Status** | 🔧 **In Progress** |
+| **Status** | ✅ **Complete** |
 
 ---
 
 ### S14: Consider a Meta-Package for Quick Start
 
-> **✅ DECIDED:** Single NuGet package `Neo4j.AgentMemory` bundling all assemblies. See `docs/architecture-review-assessment.md` §3 and `docs/refactoring-plan.md` A1.
+> **✅ COMPLETE:** `Neo4j.AgentMemory` meta-package created with `AddNeo4jAgentMemory()` unified DI registration.
 
 | Attribute | Value |
 |-----------|-------|
-| **Category** | DX |
-| **Current State** | Getting started requires installing 3+ separate NuGet packages (Abstractions + Core + Neo4j + at least one extraction package). This is friction for new users. |
-| **Proposed Improvement** | Publish a `Neo4j.AgentMemory` convenience meta-package that references Abstractions + Core + Neo4j + Extraction.Llm. Users install one package. Advanced users cherry-pick individual packages. |
-| **Impact Score** | 5/10 — Significantly reduces onboarding friction |
-| **Effort Score** | 1/10 — Empty project with PackageReferences |
-| **Priority** | **High** (Impact/Effort = 5.0) |
-| **Risk** | Low. Meta-package doesn't add code — just declares dependencies. |
+| **Status** | ✅ **Complete** |
 
 ---
 
-### S15: Build Semantic Kernel Adapter (NEW)
+### S15: Build Semantic Kernel Adapter
+
+> **✅ COMPLETE:** `Neo4j.AgentMemory.SemanticKernel` package with `Neo4jMemoryPlugin` (5 kernel functions), `Neo4jTextSearch` (ITextSearch impl), and DI extensions.
 
 | Attribute | Value |
 |-----------|-------|
-| **Category** | Ecosystem / DX |
-| **Current State** | Semantic Kernel (SK) has >10K GitHub stars and is the **largest .NET AI agent audience**. We have a MAF adapter but no SK adapter. SK developers cannot use our memory system without manual integration. SK is built on MEAI abstractions, which we already use natively. |
-| **Proposed Improvement** | Create `Neo4j.AgentMemory.SemanticKernel` package (~500 LOC). Implement SK's memory plugin pattern: `IMemoryStore` or `ISemanticTextMemory` adapter that delegates to our `IMemoryService`. Provide SK-native function calling tools for memory operations. Follow the same thin-adapter pattern as AgentFramework. |
-| **Impact Score** | 9/10 — Opens the solution to the largest .NET AI developer community |
-| **Effort Score** | 4/10 — SK's plugin model is well-documented; our MEAI-native design makes integration natural |
-| **Priority** | **Very High** (Impact/Effort = 2.25) |
-| **Risk** | Low. Thin adapter with no changes to core. SK APIs are stable (GA). |
+| **Status** | ✅ **Complete** |
 
 ---
 
@@ -445,9 +417,9 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 
 | # | Suggestion | Impact | Effort | Ratio | Status |
 |---|-----------|--------|--------|-------|--------|
-| S14 | Meta-package for quick start | 5 | 1 | **5.0** | 📅 Not published yet |
-| S10 | Provider tag in enrichment cache keys | 4 | 1 | **4.0** | 🔧 **In Progress** (Roy) |
-| S13 | Fix missing duration metric in Observability | 3 | 1 | **3.0** | 🔧 **In Progress** (Roy) |
+| S14 | Meta-package for quick start | 5 | 1 | **5.0** | ✅ **Complete** |
+| S10 | Provider tag in enrichment cache keys | 4 | 1 | **4.0** | ✅ **Complete** |
+| S13 | Fix missing duration metric in Observability | 3 | 1 | **3.0** | ✅ **Complete** |
 | S5 | Parameterize confidence thresholds | 5 | 2 | **2.5** | ✅ **Wave 2 Complete** |
 | S1 | Consolidate embedding generation | 8 | 3 | **2.7** | ✅ **Wave 1 Complete** |
 
@@ -455,10 +427,10 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 
 | # | Suggestion | Impact | Effort | Ratio | Status |
 |---|-----------|--------|--------|-------|--------|
-| **S15** | **Build Semantic Kernel adapter** | **9** | **4** | **2.25** | 📅 Not started |
+| **S15** | **Build Semantic Kernel adapter** | **9** | **4** | **2.25** | ✅ **Complete** |
 | S6 | Fix Azure redundant API calls | 6 | 3 | **2.0** | ✅ **Wave 2 Complete** |
-| S9 | Extract truncation strategies | 4 | 2 | **2.0** | 📅 Not started |
-| S11 | Externalize LLM system prompts | 4 | 2 | **2.0** | ⚠️ Deferred — low urgency, prompts are stable |
+| S9 | Extract truncation strategies | 4 | 2 | **2.0** | 📅 Deferred — low priority |
+| S11 | Externalize LLM system prompts | 4 | 2 | **2.0** | ✅ **Complete** |
 | S4 | Centralize Cypher queries | 5 | 3 | **1.7** | ✅ **Wave 3 Complete** |
 | S8 | Resolve dual pipeline ambiguity | 5 | 3 | **1.7** | ✅ **Wave 2 Complete** |
 
@@ -468,7 +440,7 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 |---|-----------|--------|--------|-------|--------|
 | S2 | ExtractorBase<T> shared base class | 7 | 5 | **1.4** | ✅ **Wave 1 Complete** |
 | S3 | Split extraction pipeline stages | 6 | 5 | **1.2** | ✅ **Wave 2 Complete** |
-| S12 | Observability for extraction/enrichment | 5 | 4 | **1.25** | 📅 Not started — priority increasing as extractors mature |
+| S12 | Observability for extraction/enrichment | 5 | 4 | **1.25** | ✅ **Complete** |
 
 ### Not Recommended
 
@@ -492,6 +464,16 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 | neo4j-maf-provider removal | 3 retriever types (Vector, Fulltext, Hybrid) internalized into Neo4j package | April 2026 |
 | MEAI migration | Custom `IEmbeddingProvider` deleted; unified on `IEmbeddingGenerator<string, Embedding<float>>` | April 2026 |
 | Package count 10→9 | Consequence of GraphRagAdapter merge | April 2026 |
+| S10 — Cache key provider tag | Provider type name included in enrichment cache keys | Quick Wins Sprint |
+| S13 — Duration metric fix | All `ExtractFrom*` methods now record duration metrics | Quick Wins Sprint |
+| Embedding leak fixes | `MemoryToolFactory` + `ContextProvider` use `IEmbeddingOrchestrator` | Quick Wins Sprint |
+| S14 — NuGet meta-package | `Neo4j.AgentMemory` with `AddNeo4jAgentMemory()` unified DI | Roadmap Sprint |
+| S15 — Semantic Kernel adapter | `Neo4j.AgentMemory.SemanticKernel` (plugin + text search + DI) | Roadmap Sprint |
+| S11 — Externalize prompts | `LlmExtractionOptions.*Prompt` nullable properties with defaults | Roadmap Sprint |
+| S12 — Observability decorators | 5 instrumented extractor/enrichment decorators + 9 new metrics | Roadmap Sprint |
+| Config validation tests | 60 tests covering all 20 Options classes | Roadmap Sprint |
+| Temporal memory retrieval | `RecallAsOfAsync` with `TemporalContextAssembler` | Roadmap Sprint |
+| Memory decay/forgetting | `MemoryDecayService` with configurable half-life + auto-prune | Roadmap Sprint |
 
 ---
 
@@ -501,11 +483,11 @@ All assessments are based on verified codebase state:
 
 | Metric | Value |
 |--------|-------|
-| **Build** | ✅ 0 errors |
-| **Unit Tests** | ✅ 1,211 passing |
-| **Source Packages** | 9 (down from 10 after GraphRagAdapter merge) |
-| **Source Files** | ~289 |
-| **Total LOC** | ~14,650 |
+| **Build** | ✅ 0 errors, 0 warnings |
+| **Unit Tests** | ✅ 1,438 passing (1,407 unit + 31 SK) |
+| **Source Packages** | 11 (9 original + SemanticKernel + meta-package) |
+| **Source Files** | ~320 |
+| **Total LOC** | ~17,000 |
 | **TODO/FIXME/HACK** | 0 |
 | **Circular Dependencies** | 0 |
 | **Boundary Violations** | 0 |
@@ -525,7 +507,7 @@ All assessments are based on verified codebase state:
 
 ---
 
-*This assessment reflects the codebase as of July 2025 with 9 packages, 1,211 passing unit tests, 289 source files, and all 4 refactoring waves complete (98.5% Python parity). The neo4j-maf-provider dependency has been removed and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor. See `docs/architecture-review-assessment.md` for the comprehensive architecture review.*
+*This assessment reflects the codebase as of April 2026 with 11 packages, 1,438 passing unit tests, ~320 source files, all 4 refactoring waves + full roadmap sprint complete (98.5% Python parity). All improvement suggestions implemented except S7 (not recommended) and S9 (deferred). See `docs/architecture-review-assessment.md` for the comprehensive architecture review.*
 
 ---
 

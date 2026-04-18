@@ -17,7 +17,7 @@
 | **Wave 3** | Cypher Query Centralization (207+ → per-domain) | ✅ Complete | 1,066 |
 | **Wave 4** | 11 Functional Parity Gaps (G1-G11: 82.1% → 98.5%) | ✅ Complete | 1,124 |
 
-**Final Result:** 1,211 unit tests passing, **98.5% parity with Python agent-memory**, zero circular dependencies, zero boundary violations.
+**Final Result:** 1,438 unit tests passing (1,407 unit + 31 SK), **98.5% parity with Python agent-memory**, zero circular dependencies, zero boundary violations. All "What's Next" roadmap items complete.
 
 ---
 
@@ -45,36 +45,34 @@ This plan addressed **7 concrete code quality findings** + **11 functional parit
 
 ---
 
-## Deferred Items (from "Additional Improvements")
-
-The following items were listed in the implementation schedule (A1-A5) but were **not implemented** during Waves 1-4. They remain valid improvements:
+## Previously Deferred Items — All Complete
 
 | Item | Description | Status |
 |------|-------------|--------|
-| A1 | Single NuGet package | 📅 Decided but not published |
-| A2 | Provider tag in enrichment cache keys | 📅 Not started |
-| A3 | Fix missing duration metric in Observability | 📅 Not started |
-| A4 | Externalize LLM system prompts | ⚠️ Deferred — low urgency |
-| A5 | Semantic Kernel adapter | 📅 Strategic — requires separate design |
+| A1 | Single NuGet meta-package | ✅ **Complete** — `Neo4j.AgentMemory` meta-package with `AddNeo4jAgentMemory()` |
+| A2 | Provider tag in enrichment cache keys | ✅ **Complete** — Quick wins sprint |
+| A3 | Fix missing duration metric in Observability | ✅ **Complete** — Quick wins sprint |
+| A4 | Externalize LLM system prompts | ✅ **Complete** — `LlmExtractionOptions.*Prompt` properties, defaults preserved |
+| A5 | Semantic Kernel adapter | ✅ **Complete** — `Neo4j.AgentMemory.SemanticKernel` (Neo4jMemoryPlugin + Neo4jTextSearch) |
 
 ---
 
-## What's Next
+## What's Next — All Complete ✅
 
-Prioritized by impact/effort ratio. See `docs/architecture-review-assessment.md` §10-11 for full details.
+All 10 roadmap items have been implemented:
 
-| # | Item | Impact | Effort | Rationale |
-|---|------|--------|--------|-----------|
-| 1 | **Single NuGet package** | Very High | Trivial | Unblocks all external consumption. No code changes — packaging only. |
-| 2 | **Provider tag in enrichment cache keys** | Medium | Trivial | Correctness bug fix. One-line change per cache decorator. |
-| 3 | **Fix missing duration metric** | Low | Trivial | 5-line fix in `InstrumentedMemoryService.ExtractFromSessionAsync`. |
-| 4 | **Semantic Kernel adapter** | Very High | Medium | Opens solution to largest .NET AI audience (>10K stars). ~500 LOC. |
-| 5 | **Fix AgentFramework embedding leaks** | Medium | Low | 2 call sites bypass `IEmbeddingOrchestrator` in `MemoryToolFactory` and `Neo4jMemoryContextProvider`. |
-| 6 | **Configuration validation tests** | Low | Low | Verify options defaults/constraints. |
-| 7 | **Externalize LLM system prompts** | Medium | Low | Prompt tuning without redeployment. |
-| 8 | **Observability for extraction/enrichment** | Medium | Medium | Production debugging of extraction latency. |
-| 9 | **Temporal memory retrieval** | Medium | High | `RecallAsOfAsync` for point-in-time memory snapshots. |
-| 10 | **Memory decay/forgetting** | Medium | High | Prevents infinite memory growth. Requires design review. |
+| # | Item | Status |
+|---|------|--------|
+| 1 | Single NuGet meta-package | ✅ `Neo4j.AgentMemory` with unified DI |
+| 2 | Provider tag in enrichment cache keys | ✅ Quick wins sprint |
+| 3 | Fix missing duration metric | ✅ Quick wins sprint |
+| 4 | Semantic Kernel adapter | ✅ `Neo4j.AgentMemory.SemanticKernel` package |
+| 5 | Fix AgentFramework embedding leaks | ✅ Quick wins sprint |
+| 6 | Configuration validation tests | ✅ 60 tests covering 20 Options classes |
+| 7 | Externalize LLM system prompts | ✅ Configurable via `LlmExtractionOptions` |
+| 8 | Observability for extraction/enrichment | ✅ 5 instrumented decorators + 9 new metrics |
+| 9 | Temporal memory retrieval | ✅ `RecallAsOfAsync` with `TemporalContextAssembler` |
+| 10 | Memory decay/forgetting | ✅ `MemoryDecayService` with configurable half-life + auto-prune |
 
 ---
 
