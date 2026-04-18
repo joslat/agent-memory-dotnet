@@ -11,15 +11,19 @@
 
 ## 1. Executive Summary
 
-The Agent Memory for .NET solution is **architecturally sound** — zero boundary violations, zero circular dependencies, clean ports-and-adapters layering, and 1,058 passing unit tests across ~265 source files (~14,650 LOC). Since the last audit:
+The Agent Memory for .NET solution is **architecturally sound** — zero boundary violations, zero circular dependencies, clean ports-and-adapters layering, and 1,211 passing unit tests across ~289 source files (~14,650 LOC). Since the last audit:
 
 **Completed since initial review:**
 - ✅ **GraphRagAdapter merged into Neo4j package** — eliminated a separate package; 10→9 packages
 - ✅ **neo4j-maf-provider dependency removed** — internalized 3 retriever types (Vector, Fulltext, Hybrid)
 - ✅ **MEAI migration complete** — custom `IEmbeddingProvider` deleted; unified on `IEmbeddingGenerator<string, Embedding<float>>`
 - ✅ **neo4j-maf-provider NuGet blocking issue resolved** — no more ProjectReference to external repo
+- ✅ **Wave 1 Complete** — `IEmbeddingOrchestrator` + `ExtractorBase<T>` (DRY)
+- ✅ **Wave 2 Complete** — Pipeline SRP split + thresholds + Azure API cache (SRP/KISS)
+- ✅ **Wave 3 Complete** — Cypher query centralization (140 constants in 13 domain classes)
+- ✅ **Wave 4 Complete** — 11 functional parity gaps resolved (82.1% → 98.5%)
 
-This reassessment identifies **12 active improvements** (down from 14 — 2 completed items removed, 1 stale item removed, 1 new item added). The top priority remains the meta-package for 1-install DX, followed by the embedding orchestrator consolidation and the Semantic Kernel adapter.
+This reassessment identifies **7 remaining active improvements** (down from 12 — 5 completed items moved to Completed section). The top priority remains the NuGet package for 1-install DX, followed by the Semantic Kernel adapter.
 
 ---
 
@@ -29,12 +33,12 @@ This reassessment identifies **12 active improvements** (down from 14 — 2 comp
 
 | # | Project | Files | LOC | SRP | Dependencies | DRY | ISP | KISS | Coupling | Cohesion | Score |
 |---|---------|-------|-----|-----|-------------|-----|-----|------|----------|----------|-------|
-| 1 | **Abstractions** | 107 | 3,347 | ✅ | ✅ MEAI.Abstractions only | ✅ | ⚠️ | ✅ | ✅ | ✅ | **9/10** |
-| 2 | **Core** | 41 | 3,433 | ⚠️ | ✅ Abstractions only | ❌ | ✅ | ⚠️ | ✅ | ⚠️ | **7/10** |
-| 3 | **Neo4j** | 32 | ~3,400 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ⚠️ | ✅ | ✅ | **8/10** |
+| 1 | **Abstractions** | 113 | 3,347 | ✅ | ✅ MEAI.Abstractions only | ✅ | ⚠️ | ✅ | ✅ | ✅ | **9/10** |
+| 2 | **Core** | 48 | 3,433 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
+| 3 | **Neo4j** | 48 | ~3,400 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 4 | **AgentFramework** | 14 | 943 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ✅ | ✅ | **10/10** |
-| 5 | **Extraction.Llm** | 10 | 522 | ✅ | ✅ Abstractions + Core | ❌ | ✅ | ✅ | ⚠️ | ✅ | **7/10** |
-| 6 | **Extraction.AzureLanguage** | 12 | 509 | ✅ | ✅ Abstractions only | ❌ | ✅ | ⚠️ | ⚠️ | ✅ | **6/10** |
+| 5 | **Extraction.Llm** | 10 | 522 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ⚠️ | ✅ | **8/10** |
+| 6 | **Extraction.AzureLanguage** | 13 | 509 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ⚠️ | ✅ | **8/10** |
 | 7 | **Enrichment** | 13 | 772 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 8 | **Observability** | 8 | 427 | ✅ | ✅ Abstractions + Core | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 9 | **McpServer** | 22 | 1,302 | ✅ | ✅ Abstractions only | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
@@ -429,32 +433,32 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 
 ### Tier 1: Quick Wins (< 1 day each, high impact)
 
-| # | Suggestion | Impact | Effort | Ratio |
-|---|-----------|--------|--------|-------|
-| S14 | Meta-package for quick start | 5 | 1 | **5.0** |
-| S10 | Provider tag in enrichment cache keys | 4 | 1 | **4.0** |
-| S13 | Fix missing duration metric in Observability | 3 | 1 | **3.0** |
-| S5 | Parameterize confidence thresholds | 5 | 2 | **2.5** |
-| S1 | Consolidate embedding generation | 8 | 3 | **2.7** |
+| # | Suggestion | Impact | Effort | Ratio | Status |
+|---|-----------|--------|--------|-------|--------|
+| S14 | Meta-package for quick start | 5 | 1 | **5.0** | 📅 Not published yet |
+| S10 | Provider tag in enrichment cache keys | 4 | 1 | **4.0** | 📅 Not started |
+| S13 | Fix missing duration metric in Observability | 3 | 1 | **3.0** | 📅 Not started |
+| S5 | Parameterize confidence thresholds | 5 | 2 | **2.5** | ✅ **Wave 2 Complete** |
+| S1 | Consolidate embedding generation | 8 | 3 | **2.7** | ✅ **Wave 1 Complete** |
 
 ### Tier 2: Medium Effort, Strong Value (1-3 days each)
 
-| # | Suggestion | Impact | Effort | Ratio |
-|---|-----------|--------|--------|-------|
-| **S15** | **Build Semantic Kernel adapter** | **9** | **4** | **2.25** |
-| S6 | Fix Azure redundant API calls | 6 | 3 | **2.0** |
-| S9 | Extract truncation strategies | 4 | 2 | **2.0** |
-| S11 | Externalize LLM system prompts | 4 | 2 | **2.0** |
-| S4 | Centralize Cypher queries | 5 | 3 | **1.7** |
-| S8 | Resolve dual pipeline ambiguity | 5 | 3 | **1.7** |
+| # | Suggestion | Impact | Effort | Ratio | Status |
+|---|-----------|--------|--------|-------|--------|
+| **S15** | **Build Semantic Kernel adapter** | **9** | **4** | **2.25** | 📅 Not started |
+| S6 | Fix Azure redundant API calls | 6 | 3 | **2.0** | ✅ **Wave 2 Complete** |
+| S9 | Extract truncation strategies | 4 | 2 | **2.0** | 📅 Not started |
+| S11 | Externalize LLM system prompts | 4 | 2 | **2.0** | ⚠️ Deferred |
+| S4 | Centralize Cypher queries | 5 | 3 | **1.7** | ✅ **Wave 3 Complete** |
+| S8 | Resolve dual pipeline ambiguity | 5 | 3 | **1.7** | ✅ **Wave 2 Complete** |
 
 ### Tier 3: Larger Refactors (3-5 days, requires design review)
 
-| # | Suggestion | Impact | Effort | Ratio |
-|---|-----------|--------|--------|-------|
-| S2 | Merge extraction packages | 7 | 5 | **1.4** |
-| S3 | Split extraction pipeline stages | 6 | 5 | **1.2** |
-| S12 | Observability for extraction/enrichment | 5 | 4 | **1.25** |
+| # | Suggestion | Impact | Effort | Ratio | Status |
+|---|-----------|--------|--------|-------|--------|
+| S2 | ExtractorBase<T> shared base class | 7 | 5 | **1.4** | ✅ **Wave 1 Complete** |
+| S3 | Split extraction pipeline stages | 6 | 5 | **1.2** | ✅ **Wave 2 Complete** |
+| S12 | Observability for extraction/enrichment | 5 | 4 | **1.25** | 📅 Not started |
 
 ### Not Recommended
 
@@ -466,6 +470,14 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 
 | Item | What Was Done | When |
 |------|--------------|------|
+| S1 — Embedding orchestrator | `IEmbeddingOrchestrator` centralizes all embedding generation | Wave 1 |
+| S2 — ExtractorBase<T> | Shared base class eliminates 95% extraction duplication | Wave 1 |
+| S3 — Pipeline stage split | `ExtractionStage` + `PersistenceStage` (internal sealed) | Wave 2 |
+| S4 — Cypher centralization | 140 constants in 13 per-domain `*Queries` classes + `CypherQueryRegistry` | Wave 3 |
+| S5 — Confidence thresholds | Parameterized via `ConfidenceOptions` and per-extractor options | Wave 2 |
+| S6 — Azure API cache | `AzureExtractionContext` caches entity recognition results | Wave 2 |
+| S8 — Dual pipeline merge | Unified into single `MemoryExtractionPipeline` with multi-extractor support | Wave 2 |
+| Wave 4 — Parity gaps G1-G11 | 11 functional parity gaps resolved; 82.1% → 98.5% | Wave 4 |
 | GraphRagAdapter → Neo4j merge | Retrieval types internalized; GraphRagAdapter package deleted | April 2026 |
 | neo4j-maf-provider removal | 3 retriever types (Vector, Fulltext, Hybrid) internalized into Neo4j package | April 2026 |
 | MEAI migration | Custom `IEmbeddingProvider` deleted; unified on `IEmbeddingGenerator<string, Embedding<float>>` | April 2026 |
@@ -480,9 +492,9 @@ All assessments are based on verified codebase state:
 | Metric | Value |
 |--------|-------|
 | **Build** | ✅ 0 errors |
-| **Unit Tests** | ✅ 1,058 passing |
+| **Unit Tests** | ✅ 1,211 passing |
 | **Source Packages** | 9 (down from 10 after GraphRagAdapter merge) |
-| **Source Files** | ~265 |
+| **Source Files** | ~289 |
 | **Total LOC** | ~14,650 |
 | **TODO/FIXME/HACK** | 0 |
 | **Circular Dependencies** | 0 |
@@ -503,7 +515,7 @@ All assessments are based on verified codebase state:
 
 ---
 
-*This assessment reflects the codebase as of April 2026 with 9 packages and 1,058 passing unit tests. The neo4j-maf-provider dependency has been removed and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor. See `docs/architecture-review-assessment.md` for the comprehensive architecture review.*
+*This assessment reflects the codebase as of July 2025 with 9 packages, 1,211 passing unit tests, 289 source files, and all 4 refactoring waves complete (98.5% Python parity). The neo4j-maf-provider dependency has been removed and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor. See `docs/architecture-review-assessment.md` for the comprehensive architecture review.*
 
 ---
 

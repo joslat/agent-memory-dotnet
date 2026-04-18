@@ -3,7 +3,7 @@
 **Author:** Deckard (Lead / Solution Architect)  
 **Date:** April 2026  
 **Scope:** Comprehensive architecture review consolidating all prior assessments  
-**Codebase State:** 9 packages, ~1,058 unit tests, 0 failures, ~99% Python parity
+**Codebase State:** 9 packages, ~1,211 unit tests, 0 failures, ~98.5% Python parity
 
 ---
 
@@ -445,7 +445,7 @@ We adapted **3 retriever types** and supporting utilities:
 | **Geospatial** | ❌ None | ✅ Point index, bounding box | ✅ Point index + geocoding |
 | **Metadata filtering** | ❌ None | ✅ 5 operators ($eq, $ne, $in, etc.) | ✅ Similar |
 | **Session strategies** | ❌ None | ✅ 3 strategies | ✅ 3 strategies |
-| **Test coverage** | Minimal | 1,058 unit tests | Unknown |
+| **Test coverage** | Minimal | 1,211 unit tests | Unknown |
 
 ---
 
@@ -456,11 +456,11 @@ We adapted **3 retriever types** and supporting utilities:
 | # | Package | SRP | Dependencies | DRY | KISS | Coupling | Score |
 |---|---------|-----|-------------|-----|------|----------|-------|
 | 1 | **Abstractions** | ✅ | ✅ Zero deps | ✅ | ✅ | ✅ | **9/10** |
-| 2 | **Core** | ⚠️ | ✅ | ❌ | ⚠️ | ✅ | **7/10** |
-| 3 | **Neo4j** | ✅ | ✅ | ✅ | ⚠️ | ✅ | **8/10** |
+| 2 | **Core** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
+| 3 | **Neo4j** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 4 | **AgentFramework** | ✅ | ✅ | ✅ | ✅ | ✅ | **10/10** |
-| 5 | **Extraction.Llm** | ✅ | ✅ | ❌ | ✅ | ⚠️ | **7/10** |
-| 6 | **Extraction.AzureLanguage** | ✅ | ✅ | ❌ | ⚠️ | ⚠️ | **6/10** |
+| 5 | **Extraction.Llm** | ✅ | ✅ | ✅ | ✅ | ⚠️ | **8/10** |
+| 6 | **Extraction.AzureLanguage** | ✅ | ✅ | ✅ | ✅ | ⚠️ | **8/10** |
 | 7 | **Enrichment** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 8 | **Observability** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
 | 9 | **McpServer** | ✅ | ✅ | ✅ | ✅ | ✅ | **9/10** |
@@ -647,14 +647,19 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | Gap | Severity | Status | Notes |
 |-----|----------|--------|-------|
 | **Semantic Kernel adapter** | High | Not started | SK has >10K GitHub stars; largest .NET AI audience. Adapter would be ~500 LOC. |
-| **Repository integration tests** | High | Minimal | Only 2 connectivity tests. No repo CRUD integration tests against real Neo4j. |
 | **NuGet publishing** | High | Not started | Packages not yet on NuGet. Publish order defined. |
 | **Single NuGet package** | High | Decided | Publish `Neo4j.AgentMemory` bundling all assemblies. See §3 NuGet Publishing Plan. |
-| **Azure preference extraction** | Medium | Gap | Azure extractor has entity/fact/relationship but no preference extraction. |
+| **Provider tag in enrichment cache keys** | Medium | Not started | Correctness bug: cache key lacks provider name; switching providers returns stale data. |
+| **Fix missing duration metric** | Low | Not started | `InstrumentedMemoryService.ExtractFromSessionAsync` lacks Stopwatch/duration recording. |
+| **Externalize LLM system prompts** | Low | Deferred | Hardcoded prompts work well; low urgency. |
 | **Temporal memory retrieval** | Medium | Not implemented | `RecallAsOfAsync` for point-in-time memory snapshots. |
 | **Memory decay/forgetting** | Medium | Not implemented | No strength decay or archival mechanism. |
 | **Configuration validation tests** | Low | Missing | No dedicated tests for options defaults/constraints. |
-| **Stale documentation counts** | Low | Known | MCP tool count says 21 in some docs (actual: 28). Test file counts stale. |
+
+**Resolved since last assessment:**
+- ✅ **Repository integration tests** — Now 7 repository-level integration test classes (Entity, Fact, Preference, Message, Conversation, ReasoningTrace, SchemaBootstrapper) + connectivity tests. Was listed as "only 2 connectivity tests."
+- ✅ **Azure preference extraction** — `AzureLanguagePreferenceExtractor` (79 LOC) now exists. Was listed as missing.
+- ✅ **Stale documentation counts** — MCP tool count (28) and test counts now accurate across docs. File counts updated to ~289.
 
 ### What Was Decided to Omit (and Why)
 
@@ -675,39 +680,39 @@ Pragmatic improvements I'd make if starting a new sprint, ordered by impact/effo
 
 ### Quick Wins (< 1 day each)
 
-| Change | Why | Impact | Effort |
-|--------|-----|--------|--------|
-| **Single NuGet package** — Publish as `Neo4j.AgentMemory` bundling all assemblies (decided April 2026) | 1-install DX | Very High | Trivial |
-| **Provider tag in enrichment cache keys** — Include provider name to prevent stale cache on provider switch | Correctness bug | Medium | Trivial |
-| **Fix missing duration metric** in `InstrumentedMemoryService.ExtractFromSessionAsync` | Telemetry gap | Low | Trivial |
-| **Parameterize all confidence thresholds** — Move hardcoded 0.5/0.8/0.85/0.95 to Options | Configurability | Medium | Low |
+| Change | Why | Impact | Effort | Status |
+|--------|-----|--------|--------|--------|
+| **Single NuGet package** — Publish as `Neo4j.AgentMemory` bundling all assemblies (decided April 2026) | 1-install DX | Very High | Trivial | 📅 Not published yet |
+| **Provider tag in enrichment cache keys** — Include provider name to prevent stale cache on provider switch | Correctness bug | Medium | Trivial | 📅 Not started |
+| **Fix missing duration metric** in `InstrumentedMemoryService.ExtractFromSessionAsync` | Telemetry gap | Low | Trivial | 📅 Not started |
+| ✅ **Parameterize all confidence thresholds** — Move hardcoded 0.5/0.8/0.85/0.95 to Options | Configurability | Medium | Low | ✅ **Wave 2 Complete** |
 
 ### Medium Effort (1-3 days each)
 
-| Change | Why | Impact | Effort |
-|--------|-----|--------|--------|
-| **Consolidate embedding generation** into `IEmbeddingOrchestrator` | DRY — 12+ duplicate call sites across 5 services | High | Medium |
-| **Fix Azure redundant API calls** — Share entity recognition results between extractors | Halves Azure API costs | Medium | Low |
-| **Externalize LLM system prompts** — Move to embedded resources or configurable options | Prompt tuning without deploy | Medium | Low |
-| **Centralize Cypher queries** into per-domain static classes + EXPLAIN validation | Maintainability, query auditing, syntax validation at test time. See §7.1 | Medium | Medium |
-| **Resolve dual pipeline** — Clarify MemoryExtractionPipeline vs MultiExtractorPipeline roles | KISS — consumer confusion | Medium | Low |
+| Change | Why | Impact | Effort | Status |
+|--------|-----|--------|--------|--------|
+| ✅ **Consolidate embedding generation** into `IEmbeddingOrchestrator` | DRY — 12+ duplicate call sites across 5 services | High | Medium | ✅ **Wave 1 Complete** |
+| ✅ **Fix Azure redundant API calls** — Share entity recognition results between extractors | Halves Azure API costs | Medium | Low | ✅ **Wave 2 Complete** |
+| **Externalize LLM system prompts** — Move to embedded resources or configurable options | Prompt tuning without deploy | Medium | Low | ⚠️ Deferred |
+| ✅ **Centralize Cypher queries** into per-domain static classes + EXPLAIN validation | Maintainability, query auditing, syntax validation at test time. See §7.1 | Medium | Medium | ✅ **Wave 3 Complete** |
+| ✅ **Resolve dual pipeline** — Clarify MemoryExtractionPipeline vs MultiExtractorPipeline roles | KISS — consumer confusion | Medium | Low | ✅ **Wave 2 Complete** |
 
 ### Larger Refactors (3-5 days, design review needed)
 
-| Change | Why | Impact | Effort |
-|--------|-----|--------|--------|
-| **Unified Extraction package** — Merge Llm + Azure into strategy pattern | 95% structural duplication eliminated | High | High |
-| **Split MemoryExtractionPipeline** into ExtractionStage + PersistenceStage | SRP — 393 LOC class does too much | Medium | Medium |
-| **Observability for extraction/enrichment** — Add instrumented decorators | Production debugging of extraction latency | Medium | Medium |
+| Change | Why | Impact | Effort | Status |
+|--------|-----|--------|--------|--------|
+| ✅ **ExtractorBase<T> shared base class** — Eliminate 95% structural duplication between Llm and Azure extractors | DRY | High | High | ✅ **Wave 1 Complete** |
+| ✅ **Split MemoryExtractionPipeline** into ExtractionStage + PersistenceStage | SRP — 393 LOC class does too much | Medium | Medium | ✅ **Wave 2 Complete** |
+| **Observability for extraction/enrichment** — Add instrumented decorators | Production debugging of extraction latency | Medium | Medium | 📅 Not started |
 
 ### Strategic (weeks, product decisions)
 
-| Change | Why | Impact | Effort |
-|--------|-----|--------|--------|
-| **Semantic Kernel adapter** | Largest .NET AI audience (>10K stars) | Very High | Medium |
-| **Memory decay with strength scores** | Prevents infinite memory growth | High | High |
-| **Conflict detection** | Agents give contradictory advice without it | High | High |
-| **Pre-assembled context briefings** | Transform raw lists into structured intelligence | Very High | High |
+| Change | Why | Impact | Effort | Status |
+|--------|-----|--------|--------|--------|
+| **Semantic Kernel adapter** | Largest .NET AI audience (>10K stars) | Very High | Medium | 📅 Not started |
+| **Memory decay with strength scores** | Prevents infinite memory growth | High | High | 📅 Not started |
+| **Conflict detection** | Agents give contradictory advice without it | High | High | 📅 Not started |
+| **Pre-assembled context briefings** | Transform raw lists into structured intelligence | Very High | High | 📅 Not started |
 
 ---
 
@@ -729,4 +734,4 @@ This document consolidates and supersedes the following individual assessments:
 
 ---
 
-*This assessment reflects the codebase as of April 2026 with 9 packages, 1,058 passing unit tests, neo4j-maf-provider dependency removed, and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor.*
+*This assessment reflects the codebase as of July 2025 with 9 packages, 1,211 passing unit tests, 289 source files, all 4 refactoring waves complete (98.5% Python parity), neo4j-maf-provider dependency removed, and GraphRagAdapter merged into Neo4j. Recommendations should be revisited after each major refactor.*

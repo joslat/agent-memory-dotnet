@@ -45,9 +45,45 @@ This plan addressed **7 concrete code quality findings** + **11 functional parit
 
 ---
 
-## Wave 1: 🔴 High Severity (Embedding + Extraction Unification) — ✅ COMPLETE
+## Deferred Items (from "Additional Improvements")
 
-### Finding 1: Embedding Generation Scattered Across 5+ Call Sites
+The following items were listed in the implementation schedule (A1-A5) but were **not implemented** during Waves 1-4. They remain valid improvements:
+
+| Item | Description | Status |
+|------|-------------|--------|
+| A1 | Single NuGet package | 📅 Decided but not published |
+| A2 | Provider tag in enrichment cache keys | 📅 Not started |
+| A3 | Fix missing duration metric in Observability | 📅 Not started |
+| A4 | Externalize LLM system prompts | ⚠️ Deferred — low urgency |
+| A5 | Semantic Kernel adapter | 📅 Strategic — requires separate design |
+
+---
+
+## What's Next
+
+Prioritized by impact/effort ratio. See `docs/architecture-review-assessment.md` §10-11 for full details.
+
+| # | Item | Impact | Effort | Rationale |
+|---|------|--------|--------|-----------|
+| 1 | **Single NuGet package** | Very High | Trivial | Unblocks all external consumption. No code changes — packaging only. |
+| 2 | **Provider tag in enrichment cache keys** | Medium | Trivial | Correctness bug fix. One-line change per cache decorator. |
+| 3 | **Fix missing duration metric** | Low | Trivial | 5-line fix in `InstrumentedMemoryService.ExtractFromSessionAsync`. |
+| 4 | **Semantic Kernel adapter** | Very High | Medium | Opens solution to largest .NET AI audience (>10K stars). ~500 LOC. |
+| 5 | **Fix AgentFramework embedding leaks** | Medium | Low | 2 call sites bypass `IEmbeddingOrchestrator` in `MemoryToolFactory` and `Neo4jMemoryContextProvider`. |
+| 6 | **Configuration validation tests** | Low | Low | Verify options defaults/constraints. |
+| 7 | **Externalize LLM system prompts** | Medium | Low | Prompt tuning without redeployment. |
+| 8 | **Observability for extraction/enrichment** | Medium | Medium | Production debugging of extraction latency. |
+| 9 | **Temporal memory retrieval** | Medium | High | `RecallAsOfAsync` for point-in-time memory snapshots. |
+| 10 | **Memory decay/forgetting** | Medium | High | Prevents infinite memory growth. Requires design review. |
+
+---
+
+## Completed Work (Archive)
+
+> The following sections contain the detailed implementation plans for Waves 1-4.
+> All items below were successfully implemented. Preserved for reference.
+
+## Wave 1: 🔴 High Severity (Embedding + Extraction Unification) — ✅ COMPLETE
 
 **Problem:**
 
@@ -935,4 +971,4 @@ After **all waves**:
 
 ---
 
-*This plan reflects the codebase as of April 2026 with 9 packages and 1,058 passing unit tests. Each finding references verified file:line locations from the actual source code. Wave 4 queries slot directly into the centralized Cypher classes created in Wave 3.*
+*This plan reflects the codebase as of April 2026 with 9 packages; started at 1,058 passing unit tests. All 4 waves are now complete with 1,211 tests passing. Each finding references verified file:line locations from the actual source code. Wave 4 queries slot directly into the centralized Cypher classes created in Wave 3. See "Deferred Items" and "What's Next" above for remaining work.*
