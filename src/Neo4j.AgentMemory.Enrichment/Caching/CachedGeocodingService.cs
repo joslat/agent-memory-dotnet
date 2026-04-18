@@ -30,7 +30,7 @@ public sealed class CachedGeocodingService : IGeocodingService
 
     public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken ct = default)
     {
-        var key = $"geocoding:{locationText.Trim().ToLowerInvariant()}";
+        var key = $"geocoding:{_inner.GetType().Name}:{locationText.Trim().ToLowerInvariant()}";
 
         if (_cache.TryGetValue(key, out GeocodingResult? cached))
         {

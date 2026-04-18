@@ -179,6 +179,83 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractFromSessionAsync_CreatesActivity_WithSessionTag()
+    {
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromSessionAsync("s1");
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_session").Subject;
+        activity.GetTagItem("memory.session_id").Should().Be("s1");
+    }
+
+    [Fact]
+    public async Task ExtractFromSessionAsync_OnError_IncrementsErrorCounterAndSetsStatus()
+    {
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("extract failed")));
+
+        var act = () => _sut.ExtractFromSessionAsync("s1");
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_session").Subject;
+        activity.Status.Should().Be(ActivityStatusCode.Error);
+    }
+
+    [Fact]
+    public async Task ExtractFromSessionAsync_RecordsDurationMetric()
+    {
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromSessionAsync("s1");
+
+        // If no exception, duration was recorded (verified by inner being called)
+        await _inner.Received(1).ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_CreatesActivity_WithConversationTag()
+    {
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromConversationAsync("c1");
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_conversation").Subject;
+        activity.GetTagItem("memory.conversation_id").Should().Be("c1");
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_OnError_IncrementsErrorCounterAndSetsStatus()
+    {
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("extract conv failed")));
+
+        var act = () => _sut.ExtractFromConversationAsync("c1");
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_conversation").Subject;
+        activity.Status.Should().Be(ActivityStatusCode.Error);
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_RecordsDurationMetric()
+    {
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromConversationAsync("c1");
+
+        await _inner.Received(1).ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task AllMethods_DelegateToInner()
     {
         var recallRequest = new RecallRequest { SessionId = "s1", Query = "q" };

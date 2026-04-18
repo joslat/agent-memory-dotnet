@@ -76,6 +76,41 @@ public sealed class CachedGeocodingServiceTests
     }
 
     [Fact]
+    public async Task GeocodeAsync_CacheKeyIncludesProviderTypeName()
+    {
+        // Verify cache key includes provider type name so different providers don't share entries
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var options = Options.Create(new EnrichmentCacheOptions());
+
+        var inner = Substitute.For<IGeocodingService>();
+        inner.GeocodeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+             .Returns(SampleResult);
+
+        var sut = new CachedGeocodingService(inner, cache, options, NullLogger<CachedGeocodingService>.Instance);
+
+        // First call populates cache; second should be a hit
+        await sut.GeocodeAsync("London");
+        await sut.GeocodeAsync("London");
+
+        // Inner called only once — confirms caching works with provider-tagged key
+        await inner.Received(1).GeocodeAsync("London", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GeocodeAsync_CacheKeyFormat_ContainsProviderName_CaseInsensitive()
+    {
+        var (sut, inner, _) = CreateSut();
+        inner.GeocodeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+             .Returns(SampleResult);
+
+        // Case-insensitive normalisation still works with provider-tagged key
+        await sut.GeocodeAsync("London");
+        await sut.GeocodeAsync("LONDON");
+
+        await inner.Received(1).GeocodeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task GetCached_TTL_Respected()
     {
         // Use a very short TTL

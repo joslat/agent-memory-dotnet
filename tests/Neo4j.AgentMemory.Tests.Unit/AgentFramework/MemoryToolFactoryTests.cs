@@ -1,10 +1,8 @@
 using FluentAssertions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
 using Neo4j.AgentMemory.AgentFramework.Tools;
-using Neo4j.AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
 
 namespace Neo4j.AgentMemory.Tests.Unit.AgentFramework;
@@ -13,7 +11,7 @@ public sealed class MemoryToolFactoryTests
 {
     private readonly ILongTermMemoryService _longTermService;
     private readonly IReasoningMemoryService _reasoningService;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
 
@@ -21,13 +19,13 @@ public sealed class MemoryToolFactoryTests
     {
         _longTermService = Substitute.For<ILongTermMemoryService>();
         _reasoningService = Substitute.For<IReasoningMemoryService>();
-        _embeddingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(call => MockFactory.EmbeddingResult(call, new float[384]));
+        _embeddingOrchestrator
+            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[384]);
 
         _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
         _idGenerator.GenerateId().Returns("test-id");
@@ -56,7 +54,7 @@ public sealed class MemoryToolFactoryTests
     }
 
     private MemoryToolFactory CreateSut() => new(
-        _longTermService, _reasoningService, _embeddingGenerator, _clock, _idGenerator,
+        _longTermService, _reasoningService, _embeddingOrchestrator, _clock, _idGenerator,
         NullLogger<MemoryToolFactory>.Instance);
 
     private MemoryTool GetTool(string name) =>
@@ -82,8 +80,8 @@ public sealed class MemoryToolFactoryTests
         var response = await tool.ExecuteAsync(request, CancellationToken.None);
 
         response.Success.Should().BeTrue();
-        await _embeddingGenerator.Received(1)
-            .GenerateAsync(Arg.Is<IEnumerable<string>>(x => x.First() == "find Alice"), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1)
+            .EmbedQueryAsync("find Alice", Arg.Any<CancellationToken>());
         await _longTermService.Received(1)
             .SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
         await _longTermService.Received(1)
@@ -229,11 +227,42 @@ public sealed class MemoryToolFactoryTests
     }
 
     [Fact]
+    public async Task MemoryToolFactory_UsesEmbeddingOrchestrator_ForAllSearchTools()
+    {
+        // Verify all search tools use IEmbeddingOrchestrator (not raw IEmbeddingGenerator)
+        var queries = new[] { "search_memory", "search_knowledge", "find_similar_tasks" };
+
+        foreach (var toolName in queries)
+        {
+            _embeddingOrchestrator.ClearReceivedCalls();
+            var tool = GetTool(toolName);
+            var request = new MemoryToolRequest { Query = "test query" };
+
+            await tool.ExecuteAsync(request, CancellationToken.None);
+
+            await _embeddingOrchestrator.Received(1)
+                .EmbedQueryAsync("test query", Arg.Any<CancellationToken>());
+        }
+    }
+
+    [Fact]
+    public async Task RecallPreferences_NoCategory_UsesOrchestrator()
+    {
+        var tool = GetTool("recall_preferences");
+        var request = new MemoryToolRequest { Query = "food preferences" };
+
+        await tool.ExecuteAsync(request, CancellationToken.None);
+
+        await _embeddingOrchestrator.Received(1)
+            .EmbedQueryAsync("food preferences", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Tool_OnError_ReturnsFailureResponse()
     {
-        _embeddingGenerator
-            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
-            .Returns(_ => Task.FromException<GeneratedEmbeddings<Embedding<float>>>(
+        _embeddingOrchestrator
+            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<float[]>(
                 new InvalidOperationException("embedding service unavailable")));
 
         var tool = GetTool("search_memory");

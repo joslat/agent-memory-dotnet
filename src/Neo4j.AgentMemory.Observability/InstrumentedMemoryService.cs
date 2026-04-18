@@ -141,22 +141,52 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         }
     }
 
-    public Task ExtractFromSessionAsync(
+    public async Task ExtractFromSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_session");
         activity?.SetTag("memory.session_id", sessionId);
-        return _inner.ExtractFromSessionAsync(sessionId, cancellationToken);
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            await _inner.ExtractFromSessionAsync(sessionId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _metrics.ExtractionErrors.Add(1);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+        finally
+        {
+            _metrics.ExtractionDurationMs.Record(sw.Elapsed.TotalMilliseconds);
+        }
     }
 
-    public Task ExtractFromConversationAsync(
+    public async Task ExtractFromConversationAsync(
         string conversationId,
         CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_conversation");
         activity?.SetTag("memory.conversation_id", conversationId);
-        return _inner.ExtractFromConversationAsync(conversationId, cancellationToken);
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            await _inner.ExtractFromConversationAsync(conversationId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _metrics.ExtractionErrors.Add(1);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+        finally
+        {
+            _metrics.ExtractionDurationMs.Record(sw.Elapsed.TotalMilliseconds);
+        }
     }
 
     public Task<int> GenerateEmbeddingsBatchAsync(

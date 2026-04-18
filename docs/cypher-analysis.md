@@ -43,10 +43,11 @@ The 207+ figure came from counting individual Cypher *keywords* (`MATCH`, `MERGE
 
 ### Overall Parity Assessment
 
-- **Core parity is strong**: 55 of 98 Python queries have full or equivalent .NET implementations
+- **Core parity is strong**: 66 of 98 Python queries have full or equivalent .NET implementations (up from 55, post-Wave 4)
 - **Schema/introspection gap is by design**: 16 Python schema queries use a runtime-editable `Schema` node pattern; .NET uses `SchemaBootstrapper` with static DDL arrays
 - **Decided omissions**: ~17 queries (graph export, migration utilities, background enrichment, extraction orchestration)
-- **Genuine gaps**: ~10 queries that should be considered for implementation (message deletion, session listing, provenance queries, dedup statistics)
+- **Genuine gaps**: **0 remaining** — all 11 Wave 4 gaps resolved
+- **Remaining minor gaps**: `#51 DELETE_SESSION_DATA` is partial (messages only, not conversations+traces); `#24 COUNT_ENTITIES_WITHOUT_EMBEDDINGS` and `#77 GET_ENTITIES_WITH_EMBEDDINGS` are minor omissions inferable from existing queries
 
 ---
 
@@ -75,9 +76,9 @@ The 207+ figure came from counting individual Cypher *keywords* (`MATCH`, `MERGE
 | 11 | `GET_MESSAGES_WITHOUT_EMBEDDINGS` | queries.py:144 | — | — | ❌ Missing | Decided omission: .NET sets embeddings eagerly |
 | 12 | `GET_CONVERSATION_MESSAGES` | queries.py:151 | `GetByConversationAsync` | MessageRepo:200 | ✅ Full | Identical: MATCH via HAS_MESSAGE, ORDER BY timestamp |
 | 13 | `SEARCH_MESSAGES_BY_EMBEDDING` | queries.py:158 | `SearchByVectorAsync` | MessageRepo:253 | ✅ Full | Both use db.index.vector.queryNodes; .NET adds metadata filters |
-| 14 | `DELETE_MESSAGE` | queries.py:166 | — | — | ❌ Missing | **Genuine gap**: no individual message delete |
-| 15 | `DELETE_MESSAGE_NO_CASCADE` | queries.py:173 | — | — | ❌ Missing | **Genuine gap**: no individual message delete |
-| 16 | `LIST_SESSIONS` | queries.py:179 | — | — | ❌ Missing | **Genuine gap**: no session listing with stats |
+| 14 | `DELETE_MESSAGE` | queries.py:166 | `DeleteAsync(cascade: true)` | MessageRepo:228 | ✅ Full | **Wave 4A**: `MessageQueries.DeleteCascade` — DETACH DELETE |
+| 15 | `DELETE_MESSAGE_NO_CASCADE` | queries.py:173 | `DeleteAsync(cascade: false)` | MessageRepo:228 | ✅ Full | **Wave 4A**: `MessageQueries.DeleteSimple` — DELETE without DETACH |
+| 16 | `LIST_SESSIONS` | queries.py:179 | `ListSessionsAsync` | ConversationRepo:79 | ✅ Full | **Wave 4A**: `ConversationQueries.ListSessions` — sessions with conversation/message counts |
 | — | *(no Python equiv)* | — | `GetByIdAsync` | MessageRepo:184 | ➕ Extra | Individual message retrieval by ID |
 | — | *(no Python equiv)* | — | `GetRecentBySessionAsync` | MessageRepo:221 | ➕ Extra | Recent messages for session with limit |
 | — | *(no Python equiv)* | — | `DeleteBySessionAsync` | MessageRepo:287 | ➕ Extra | Bulk delete messages for a session |
@@ -232,26 +233,26 @@ The 207+ figure came from counting individual Cypher *keywords* (`MATCH`, `MERGE
 | 62 | `CREATE_EXTRACTOR` | queries.py:772 | `UpsertAsync` | ExtractorRepo:31 | ✅ Full | Both MERGE on name |
 | 63 | `CREATE_EXTRACTED_FROM_RELATIONSHIP` | queries.py:786 | `CreateExtractedFromRelationshipAsync` | EntityRepo:395 | ✅ Full | Both MERGE EXTRACTED_FROM with metadata |
 | 64 | `CREATE_EXTRACTED_BY_RELATIONSHIP` | queries.py:802 | `CreateExtractedByRelationshipAsync` | ExtractorRepo:94 | ✅ Full | Both MERGE EXTRACTED_BY |
-| 65 | `GET_ENTITY_PROVENANCE` | queries.py:814 | — | — | ❌ Missing | **Genuine gap**: no provenance chain query |
-| 66 | `GET_ENTITIES_FROM_MESSAGE` | queries.py:824 | — | — | ❌ Missing | **Genuine gap**: no inverse extraction query |
+| 65 | `GET_ENTITY_PROVENANCE` | queries.py:814 | `GetProvenanceAsync` | ExtractorRepo:119 | ✅ Full | **Wave 4B**: `ExtractorQueries.GetEntityProvenance` — full provenance chain |
+| 66 | `GET_ENTITIES_FROM_MESSAGE` | queries.py:824 | `GetEntitiesFromMessageAsync` | EntityRepo:521 | ✅ Full | **Wave 4B**: `EntityQueries.GetEntitiesFromMessage` — inverse extraction query |
 | 67 | `GET_ENTITIES_BY_EXTRACTOR` | queries.py:831 | `GetEntitiesByExtractorAsync` | ExtractorRepo:121 | ✅ Full | Both query via EXTRACTED_BY relationship |
-| 68 | `GET_EXTRACTION_STATS` | queries.py:839 | — | — | ❌ Missing | **Genuine gap**: no extraction statistics |
-| 69 | `GET_EXTRACTOR_STATS` | queries.py:850 | — | — | ❌ Missing | **Genuine gap**: no per-extractor statistics |
+| 68 | `GET_EXTRACTION_STATS` | queries.py:839 | `GetExtractionStatsAsync` | ExtractorRepo:157 | ✅ Full | **Wave 4B**: `ExtractorQueries.GetExtractionStats` — overall extraction statistics |
+| 69 | `GET_EXTRACTOR_STATS` | queries.py:850 | `GetExtractorStatsAsync` | ExtractorRepo:176 | ✅ Full | **Wave 4B**: `ExtractorQueries.GetExtractorStats` — per-extractor statistics |
 | 70 | `LIST_EXTRACTORS` | queries.py:861 | `ListAsync` | ExtractorRepo:74 | ✅ Full | Both list all extractors |
-| 71 | `DELETE_ENTITY_PROVENANCE` | queries.py:869 | — | — | ❌ Missing | **Genuine gap**: no provenance cleanup |
+| 71 | `DELETE_ENTITY_PROVENANCE` | queries.py:869 | `DeleteProvenanceAsync` | ExtractorRepo:199 | ✅ Full | **Wave 4B**: `ExtractorQueries.DeleteEntityProvenance` — provenance cleanup |
 
 ### 2.15 Entity Deduplication
 
 | # | Python Query | Python Location | .NET Equivalent | .NET Location | Status | Notes |
 |---|---|---|---|---|---|---|
-| 72 | `FIND_SIMILAR_ENTITIES_BY_EMBEDDING` | queries.py:882 | — | — | ❌ Missing | **Genuine gap**: no dedup candidate search |
+| 72 | `FIND_SIMILAR_ENTITIES_BY_EMBEDDING` | queries.py:882 | `FindSimilarByEmbeddingAsync` | EntityRepo:456 | ✅ Full | **Wave 4C**: `EntityQueries.FindSimilarByEmbedding` — vector-based dedup candidate search |
 | 73 | `CREATE_SAME_AS_RELATIONSHIP` | queries.py:891 | `AddSameAsRelationshipAsync` | EntityRepo:258 | ✅ Full | .NET uses MERGE (idempotent); Python uses CREATE |
-| 74 | `GET_POTENTIAL_DUPLICATES` | queries.py:905 | — | — | ❌ Missing | **Genuine gap**: no pending review query |
+| 74 | `GET_POTENTIAL_DUPLICATES` | queries.py:905 | `GetPendingDuplicatesAsync` | EntityRepo:481 | ✅ Full | **Wave 4C**: `EntityQueries.GetPendingDuplicates` — pending SAME_AS pair review |
 | 75 | `GET_SAME_AS_CLUSTER` | queries.py:914 | `GetSameAsEntitiesAsync` | EntityRepo:275 | 🔄 Equiv | .NET returns direct neighbors; Python traverses full cluster |
 | 76 | `MERGE_ENTITIES` | queries.py:923 | `MergeEntitiesAsync` | EntityRepo:408 | ✅ Full | Both use CALL subqueries to transfer relationships |
 | 77 | `GET_ENTITIES_WITH_EMBEDDINGS` | queries.py:957 | — | — | ❌ Missing | Can use SearchByVectorAsync with self-search |
 | 78 | `UPDATE_SAME_AS_STATUS` | queries.py:966 | part of `AddSameAsRelationshipAsync` | EntityRepo:258 | 🔄 Equiv | .NET handles via MERGE ON MATCH |
-| 79 | `GET_DEDUPLICATION_STATS` | queries.py:973 | — | — | ❌ Missing | **Genuine gap**: no dedup monitoring |
+| 79 | `GET_DEDUPLICATION_STATS` | queries.py:973 | `GetDeduplicationStatsAsync` | EntityRepo:501 | ✅ Full | **Wave 4C**: `EntityQueries.GetDeduplicationStats` — SAME_AS counts by status |
 
 ### 2.16 Schema Persistence
 
@@ -550,10 +551,10 @@ This should be added to integration test suites for all repository methods to ca
 
 | Status | Count | Queries |
 |--------|-------|---------|
-| ✅ Full Match | 44 | #3,4,6,7,8,12,13,17,18,19,20,21,22,23,25,26,27,28,29,30,31,32,33,35,36,37,38,39,40,44,46,47,48,49,52,59,60,62,63,64,67,70,73,76 |
+| ✅ Full Match | 55 | #3,4,6,7,8,12,13,14,15,16,17,18,19,20,21,22,23,25,26,27,28,29,30,31,32,33,35,36,37,38,39,40,44,46,47,48,49,52,59,60,62,63,64,65,66,67,68,69,70,71,72,73,74,76,79 |
 | 🔄 Equivalent | 11 | #1,5,9,10,45,50,57,61,75,78,97 |
 | 🔶 Partial | 1 | #51 |
-| ❌ Missing | 42 | #2,11,14,15,16,24,34,41,42,43,53,54,55,56,58,65,66,68,69,71,72,74,77,79,80-95,96,98 |
+| ❌ Missing | 31 | #2,11,24,34,41,42,43,53,54,55,56,58,77,80-95,96,98 |
 
 ### Dynamic Query Parity
 
@@ -575,27 +576,27 @@ This should be added to integration test suites for all repository methods to ca
 
 **Raw parity** (static queries only):
 ```
-(44 matched + 11 equivalent) / 98 total = 56.1%
+(55 matched + 11 equivalent) / 98 total = 67.3%
 ```
 
 **Adjusted parity** — excluding architectural omissions (16 schema persistence + 4 schema introspection + 4 graph export = 24):
 ```
-(44 + 11) / (98 - 24) = 55 / 74 = 74.3%
+(55 + 11) / (98 - 24) = 66 / 74 = 89.2%
 ```
 
 **Functional parity** — excluding all decided omissions (31 total):
 ```
-(44 + 11) / (98 - 31) = 55 / 67 = 82.1%
+(55 + 11) / (98 - 31) = 66 / 67 = 98.5%
 ```
 
 ### Summary
 
 | Metric | Score |
 |--------|-------|
-| **Raw parity** (all 98 Python queries) | **56.1%** |
-| **Adjusted parity** (excl. architectural differences) | **74.3%** |
-| **Functional parity** (excl. all decided omissions) | **82.1%** |
-| **Genuine gaps remaining** | **11 queries** |
+| **Raw parity** (all 98 Python queries) | **67.3%** |
+| **Adjusted parity** (excl. architectural differences) | **89.2%** |
+| **Functional parity** (excl. all decided omissions) | **98.5%** |
+| **Genuine gaps remaining** | **0 queries** |
 | **.NET extras beyond Python** | **~47 queries** |
 
-The .NET port achieves strong functional parity on core memory operations (CRUD, vector search, relationships, reasoning). The gaps are concentrated in monitoring/statistics queries (provenance stats, dedup stats), individual message lifecycle management (delete, session listing), and visualization features (graph export) — all of which are low-to-medium effort additions if needed.
+The .NET port achieves near-complete functional parity on all core memory operations (CRUD, vector search, relationships, reasoning, provenance, deduplication). All 11 genuine gaps from the original audit have been closed (Wave 4). The remaining ❌ Missing entries are all decided omissions: schema persistence (architectural difference), graph export (visualization), migration utilities, background enrichment, and extraction orchestration. The only partial match (#51 `DELETE_SESSION_DATA`) could be expanded to also delete conversations and traces, but this is a minor enhancement.

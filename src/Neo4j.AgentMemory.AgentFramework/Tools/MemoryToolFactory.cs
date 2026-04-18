@@ -1,5 +1,4 @@
 using System.Text;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
 using Neo4j.AgentMemory.Abstractions.Services;
@@ -13,7 +12,7 @@ public sealed class MemoryToolFactory
 {
     private readonly ILongTermMemoryService _longTermService;
     private readonly IReasoningMemoryService _reasoningService;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<MemoryToolFactory> _logger;
@@ -21,14 +20,14 @@ public sealed class MemoryToolFactory
     public MemoryToolFactory(
         ILongTermMemoryService longTermService,
         IReasoningMemoryService reasoningService,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<MemoryToolFactory> logger)
     {
         _longTermService = longTermService;
         _reasoningService = reasoningService;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingOrchestrator = embeddingOrchestrator;
         _clock = clock;
         _idGenerator = idGenerator;
         _logger = logger;
@@ -55,8 +54,7 @@ public sealed class MemoryToolFactory
                 return Fail("Query is required for search_memory.");
             try
             {
-                var generated = await _embeddingGenerator.GenerateAsync([request.Query], cancellationToken: ct);
-                var embedding = generated[0].Vector.ToArray();
+                var embedding = await _embeddingOrchestrator.EmbedQueryAsync(request.Query, ct);
                 var entities = await _longTermService.SearchEntitiesAsync(embedding, cancellationToken: ct);
                 var facts = await _longTermService.SearchFactsAsync(embedding, cancellationToken: ct);
                 var preferences = await _longTermService.SearchPreferencesAsync(embedding, cancellationToken: ct);
@@ -171,8 +169,7 @@ public sealed class MemoryToolFactory
                 {
                     if (string.IsNullOrWhiteSpace(request.Query))
                         return Fail("Query or category is required for recall_preferences.");
-                    var generated = await _embeddingGenerator.GenerateAsync([request.Query], cancellationToken: ct);
-                    var embedding = generated[0].Vector.ToArray();
+                    var embedding = await _embeddingOrchestrator.EmbedQueryAsync(request.Query, ct);
                     preferences = await _longTermService.SearchPreferencesAsync(embedding, cancellationToken: ct);
                 }
                 if (preferences.Count == 0)
@@ -200,8 +197,7 @@ public sealed class MemoryToolFactory
                 return Fail("Query is required for search_knowledge.");
             try
             {
-                var generated = await _embeddingGenerator.GenerateAsync([request.Query], cancellationToken: ct);
-                var embedding = generated[0].Vector.ToArray();
+                var embedding = await _embeddingOrchestrator.EmbedQueryAsync(request.Query, ct);
                 var entities = await _longTermService.SearchEntitiesAsync(embedding, cancellationToken: ct);
                 if (entities.Count == 0)
                     return Ok("No entities found.");
@@ -228,8 +224,7 @@ public sealed class MemoryToolFactory
                 return Fail("Query (task description) is required for find_similar_tasks.");
             try
             {
-                var generated = await _embeddingGenerator.GenerateAsync([request.Query], cancellationToken: ct);
-                var embedding = generated[0].Vector.ToArray();
+                var embedding = await _embeddingOrchestrator.EmbedQueryAsync(request.Query, ct);
                 var traces = await _reasoningService.SearchSimilarTracesAsync(embedding, cancellationToken: ct);
                 if (traces.Count == 0)
                     return Ok("No similar tasks found.");

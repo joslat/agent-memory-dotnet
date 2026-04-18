@@ -8,33 +8,33 @@
 
 ---
 
-## Parity Status: 4 Actionable Gaps Remain
+## Parity Status: 1 Decided Omission Remains — All Actionable Gaps Resolved ✅
 
 | Category | Python | .NET | Status |
 |----------|:---:|:---:|:---:|
 | Node labels | 11 | 12 (+Migration) | ✅ All 11 Python labels present |
-| Node properties | 73 | 73 + 14 extras | ❌ **2 gaps** — `ReasoningStep.timestamp`, `ToolCall.timestamp` never written |
+| Node properties | 73 | 73 + 14 extras | ✅ All 73 Python properties written |
 | Constraints | 9 | 10 (+extractor_name) | ✅ All 9 Python constraints present |
 | Property indexes | 12 | 14 (+2 extras) | ✅ All 12 Python indexes present |
 | Vector indexes | 5 | 6 (+reasoning_step_embedding_idx) | ✅ All 5 Python indexes present |
 | Point indexes | 1 | 1 | ✅ Match |
 | Fulltext indexes | 0 | 3 | 🔵 .NET extension |
 | Relationship types | 15 | 18 (+3 extras) | ✅ All 15 Python types present |
-| Relationship properties | 27 props | 25 of 27 | ❌ **2 gaps** — `MENTIONS.context`, `MENTIONS.created_at` not written |
+| Relationship properties | 27 props | 27 of 27 | ✅ All 27 Python relationship properties written |
 | Property naming (snake_case) | — | All correct | ✅ Match |
 | Datetime storage | Native `datetime()` | Native `datetime()` | ✅ Match |
 | Tool aggregate stats | 6 props | 7 (+description) | ✅ All Python props present |
 | Schema node repository | ✅ CRUD | ❌ No repository | 🔵 Decided omission (P2) |
-| **Weighted overall** | | | **~97%** |
+| **Weighted overall** | | | **~99.7%** |
 
-### Summary of Remaining Gaps
+### Summary of Gaps
 
-| # | Gap | Severity | File(s) to Fix |
-|---|-----|----------|---------------|
-| G1 | `ReasoningStep` nodes never get `timestamp` property (Python auto-sets `datetime()`) | ❌ HIGH — indexed property never populated | `Neo4jReasoningStepRepository.cs` |
-| G2 | `ToolCall` nodes never get `timestamp` property (Python auto-sets `datetime()`) | ❌ HIGH — property expected by Python clients | `Neo4jToolCallRepository.cs` |
-| G3 | `MENTIONS` relationship missing `context` and `created_at` properties | ❌ MEDIUM — Python sets 5 props, .NET sets 3 | `Neo4jEntityRepository.cs` |
-| G4 | `Schema` node has no repository implementation | 🔵 LOW — indexes exist, .NET uses fixed types | New `Neo4jSchemaRepository.cs` |
+| # | Gap | Severity | Status | Notes |
+|---|-----|----------|--------|-------|
+| G1 | `ReasoningStep.timestamp` | ~~❌ HIGH~~ | ✅ **RESOLVED** | `ReasoningQueries.AddStep` includes `timestamp: datetime()`. Index now correctly populated. Resolved in Wave 3 (Cypher centralization). |
+| G2 | `ToolCall.timestamp` | ~~❌ HIGH~~ | ✅ **RESOLVED** | `ToolCallQueries.Add` includes `timestamp: datetime()`. Resolved in Wave 3 (Cypher centralization). |
+| G3 | `MENTIONS.context` and `MENTIONS.created_at` | ~~❌ MEDIUM~~ | ✅ **RESOLVED** | `EntityQueries.AddMention` sets all 5 properties: `confidence`, `start_pos`, `end_pos`, `context`, `created_at`. `AddMentionsBatch` intentionally omits per-entity `context`/`start_pos`/`end_pos` (batch design trade-off). Resolved in Wave 3. |
+| G4 | `Schema` node has no repository implementation | 🔵 LOW | 🔵 **Decided omission** | Indexes exist (`schema_name_idx`, `schema_version_idx`). Domain model (`SchemaModel`) exists. .NET uses `SchemaBootstrapper` with static DDL. No CRUD needed unless custom schema support is required. |
 
 ---
 
@@ -168,7 +168,7 @@
 | `action` | string | ✅ | ✅ | ❌ | — | Step action |
 | `observation` | string | ✅ | ✅ | ❌ | — | Step observation (may be set later) |
 | `embedding` | list\<float\> | ✅ | ✅ | ❌ | — | Set at creation or backfilled |
-| `timestamp` | datetime | ✅ | ❌ **GAP** | ✅ | `datetime()` | ❌ **G1** — Python auto-sets; .NET never writes this. Index exists but property never populated |
+| `timestamp` | datetime | ✅ | ✅ | ✅ | `datetime()` | ✅ **G1 RESOLVED** — `ReasoningQueries.AddStep` sets `timestamp: datetime()` |
 | `metadata` | string (JSON) | ✅ | ✅ | ❌ | — | Serialized JSON |
 | `trace_id` | string | ❌ | ✅ | ✅ | — | 🔵 .NET extension — direct trace lookup |
 
@@ -183,7 +183,7 @@
 | `status` | string | ✅ | ✅ | ✅ | — | Lowercase: `"pending"`, `"success"`, `"error"`, `"cancelled"`, `"failure"`, `"timeout"` |
 | `duration_ms` | int/long | ✅ | ✅ | ❌ | — | Execution time in milliseconds |
 | `error` | string | ✅ | ✅ | ❌ | — | Error message |
-| `timestamp` | datetime | ✅ | ❌ **GAP** | ✅ | `datetime()` | ❌ **G2** — Python auto-sets; .NET never writes this |
+| `timestamp` | datetime | ✅ | ✅ | ✅ | `datetime()` | ✅ **G2 RESOLVED** — `ToolCallQueries.Add` sets `timestamp: datetime()` |
 | `step_id` | string | ❌ | ✅ | ✅ | — | 🔵 .NET extension — direct step lookup |
 | `metadata` | string (JSON) | ❌ | ✅ | ❌ | `"{}"` | 🔵 .NET extension |
 
@@ -245,7 +245,7 @@ Not in Python. Used by .NET to track applied schema migrations.
 
 | # | Type | Direction | Source | Target | Properties | Python | .NET |
 |---|------|-----------|--------|--------|------------|:---:|:---:|
-| 4 | `MENTIONS` | → | `Message` | `Entity` | `confidence` (float), `start_pos` (int), `end_pos` (int), `context` (string), `created_at` (datetime) | ✅ all 5 | ❌ **GAP: 3 of 5** — missing `context`, `created_at` |
+| 4 | `MENTIONS` | → | `Message` | `Entity` | `confidence` (float), `start_pos` (int), `end_pos` (int), `context` (string), `created_at` (datetime) | ✅ all 5 | ✅ all 5 — **G3 RESOLVED** |
 | 5 | `RELATED_TO` | → | `Entity` | `Entity` | `id` (UUID), `relation_type` (string), `description` (string), `confidence` (float), `valid_from` (datetime), `valid_until` (datetime), `created_at` (datetime), `updated_at` (datetime) | ✅ | ✅ + extras |
 | 6 | `ABOUT` | → | `Preference` | `Entity` | — | ✅ | ✅ |
 | 6b | `ABOUT` | → | `Fact` | `Entity` | — | ❌ | ✅ 🔵 .NET extension |
@@ -334,7 +334,7 @@ The .NET implementation stores additional properties on `RELATED_TO` beyond the 
 | `schema_name_idx` | `Schema` | `name` | ✅ | ✅ | |
 | `schema_version_idx` | `Schema` | `version` | ✅ | ✅ | |
 | `fact_category` | `Fact` | `category` | ❌ | ✅ | 🔵 .NET extension |
-| `reasoning_step_timestamp` | `ReasoningStep` | `timestamp` | ❌ | ✅ | 🔵 .NET extension — ⚠️ index exists but property never set (G1) |
+| `reasoning_step_timestamp` | `ReasoningStep` | `timestamp` | ❌ | ✅ | 🔵 .NET extension — ✅ index now correctly populated (G1 resolved) |
 
 ### 3.4 Fulltext Indexes (.NET-only extensions)
 
@@ -439,7 +439,7 @@ The .NET implementation stores additional properties on `RELATED_TO` beyond the 
 | 68 | ReasoningStep | `action` | ✅ | ✅ | ✅ MATCH |
 | 69 | ReasoningStep | `observation` | ✅ | ✅ | ✅ MATCH |
 | 70 | ReasoningStep | `embedding` | ✅ | ✅ | ✅ MATCH |
-| 71 | ReasoningStep | `timestamp` | ✅ datetime | ❌ **NEVER SET** | ❌ **GAP G1** |
+| 71 | ReasoningStep | `timestamp` | ✅ datetime | ✅ **SET** | ✅ **RESOLVED** — `ReasoningQueries.AddStep` includes `timestamp: datetime()` |
 | 72 | ReasoningStep | `metadata` | ✅ | ✅ | ✅ MATCH |
 | 73 | ReasoningStep | `trace_id` | ❌ | ✅ | 🔵 .NET extension |
 | 74 | ToolCall | `id` | ✅ | ✅ | ✅ MATCH |
@@ -449,7 +449,7 @@ The .NET implementation stores additional properties on `RELATED_TO` beyond the 
 | 78 | ToolCall | `status` | ✅ | ✅ | ✅ MATCH |
 | 79 | ToolCall | `duration_ms` | ✅ | ✅ | ✅ MATCH |
 | 80 | ToolCall | `error` | ✅ | ✅ | ✅ MATCH |
-| 81 | ToolCall | `timestamp` | ✅ datetime | ❌ **NEVER SET** | ❌ **GAP G2** |
+| 81 | ToolCall | `timestamp` | ✅ datetime | ✅ **SET** | ✅ **RESOLVED** — `ToolCallQueries.Add` includes `timestamp: datetime()` |
 | 82 | ToolCall | `step_id` | ❌ | ✅ | 🔵 .NET extension |
 | 83 | ToolCall | `metadata` | ❌ | ✅ | 🔵 .NET extension |
 | 84 | Tool | `name` | ✅ | ✅ | ✅ MATCH |
@@ -474,8 +474,8 @@ The .NET implementation stores additional properties on `RELATED_TO` beyond the 
 | R1 | `MENTIONS` | `confidence` | ✅ float | ✅ | ✅ MATCH |
 | R2 | `MENTIONS` | `start_pos` | ✅ int | ✅ | ✅ MATCH |
 | R3 | `MENTIONS` | `end_pos` | ✅ int | ✅ | ✅ MATCH |
-| R4 | `MENTIONS` | `context` | ✅ string | ❌ **NOT SET** | ❌ **GAP G3a** |
-| R5 | `MENTIONS` | `created_at` | ✅ datetime | ❌ **NOT SET** | ❌ **GAP G3b** |
+| R4 | `MENTIONS` | `context` | ✅ string | ✅ | ✅ MATCH — **G3 RESOLVED** |
+| R5 | `MENTIONS` | `created_at` | ✅ datetime | ✅ | ✅ MATCH — **G3 RESOLVED** |
 | R6 | `RELATED_TO` | `id` | ✅ | ✅ | ✅ MATCH |
 | R7 | `RELATED_TO` | `relation_type` | ✅ | ✅ | ✅ MATCH |
 | R8 | `RELATED_TO` | `description` | ✅ | ✅ | ✅ MATCH |
@@ -501,15 +501,15 @@ The .NET implementation stores additional properties on `RELATED_TO` beyond the 
 
 ---
 
-## 6. Required Code Changes
+## 6. Code Changes — All Resolved ✅
 
-> **DO NOT make these changes without this section as specification.** Each gap specifies exactly what Cypher should change.
+> **All actionable gaps (G1-G3) have been resolved.** The code changes below are retained for historical reference.
 
-### G1 — Add `timestamp` to ReasoningStep CREATE
+### G1 — ✅ RESOLVED: `timestamp` in ReasoningStep CREATE
 
-**File:** `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jReasoningStepRepository.cs`
+**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Queries/ReasoningQueries.cs` (line 80-93)
 
-**Current Cypher (AddAsync, ~line 27):**
+The `AddStep` constant now includes `timestamp: datetime()` in the CREATE clause:
 ```cypher
 CREATE (s:ReasoningStep {
     id:          $id,
@@ -518,35 +518,20 @@ CREATE (s:ReasoningStep {
     thought:     $thought,
     action:      $action,
     observation: $observation,
-    metadata:    $metadata
+    metadata:    $metadata,
+    timestamp:   datetime()
 })
 ```
 
-**Required Cypher:**
-```cypher
-CREATE (s:ReasoningStep {
-    id:          $id,
-    trace_id:    $traceId,
-    step_number: $stepNumber,
-    thought:     $thought,
-    action:      $action,
-    observation: $observation,
-    timestamp:   datetime(),
-    metadata:    $metadata
-})
-```
-
-**Domain model change:** The `ReasoningStep` C# class may need a `TimestampUtc` property (check if it exists). The mapper should read `node["timestamp"]` using `Neo4jDateTimeHelper.ReadDateTimeOffset`.
-
-**Impact:** The `reasoning_step_timestamp` index in `SchemaBootstrapper` currently indexes a property that is never set. After this fix it will work correctly.
+**Note:** The `MapToStep()` method in `Neo4jReasoningStepRepository.cs` does not read `timestamp` back into the C# domain model (no `TimestampUtc` property on `ReasoningStep`). This is acceptable — the property exists in Neo4j, the index works, and Python clients can read it. Adding a domain property is a minor future enhancement.
 
 ---
 
-### G2 — Add `timestamp` to ToolCall CREATE
+### G2 — ✅ RESOLVED: `timestamp` in ToolCall CREATE
 
-**File:** `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jToolCallRepository.cs`
+**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Queries/ToolCallQueries.cs` (line 9-24)
 
-**Current Cypher (AddAsync, ~line 27):**
+The `Add` constant now includes `timestamp: datetime()` in the CREATE clause:
 ```cypher
 CREATE (tc:ToolCall {
     id:          $id,
@@ -557,55 +542,31 @@ CREATE (tc:ToolCall {
     status:      $status,
     duration_ms: $durationMs,
     error:       $error,
-    metadata:    $metadata
+    metadata:    $metadata,
+    timestamp:   datetime()
 })
 ```
 
-**Required Cypher:**
-```cypher
-CREATE (tc:ToolCall {
-    id:          $id,
-    step_id:     $stepId,
-    tool_name:   $toolName,
-    arguments:   $arguments,
-    result:      $result,
-    status:      $status,
-    duration_ms: $durationMs,
-    error:       $error,
-    timestamp:   datetime(),
-    metadata:    $metadata
-})
-```
-
-**Domain model change:** The `ToolCall` C# class may need a `TimestampUtc` property. The mapper should read `node["timestamp"]` using `Neo4jDateTimeHelper`.
+**Note:** Same as G1 — `MapToToolCall()` does not read `timestamp` back. Property exists in Neo4j.
 
 ---
 
-### G3 — Add `context` and `created_at` to MENTIONS relationship
+### G3 — ✅ RESOLVED: `context` and `created_at` on MENTIONS relationship
 
-**File:** `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs`
+**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Queries/EntityQueries.cs` (line 92-96)
 
-**Current Cypher (AddMentionAsync, ~line 224):**
+The `AddMention` constant now sets all 5 Python properties:
 ```cypher
-MATCH (m:Message {id: $messageId})
-MATCH (e:Entity {id: $entityId})
-MERGE (m)-[r:MENTIONS]->(e)
-ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos
-```
-
-**Required Cypher:**
-```cypher
-MATCH (m:Message {id: $messageId})
-MATCH (e:Entity {id: $entityId})
 MERGE (m)-[r:MENTIONS]->(e)
 ON CREATE SET r.confidence = $confidence, r.start_pos = $startPos, r.end_pos = $endPos, r.context = $context, r.created_at = datetime()
 ```
 
-**Parameter addition:** Add `context` parameter to the method signature and `new { ..., context = (object?)context }` to the parameter object.
+**`AddMentionAsync` in `Neo4jEntityRepository.cs` (line 175-183)** passes `context` as parameter:
+```csharp
+await runner.RunAsync(EntityQueries.AddMention, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
+```
 
-**Interface change:** `IEntityRepository.AddMentionAsync` needs an optional `string? context = null` parameter.
-
-**Also update AddMentionsBatchAsync (~line 240):** Currently only sets `confidence`. Should also set `created_at = datetime()` on CREATE.
+**`AddMentionsBatch`** intentionally omits per-entity `context`/`start_pos`/`end_pos` — batch operations aggregate confidence only. This is by-design.
 
 ---
 
@@ -710,7 +671,7 @@ Properties, relationships, and indexes that exist in .NET but NOT in Python. The
 |-------|------|---------|
 | `reasoning_step_embedding_idx` | Vector | Semantic step search |
 | `fact_category` | Property | Category filtering |
-| `reasoning_step_timestamp` | Property | Temporal ordering (⚠️ needs G1 fix) |
+| `reasoning_step_timestamp` | Property | Temporal ordering (✅ populated, G1 resolved) |
 | `message_content` | Fulltext | Message text search |
 | `entity_name` | Fulltext | Entity name/description search |
 | `fact_content` | Fulltext | Fact triple text search |
@@ -794,10 +755,10 @@ C# Domain Model (PascalCase) → Repository Cypher (snake_case) → Neo4j (snake
 | Category | Python | .NET | Delta | Notes |
 |----------|:---:|:---:|:---:|-------|
 | Node labels | 11 | 12 | +1 | Migration (.NET infra) |
-| Node properties (Python set) | 73 | 71 of 73 | -2 | **G1, G2**: ReasoningStep.timestamp, ToolCall.timestamp |
+| Node properties (Python set) | 73 | 73 of 73 | 0 | ✅ All properties written (G1, G2 resolved) |
 | Node properties (.NET extras) | — | +14 | +14 | See §8.1 |
 | Relationship types | 15 | 18 | +3 | HAS_FACT, HAS_PREFERENCE, IN_SESSION |
-| Relationship properties (Python set) | 27 | 25 of 27 | -2 | **G3**: MENTIONS.context, MENTIONS.created_at |
+| Relationship properties (Python set) | 27 | 27 of 27 | 0 | ✅ All properties written (G3 resolved) |
 | Relationship properties (.NET extras) | — | +5 | +5 | RELATED_TO extras (§8.3) |
 | Constraints | 9 | 10 | +1 | extractor_name |
 | Vector indexes | 5 | 6 | +1 | reasoning_step_embedding_idx |
@@ -805,14 +766,15 @@ C# Domain Model (PascalCase) → Repository Cypher (snake_case) → Neo4j (snake
 | Property indexes | 12 | 14 | +2 | fact_category, reasoning_step_timestamp |
 | Fulltext indexes | 0 | 3 | +3 | message_content, entity_name, fact_content |
 
-### Path to Absolute Zero
+### Path to 100%
 
-| Step | Gap | Effort | Impact |
-|------|-----|--------|--------|
-| 1 | **G1**: Add `timestamp: datetime()` to ReasoningStep CREATE | ~15 min | Fixes indexed-but-empty property |
-| 2 | **G2**: Add `timestamp: datetime()` to ToolCall CREATE | ~15 min | Python compatibility |
-| 3 | **G3**: Add `context`, `created_at` to MENTIONS ON CREATE SET | ~30 min | Full relationship property parity |
-| 4 | **G4**: Schema node repository | ~2-3 days | True 100% (low priority) |
+| Step | Gap | Status | Notes |
+|------|-----|--------|-------|
+| 1 | **G1**: `timestamp: datetime()` in ReasoningStep CREATE | ✅ **RESOLVED** | Written in `ReasoningQueries.AddStep` |
+| 2 | **G2**: `timestamp: datetime()` in ToolCall CREATE | ✅ **RESOLVED** | Written in `ToolCallQueries.Add` |
+| 3 | **G3**: `context`, `created_at` in MENTIONS ON CREATE SET | ✅ **RESOLVED** | Written in `EntityQueries.AddMention` |
+| 4 | **G4**: Schema node repository | 🔵 **Decided omission (P2)** | Only needed for custom schema support |
 
 After G1–G3: **99.7% parity** (all Python properties written, only Schema repo missing).
-After G1–G4: **100% parity — Absolute Zero.**
+G1–G3 are now resolved. Current parity: **~99.7%**. Only G4 (Schema CRUD) separates us from 100%.
+G4 is a low-priority decided omission — .NET's `SchemaBootstrapper` approach is a valid architectural alternative.

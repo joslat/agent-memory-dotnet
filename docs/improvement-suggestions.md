@@ -23,7 +23,11 @@ The Agent Memory for .NET solution is **architecturally sound** — zero boundar
 - ✅ **Wave 3 Complete** — Cypher query centralization (140 constants in 13 domain classes)
 - ✅ **Wave 4 Complete** — 11 functional parity gaps resolved (82.1% → 98.5%)
 
-This reassessment identifies **7 remaining active improvements** (down from 12 — 5 completed items moved to Completed section). The top priority remains the NuGet package for 1-install DX, followed by the Semantic Kernel adapter.
+This reassessment identifies **5 remaining active improvements** (down from 12 — 7 completed items moved to Completed section, 2 in progress by Roy). The top priority remains the NuGet package for 1-install DX, followed by the Semantic Kernel adapter.
+
+**Currently in progress (Roy):**
+- 🔧 S10 — Provider tag in enrichment cache keys
+- 🔧 S13 — Fix duration metric in Observability
 
 ---
 
@@ -261,15 +265,18 @@ external dependency has been removed — retriever types were internalized.
 
 ### S10: Add Provider Tag to Enrichment Cache Keys
 
+> **🔧 IN PROGRESS** — Being implemented by Roy. Cache key format will change from `enrichment:{entityName}:{entityType}` to include provider name.
+
 | Attribute | Value |
 |-----------|-------|
 | **Category** | Correctness |
-| **Current State** | Enrichment cache key format is `enrichment:{entityName}:{entityType}`. If a deployment switches from WikimediaEnrichmentService to DiffbotEnrichmentService, cached results from the old provider will be served without invalidation. |
+| **Current State** | Enrichment cache key format is `enrichment:{entityName}:{entityType}` (see `CachedEnrichmentService.cs:36`). If a deployment switches from WikimediaEnrichmentService to DiffbotEnrichmentService, cached results from the old provider will be served without invalidation. |
 | **Proposed Improvement** | Include provider name in cache key: `enrichment:{provider}:{entityName}:{entityType}`. Each implementation passes its provider identifier. |
 | **Impact Score** | 4/10 — Prevents subtle data correctness bugs on provider switch |
 | **Effort Score** | 1/10 — One-line change per cache decorator |
 | **Priority** | **High** (Impact/Effort = 4.0) |
 | **Risk** | None. Cache key format change invalidates old entries (desired behavior). |
+| **Status** | 🔧 **In Progress** |
 
 ---
 
@@ -303,15 +310,18 @@ external dependency has been removed — retriever types were internalized.
 
 ### S13: Fix Inconsistent Duration Metric in Observability
 
+> **🔧 IN PROGRESS** — Being implemented by Roy. `ExtractFromSessionAsync` needs Stopwatch + metric recording.
+
 | Attribute | Value |
 |-----------|-------|
 | **Category** | Correctness |
-| **Current State** | `InstrumentedMemoryService.ExtractFromSessionAsync` is missing the stopwatch/duration metric recording that all other instrumented methods have. Inconsistent telemetry. |
-| **Proposed Improvement** | Add `Stopwatch` and `_metrics.ExtractionDuration.Record()` to `ExtractFromSessionAsync`, matching the pattern of `ExtractAndPersistAsync`. |
+| **Current State** | `InstrumentedMemoryService.ExtractFromSessionAsync` (line 144-150) is missing the stopwatch/duration metric recording that all other instrumented methods have. It delegates directly to `_inner.ExtractFromSessionAsync` with no measurement. Contrast with `ExtractAndPersistAsync` (line 100-123) which correctly wraps the call with `Stopwatch` and `_metrics.ExtractionDurationMs.Record()`. |
+| **Proposed Improvement** | Add `Stopwatch` and `_metrics.ExtractionDurationMs.Record()` to `ExtractFromSessionAsync`, matching the pattern of `ExtractAndPersistAsync`. |
 | **Impact Score** | 3/10 — Fixes telemetry gap |
 | **Effort Score** | 1/10 — 5-line fix |
 | **Priority** | **High** (Impact/Effort = 3.0) |
 | **Risk** | None. |
+| **Status** | 🔧 **In Progress** |
 
 ---
 
@@ -436,8 +446,8 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 | # | Suggestion | Impact | Effort | Ratio | Status |
 |---|-----------|--------|--------|-------|--------|
 | S14 | Meta-package for quick start | 5 | 1 | **5.0** | 📅 Not published yet |
-| S10 | Provider tag in enrichment cache keys | 4 | 1 | **4.0** | 📅 Not started |
-| S13 | Fix missing duration metric in Observability | 3 | 1 | **3.0** | 📅 Not started |
+| S10 | Provider tag in enrichment cache keys | 4 | 1 | **4.0** | 🔧 **In Progress** (Roy) |
+| S13 | Fix missing duration metric in Observability | 3 | 1 | **3.0** | 🔧 **In Progress** (Roy) |
 | S5 | Parameterize confidence thresholds | 5 | 2 | **2.5** | ✅ **Wave 2 Complete** |
 | S1 | Consolidate embedding generation | 8 | 3 | **2.7** | ✅ **Wave 1 Complete** |
 
@@ -448,7 +458,7 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 | **S15** | **Build Semantic Kernel adapter** | **9** | **4** | **2.25** | 📅 Not started |
 | S6 | Fix Azure redundant API calls | 6 | 3 | **2.0** | ✅ **Wave 2 Complete** |
 | S9 | Extract truncation strategies | 4 | 2 | **2.0** | 📅 Not started |
-| S11 | Externalize LLM system prompts | 4 | 2 | **2.0** | ⚠️ Deferred |
+| S11 | Externalize LLM system prompts | 4 | 2 | **2.0** | ⚠️ Deferred — low urgency, prompts are stable |
 | S4 | Centralize Cypher queries | 5 | 3 | **1.7** | ✅ **Wave 3 Complete** |
 | S8 | Resolve dual pipeline ambiguity | 5 | 3 | **1.7** | ✅ **Wave 2 Complete** |
 
@@ -458,13 +468,13 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 |---|-----------|--------|--------|-------|--------|
 | S2 | ExtractorBase<T> shared base class | 7 | 5 | **1.4** | ✅ **Wave 1 Complete** |
 | S3 | Split extraction pipeline stages | 6 | 5 | **1.2** | ✅ **Wave 2 Complete** |
-| S12 | Observability for extraction/enrichment | 5 | 4 | **1.25** | 📅 Not started |
+| S12 | Observability for extraction/enrichment | 5 | 4 | **1.25** | 📅 Not started — priority increasing as extractors mature |
 
 ### Not Recommended
 
 | # | Suggestion | Why Not |
 |---|-----------|---------|
-| S7 | Split IEntityRepository | Impact too low for the breaking change. 13 methods is manageable. Accept the pragmatic tradeoff. |
+| S7 | Split IEntityRepository | Impact too low for the breaking change. The interface has grown further with Wave 4 additions (dedup/provenance methods) but remains cohesive — all methods operate on Entity domain objects. 17+ methods is manageable as a single domain repository. Accept the pragmatic tradeoff. |
 
 ### Completed (Removed from Active List)
 
@@ -813,7 +823,9 @@ opts.MemoryDecay.Curve = DecayCurve.Exponential;
 | C6 | Cross-Agent Memory Sharing | 8 | 7 | 5 | **6.7** |
 | C10 | Dream-like Recombination | 5 | 10 | 4 | **6.3** |
 
-**Recommended implementation order:** C5 (decay — simplest, highest feasibility) → C1 (provenance — builds on existing EXTRACTED_FROM) → C2 (conflicts — enables C4) → C9 (tool effectiveness — extends existing ToolCall) → C4 (temporal — requires C1/C2 infrastructure)
+**Recommended implementation order:** C5 (decay — simplest, highest feasibility) → C1 (provenance — builds on existing EXTRACTED_FROM + new `GetProvenanceAsync` from Wave 4) → C2 (conflicts — enables C4) → C9 (tool effectiveness — extends existing ToolCall + Tool aggregate) → C4 (temporal — requires C1/C2 infrastructure)
+
+> **Note (July 2025):** Wave 4 significantly improved the foundation for C1 (Memory Provenance Chains). We now have `GetEntityProvenance`, `GetExtractionStats`, `GetExtractorStats`, and `DeleteEntityProvenance` — all building blocks for full provenance chains. C9 (Tool Effectiveness) is also more feasible now that Tool aggregate nodes track `success_rate`-enabling metrics. The recommended order remains the same.
 
 ---
 

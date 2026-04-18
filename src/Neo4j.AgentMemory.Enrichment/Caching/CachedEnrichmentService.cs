@@ -33,7 +33,7 @@ public sealed class CachedEnrichmentService : IEnrichmentService
         string entityType,
         CancellationToken ct = default)
     {
-        var key = $"enrichment:{entityName.Trim().ToLowerInvariant()}:{entityType.Trim().ToLowerInvariant()}";
+        var key = $"enrichment:{_inner.GetType().Name}:{entityName.Trim().ToLowerInvariant()}:{entityType.Trim().ToLowerInvariant()}";
 
         if (_cache.TryGetValue(key, out EnrichmentResult? cached))
         {
