@@ -94,14 +94,19 @@ services.AddNeo4jAgentMemory(options => { ... });
 services.AddAgentMemoryCore(_ => { });
 services.AddSingleton<IClock, SystemClock>();
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>(); // swap for real provider
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>(); // swap for real generator
 
-// 3. MAF adapter (Neo4jMicrosoftMemoryFacade, Neo4jChatMessageStore, Neo4jMemoryContextProvider)
+// 3. MAF adapter (Neo4jMicrosoftMemoryFacade, Neo4jChatMessageStore, Neo4jMemoryContextProvider,
+//                Neo4jChatHistoryProvider)
 services.AddAgentMemoryFramework(options => { ... });
 
 // 4. Optional: register additional framework helpers
 services.AddScoped<AgentTraceRecorder>();
 services.AddScoped<MemoryToolFactory>();
+
+// 5. Wire MAF-compatible AI functions into your agent's tool list:
+//    var tools = toolFactory.CreateAIFunctions();
+//    var agent = chatClient.AsAIAgent(new ChatClientAgentOptions { ... }, tools: [..tools]);
 ```
 
-> **Note:** Replace `StubEmbeddingProvider` with a real embedding provider (e.g. `OpenAIEmbeddingProvider`) before using semantic search or LLM-driven extraction.
+> **Note:** Replace `StubEmbeddingGenerator` with a real `IEmbeddingGenerator<string, Embedding<float>>` (e.g. OpenAI `text-embedding-3-small`) before using semantic search or LLM-driven extraction.

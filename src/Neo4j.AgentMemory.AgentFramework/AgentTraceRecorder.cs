@@ -24,10 +24,10 @@ public sealed class AgentTraceRecorder
         IIdGenerator idGenerator,
         ILogger<AgentTraceRecorder> logger)
     {
-        _reasoningService = reasoningService;
-        _clock = clock;
-        _idGenerator = idGenerator;
-        _logger = logger;
+        _reasoningService = reasoningService ?? throw new ArgumentNullException(nameof(reasoningService));
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>Starts a new reasoning trace for an agent run.</summary>
@@ -37,7 +37,7 @@ public sealed class AgentTraceRecorder
         CancellationToken cancellationToken = default)
     {
         var trace = await _reasoningService.StartTraceAsync(
-            sessionId, task, cancellationToken: cancellationToken);
+            sessionId, task, cancellationToken: cancellationToken).ConfigureAwait(false);
         _stepCounts[trace.TraceId] = 0;
         return trace;
     }
@@ -50,6 +50,10 @@ public sealed class AgentTraceRecorder
         IReadOnlyDictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
     {
+        if (traceId is null) throw new ArgumentNullException(nameof(traceId));
+        if (stepType is null) throw new ArgumentNullException(nameof(stepType));
+        if (content is null) throw new ArgumentNullException(nameof(content));
+
         var stepNumber = _stepCounts.AddOrUpdate(traceId, 1, (_, n) => n + 1);
 
         string? thought = null, action = null, observation = null;
@@ -68,7 +72,7 @@ public sealed class AgentTraceRecorder
 
         return await _reasoningService.AddStepAsync(
             traceId, stepNumber, thought, action, observation,
-            metadata: metadata, cancellationToken: cancellationToken);
+            metadata: metadata, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Records a tool call within a reasoning step.</summary>
@@ -80,9 +84,13 @@ public sealed class AgentTraceRecorder
         ToolCallStatus status = ToolCallStatus.Success,
         CancellationToken cancellationToken = default)
     {
+        if (stepId is null) throw new ArgumentNullException(nameof(stepId));
+        if (toolName is null) throw new ArgumentNullException(nameof(toolName));
+        if (input is null) throw new ArgumentNullException(nameof(input));
+
         return await _reasoningService.RecordToolCallAsync(
             stepId, toolName, input, output, status,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Completes a trace and sets its outcome.</summary>
@@ -91,6 +99,9 @@ public sealed class AgentTraceRecorder
         string outcome,
         CancellationToken cancellationToken = default)
     {
+        if (traceId is null) throw new ArgumentNullException(nameof(traceId));
+        if (outcome is null) throw new ArgumentNullException(nameof(outcome));
+
         if (!_stepCounts.ContainsKey(traceId))
         {
             _logger.LogWarning(
@@ -98,7 +109,7 @@ public sealed class AgentTraceRecorder
         }
 
         await _reasoningService.CompleteTraceAsync(
-            traceId, outcome, cancellationToken: cancellationToken);
+            traceId, outcome, cancellationToken: cancellationToken).ConfigureAwait(false);
         _stepCounts.TryRemove(traceId, out _);
     }
 }

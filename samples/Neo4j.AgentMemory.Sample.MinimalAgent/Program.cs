@@ -117,14 +117,15 @@ static async Task RunDemoAsync(IServiceProvider rootServices)
     await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
     logger.LogInformation("    Messages persisted.");
 
-    // ── Step 4: Memory tools ────────────────────────────────────────────────────
-    // MemoryToolFactory.CreateTools() returns the six standard memory tools that
-    // can be registered with any MAF / function-calling-capable agent.
+    // ── Step 4: Memory tools — MAF-compatible AIFunction instances ──────────────
+    // MemoryToolFactory.CreateAIFunctions() returns the six standard memory tools as
+    // AIFunction instances compatible with ChatClientAgentOptions.ChatOptions.Tools
+    // or .AsAIAgent(tools: [...]) in MAF 1.1.0.
     var toolFactory = sp.GetRequiredService<MemoryToolFactory>();
-    var tools       = toolFactory.CreateTools();
-    logger.LogInformation("[4] Available memory tools ({Count}):", tools.Count);
-    foreach (var tool in tools)
-        logger.LogInformation("    • {Name} — {Description}", tool.Name, tool.Description);
+    var aiFunctions = toolFactory.CreateAIFunctions();
+    logger.LogInformation("[4] Available memory AIFunctions ({Count}):", aiFunctions.Count);
+    foreach (var fn in aiFunctions)
+        logger.LogInformation("    • {Name} — {Description}", fn.Name, fn.Description);
 
     // ── Step 5: Reasoning trace ─────────────────────────────────────────────────
     // AgentTraceRecorder captures agent reasoning steps (thought / action /

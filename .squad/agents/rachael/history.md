@@ -17,6 +17,23 @@
 
 ---
 
+## Recent Work (Wave 2, 2026-07 — MAF P1 Critical Fixes)
+
+**Sprint:** MAF Audit P1 Fixes — MemoryToolFactory AIFunctions, ChatHistoryProvider, AgentTraceRecorder hardening
+
+1. **[P1-1] `MemoryToolFactory.CreateAIFunctions()`** — Added `CreateAIFunctions()` returning `IReadOnlyList<AIFunction>` via `AIFunctionFactory.Create(delegate, name, description)`. 6 private tool methods with `[Description]`-attributed parameters. `CreateTools()` marked `[Obsolete]`. New tests: 5 AI function tests.
+
+2. **[P1-2] `Neo4jChatHistoryProvider : ChatHistoryProvider`** — New class implementing MAF 1.1.0's `ChatHistoryProvider`. Overrides `ProvideChatHistoryAsync(ValueTask<IEnumerable<ChatMessage>>)` and `StoreChatHistoryAsync(ValueTask)`. Registered in `AddAgentMemoryFramework()`. `conversationId` fallback uses `sessionId` (not a new GUID). 7 new tests.
+
+3. **[P1-3] Sample updates** — Both samples call `CreateAIFunctions()`. BlendedAgent duplicate `StubEmbeddingGenerator` removed. Both READMEs updated to replace stale `IEmbeddingProvider` references.
+
+4. **[P1-4] `AgentTraceRecorder` hardening** — Null guards on all 4 constructor params and 3 method string params. `ConfigureAwait(false)` on all awaited service calls.
+
+**Results:** 1419 unit tests pass. Build: 0 errors.
+
+---
+
+
 ## Learnings
 
 ### MAF Post-Run Lifecycle (2026-04-14)
@@ -119,4 +136,22 @@ Comprehensive ecosystem integration strategy assessment:
 - `IEmbeddingProvider` is used in 11 Core/AgentFramework files; migration to `IEmbeddingGenerator` is mechanical but touches many files.
 - Adding `Microsoft.Extensions.AI.Abstractions` to Abstractions.csproj adds ~100KB, zero new transitive deps (DI.Abstractions and System.Text.Json already in scope).
 - Full analysis written to `docs/meai-ecosystem-analysis.md`.
+
+### MAF P1 Critical Fixes Implementation (Wave 2, 2026-07)
+
+- **`AIFunctionFactory.Create` description discovery:** MEAI 10.4.1's `AIFunctionFactory.Create(Delegate, string name)` does NOT auto-derive the function description from the method. Use the 3-argument `Create(Delegate, name, description)` overload. Parameter-level `[Description]` attributes still work for schema generation.
+
+- **`AIFunction.Metadata` does not exist in MEAI 10.4.1.** Use `fn.Name` and `fn.Description` directly (inherited from `AITool`). The `.Metadata` property was from older MEAI preview versions.
+
+- **`ChatHistoryProvider` exact API in MAF 1.1.0 Abstractions:**
+  - Constructor: `base(Func<..>? provide, Func<..>? storeReq, Func<..>? storeResp)` — pass `null, null, null` for default behavior.
+  - Override `ProvideChatHistoryAsync`: returns `ValueTask<IEnumerable<ChatMessage>>` (NOT `Task<>`).
+  - Override `StoreChatHistoryAsync`: returns `ValueTask` (NOT `Task`).
+  - `StateKeys` property type: `IReadOnlyList<string>` (NOT `IReadOnlySet<string>`).
+  - `InvokingContext` has `.Agent`, `.Session`, `.RequestMessages`.
+  - `InvokedContext` has `.Agent`, `.Session`, `.RequestMessages`, `.ResponseMessages`, `.InvokeException`.
+
+- **`BackgroundEnrichmentQueueTests.EnqueueAsync_ProviderThrows_OtherProvidersStillCalled` is a pre-existing flaky test** (timing-sensitive concurrency test). Fails occasionally in full suite run but passes in isolation. Not caused by our changes.
+
+- **`AIFunctionArguments` constructor** in MEAI 10.4.1: `new AIFunctionArguments(IDictionary<string, object?> args)`. Used in tests to invoke `AIFunction` directly.
 

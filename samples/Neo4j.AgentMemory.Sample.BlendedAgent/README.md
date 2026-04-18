@@ -137,8 +137,7 @@ services.AddNeo4jAgentMemory(options => { ... });
 services.AddAgentMemoryCore(options => { options = options with { EnableGraphRag = true, ... }; });
 services.AddSingleton<IClock, SystemClock>();
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>();         // swap for real provider
-services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, ...>(); // swap for real generator
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>(); // swap for real generator
 
 // 3. GraphRAG adapter — BEFORE observability so the decorator wraps it
 services.AddGraphRagAdapter(options =>
@@ -147,12 +146,16 @@ services.AddGraphRagAdapter(options =>
     options.SearchMode  = GraphRagSearchMode.Hybrid;
 });
 
-// 4. MAF adapter
+// 4. MAF adapter (also registers Neo4jChatHistoryProvider for ChatClientAgentOptions)
 services.AddAgentMemoryFramework(options => { ... });
 
 // 5. Observability — LAST; decorates IMemoryService + IGraphRagContextSource
 services.AddAgentMemoryObservability();
+
+// 6. Wire MAF-compatible AI functions into your agent's tool list:
+//    var tools = toolFactory.CreateAIFunctions();
+//    var agent = chatClient.AsAIAgent(new ChatClientAgentOptions { ... }, tools: [..tools]);
 ```
 
 > **Note:** `AddAgentMemoryObservability()` must be called **after** the services it decorates are registered.  
-> Replace `StubEmbeddingProvider` and `StubEmbeddingGenerator` with real providers before using semantic search.
+> Replace `StubEmbeddingGenerator` with a real `IEmbeddingGenerator<string, Embedding<float>>` (e.g. OpenAI `text-embedding-3-small`) before using semantic search.

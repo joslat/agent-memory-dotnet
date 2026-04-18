@@ -497,31 +497,25 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 
 ### Priority 1 — Critical Fixes (must fix now)
 
-1. **[P1-1] Add `CreateAIFunctions()` to `MemoryToolFactory`**  
-   Create a second method alongside `CreateTools()` that returns `IReadOnlyList<AIFunction>` using `AIFunctionFactory.Create`. Each tool method needs a proper C# method signature with `[Description]` attributes. This unblocks actual MAF tool registration.
+1. **[P1-1] ✅ Done — Add `CreateAIFunctions()` to `MemoryToolFactory`**  
+   Added `CreateAIFunctions()` returning `IReadOnlyList<AIFunction>` using `AIFunctionFactory.Create(delegate, name, description)`. Each tool method has `[Description]` attributes on parameters for schema generation. `CreateTools()` marked `[Obsolete]`. Tests added.
 
-2. **[P1-2] Create `Neo4jChatHistoryProvider : ChatHistoryProvider`**  
-   Implement the `ChatHistoryProvider` subclass with `ProvideChatHistoryAsync` and `StoreChatHistoryAsync`, delegating to `IMemoryService`. Register it alongside `Neo4jChatMessageStore` in `AddAgentMemoryFramework`. This is the MAF-recommended interface for conversation storage.
+2. **[P1-2] ✅ Done — Create `Neo4jChatHistoryProvider : ChatHistoryProvider`**  
+   Created `Neo4jChatHistoryProvider` subclassing MAF 1.1.0 `ChatHistoryProvider`, overriding `ProvideChatHistoryAsync` (`ValueTask<IEnumerable<ChatMessage>>`) and `StoreChatHistoryAsync` (`ValueTask`). Registered in `AddAgentMemoryFramework` via `TryAddScoped`. Tests added (constructor null guards, StateKeys, IsAssignableTo).
 
-3. **[P1-3] Update MinimalAgent and BlendedAgent samples to use a real `AIAgent`**  
-   Add an optional "agent integration" block (gated on an env var, e.g., `OPENAI_API_KEY` present) that shows:
-   - Creating an `IChatClient`
-   - Creating a `Neo4jMemoryContextProvider` from DI
-   - Registering it in `ChatClientAgentOptions.AIContextProviders`
-   - Running actual multi-turn via `agent.RunAsync`
+3. **[P1-3] ✅ Done — Update MinimalAgent and BlendedAgent samples**  
+   Both samples now call `CreateAIFunctions()` instead of `CreateTools()`. BlendedAgent's duplicate local `StubEmbeddingGenerator` class removed. Both READMEs updated to replace `IEmbeddingProvider`/`StubEmbeddingProvider` with `IEmbeddingGenerator<string, Embedding<float>>`/`StubEmbeddingGenerator`.
 
-4. **[P1-4] Fix stale README documentation (both samples)**  
-   Replace all `IEmbeddingProvider`/`StubEmbeddingProvider` references with `IEmbeddingGenerator<string, Embedding<float>>`/`StubEmbeddingGenerator`.
+4. **[P1-4] ✅ Done — Add null guards and ConfigureAwait(false) to `AgentTraceRecorder`**  
+   All four constructor parameters now have `?? throw ArgumentNullException`. `ConfigureAwait(false)` added to all awaits. `RecordStepAsync`, `RecordToolCallAsync`, and `CompleteTraceAsync` also add null guards on string parameters.
 
-5. **[P1-5] Remove duplicate `StubEmbeddingGenerator` from BlendedAgent**  
-   Delete the local class definition (lines 261–293) and rely on `Core.Stubs.StubEmbeddingGenerator`.
+5. **[P1-5] ✅ Done (merged into P1-3) — Remove duplicate `StubEmbeddingGenerator` from BlendedAgent**
 
 ### Priority 2 — Important Improvements
 
-6. **[P2-1] Add null guards to `AgentTraceRecorder` constructor**  
-   Four `ArgumentNullException` guards — 5-minute fix, prevents confusing NREs.
+6. **[P2-1] ✅ Done (merged into P1-4) — Add null guards to `AgentTraceRecorder` constructor**
 
-7. **[P2-2] Rename `DefaultSessionIdHeader`/`DefaultConversationIdHeader` → `DefaultSessionIdKey`/`DefaultConversationIdKey`**  
+7. **[P2-2] Rename `DefaultSessionIdHeader`/`DefaultConversationIdHeader` → `DefaultSessionIdKey`/`DefaultConversationIdKey`**
    Update defaults to `"session_id"` / `"conversation_id"` to reflect StateBag semantics. This is a breaking change in options API — bump version comment or document it.
 
 8. **[P2-3] Fix `GetContextForRunAsync` dead `messages` parameter**  
@@ -530,8 +524,7 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 9. **[P2-4] Fix `conversationId` fallback to use `sessionId` instead of a new GUID**  
    Prevents memory isolation between turns when StateBag isn't populated.
 
-10. **[P2-5] Add `ConfigureAwait(false)` to `AgentTraceRecorder`**  
-    Consistency with the rest of the codebase.
+10. **[P2-5] ✅ Done (merged into P1-4) — Add `ConfigureAwait(false)` to `AgentTraceRecorder`**
 
 11. **[P2-6] Add `AgentTraceRecorder` + `MemoryToolFactory` to `AddAgentMemoryFramework`**  
     Reduce consumer confusion about what's auto-registered.

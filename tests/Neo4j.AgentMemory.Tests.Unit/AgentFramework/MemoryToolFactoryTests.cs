@@ -58,18 +58,85 @@ public sealed class MemoryToolFactoryTests
         NullLogger<MemoryToolFactory>.Instance);
 
     private MemoryTool GetTool(string name) =>
+#pragma warning disable CS0618
         CreateSut().CreateTools().Single(t => t.Name == name);
+#pragma warning restore CS0618
 
     [Fact]
     public void CreateTools_Returns6Tools()
     {
+#pragma warning disable CS0618
         var tools = CreateSut().CreateTools();
+#pragma warning restore CS0618
 
         tools.Should().HaveCount(6);
         tools.Select(t => t.Name).Should().BeEquivalentTo(
             "search_memory", "remember_preference", "remember_fact",
             "recall_preferences", "search_knowledge", "find_similar_tasks");
     }
+
+    // ── CreateAIFunctions ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void CreateAIFunctions_Returns6AIFunctions()
+    {
+        var functions = CreateSut().CreateAIFunctions();
+
+        functions.Should().HaveCount(6);
+        functions.Select(f => f.Name).Should().BeEquivalentTo(
+            "search_memory", "remember_preference", "remember_fact",
+            "recall_preferences", "search_knowledge", "find_similar_tasks");
+    }
+
+    [Fact]
+    public void CreateAIFunctions_AllHaveDescriptions()
+    {
+        var functions = CreateSut().CreateAIFunctions();
+
+        foreach (var fn in functions)
+            fn.Description.Should().NotBeNullOrWhiteSpace(
+                because: $"'{fn.Name}' must have a description for schema generation");
+    }
+
+    [Fact]
+    public async Task CreateAIFunctions_SearchMemory_InvokesEmbeddingAndSearch()
+    {
+        var fn = CreateSut().CreateAIFunctions().Single(f => f.Name == "search_memory");
+
+        await fn.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments(
+            new Dictionary<string, object?> { ["query"] = "find Alice" }));
+
+        await _embeddingOrchestrator.Received(1).EmbedQueryAsync("find Alice", Arg.Any<CancellationToken>());
+        await _longTermService.Received(1).SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAIFunctions_RememberPreference_PersistsPreference()
+    {
+        var fn = CreateSut().CreateAIFunctions().Single(f => f.Name == "remember_preference");
+
+        await fn.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments(
+            new Dictionary<string, object?> { ["preferenceText"] = "Prefers dark mode", ["category"] = "style" }));
+
+        await _longTermService.Received(1).AddPreferenceAsync(
+            Arg.Is<Preference>(p => p.Category == "style" && p.PreferenceText == "Prefers dark mode"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateAIFunctions_RememberFact_PersistsFact()
+    {
+        var fn = CreateSut().CreateAIFunctions().Single(f => f.Name == "remember_fact");
+
+        await fn.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments(
+            new Dictionary<string, object?> { ["subject"] = "Alice", ["predicate"] = "works_at", ["object"] = "Acme" }));
+
+        await _longTermService.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Subject == "Alice" && f.Predicate == "works_at" && f.Object == "Acme"),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── Legacy CreateTools tests (kept for backward compatibility) ────────────
 
     [Fact]
     public async Task SearchMemory_WithQuery_CallsEmbeddingAndSearch()

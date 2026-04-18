@@ -161,12 +161,12 @@ static async Task RunDemoAsync(IServiceProvider rootServices)
     await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
     logger.LogInformation("    Messages persisted.");
 
-    // ── Step 3: Memory tools ────────────────────────────────────────────────────
+    // ── Step 3: Memory tools — MAF-compatible AIFunction instances ──────────────
     var toolFactory = sp.GetRequiredService<MemoryToolFactory>();
-    var tools = toolFactory.CreateTools();
-    logger.LogInformation("[3] Available memory tools ({Count}):", tools.Count);
-    foreach (var tool in tools)
-        logger.LogInformation("    • {Name} — {Description}", tool.Name, tool.Description);
+    var aiFunctions = toolFactory.CreateAIFunctions();
+    logger.LogInformation("[3] Available memory AIFunctions ({Count}):", aiFunctions.Count);
+    foreach (var fn in aiFunctions)
+        logger.LogInformation("    • {Name} — {Description}", fn.Name, fn.Description);
 
     // ── Step 4: Reasoning trace ─────────────────────────────────────────────────
     logger.LogInformation("[4] Recording a reasoning trace…");
@@ -255,39 +255,5 @@ static async Task DemoGraphRagOnlyAsync(
 }
 
 // =============================================================================
-// Stub IEmbeddingGenerator — deterministic random vectors for compilation only.
-// Replace with a real provider (e.g. OpenAI text-embedding-3-small) before use.
+// End of sample
 // =============================================================================
-internal sealed class StubEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
-{
-    private const int Dimensions = 1536;
-
-    public EmbeddingGeneratorMetadata Metadata { get; } =
-        new("stub", providerUri: null, defaultModelId: "stub-embedding-1536");
-
-    public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
-        IEnumerable<string> values,
-        EmbeddingGenerationOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        var list = values
-            .Select(v => new Embedding<float>(GenerateVector(v)))
-            .ToList();
-        return Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(list));
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey)
-        => serviceType.IsInstanceOfType(this) ? this : null;
-
-    public void Dispose() { }
-
-    private static ReadOnlyMemory<float> GenerateVector(string text)
-    {
-        var seed = text.GetHashCode();
-        var rng = new Random(seed);
-        var vector = new float[Dimensions];
-        for (var i = 0; i < Dimensions; i++)
-            vector[i] = (float)(rng.NextDouble() * 2.0 - 1.0);
-        return vector;
-    }
-}

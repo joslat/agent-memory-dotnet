@@ -37,6 +37,14 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<Neo4jChatMessageStore>();
         services.TryAddScoped<Neo4jMicrosoftMemoryFacade>();
 
+        // MAF 1.1.0 ChatHistoryProvider for plugging into ChatClientAgentOptions.ChatHistoryProvider.
+        // Registered as a scoped concrete type; consumers wire it into their agent options explicitly.
+        services.TryAddScoped<Neo4jChatHistoryProvider>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<AgentFrameworkOptions>>().Value;
+            return ActivatorUtilities.CreateInstance<Neo4jChatHistoryProvider>(sp, opts);
+        });
+
         return services;
     }
 }
