@@ -28,4 +28,7 @@ public sealed record MemoryOptions
 
     /// <summary>Extraction pipeline configuration.</summary>
     public ExtractionOptions Extraction { get; init; } = new();
+
+    /// <summary>Memory decay and forgetting configuration.</summary>
+    public MemoryDecayOptions MemoryDecay { get; init; } = MemoryDecayOptions.Default;
 }

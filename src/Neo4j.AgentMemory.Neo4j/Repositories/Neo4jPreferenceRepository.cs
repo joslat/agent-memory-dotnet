@@ -219,6 +219,34 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Temporal vector search preferences as of {AsOf}, limit={Limit}", asOf, limit);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(TemporalQueries.SearchPreferencesAsOf, new
+            {
+                embedding = queryEmbedding.ToList(),
+                limit,
+                minScore,
+                asOf = asOf.UtcDateTime.ToString("O")
+            });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node  = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToPreference(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken);
+    }
+
     private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
         => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
 

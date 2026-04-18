@@ -43,4 +43,14 @@ public interface IPreferenceRepository
 
     /// <summary>Sets the embedding vector on an existing preference node.</summary>
     Task UpdateEmbeddingAsync(string preferenceId, float[] embedding, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches preferences by vector similarity, returning only those that existed at <paramref name="asOf"/>.
+    /// </summary>
+    Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default);
 }

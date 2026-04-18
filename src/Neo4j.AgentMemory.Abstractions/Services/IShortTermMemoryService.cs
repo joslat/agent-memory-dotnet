@@ -62,4 +62,13 @@ public interface IShortTermMemoryService
     Task ClearSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets recent messages for a session that existed at a specific point in time.
+    /// </summary>
+    Task<IReadOnlyList<Message>> GetRecentMessagesAsOfAsync(
+        string sessionId,
+        DateTimeOffset asOf,
+        int limit = 10,
+        CancellationToken cancellationToken = default);
 }

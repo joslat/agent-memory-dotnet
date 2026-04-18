@@ -45,6 +45,34 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         }
     }
 
+    public async Task<RecallResult> RecallAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset asOf,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = MemoryActivitySource.Instance.StartActivity("memory.recall_as_of");
+        activity?.SetTag("memory.session_id", request.SessionId);
+        activity?.SetTag("memory.as_of", asOf.ToString("O"));
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await _inner.RecallAsOfAsync(request, asOf, cancellationToken);
+            _metrics.RecallRequests.Add(1);
+            activity?.SetTag("memory.recall.total_items", result.TotalItemsRetrieved);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+        finally
+        {
+            _metrics.RecallDurationMs.Record(sw.Elapsed.TotalMilliseconds);
+        }
+    }
+
     public async Task<Message> AddMessageAsync(
         string sessionId,
         string conversationId,

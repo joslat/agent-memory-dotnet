@@ -15,6 +15,16 @@ public interface IMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Recalls memory context as it existed at a specific point in time.
+    /// Only entities, facts, and preferences that were created on or before <paramref name="asOf"/>
+    /// and had not been invalidated by that time are included.
+    /// </summary>
+    Task<RecallResult> RecallAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset asOf,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Adds a message to short-term memory.
     /// </summary>
     Task<Message> AddMessageAsync(

@@ -66,6 +66,11 @@ public static class ServiceCollectionExtensions
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();
 
+        // Memory decay service — scoring and pruning of stale memories.
+        services.TryAddSingleton<IOptions<MemoryDecayOptions>>(sp =>
+            Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.MemoryDecay));
+        services.TryAddScoped<IMemoryDecayService, MemoryDecayService>();
+
         // Stub extractors as no-op defaults; replaced when AddLlmExtraction() is called.
         services.TryAddScoped<IEntityExtractor, StubEntityExtractor>();
         services.TryAddScoped<IFactExtractor, StubFactExtractor>();

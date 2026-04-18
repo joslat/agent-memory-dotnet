@@ -137,4 +137,14 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         foreach (var conversation in conversations)
             await _conversationRepo.DeleteAsync(conversation.ConversationId, cancellationToken);
     }
+
+    public async Task<IReadOnlyList<Message>> GetRecentMessagesAsOfAsync(
+        string sessionId,
+        DateTimeOffset asOf,
+        int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var cappedLimit = Math.Min(limit, _options.MaxMessagesPerQuery);
+        return await _messageRepo.GetRecentBySessionAsOfAsync(sessionId, asOf, cappedLimit, cancellationToken);
+    }
 }

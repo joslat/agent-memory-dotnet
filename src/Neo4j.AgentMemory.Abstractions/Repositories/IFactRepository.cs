@@ -49,4 +49,14 @@ public interface IFactRepository
 
     /// <summary>Finds existing facts matching the subject-predicate-object triple.</summary>
     Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches facts by vector similarity, returning only those valid at <paramref name="asOf"/>.
+    /// </summary>
+    Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default);
 }

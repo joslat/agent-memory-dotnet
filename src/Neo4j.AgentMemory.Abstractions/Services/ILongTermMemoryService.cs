@@ -97,4 +97,34 @@ public interface ILongTermMemoryService
     Task DeletePreferenceAsync(
         string preferenceId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches entities semantically, returning only those that existed at <paramref name="asOf"/>.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> SearchEntitiesAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches facts semantically, returning only those valid at <paramref name="asOf"/>.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches preferences semantically, returning only those that existed at <paramref name="asOf"/>.
+    /// </summary>
+    Task<IReadOnlyList<Preference>> SearchPreferencesAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default);
 }

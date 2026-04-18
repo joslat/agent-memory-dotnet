@@ -535,6 +535,34 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, ct);
     }
 
+    public async Task<IReadOnlyList<(Entity Entity, double Score)>> SearchByVectorAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Temporal vector search entities as of {AsOf}, limit={Limit}", asOf, limit);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(TemporalQueries.SearchEntitiesAsOf, new
+            {
+                embedding = queryEmbedding.ToList(),
+                limit,
+                minScore,
+                asOf = asOf.UtcDateTime.ToString("O")
+            });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node  = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToEntity(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken);
+    }
+
     private static float[]? ReadEmbedding(INode node)
     {
         if (!node.Properties.TryGetValue("embedding", out var ev) || ev is null) return null;

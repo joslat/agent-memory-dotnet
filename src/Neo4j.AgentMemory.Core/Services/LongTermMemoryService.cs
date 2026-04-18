@@ -154,4 +154,37 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         _logger.LogDebug("Deleting preference {PreferenceId}", preferenceId);
         return _prefRepo.DeleteAsync(preferenceId, cancellationToken);
     }
+
+    public async Task<IReadOnlyList<Entity>> SearchEntitiesAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default)
+    {
+        var scored = await _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, cancellationToken);
+        return scored.Select(r => r.Entity).ToList();
+    }
+
+    public async Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default)
+    {
+        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, cancellationToken);
+        return scored.Select(r => r.Fact).ToList();
+    }
+
+    public async Task<IReadOnlyList<Preference>> SearchPreferencesAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default)
+    {
+        var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, cancellationToken);
+        return scored.Select(r => r.Preference).ToList();
+    }
 }

@@ -19,6 +19,7 @@ public sealed class MemoryService : IMemoryService
     private readonly IFactRepository _factRepository;
     private readonly IPreferenceRepository _preferenceRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
+    private readonly IMemoryDecayService? _decayService;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -35,7 +36,8 @@ public sealed class MemoryService : IMemoryService
         IOptions<MemoryOptions> options,
         IClock clock,
         IIdGenerator idGenerator,
-        ILogger<MemoryService> logger)
+        ILogger<MemoryService> logger,
+        IMemoryDecayService? decayService = null)
     {
         _shortTerm = shortTerm;
         _assembler = assembler;
@@ -48,6 +50,7 @@ public sealed class MemoryService : IMemoryService
         _clock = clock;
         _idGenerator = idGenerator;
         _logger = logger;
+        _decayService = decayService;
     }
 
     public async Task<RecallResult> RecallAsync(
@@ -56,6 +59,12 @@ public sealed class MemoryService : IMemoryService
     {
         _logger.LogDebug("Recalling memory for session {SessionId}", request.SessionId);
         var context = await _assembler.AssembleContextAsync(request, cancellationToken);
+
+        // Fire-and-forget: update access timestamps for recalled long-term memories
+        if (_decayService is not null)
+        {
+            _ = UpdateAccessTimestampsAsync(context);
+        }
 
         int totalItems = context.RecentMessages.Items.Count
             + context.RelevantMessages.Items.Count
@@ -83,6 +92,27 @@ public sealed class MemoryService : IMemoryService
             Context = context,
             TotalItemsRetrieved = totalItems,
             EstimatedTokenCount = estimatedTokens
+        };
+    }
+
+    public async Task<RecallResult> RecallAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset asOf,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Recalling memory for session {SessionId} as of {AsOf}", request.SessionId, asOf);
+        var context = await _assembler.AssembleContextAsOfAsync(request, asOf, cancellationToken);
+
+        int totalItems = context.RecentMessages.Items.Count
+            + context.RelevantEntities.Items.Count
+            + context.RelevantPreferences.Items.Count
+            + context.RelevantFacts.Items.Count;
+
+        return new RecallResult
+        {
+            Context = context,
+            TotalItemsRetrieved = totalItems,
+            Metadata = new Dictionary<string, object> { ["asOf"] = asOf }
         };
     }
 
@@ -241,5 +271,28 @@ public sealed class MemoryService : IMemoryService
 
         _logger.LogInformation("Back-filled embeddings for {Count} Preference nodes.", total);
         return total;
+    }
+
+    private async Task UpdateAccessTimestampsAsync(MemoryContext context)
+    {
+        try
+        {
+            var tasks = new List<Task>();
+
+            foreach (var entity in context.RelevantEntities.Items)
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(entity.EntityId, "Entity"));
+
+            foreach (var fact in context.RelevantFacts.Items)
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(fact.FactId, "Fact"));
+
+            foreach (var pref in context.RelevantPreferences.Items)
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, "Preference"));
+
+            await Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update access timestamps for recalled memories");
+        }
     }
 }

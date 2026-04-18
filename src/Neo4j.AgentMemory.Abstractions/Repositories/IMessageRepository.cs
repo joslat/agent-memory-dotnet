@@ -62,6 +62,15 @@ public interface IMessageRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets recent messages for a session that existed at a specific point in time.
+    /// </summary>
+    Task<IReadOnlyList<Message>> GetRecentBySessionAsOfAsync(
+        string sessionId,
+        DateTimeOffset asOf,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes a single message by identifier.
     /// When <paramref name="cascade"/> is true, all relationships are removed (DETACH DELETE).
     /// When false, only the node is deleted (relationships must already be removed).

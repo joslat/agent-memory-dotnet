@@ -141,6 +141,58 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         return context;
     }
 
+    public async Task<MemoryContext> AssembleContextAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset asOf,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Assembling temporal memory context for session {SessionId} as of {AsOf}", request.SessionId, asOf);
+
+        var recallOpts = request.Options;
+        var minScore = recallOpts.MinSimilarityScore;
+
+        var queryEmbedding = request.QueryEmbedding
+            ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
+
+        var recentTask = _shortTerm.GetRecentMessagesAsOfAsync(
+            request.SessionId, asOf, recallOpts.MaxRecentMessages, cancellationToken);
+
+        var entitiesTask = _longTerm.SearchEntitiesAsOfAsync(
+            queryEmbedding, asOf, recallOpts.MaxEntities, minScore, cancellationToken);
+
+        var preferencesTask = _longTerm.SearchPreferencesAsOfAsync(
+            queryEmbedding, asOf, recallOpts.MaxPreferences, minScore, cancellationToken);
+
+        var factsTask = _longTerm.SearchFactsAsOfAsync(
+            queryEmbedding, asOf, recallOpts.MaxFacts, minScore, cancellationToken);
+
+        await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask);
+
+        var recentMessages = await recentTask;
+        var entities = await entitiesTask;
+        var preferences = await preferencesTask;
+        var facts = await factsTask;
+
+        var context = new MemoryContext
+        {
+            SessionId = request.SessionId,
+            AssembledAtUtc = _clock.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
+            RelevantMessages = MemoryContextSection<Message>.Empty,
+            RelevantEntities = new MemoryContextSection<Entity> { Items = entities },
+            RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
+            RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
+            SimilarTraces = MemoryContextSection<ReasoningTrace>.Empty,
+            Metadata = new Dictionary<string, object> { ["asOf"] = asOf }
+        };
+
+        _logger.LogDebug(
+            "Assembled temporal context for session {SessionId} as of {AsOf}: {Entities} entities, {Facts} facts, {Prefs} preferences",
+            request.SessionId, asOf, entities.Count, facts.Count, preferences.Count);
+
+        return context;
+    }
+
     private async Task<GraphRagContextResult?> FetchGraphRagAsync(
         RecallRequest request,
         RecallOptions recallOpts,

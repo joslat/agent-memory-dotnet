@@ -238,6 +238,31 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         }, ct);
     }
 
+    public async Task<IReadOnlyList<Message>> GetRecentBySessionAsOfAsync(
+        string sessionId,
+        DateTimeOffset asOf,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting recent messages for session {SessionId} as of {AsOf}, limit={Limit}", sessionId, asOf, limit);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(TemporalQueries.GetRecentMessagesAsOf, new
+            {
+                sessionId,
+                asOf = asOf.UtcDateTime.ToString("O"),
+                limit
+            });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["m"].As<INode>();
+                return MapToMessage(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken);
+    }
+
     private static Message MapToMessage(INode node, float[]? embedding) =>
         new()
         {

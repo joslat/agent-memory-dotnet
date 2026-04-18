@@ -132,4 +132,14 @@ public interface IEntityRepository
     /// Gets all entities extracted from a specific message.
     /// </summary>
     Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(string messageId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Searches entities by vector similarity, returning only those that existed at <paramref name="asOf"/>.
+    /// </summary>
+    Task<IReadOnlyList<(Entity Entity, double Score)>> SearchByVectorAsOfAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit = 10,
+        double minScore = 0.0,
+        CancellationToken cancellationToken = default);
 }

@@ -13,4 +13,12 @@ public interface IMemoryContextAssembler
     Task<MemoryContext> AssembleContextAsync(
         RecallRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Assembles memory context as it existed at a specific point in time.
+    /// </summary>
+    Task<MemoryContext> AssembleContextAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset asOf,
+        CancellationToken cancellationToken = default);
 }
