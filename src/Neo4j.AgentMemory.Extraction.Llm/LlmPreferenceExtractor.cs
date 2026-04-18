@@ -17,7 +17,7 @@ public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>,
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
 
-    private const string SystemPrompt =
+    public const string DefaultSystemPrompt =
         """
         You are a preference extraction assistant. Identify user preferences, likes, dislikes,
         and stated requirements from the conversation.
@@ -55,7 +55,7 @@ public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>,
 
         var chatMessages = new List<ChatMessage>
         {
-            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.System, _options.PreferenceExtractionPrompt ?? DefaultSystemPrompt),
             new(ChatRole.User, $"Extract preferences from this conversation:\n\n{conversationText}")
         };
 

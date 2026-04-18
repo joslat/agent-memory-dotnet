@@ -25,4 +25,28 @@ public sealed class LlmExtractionOptions
     /// </summary>
     public IReadOnlyList<string> EntityTypes { get; set; } =
         new[] { "PERSON", "ORGANIZATION", "LOCATION", "EVENT", "OBJECT" };
+
+    /// <summary>
+    /// Optional override for the entity extractor system prompt.
+    /// When null the extractor's built-in default prompt is used.
+    /// </summary>
+    public string? EntityExtractionPrompt { get; set; }
+
+    /// <summary>
+    /// Optional override for the fact extractor system prompt.
+    /// When null the extractor's built-in default prompt is used.
+    /// </summary>
+    public string? FactExtractionPrompt { get; set; }
+
+    /// <summary>
+    /// Optional override for the relationship extractor system prompt.
+    /// When null the extractor's built-in default prompt is used.
+    /// </summary>
+    public string? RelationshipExtractionPrompt { get; set; }
+
+    /// <summary>
+    /// Optional override for the preference extractor system prompt.
+    /// When null the extractor's built-in default prompt is used.
+    /// </summary>
+    public string? PreferenceExtractionPrompt { get; set; }
 }

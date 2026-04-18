@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Convenience meta-package for Neo4j Agent Memory. References all essential assemblies so consumers only need a single package reference.</Description>
+    <Authors>Neo4j</Authors>
+    <PackageTags>neo4j;agent-memory;ai;llm;memory;graphrag</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Neo4j.AgentMemory.Abstractions\Neo4j.AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="..\Neo4j.AgentMemory.Core\Neo4j.AgentMemory.Core.csproj" />
+    <ProjectReference Include="..\Neo4j.AgentMemory.Neo4j\Neo4j.AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\Neo4j.AgentMemory.Extraction.Llm\Neo4j.AgentMemory.Extraction.Llm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
+  </ItemGroup>
+
+</Project>

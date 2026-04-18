@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Semantic Kernel adapter for Neo4j Agent Memory.</Description>
+    <Authors>Neo4j</Authors>
+    <PackageTags>neo4j;agent-memory;semantic-kernel;ai;rag</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Neo4j.AgentMemory.Tests.Unit.SemanticKernel" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Neo4j.AgentMemory.Abstractions\Neo4j.AgentMemory.Abstractions.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.74.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
+  </ItemGroup>
+</Project>

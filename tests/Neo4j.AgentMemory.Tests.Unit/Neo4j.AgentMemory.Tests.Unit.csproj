@@ -33,6 +33,7 @@
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Extraction.AzureLanguage\Neo4j.AgentMemory.Extraction.AzureLanguage.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.Enrichment\Neo4j.AgentMemory.Enrichment.csproj" />
     <ProjectReference Include="..\..\src\Neo4j.AgentMemory.McpServer\Neo4j.AgentMemory.McpServer.csproj" />
+    <ProjectReference Include="..\..\src\Neo4j.AgentMemory\Neo4j.AgentMemory.csproj" />
   </ItemGroup>
 
 </Project>

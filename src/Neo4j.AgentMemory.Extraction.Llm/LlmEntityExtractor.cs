@@ -17,7 +17,7 @@ public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntity
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
 
-    private const string SystemPrompt =
+    public const string DefaultSystemPrompt =
         """
         You are an entity extraction assistant. Extract named entities from the conversation.
         Return JSON only — no markdown, no explanation.
@@ -60,7 +60,7 @@ public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntity
 
         var chatMessages = new List<ChatMessage>
         {
-            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.System, _options.EntityExtractionPrompt ?? DefaultSystemPrompt),
             new(ChatRole.User, $"Extract entities from this conversation:\n\n{conversationText}")
         };
 

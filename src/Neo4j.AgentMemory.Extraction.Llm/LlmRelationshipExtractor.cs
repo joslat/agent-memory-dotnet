@@ -17,7 +17,7 @@ public sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelationsh
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
 
-    private const string SystemPrompt =
+    public const string DefaultSystemPrompt =
         """
         You are a relationship extraction assistant. Identify relationships between named entities
         in the conversation.
@@ -55,7 +55,7 @@ public sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelationsh
 
         var chatMessages = new List<ChatMessage>
         {
-            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.System, _options.RelationshipExtractionPrompt ?? DefaultSystemPrompt),
             new(ChatRole.User, $"Extract relationships from this conversation:\n\n{conversationText}")
         };
 

@@ -73,6 +73,43 @@ public sealed class MemoryMetrics
             "memory.context_assembly.duration",
             unit: "ms",
             description: "Duration of context assembly operations in milliseconds");
+
+        EntityExtractionDurationMs = _meter.CreateHistogram<double>(
+            "memory.entity_extraction.duration",
+            unit: "ms",
+            description: "Duration of entity extraction operations in milliseconds");
+
+        FactExtractionDurationMs = _meter.CreateHistogram<double>(
+            "memory.fact_extraction.duration",
+            unit: "ms",
+            description: "Duration of fact extraction operations in milliseconds");
+
+        PreferenceExtractionDurationMs = _meter.CreateHistogram<double>(
+            "memory.preference_extraction.duration",
+            unit: "ms",
+            description: "Duration of preference extraction operations in milliseconds");
+
+        RelationshipExtractionDurationMs = _meter.CreateHistogram<double>(
+            "memory.relationship_extraction.duration",
+            unit: "ms",
+            description: "Duration of relationship extraction operations in milliseconds");
+
+        RelationshipsExtracted = _meter.CreateCounter<long>(
+            "memory.relationships.extracted",
+            description: "Number of relationships extracted from messages");
+
+        EnrichmentRequests = _meter.CreateCounter<long>(
+            "memory.enrichment.requests",
+            description: "Number of enrichment requests performed");
+
+        EnrichmentErrors = _meter.CreateCounter<long>(
+            "memory.enrichment.errors",
+            description: "Number of enrichment operations that failed");
+
+        EnrichmentDurationMs = _meter.CreateHistogram<double>(
+            "memory.enrichment.duration",
+            unit: "ms",
+            description: "Duration of enrichment operations in milliseconds");
     }
 
     // Counters
@@ -114,4 +151,28 @@ public sealed class MemoryMetrics
 
     /// <summary>Duration of context assembly operations in milliseconds.</summary>
     public Histogram<double> ContextAssemblyDurationMs { get; }
+
+    /// <summary>Duration of entity extraction operations in milliseconds.</summary>
+    public Histogram<double> EntityExtractionDurationMs { get; }
+
+    /// <summary>Duration of fact extraction operations in milliseconds.</summary>
+    public Histogram<double> FactExtractionDurationMs { get; }
+
+    /// <summary>Duration of preference extraction operations in milliseconds.</summary>
+    public Histogram<double> PreferenceExtractionDurationMs { get; }
+
+    /// <summary>Duration of relationship extraction operations in milliseconds.</summary>
+    public Histogram<double> RelationshipExtractionDurationMs { get; }
+
+    /// <summary>Number of relationships extracted from messages.</summary>
+    public Counter<long> RelationshipsExtracted { get; }
+
+    /// <summary>Number of enrichment requests performed.</summary>
+    public Counter<long> EnrichmentRequests { get; }
+
+    /// <summary>Number of enrichment operations that failed.</summary>
+    public Counter<long> EnrichmentErrors { get; }
+
+    /// <summary>Duration of enrichment operations in milliseconds.</summary>
+    public Histogram<double> EnrichmentDurationMs { get; }
 }

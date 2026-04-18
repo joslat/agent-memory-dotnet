@@ -24,6 +24,11 @@ public static class ServiceCollectionExtensions
 
         DecorateMemoryService(services);
         DecorateGraphRagContextSource(services);
+        DecorateEntityExtractor(services);
+        DecorateFactExtractor(services);
+        DecoratePreferenceExtractor(services);
+        DecorateRelationshipExtractor(services);
+        DecorateEnrichmentService(services);
 
         return services;
     }
@@ -104,5 +109,85 @@ public static class ServiceCollectionExtensions
         throw new InvalidOperationException(
             $"Cannot resolve inner service for {typeof(T).Name}. " +
             "The service descriptor has no implementation instance, factory, or type.");
+    }
+
+    private static void DecorateEntityExtractor(IServiceCollection services)
+    {
+        var descriptor = FindDescriptor<IEntityExtractor>(services);
+        if (descriptor is null) return;
+        services.Remove(descriptor);
+        services.Add(new ServiceDescriptor(
+            typeof(IEntityExtractor),
+            provider =>
+            {
+                var inner = CreateInstance<IEntityExtractor>(provider, descriptor);
+                var metrics = provider.GetRequiredService<MemoryMetrics>();
+                return new InstrumentedEntityExtractor(inner, metrics);
+            },
+            descriptor.Lifetime));
+    }
+
+    private static void DecorateFactExtractor(IServiceCollection services)
+    {
+        var descriptor = FindDescriptor<IFactExtractor>(services);
+        if (descriptor is null) return;
+        services.Remove(descriptor);
+        services.Add(new ServiceDescriptor(
+            typeof(IFactExtractor),
+            provider =>
+            {
+                var inner = CreateInstance<IFactExtractor>(provider, descriptor);
+                var metrics = provider.GetRequiredService<MemoryMetrics>();
+                return new InstrumentedFactExtractor(inner, metrics);
+            },
+            descriptor.Lifetime));
+    }
+
+    private static void DecoratePreferenceExtractor(IServiceCollection services)
+    {
+        var descriptor = FindDescriptor<IPreferenceExtractor>(services);
+        if (descriptor is null) return;
+        services.Remove(descriptor);
+        services.Add(new ServiceDescriptor(
+            typeof(IPreferenceExtractor),
+            provider =>
+            {
+                var inner = CreateInstance<IPreferenceExtractor>(provider, descriptor);
+                var metrics = provider.GetRequiredService<MemoryMetrics>();
+                return new InstrumentedPreferenceExtractor(inner, metrics);
+            },
+            descriptor.Lifetime));
+    }
+
+    private static void DecorateRelationshipExtractor(IServiceCollection services)
+    {
+        var descriptor = FindDescriptor<IRelationshipExtractor>(services);
+        if (descriptor is null) return;
+        services.Remove(descriptor);
+        services.Add(new ServiceDescriptor(
+            typeof(IRelationshipExtractor),
+            provider =>
+            {
+                var inner = CreateInstance<IRelationshipExtractor>(provider, descriptor);
+                var metrics = provider.GetRequiredService<MemoryMetrics>();
+                return new InstrumentedRelationshipExtractor(inner, metrics);
+            },
+            descriptor.Lifetime));
+    }
+
+    private static void DecorateEnrichmentService(IServiceCollection services)
+    {
+        var descriptor = FindDescriptor<IEnrichmentService>(services);
+        if (descriptor is null) return;
+        services.Remove(descriptor);
+        services.Add(new ServiceDescriptor(
+            typeof(IEnrichmentService),
+            provider =>
+            {
+                var inner = CreateInstance<IEnrichmentService>(provider, descriptor);
+                var metrics = provider.GetRequiredService<MemoryMetrics>();
+                return new InstrumentedEnrichmentService(inner, metrics);
+            },
+            descriptor.Lifetime));
     }
 }

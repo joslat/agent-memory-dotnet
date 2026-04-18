@@ -17,7 +17,7 @@ public sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtrac
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
 
-    private const string SystemPrompt =
+    public const string DefaultSystemPrompt =
         """
         You are a fact extraction assistant. Extract factual statements from the conversation.
         Return JSON only — no markdown, no explanation.
@@ -56,7 +56,7 @@ public sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtrac
 
         var chatMessages = new List<ChatMessage>
         {
-            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.System, _options.FactExtractionPrompt ?? DefaultSystemPrompt),
             new(ChatRole.User, $"Extract facts from this conversation:\n\n{conversationText}")
         };
 

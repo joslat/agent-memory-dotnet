@@ -20,9 +20,12 @@
     <Project Path="src/Neo4j.AgentMemory.Extraction.Llm/Neo4j.AgentMemory.Extraction.Llm.csproj" />
     <Project Path="src/Neo4j.AgentMemory.Observability/Neo4j.AgentMemory.Observability.csproj" />
     <Project Path="src/Neo4j.AgentMemory.McpServer/Neo4j.AgentMemory.McpServer.csproj" />
+    <Project Path="src/Neo4j.AgentMemory/Neo4j.AgentMemory.csproj" />
+    <Project Path="src/Neo4j.AgentMemory.SemanticKernel/Neo4j.AgentMemory.SemanticKernel.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Neo4j.AgentMemory.Tests.Integration/Neo4j.AgentMemory.Tests.Integration.csproj" />
     <Project Path="tests/Neo4j.AgentMemory.Tests.Unit/Neo4j.AgentMemory.Tests.Unit.csproj" />
+    <Project Path="tests/Neo4j.AgentMemory.Tests.Unit.SemanticKernel/Neo4j.AgentMemory.Tests.Unit.SemanticKernel.csproj" />
   </Folder>
 </Solution>
