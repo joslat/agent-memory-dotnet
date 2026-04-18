@@ -28,6 +28,24 @@
 
 ## Learnings
 
+### 2026-07-19 — HotChocolate.Data.Neo4J Deep Dive
+
+Completed architectural study of ChilliCream's HotChocolate.Data.Neo4J (v13.9.16, ~106 source files, tag 13.9.16 on ChilliCream/graphql-platform). Key findings:
+
+1. **Cypher AST/DSL (63 files)** — Full Visitor-pattern Cypher builder with AST nodes for every clause type. Impressive engineering, correct for dynamic GraphQL→Cypher translation, but overkill for our fixed query set (~30 known queries).
+
+2. **Composable With* Pipeline** — `INeo4JExecutable.WithFiltering().WithSorting().WithProjection()` pattern is elegant. Worth adopting for our dynamic queries (vector search + optional filters).
+
+3. **N+1 Pagination** — Request `pageSize+1`, detect `hasNextPage` without COUNT. Easy win to halve pagination round-trips.
+
+4. **Snapshot Testing for Cypher** — They capture generated Cypher in test context and snapshot-verify it. Good regression guard we should add.
+
+5. **Our infrastructure is stronger** — Their session management is minimal (RunAsync only, no transactions). Our `INeo4jTransactionRunner` with read/write separation, factory pattern, and options configuration is production-grade.
+
+**Output:** `docs/HotChocolate.Data.Neo4J-lessons-learned-and-ideas-to-apply.md` (comprehensive analysis)  
+**Decisions:** `D-HC-1` through `D-HC-4` proposed in decisions inbox  
+**Key insight:** Cherry-pick pragmatic patterns (N+1 paging, query builder for dynamic queries, snapshot testing) without the 63-file DSL complexity.
+
 ### 2025-01-28 — Phase 1 Onboarding Analysis
 
 Conducted comprehensive architecture re-evaluation with team alignment on strategic direction:

@@ -39,6 +39,42 @@ Comprehensive ecosystem integration strategy assessment:
 
 ## Learnings
 
+### MAF Layer Comprehensive Audit (2026-04-26)
+
+**Output:** `docs/maf-audit-review-and-improvement-plan.md`
+
+**Key findings:**
+
+1. **`MemoryToolFactory` produces custom `MemoryTool` type, not `AIFunction`** — All MAF tool registration APIs (`ChatClientAgentOptions.ChatOptions.Tools`, `.AsAIAgent(tools:[...])`) require `AIFunction` from `AIFunctionFactory.Create`. The current `MemoryTool` type is incompatible. Need `CreateAIFunctions()` returning `IReadOnlyList<AIFunction>`. Critical (P1) gap.
+
+2. **`Neo4jChatMessageStore` is NOT a `ChatHistoryProvider`** — MAF 1.1.0 Best Practice #4 requires a `ChatHistoryProvider` subclass. `Neo4jChatMessageStore` is a plain class that cannot be plugged into `ChatClientAgentOptions.ChatHistoryProvider`. Need new `Neo4jChatHistoryProvider : ChatHistoryProvider`.
+
+3. **Neither sample contains a real `AIAgent`** — Both MinimalAgent and BlendedAgent use simulated turns. No demonstration of `CreateSessionAsync`, `RunAsync`, or `AIContextProviders` registration. Critical gap for consumer adoption.
+
+4. **Sample READMEs stale post-MEAI migration** — Both READMEs reference `IEmbeddingProvider`/`StubEmbeddingProvider` (MinimalAgent README line 97, BlendedAgent README lines 140–141).
+
+5. **`AgentTraceRecorder` missing null guards and ConfigureAwait** — Constructor takes 4 params with zero null checks; all awaits missing `.ConfigureAwait(false)`.
+
+6. **`AgentFrameworkOptions` naming mismatch** — `DefaultSessionIdHeader`/`DefaultConversationIdHeader` are StateBag keys, not HTTP headers. Defaults `"X-Session-Id"` won't match real StateBag keys.
+
+7. **`conversationId` fallback generates new GUID per invocation** — Breaks cross-turn memory correlation when StateBag isn't populated. Should fall back to `sessionId`.
+
+8. **BlendedAgent duplicate `StubEmbeddingGenerator`** — Local class shadows Core.Stubs import; `using` is dead/conflicting.
+
+9. **Package: `Microsoft.Agents.AI.Abstractions` not `Microsoft.Agents.AI`** — verify all needed types are available.
+
+10. **`MafTypeMapper.ToContextMessages` may produce duplicate messages** — `RecentMessages` and `RelevantMessages` concatenated without MessageId deduplication.
+
+**Key file paths for follow-up work:**
+- `src/Neo4j.AgentMemory.AgentFramework/Tools/MemoryToolFactory.cs` — add `CreateAIFunctions()`
+- `src/Neo4j.AgentMemory.AgentFramework/Neo4jChatMessageStore.cs` — add `ChatHistoryProvider` sibling
+- `src/Neo4j.AgentMemory.AgentFramework/AgentFrameworkOptions.cs` — rename Header→Key properties
+- `src/Neo4j.AgentMemory.AgentFramework/AgentTraceRecorder.cs` — null guards + ConfigureAwait
+- `src/Neo4j.AgentMemory.AgentFramework/Mapping/MafTypeMapper.cs` — deduplicate messages
+- `src/Neo4j.AgentMemory.AgentFramework/Neo4jMemoryContextProvider.cs` — fix conversationId fallback
+- `samples/*/README.md` — fix stale IEmbeddingProvider references
+- `samples/Neo4j.AgentMemory.Sample.BlendedAgent/Program.cs` — remove duplicate StubEmbeddingGenerator
+
 ### MAF Post-Run Lifecycle (2026-04-14)
 
 - `AIContextProvider.StoreAIContextAsync(InvokedContext)` is the canonical post-run hook in MAF 1.1.0. It receives `RequestMessages` (all inputs), `ResponseMessages` (assistant outputs), and `InvokeException` (null if success).
