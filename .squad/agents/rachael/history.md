@@ -33,6 +33,26 @@
 
 ---
 
+## Recent Work (Wave 3, 2026-07 — MAF P3 Polish Items)
+
+**Sprint:** MAF Audit P3 Polish — XML docs, DI tests, constructor docs, MaxContextMessages clarification
+
+1. **[P3-1] XML doc comments** — Full `<summary>`, `<param>`, and `<returns>` added to all public methods/properties in `AgentTraceRecorder`, `ContextFormatOptions`, and `AgentFrameworkOptions`.
+
+2. **[P3-2] `ServiceCollectionExtensionsTests`** — 12 new unit tests: lifetime assertions for all 6 registered types (all Scoped), resolution tests for `Neo4jMemoryContextProvider`, `AgentTraceRecorder`, `MemoryToolFactory`, `Neo4jChatHistoryProvider` with mocked Core dependencies; idempotency test (TryAdd); options binding test.
+
+3. **[P3-3] `base(null, null, null)` documented** — Inline comment in `Neo4jMemoryContextProvider` constructor explains each null argument (`IServiceProvider? sp, ILogger? logger, string? stateKey`) and why our injected values supersede the base defaults.
+
+4. **[P3-4] `MaxContextMessages` clarified** — XML doc: "Includes the prefix system message. Effective memory item limit is MaxContextMessages - 1 when ContextPrefix is non-empty."
+
+5. **[P3-7] Build verified clean** — `dotnet build` confirms 0 warnings, 0 errors across the full solution.
+
+6. **Best Practices Checklist updated** — Rows added for XML docs, DI tests, constructor documentation, MaxContextMessages semantics, and build cleanliness.
+
+**Results:** 2021 unit tests pass (↑ from 1419). Build: 0 warnings, 0 errors.
+
+---
+
 
 ## Learnings
 

@@ -25,6 +25,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IOptions<ContextFormatOptions> formatOptions,
         IOptions<AgentFrameworkOptions> agentOptions,
         ILogger<Neo4jMemoryContextProvider> logger)
+        // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
+        // All three are passed as null: we supply our own ILogger via constructor injection,
+        // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
         : base(null, null, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));

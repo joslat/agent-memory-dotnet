@@ -1,3 +1,5 @@
+using Neo4j.AgentMemory.Neo4j.Infrastructure;
+
 namespace Neo4j.AgentMemory.Neo4j.Queries;
 
 /// <summary>
@@ -100,14 +102,22 @@ public static class MessageQueries
 
     /// <summary>
     /// Builds a vector similarity search query for messages with optional session and metadata filters.
+    /// The <paramref name="topK"/> value is embedded in the CALL as a literal integer.
     /// </summary>
-    public static string SearchByVector(string sessionFilter, string filterClause) => $@"
-            CALL db.index.vector.queryNodes('message_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore {sessionFilter}
-            {filterClause}
-            RETURN node, score
-            ORDER BY score DESC";
+    /// <param name="hasSessionFilter">When true, adds an AND clause for <c>node.session_id = $sessionId</c>.</param>
+    /// <param name="metadataFilterFragment">
+    /// Optional pre-formatted AND condition lines from <see cref="MetadataFilterBuilder.Build"/>.
+    /// </param>
+    /// <param name="topK">Number of candidates to retrieve from the vector index.</param>
+    public static string SearchByVector(bool hasSessionFilter, string? metadataFilterFragment = null, int topK = 10) =>
+        new CypherBuilder()
+            .WithVectorSearch("message_embedding_idx", "$embedding", "node", topK)
+            .Where("score >= $minScore")
+            .And("node.session_id = $sessionId", when: hasSessionFilter)
+            .AndRawFragment(metadataFilterFragment)
+            .Return("node, score")
+            .OrderBy("score DESC")
+            .Build();
 
     // ── DeleteBySessionAsync ───────────────────────────────────────────
 

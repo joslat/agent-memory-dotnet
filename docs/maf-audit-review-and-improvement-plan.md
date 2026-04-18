@@ -537,16 +537,17 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 
 ### Priority 3 — Nice-to-Have Enhancements
 
-14. **[P3-1] Add XML doc comments to all public APIs in `AgentTraceRecorder`, `ContextFormatOptions`, `AgentFrameworkOptions`**
+14. **[P3-1] ✅ Done — Add XML doc comments to all public APIs in `AgentTraceRecorder`, `ContextFormatOptions`, `AgentFrameworkOptions`**
+   Full `<summary>`, `<param>`, and `<returns>` comments added to all public methods and properties in all three classes.
 
-15. **[P3-2] Add `ServiceCollectionExtensions` registration tests**  
-    Verify registered types, lifetimes, and that all public extension methods compile with correct type constraints.
+15. **[P3-2] ✅ Done — Add `ServiceCollectionExtensions` registration tests**
+   12 new tests in `ServiceCollectionExtensionsTests.cs`: lifetime assertions for all 6 registered types (scoped), resolution tests for all 4 concrete services with mocked dependencies, idempotency test (TryAdd doesn't duplicate), and options binding test.
 
-16. **[P3-3] Document `base(null, null, null)` in `Neo4jMemoryContextProvider` constructor**  
-    Add inline comment explaining which base-class constructor signature this calls.
+16. **[P3-3] ✅ Done — Document `base(null, null, null)` in `Neo4jMemoryContextProvider` constructor**
+   Inline comment added: `// AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)` explaining each null and why our own injected `ILogger` and `StateKey` property supersede the base-class defaults.
 
-17. **[P3-4] Clarify `MaxContextMessages` counts the prefix message**  
-    Add XML doc: "Includes the prefix system message. Effective memory item limit is MaxContextMessages - 1 when ContextPrefix is non-empty."
+17. **[P3-4] ✅ Done — Clarify `MaxContextMessages` counts the prefix message**
+   XML doc added: "Includes the prefix system message. Effective memory item limit is MaxContextMessages - 1 when ContextPrefix is non-empty."
 
 18. **[P3-5] Add a `RealAgent` sample**  
     Demonstrates the full MAF pipeline: session creation, context provider, multi-turn memory, tool registration.
@@ -554,8 +555,8 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 19. **[P3-6] Demonstrate `UseOpenTelemetry()` on the MAF agent in the BlendedAgent sample**  
     Show MAF's native OTel alongside our memory OTel for complete observability.
 
-20. **[P3-7] Add `TreatWarningsAsErrors` check for BlendedAgent sample**  
-    The duplicate `StubEmbeddingGenerator` may generate CS0436 or ambiguity errors; verify the build passes cleanly after fix.
+20. **[P3-7] ✅ Done — `TreatWarningsAsErrors` verified clean for AgentFramework**
+    `dotnet build Neo4j.AgentMemory.slnx -v q` confirms 0 warnings, 0 errors across the entire solution. The duplicate `StubEmbeddingGenerator` was removed in P1-5 so there are no CS0436/ambiguity warnings.
 
 ---
 
@@ -580,3 +581,8 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 | - | Null guards on constructor parameters | ✅ | Added to `AgentTraceRecorder` and `MemoryToolFactory` in P1-4 |
 | - | Error isolation (swallow, log, never rethrow) | ✅ | Applied consistently across all providers |
 | - | Package version: `Microsoft.Agents.AI 1.1.0` | ⚠️ | Using `.Abstractions` variant — verify completeness |
+| - | XML doc comments on public APIs | ✅ | Added to `AgentTraceRecorder`, `ContextFormatOptions`, `AgentFrameworkOptions` in P3-1 |
+| - | DI registration tests (`ServiceCollectionExtensions`) | ✅ | 12 tests: lifetimes, resolution, idempotency, options binding — added in P3-2 |
+| - | `base(null, null, null)` documented in `Neo4jMemoryContextProvider` | ✅ | Inline comment explains each null argument — added in P3-3 |
+| - | `MaxContextMessages` semantics clarified | ✅ | XML doc clarifies prefix counts against the limit — added in P3-4 |
+| - | Build produces 0 warnings (`TreatWarningsAsErrors`) | ✅ | Verified in P3-7: 0 warnings, 0 errors across full solution |

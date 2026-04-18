@@ -1,3 +1,5 @@
+using Neo4j.AgentMemory.Neo4j.Infrastructure;
+
 namespace Neo4j.AgentMemory.Neo4j.Queries;
 
 /// <summary>
@@ -74,17 +76,16 @@ public static class EntityQueries
 
     // ── SearchByNameAsync ──────────────────────────────────────────────
 
-    /// <summary>Case-insensitive name search (no type filter).</summary>
-    public const string SearchByName =
-        "MATCH (e:Entity) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name) RETURN e";
-
-    /// <summary>Case-insensitive name search filtered by type.</summary>
-    public const string SearchByNameWithType =
-        "MATCH (e:Entity {type: $type}) WHERE toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name) RETURN e";
-
-    /// <summary>Returns the appropriate SearchByName query based on whether <paramref name="type"/> is provided.</summary>
+    /// <summary>
+    /// Builds a case-insensitive name search query, optionally filtered by entity type.
+    /// When <paramref name="type"/> is non-null a WHERE condition on <c>e.type</c> is prepended.
+    /// </summary>
     public static string SearchByNameFiltered(string? type) =>
-        type is null ? SearchByName : SearchByNameWithType;
+        CypherBuilder.Match("(e:Entity)")
+            .Where("e.type = $type", when: type is not null)
+            .And("toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name)")
+            .Return("e")
+            .Build();
 
     // ── AddMentionAsync ────────────────────────────────────────────────
 

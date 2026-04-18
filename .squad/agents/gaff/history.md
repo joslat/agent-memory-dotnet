@@ -283,6 +283,46 @@ Comprehensive code-vs-docs verification and discrepancy audit:
 
 **Existing test updated:** `MergeEntitiesAsync_SendsCorrectCypher` — changed `HaveCount(1)` → `HaveCountGreaterThanOrEqualTo(1)` to accommodate the second RunAsync call from the refresh hook.
 
+### CypherBuilder — Dynamic Query Composition (2026-07-19)
+
+**Objective:** Introduce a lightweight, composable query builder to eliminate fragile string interpolation in dynamic Cypher queries.
+
+**New class:** `src/Neo4j.AgentMemory.Neo4j/Infrastructure/CypherBuilder.cs`
+- Immutable: every method returns a new instance (copy-on-write list); safe to share across threads
+- Static factories: `Match(pattern)`, `Call(procedure)`
+- Instance methods: `OptionalMatch`, `With`, `Unwind`, `Set`, `Return`, `Where`, `And`, `Or`, `OrderBy`, `Skip`, `Limit`, `WithVectorSearch`, `AndRawFragment`
+- `Where`/`And`/`Or` are smart: first condition emits `WHERE`, subsequent emit `AND`/`OR`
+- `when:` parameter on conditional methods gates inclusion without external if-statements
+- `WithVectorSearch(indexName, embeddingParam, nodeAlias, topK)` — emits `CALL db.index.vector.queryNodes + YIELD`; topK is embedded as an integer literal
+- `AndRawFragment(fragment)` — appends pre-formatted AND/OR lines from MetadataFilterBuilder verbatim
+
+**Refactored queries (2 dynamic methods updated):**
+1. `EntityQueries.SearchByNameFiltered(string? type)` — removed `SearchByName` and `SearchByNameWithType` const literals; replaced with single CypherBuilder call using `Where("e.type = $type", when: type is not null)`
+2. `MessageQueries.SearchByVector(bool hasSessionFilter, string? metadataFilterFragment, int topK)` — replaced string interpolation approach; `topK` now embedded as literal; `$limit` parameter removed from query and parameter dict
+
+**Repository change:** `Neo4jMessageRepository.SearchByVectorAsync` — updated call site; removed `parameters["limit"]` entry (topK now in query literal); replaced `sessionFilter` string conditional with bool.
+
+**CypherQuerySnapshot:** Regenerated after removing 2 consts; `ExpectedQueryCount` updated 139 → 137.
+
+**Tests added:** 26 unit tests in `tests/Neo4j.AgentMemory.Tests.Unit/Infrastructure/CypherBuilderTests.cs`
+- Basic Match/Return, Call, With, Unwind, Set, OptionalMatch
+- WHERE smart promotion (first = WHERE, subsequent = AND)
+- And/Or with and without prior WHERE
+- Conditional when: true vs when: false  
+- AllConditionsFalse_ProducesBareMatchReturn
+- NoWhereConditions_OmitsWhereKeyword
+- OrderBy/Limit/Skip conditional inclusion
+- WithVectorSearch CALL+YIELD generation, topK as literal
+- Session filter conditional on vector search
+- AndRawFragment verbatim append, empty/null/when:false skip
+- Immutability (branching produces independent instances)
+- Build() exact string snapshot with newline separators
+- EmptyBuilder returns empty string
+
+**Existing test fixed:** `Neo4jEntityRepositoryExtensionsTests.SearchByNameAsync_WithType_IncludesTypeConstraint` — updated assertion from `{type: $type}` (old property-map pattern) to `e.type = $type` (new WHERE clause pattern).
+
+**Build:** 0 errors, 0 warnings. **Tests:** 2077 unit tests passed, 0 failed.
+
 **Build status:** `dotnet test tests/Neo4j.AgentMemory.Tests.Unit` → 847 passed, 0 failed.
 
 ### G12 — Diffbot Enrichment Provider (2026-04-14)

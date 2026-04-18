@@ -129,7 +129,7 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
         var (repo, calls) = CreateEntityListReadCapture();
         await repo.SearchByNameAsync("Alice", "PERSON");
         calls.Should().HaveCount(1);
-        calls[0].Cypher.Should().Contain("{type: $type}");
+        calls[0].Cypher.Should().Contain("e.type = $type");
         calls[0].Cypher.Should().Contain("toLower(e.name) CONTAINS toLower($name)");
     }
 

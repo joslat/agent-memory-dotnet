@@ -18,6 +18,13 @@ public sealed class AgentTraceRecorder
     // Tracks current step count per active trace.
     private readonly ConcurrentDictionary<string, int> _stepCounts = new();
 
+    /// <summary>
+    /// Initializes a new <see cref="AgentTraceRecorder"/>.
+    /// </summary>
+    /// <param name="reasoningService">Service that persists traces and steps to the Neo4j store.</param>
+    /// <param name="clock">Provides the current UTC time for trace timestamps.</param>
+    /// <param name="idGenerator">Generates unique identifiers for trace and step records.</param>
+    /// <param name="logger">Logger for diagnostics and warnings.</param>
     public AgentTraceRecorder(
         IReasoningMemoryService reasoningService,
         IClock clock,
@@ -31,6 +38,10 @@ public sealed class AgentTraceRecorder
     }
 
     /// <summary>Starts a new reasoning trace for an agent run.</summary>
+    /// <param name="task">Human-readable description of the task the agent is performing.</param>
+    /// <param name="sessionId">Session identifier that scopes this trace to a conversation.</param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>The created <see cref="ReasoningTrace"/> with its assigned <c>TraceId</c>.</returns>
     public async Task<ReasoningTrace> StartTraceAsync(
         string task,
         string sessionId,
@@ -42,7 +53,15 @@ public sealed class AgentTraceRecorder
         return trace;
     }
 
-    /// <summary>Records a reasoning step within a trace.</summary>
+    /// <summary>Records a reasoning step within an active trace.</summary>
+    /// <param name="traceId">Identifier of the trace returned by <see cref="StartTraceAsync"/>.</param>
+    /// <param name="stepType">
+    /// Step category. Use <c>"action"</c>, <c>"observation"</c>, or any other value for a thought step.
+    /// </param>
+    /// <param name="content">Text content of this reasoning step.</param>
+    /// <param name="metadata">Optional key-value pairs attached to the step for structured introspection.</param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>The persisted <see cref="ReasoningStep"/>.</returns>
     public async Task<ReasoningStep> RecordStepAsync(
         string traceId,
         string stepType,
@@ -75,7 +94,14 @@ public sealed class AgentTraceRecorder
             metadata: metadata, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Records a tool call within a reasoning step.</summary>
+    /// <summary>Records a tool call that occurred within a reasoning step.</summary>
+    /// <param name="stepId">Identifier of the step in which the tool was invoked.</param>
+    /// <param name="toolName">Name of the tool that was called.</param>
+    /// <param name="input">Serialized input passed to the tool.</param>
+    /// <param name="output">Optional serialized output returned by the tool.</param>
+    /// <param name="status">Outcome of the tool call; defaults to <see cref="ToolCallStatus.Success"/>.</param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>The persisted <see cref="ToolCall"/> record.</returns>
     public async Task<ToolCall> RecordToolCallAsync(
         string stepId,
         string toolName,
@@ -93,7 +119,10 @@ public sealed class AgentTraceRecorder
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Completes a trace and sets its outcome.</summary>
+    /// <summary>Marks an active trace as complete and records its final outcome.</summary>
+    /// <param name="traceId">Identifier of the trace to complete.</param>
+    /// <param name="outcome">Human-readable description of how the agent run concluded.</param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
     public async Task CompleteTraceAsync(
         string traceId,
         string outcome,

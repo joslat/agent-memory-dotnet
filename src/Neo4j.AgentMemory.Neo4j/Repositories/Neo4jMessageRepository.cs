@@ -189,14 +189,11 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
 
-        var sessionFilter = sessionId is null ? string.Empty : "AND node.session_id = $sessionId";
-
-        var cypher = MessageQueries.SearchByVector(sessionFilter, filterClause);
+        var cypher = MessageQueries.SearchByVector(sessionId is not null, filterClause, limit);
 
         var parameters = new Dictionary<string, object>
         {
             ["embedding"] = queryEmbedding.ToList(),
-            ["limit"]     = limit,
             ["minScore"]  = minScore
         };
         if (sessionId is not null) parameters["sessionId"] = sessionId;
