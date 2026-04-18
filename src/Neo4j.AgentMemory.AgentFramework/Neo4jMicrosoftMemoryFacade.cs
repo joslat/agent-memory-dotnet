@@ -31,7 +31,10 @@ public sealed class Neo4jMicrosoftMemoryFacade
     }
 
     /// <summary>
-    /// Pre-run: retrieves recent messages from memory for the given session to seed context.
+    /// Pre-run: retrieves relevant messages from memory for the given session to seed context.
+    /// When <paramref name="messages"/> contains user text, it is used as a semantic query hint
+    /// to surface relevant history in addition to recent messages. When empty, falls back to
+    /// returning only recent messages.
     /// </summary>
     public async Task<IReadOnlyList<ChatMessage>> GetContextForRunAsync(
         IReadOnlyList<ChatMessage> messages,
@@ -41,7 +44,24 @@ public sealed class Neo4jMicrosoftMemoryFacade
     {
         try
         {
-            return await _messageStore.GetMessagesAsync(sessionId, ct: ct).ConfigureAwait(false);
+            // P2-3: Use user messages as a semantic query hint when available.
+            // This surfaces semantically relevant history, not just recency-ordered messages.
+            var queryText = string.Join(" ", messages
+                .Where(m => m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.Text))
+                .Select(m => m.Text));
+
+            if (string.IsNullOrWhiteSpace(queryText))
+                return await _messageStore.GetMessagesAsync(sessionId, ct: ct).ConfigureAwait(false);
+
+            var recall = await _memoryService
+                .RecallAsync(new RecallRequest { SessionId = sessionId, Query = queryText }, ct)
+                .ConfigureAwait(false);
+
+            return recall.Context.RecentMessages.Items
+                .Concat(recall.Context.RelevantMessages.Items)
+                .DistinctBy(m => m.MessageId)
+                .Select(MafTypeMapper.ToChatMessage)
+                .ToList();
         }
         catch (Exception ex)
         {

@@ -37,9 +37,10 @@ public interface IPreferenceRepository
 
     /// <summary>
     /// Returns up to <paramref name="limit"/> preferences that have no embedding set.
-    /// Used for batch back-fill operations.
+    /// Used for batch back-fill operations.  Uses the N+1 pattern so callers can
+    /// detect a next page without an extra COUNT(*) round-trip.
     /// </summary>
-    Task<IReadOnlyList<Preference>> GetPageWithoutEmbeddingAsync(int limit, CancellationToken cancellationToken = default);
+    Task<PagedResult<Preference>> GetPageWithoutEmbeddingAsync(int limit, CancellationToken cancellationToken = default);
 
     /// <summary>Sets the embedding vector on an existing preference node.</summary>
     Task UpdateEmbeddingAsync(string preferenceId, float[] embedding, CancellationToken cancellationToken = default);

@@ -349,3 +349,31 @@ Comprehensive code-vs-docs verification and discrepancy audit:
 **Behavior preserved:** All default values identical; 1059 tests pass (1 more than baseline from the new parameterless-ctor code path being exercised).
 
 **Build status:** `dotnet build` → 0 errors, 0 warnings. `dotnet test` (unit only) → 1059 passed, 0 failed.
+
+
+## Learnings
+
+### 2026-07-18: N+1 Pagination Pattern Implementation
+
+**Task:** Implement HotChocolate-inspired N+1 pagination to halve DB round-trips in batch back-fill operations.
+
+**Files Created:**
+- `src/Neo4j.AgentMemory.Abstractions/Domain/PagedResult.cs` — `PagedResult<T>` record with `Items` + `HasNextPage`
+- `src/Neo4j.AgentMemory.Neo4j/Infrastructure/PaginationHelper.cs` — `internal static PaginationHelper.ApplyPagination<T>(List<T>, int)`
+- `tests/.../Infrastructure/PaginationHelperTests.cs` — 7 tests for the helper itself
+- `tests/.../Repositories/PaginatedRepositoryTests.cs` — 6 tests for Fact+Preference paginated repos
+
+**Files Modified:**
+- `IEntityRepository.cs`, `IFactRepository.cs`, `IPreferenceRepository.cs` — `GetPageWithoutEmbeddingAsync` now returns `Task<PagedResult<T>>`
+- `Neo4jEntityRepository.cs`, `Neo4jFactRepository.cs`, `Neo4jPreferenceRepository.cs` — request `limit+1` from DB, call `PaginationHelper.ApplyPagination`
+- `MemoryService.cs` — backfill loops changed from `while (page.Count == batchSize)` to `while (page.HasNextPage)`
+- `MemoryServiceBatchTests.cs` — mocks updated to return `PagedResult<T>`
+- `Neo4jEntityRepositoryLocationTests.cs` — split read capture into `CreateEntityListReadCapture` (returns `List<T>`) and `CreatePagedEntityReadCapture` (returns `PagedResult<T>`)
+
+**Key Design Decisions:**
+1. `PagedResult<T>` lives in Abstractions so all layers can use it (interface contracts + Core callers)
+2. `PaginationHelper` is `internal` in the Neo4j package — implementation detail, not public surface
+3. Only applied to `GetPageWithoutEmbeddingAsync` batch methods — the clearest paginated use case with a real caller that benefits from `HasNextPage` (eliminates spurious empty-page call when total is exact multiple of batchSize)
+4. Vector search / top-K methods (`SearchByVectorAsync`, `SearchByLocationAsync`, etc.) intentionally NOT changed — they are top-K queries, not cursor-based pages; callers don't need `HasNextPage`
+
+**Result:** 1,451 unit tests, 0 failures (+13 new tests)

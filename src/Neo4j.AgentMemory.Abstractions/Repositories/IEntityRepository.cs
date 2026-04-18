@@ -89,9 +89,10 @@ public interface IEntityRepository
 
     /// <summary>
     /// Returns up to <paramref name="limit"/> entities that have no embedding set.
-    /// Used for batch back-fill operations.
+    /// Used for batch back-fill operations.  Uses the N+1 pattern so callers can
+    /// detect a next page without an extra COUNT(*) round-trip.
     /// </summary>
-    Task<IReadOnlyList<Entity>> GetPageWithoutEmbeddingAsync(
+    Task<PagedResult<Entity>> GetPageWithoutEmbeddingAsync(
         int limit,
         CancellationToken cancellationToken = default);
 

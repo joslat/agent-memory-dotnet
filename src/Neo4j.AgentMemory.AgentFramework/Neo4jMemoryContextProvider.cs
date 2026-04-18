@@ -34,6 +34,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>Identifies this provider in the MAF pipeline for introspection.</summary>
+    public string StateKey => "Neo4jMemory";
+
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
         CancellationToken cancellationToken = default)
@@ -198,9 +201,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             var bag = session?.StateBag;
             if (bag is not null)
             {
-                bag.TryGetValue(_agentOptions.DefaultSessionIdHeader, out sessionId,
+                bag.TryGetValue(_agentOptions.DefaultSessionIdKey, out sessionId,
                     System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_agentOptions.DefaultConversationIdHeader, out conversationId,
+                bag.TryGetValue(_agentOptions.DefaultConversationIdKey, out conversationId,
                     System.Text.Json.JsonSerializerOptions.Default);
             }
         }
@@ -210,7 +213,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         }
 
         sessionId ??= agent?.Id ?? Guid.NewGuid().ToString("N");
-        conversationId ??= Guid.NewGuid().ToString("N");
+        // P2-4: Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
+        conversationId ??= sessionId;
 
         return (sessionId, conversationId);
     }

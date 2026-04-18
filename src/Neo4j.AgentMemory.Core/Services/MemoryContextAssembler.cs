@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Neo4j.AgentMemory.Abstractions.Domain;
+using Neo4j.AgentMemory.Abstractions.Exceptions;
 using Neo4j.AgentMemory.Abstractions.Options;
 using Neo4j.AgentMemory.Abstractions.Services;
 
@@ -248,8 +249,11 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         return budget.TruncationStrategy switch
         {
             TruncationStrategy.Fail =>
-                throw new InvalidOperationException(
-                    $"Context budget exceeded: {totalChars} chars (limit {maxChars})."),
+                throw MemoryError.Create($"Context budget exceeded: {totalChars} chars (limit {maxChars}).")
+                    .WithCode(MemoryErrorCodes.ContextBudgetExceeded)
+                    .WithMetadata("totalChars", totalChars)
+                    .WithMetadata("maxChars", maxChars)
+                    .Build(),
 
             TruncationStrategy.OldestFirst =>
                 TruncateOldestFirst(maxChars, recent, relevant, entities, preferences, facts, traces, graphRagContext),

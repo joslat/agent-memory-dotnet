@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Neo4j.AgentMemory.Abstractions.Domain;
+using Neo4j.AgentMemory.Abstractions.Exceptions;
 using Neo4j.AgentMemory.Abstractions.Repositories;
 using Neo4j.AgentMemory.Abstractions.Services;
 
@@ -115,7 +116,10 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         CancellationToken cancellationToken = default)
     {
         var existing = await _traceRepo.GetByIdAsync(traceId, cancellationToken)
-            ?? throw new InvalidOperationException($"Trace '{traceId}' not found.");
+            ?? throw MemoryError.Create($"Trace '{traceId}' not found.")
+                .WithCode(MemoryErrorCodes.TraceNotFound)
+                .WithMetadata("traceId", traceId)
+                .Build();
 
         var completed = existing with
         {
@@ -138,7 +142,10 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         await Task.WhenAll(traceTask, stepsTask);
 
         var trace = await traceTask
-            ?? throw new InvalidOperationException($"Trace '{traceId}' not found.");
+            ?? throw MemoryError.Create($"Trace '{traceId}' not found.")
+                .WithCode(MemoryErrorCodes.TraceNotFound)
+                .WithMetadata("traceId", traceId)
+                .Build();
         var steps = await stepsTask;
 
         return (trace, steps);

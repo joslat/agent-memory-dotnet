@@ -580,3 +580,28 @@
 
 **Build Outcome:** `dotnet build` — Success, 0 errors
 **Test Outcome:** 1,058 unit tests passed (0 failures)
+
+
+### 2026-07-18: MemoryErrorBuilder — Structured Error Pattern
+
+**Task:** Implement a HotChocolate-inspired fluent error builder for structured, debuggable exceptions throughout the memory system.
+
+**Files Created:**
+- src/Neo4j.AgentMemory.Abstractions/Exceptions/MemoryErrorCodes.cs — 15 well-known MEMORY_* error codes
+- src/Neo4j.AgentMemory.Abstractions/Exceptions/MemoryErrorBuilder.cs — MemoryError factory + MemoryErrorBuilder fluent builder
+- 	ests/.../Exceptions/MemoryErrorBuilderTests.cs — 21 tests covering all fluent methods, code validation, metadata, Throw(), naming convention
+
+**Files Modified:**
+- src/Neo4j.AgentMemory.Abstractions/Exceptions/MemoryException.cs — Added Code (string?), Metadata (IReadOnlyDictionary), and an internal builder constructor; existing public constructors unchanged, so all subclasses remain compatible
+- src/Neo4j.AgentMemory.Abstractions/Domain/PagedResult.cs — Added missing XML doc for constructor (was a pre-existing CS1591 error exposed when TreatWarningsAsErrors is active)
+- src/Neo4j.AgentMemory.Core/Services/ReasoningMemoryService.cs — 2 	hrow new InvalidOperationException(...) → 	hrow MemoryError.Create(...).WithCode(MemoryErrorCodes.TraceNotFound).WithMetadata("traceId", id).Build()
+- src/Neo4j.AgentMemory.Core/Services/MemoryContextAssembler.cs — 1 	hrow new InvalidOperationException(...) → 	hrow MemoryError.Create(...).WithCode(MemoryErrorCodes.ContextBudgetExceeded).WithMetadata(...).Build()
+
+**Key Design Decisions:**
+1. Extended (not replaced) existing MemoryException — all subclasses (EntityNotFoundException, ExtractionException, etc.) still work; Code+Metadata are null/empty by default for backward compatibility
+2. Builder lives in Abstractions, zero external dependencies — all layers can use it without taking Core as a dependency
+3. Internal constructor (internal MemoryException(string, string?, IReadOnlyDictionary, Exception?)) ensures only MemoryErrorBuilder can set Code+Metadata, enforcing the builder pattern
+4. Throw() uses [DoesNotReturn] attribute and oid return — cleaner than MemoryException Throw() since it never returns; use 	hrow Build() in throw-expression contexts (switch arms, ?? operators)
+5. Code constants follow MEMORY_UPPER_SNAKE_CASE convention, validated by a test that reflects over all public fields
+
+**Result:** 1,469 tests, 0 failures (1,438 unit + 31 SK)

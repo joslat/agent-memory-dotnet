@@ -37,6 +37,11 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<Neo4jChatMessageStore>();
         services.TryAddScoped<Neo4jMicrosoftMemoryFacade>();
 
+        // P2-6: Register AgentTraceRecorder and MemoryToolFactory so consumers don't need to add them manually.
+        // Both are Scoped: they depend on scoped Core services and are not safe as singletons.
+        services.TryAddScoped<AgentTraceRecorder>();
+        services.TryAddScoped<Tools.MemoryToolFactory>();
+
         // MAF 1.1.0 ChatHistoryProvider for plugging into ChatClientAgentOptions.ChatHistoryProvider.
         // Registered as a scoped concrete type; consumers wire it into their agent options explicitly.
         services.TryAddScoped<Neo4jChatHistoryProvider>(sp =>

@@ -219,17 +219,17 @@ public sealed class MemoryService : IMemoryService
     private async Task<int> BackfillEntityEmbeddingsAsync(int batchSize, CancellationToken ct)
     {
         int total = 0;
-        IReadOnlyList<Entity> page;
+        PagedResult<Entity> page;
         do
         {
             page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
-            foreach (var entity in page)
+            foreach (var entity in page.Items)
             {
                 var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, ct);
                 await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct);
                 total++;
             }
-        } while (page.Count == batchSize);
+        } while (page.HasNextPage);
 
         _logger.LogInformation("Back-filled embeddings for {Count} Entity nodes.", total);
         return total;
@@ -238,17 +238,17 @@ public sealed class MemoryService : IMemoryService
     private async Task<int> BackfillFactEmbeddingsAsync(int batchSize, CancellationToken ct)
     {
         int total = 0;
-        IReadOnlyList<Fact> page;
+        PagedResult<Fact> page;
         do
         {
             page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
-            foreach (var fact in page)
+            foreach (var fact in page.Items)
             {
                 var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct);
                 await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct);
                 total++;
             }
-        } while (page.Count == batchSize);
+        } while (page.HasNextPage);
 
         _logger.LogInformation("Back-filled embeddings for {Count} Fact nodes.", total);
         return total;
@@ -257,17 +257,17 @@ public sealed class MemoryService : IMemoryService
     private async Task<int> BackfillPreferenceEmbeddingsAsync(int batchSize, CancellationToken ct)
     {
         int total = 0;
-        IReadOnlyList<Preference> page;
+        PagedResult<Preference> page;
         do
         {
             page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
-            foreach (var pref in page)
+            foreach (var pref in page.Items)
             {
                 var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, ct);
                 await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct);
                 total++;
             }
-        } while (page.Count == batchSize);
+        } while (page.HasNextPage);
 
         _logger.LogInformation("Back-filled embeddings for {Count} Preference nodes.", total);
         return total;

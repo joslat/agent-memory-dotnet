@@ -134,6 +134,31 @@ public sealed class Neo4jEntityRepositoryLocationTests
         return (new Neo4jEntityRepository(txRunner, NullLogger<Neo4jEntityRepository>.Instance), calls);
     }
 
+    private static (Neo4jEntityRepository Repo, List<(string Cypher, object? Parameters)> Calls)
+        CreatePagedEntityReadCapture()
+    {
+        var calls = new List<(string Cypher, object? Parameters)>();
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<PagedResult<Entity>>>>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var work = call.Arg<Func<IAsyncQueryRunner, Task<PagedResult<Entity>>>>();
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                var cursor = Substitute.For<IResultCursor>();
+                cursor.FetchAsync().Returns(Task.FromResult(false));
+                runner
+                    .RunAsync(Arg.Any<string>(), Arg.Any<object>())
+                    .Returns(ci =>
+                    {
+                        calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
+                        return Task.FromResult(cursor);
+                    });
+                return await work(runner);
+            });
+        return (new Neo4jEntityRepository(txRunner, NullLogger<Neo4jEntityRepository>.Instance), calls);
+    }
+
     private static Entity MakeEntity(string id = "e-1", double? lat = null, double? lon = null) => new()
     {
         EntityId = id,
@@ -257,7 +282,7 @@ public sealed class Neo4jEntityRepositoryLocationTests
     [Fact]
     public async Task GetPageWithoutEmbeddingAsync_SendsCorrectCypher()
     {
-        var (repo, calls) = CreateEntityListReadCapture();
+        var (repo, calls) = CreatePagedEntityReadCapture();
 
         await repo.GetPageWithoutEmbeddingAsync(50);
 

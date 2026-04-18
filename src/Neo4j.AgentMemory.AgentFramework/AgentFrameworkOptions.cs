@@ -8,6 +8,8 @@ public sealed class AgentFrameworkOptions
     public ContextFormatOptions ContextFormat { get; set; } = new();
     public bool AutoExtractOnPersist { get; set; } = true;
     public bool PersistReasoningTraces { get; set; } = false;
-    public string DefaultSessionIdHeader { get; set; } = "X-Session-Id";
-    public string DefaultConversationIdHeader { get; set; } = "X-Conversation-Id";
+    // Breaking change (P2-2): renamed from DefaultSessionIdHeader/DefaultConversationIdHeader.
+    // These are StateBag keys, not HTTP headers. Defaults updated to idiomatic StateBag key names.
+    public string DefaultSessionIdKey { get; set; } = "session_id";
+    public string DefaultConversationIdKey { get; set; } = "conversation_id";
 }

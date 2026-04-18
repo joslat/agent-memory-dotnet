@@ -128,9 +128,9 @@ public sealed class MemoryServiceBatchTests
             new() { EntityId = "e1", Name = "London", Type = "LOCATION", Confidence = 1.0, CreatedAtUtc = FixedTime },
             new() { EntityId = "e2", Name = "Paris",  Type = "LOCATION", Confidence = 1.0, CreatedAtUtc = FixedTime }
         };
-        // First page returns 2 entities, second page returns empty (stops loop)
+        // First page has items with hasNextPage=false; loop should not call again
         _entityRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(entities, new List<Entity>());
+            .Returns(new PagedResult<Entity>(entities, hasNextPage: false));
         _embeddingOrchestrator.EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.1f }));
 
@@ -152,7 +152,7 @@ public sealed class MemoryServiceBatchTests
             Confidence = 1.0, CreatedAtUtc = FixedTime
         };
         _factRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new List<Fact> { fact }, new List<Fact>());
+            .Returns(new PagedResult<Fact>(new List<Fact> { fact }, hasNextPage: false));
         _embeddingOrchestrator.EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.5f }));
 
@@ -172,7 +172,7 @@ public sealed class MemoryServiceBatchTests
             Confidence = 1.0, CreatedAtUtc = FixedTime
         };
         _prefRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new List<Preference> { pref }, new List<Preference>());
+            .Returns(new PagedResult<Preference>(new List<Preference> { pref }, hasNextPage: false));
         _embeddingOrchestrator.EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.3f }));
 

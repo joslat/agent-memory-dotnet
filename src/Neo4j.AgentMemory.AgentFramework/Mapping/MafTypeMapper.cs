@@ -50,10 +50,14 @@ internal static class MafTypeMapper
         if (!string.IsNullOrWhiteSpace(options.ContextPrefix))
             messages.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
 
-        foreach (var m in context.RecentMessages.Items)
-            messages.Add(ToChatMessage(m));
-
-        foreach (var m in context.RelevantMessages.Items)
+        // P2-7: Deduplicate across RecentMessages and RelevantMessages — a message may appear in both
+        // when it is both recent and semantically relevant. DistinctBy preserves insertion order
+        // (recent-first) while dropping subsequent duplicates.
+        var allMessages = context.RecentMessages.Items
+            .Concat(context.RelevantMessages.Items)
+            .DistinctBy(m => m.MessageId)
+            .ToList();
+        foreach (var m in allMessages)
             messages.Add(ToChatMessage(m));
 
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)

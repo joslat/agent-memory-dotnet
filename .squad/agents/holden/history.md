@@ -29,6 +29,9 @@
 - `CompositeEntityResolver` re-embedding logic: when aliases change after merge, `GenerateEmbeddingAsync` is called a second time with `"{name} {alias1} {alias2}"` combined text. The total call count for `GenerateEmbeddingAsync` in a SemanticMatch path is 2 (one for the semantic query, one for re-embedding) when aliases change; 1 when they don't.
 - `MemoryExtractionPipeline.ExtractAsync` wraps each `CreateExtractedFromRelationshipAsync` call in try/catch — failures are logged and don't abort extraction. Tests for fault tolerance should verify the extraction result is still returned after repository exceptions.
 - For `AdvancedMemoryTools.MemoryExportGraph` and `MemoryFindDuplicates`: when `EnableGraphQuery = false`, they throw `McpException` before calling any service. Match `.WithMessage("*EnableGraphQuery*")`.
+- `CypherQueryRegistry.GetAll()` uses `IsLiteral` reflection to find `const string` fields — `static` method fields (e.g., `DecayQueries.UpdateAccessTimestamp`) and `static readonly string[]` arrays (e.g., `SchemaQueries.Constraints`) are NOT included. The current catalog has exactly 139 const string entries.
+- `[CallerFilePath]` in a static property initializer works by calling a helper method (`private static string Foo([CallerFilePath] string? src = null) => ...`) — the compiler substitutes the source file path at the call site at compile time, enabling snapshot files to live alongside test source files and be committed to git.
+- Stale incremental build cache (`error CS1591`) can appear on the first `dotnet build` after switching branches. Run `dotnet clean` then `dotnet build` to get accurate errors.
 
 ## Work Log
 
@@ -358,4 +361,24 @@ All 8 features are fully implemented.
 | `architecture-review-assessment.md` | "1,211 unit tests" | **1,438 actual** | ❌ Outdated by 227 tests |
 
 **Summary:** `refactoring-plan.md` is accurate. `improvement-suggestions.md` understates decorator and test counts (harmless — reality is better). `architecture-review-assessment.md` has stale package count (9→11) and test count (1,211→1,438) — last updated before the meta-package, SemanticKernel, config validation, and Wave 5+ test additions.
+
+### 2026-07-xx — Cypher Snapshot Tests
+
+**Baseline:** 1,438 unit tests (0 failures).
+
+**Task:** Create HotChocolate-inspired snapshot and structural regression tests for all centralized Cypher query constants.
+
+**New files created:**
+- `tests/Neo4j.AgentMemory.Tests.Unit/Queries/CypherQuerySnapshotTests.cs` — 558 tests across 6 test methods:
+  - `CypherCatalog_MatchesSnapshot` — file-based snapshot (auto-generates `CypherQuerySnapshot.snap` on first run using `[CallerFilePath]`; set `UPDATE_CYPHER_SNAPSHOTS=1` to regenerate intentionally)
+  - `CypherQueryInventory_CountMatchesExpected` — asserts exactly 139 const string fields (catches accidental deletions)
+  - `CypherQuery_StartsWithValidKeyword` × 139 — regex check for leading Cypher keyword
+  - `CypherQuery_UsesParameterizedValues_WhenWhereOrSetPresent` × 139 — asserts `$param` syntax in WHERE/SET clauses (DDL exempt)
+  - `CypherQuery_OnlyReferencesKnownNodeLabels` × 139 — validates labels against domain schema allowlist
+  - `CypherQuery_HasBalancedParentheses` × 139 — structural parenthesis balance check
+- `tests/Neo4j.AgentMemory.Tests.Unit/Queries/CypherQuerySnapshot.snap` — committed baseline of all 139 query strings (sorted alphabetically)
+
+**Final result: 2,009 unit tests, 0 failures (+571 new tests)**
+
+**Update workflow:** If a Cypher query is intentionally changed, run `UPDATE_CYPHER_SNAPSHOTS=1 dotnet test --filter "CypherCatalog_MatchesSnapshot"` and commit the updated `.snap` file together with the query change.
 

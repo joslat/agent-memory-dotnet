@@ -515,25 +515,25 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 
 6. **[P2-1] ✅ Done (merged into P1-4) — Add null guards to `AgentTraceRecorder` constructor**
 
-7. **[P2-2] Rename `DefaultSessionIdHeader`/`DefaultConversationIdHeader` → `DefaultSessionIdKey`/`DefaultConversationIdKey`**
-   Update defaults to `"session_id"` / `"conversation_id"` to reflect StateBag semantics. This is a breaking change in options API — bump version comment or document it.
+7. **[P2-2] ✅ Done — Rename `DefaultSessionIdHeader`/`DefaultConversationIdHeader` → `DefaultSessionIdKey`/`DefaultConversationIdKey`**
+   Renamed in `AgentFrameworkOptions.cs` with breaking-change comment. Defaults updated to `"session_id"` / `"conversation_id"`. References updated in `Neo4jMemoryContextProvider.cs`, `Neo4jChatHistoryProvider.cs`, and `ConfigurationValidationTests.cs`.
 
-8. **[P2-3] Fix `GetContextForRunAsync` dead `messages` parameter**  
-   Either remove or use for query embedding, with documentation.
+8. **[P2-3] ✅ Done — Fix `GetContextForRunAsync` dead `messages` parameter**  
+   Chose Option B: when caller provides user messages, they are used as a semantic query hint via `_memoryService.RecallAsync`. When messages is empty, falls back to recent-message retrieval. Deduplication (`DistinctBy(MessageId)`) applied to the recall result. Documentation added to method XML summary.
 
-9. **[P2-4] Fix `conversationId` fallback to use `sessionId` instead of a new GUID**  
-   Prevents memory isolation between turns when StateBag isn't populated.
+9. **[P2-4] ✅ Done — Fix `conversationId` fallback to use `sessionId` instead of a new GUID**  
+   `Neo4jMemoryContextProvider.ExtractIds` now uses `conversationId ??= sessionId` (with explanatory comment). `Neo4jChatHistoryProvider` already had the correct fallback from P1-2.
 
 10. **[P2-5] ✅ Done (merged into P1-4) — Add `ConfigureAwait(false)` to `AgentTraceRecorder`**
 
-11. **[P2-6] Add `AgentTraceRecorder` + `MemoryToolFactory` to `AddAgentMemoryFramework`**  
-    Reduce consumer confusion about what's auto-registered.
+11. **[P2-6] ✅ Done — Add `AgentTraceRecorder` + `MemoryToolFactory` to `AddAgentMemoryFramework`**  
+    Both registered as `TryAddScoped` in `ServiceCollectionExtensions.cs` with explanatory comments. Consumers no longer need to add them manually.
 
-12. **[P2-7] Deduplicate messages in `MafTypeMapper.ToContextMessages`**  
-    Use `DistinctBy(m => m.MessageId)` before adding to output list.
+12. **[P2-7] ✅ Done — Deduplicate messages in `MafTypeMapper.ToContextMessages`**  
+    `RecentMessages.Items` and `RelevantMessages.Items` concatenated then deduplicated with `DistinctBy(m => m.MessageId)` before rendering. Recent-first order preserved.
 
-13. **[P2-8] Add `StateKey` override to `Neo4jMemoryContextProvider`**  
-    Defensive identity for pipeline introspection.
+13. **[P2-8] ✅ Done — Add `StateKey` property to `Neo4jMemoryContextProvider`**  
+    Added `public string StateKey => "Neo4jMemory"`. `AIContextProvider` base class does not expose a virtual `StateKey`, so this is a new (non-override) property providing identity for pipeline introspection.
 
 ### Priority 3 — Nice-to-Have Enhancements
 
@@ -566,7 +566,7 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 | 1 | Use `AsAIAgent()` extensions over manual construction | ❌ | Not demonstrated in any sample |
 | 2 | Use `ManagedIdentityCredential` in production | 🟡 N/A | No credential setup in our code; samples use no LLM |
 | 3 | Always use sessions for multi-turn conversations | ❌ | Samples don't create `AgentSession` |
-| 4 | Implement `ChatHistoryProvider` for conversation storage | ❌ | `Neo4jChatMessageStore` is not a `ChatHistoryProvider` |
+| 4 | Implement `ChatHistoryProvider` for conversation storage | ✅ | `Neo4jChatHistoryProvider : ChatHistoryProvider` created in P1-2 |
 | 5 | Use pipeline architecture, place logic at the right layer | ✅ | `Neo4jMemoryContextProvider` is correctly at the `AIContextProvider` layer |
 | 6 | Enable OpenTelemetry observability | ⚠️ | Our memory OTel exists; MAF's `UseOpenTelemetry()` not demonstrated |
 | 7 | Use structured output (`RunAsync<T>`) for type-safe responses | 🟡 N/A | Not applicable to our adapter layer |
@@ -576,7 +576,7 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
 | - | `ProviderSessionState<T>` for per-session provider state | ✅ | Not needed (stateless delegation); future if caching added |
 | - | `InternalsVisibleTo` for testability | ✅ | Set correctly in `AssemblyInfo.cs` |
 | - | No MAF types leaking into Core | ✅ | Boundary clean |
-| - | ConfigureAwait(false) on async methods | ⚠️ | Missing in `AgentTraceRecorder` only |
-| - | Null guards on constructor parameters | ⚠️ | Missing in `AgentTraceRecorder` and `MemoryToolFactory` |
+| - | ConfigureAwait(false) on async methods | ✅ | Added to `AgentTraceRecorder` in P1-4 |
+| - | Null guards on constructor parameters | ✅ | Added to `AgentTraceRecorder` and `MemoryToolFactory` in P1-4 |
 | - | Error isolation (swallow, log, never rethrow) | ✅ | Applied consistently across all providers |
 | - | Package version: `Microsoft.Agents.AI 1.1.0` | ⚠️ | Using `.Abstractions` variant — verify completeness |

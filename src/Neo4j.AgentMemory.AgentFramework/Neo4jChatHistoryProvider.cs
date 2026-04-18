@@ -156,9 +156,9 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
             var bag = session?.StateBag;
             if (bag is not null)
             {
-                bag.TryGetValue(_options.DefaultSessionIdHeader, out sessionId,
+                bag.TryGetValue(_options.DefaultSessionIdKey, out sessionId,
                     System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_options.DefaultConversationIdHeader, out conversationId,
+                bag.TryGetValue(_options.DefaultConversationIdKey, out conversationId,
                     System.Text.Json.JsonSerializerOptions.Default);
             }
         }

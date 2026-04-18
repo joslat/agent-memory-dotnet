@@ -238,7 +238,7 @@ public sealed class Neo4jFactRepository : IFactRepository
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
 
-    public async Task<IReadOnlyList<Fact>> GetPageWithoutEmbeddingAsync(
+    public async Task<PagedResult<Fact>> GetPageWithoutEmbeddingAsync(
         int limit,
         CancellationToken cancellationToken = default)
     {
@@ -246,13 +246,14 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.GetPageWithoutEmbedding, new { limit });
+            var cursor = await runner.RunAsync(FactQueries.GetPageWithoutEmbedding, new { limit = limit + 1 });
             var records = await cursor.ToListAsync();
-            return records.Select(r =>
+            var items = records.Select(r =>
             {
                 var node = r["f"].As<INode>();
                 return MapToFact(node, null);
             }).ToList();
+            return PaginationHelper.ApplyPagination(items, limit);
         }, cancellationToken);
     }
 

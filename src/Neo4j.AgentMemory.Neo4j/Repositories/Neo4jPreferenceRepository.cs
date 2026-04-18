@@ -186,7 +186,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
 
-    public async Task<IReadOnlyList<Preference>> GetPageWithoutEmbeddingAsync(
+    public async Task<PagedResult<Preference>> GetPageWithoutEmbeddingAsync(
         int limit,
         CancellationToken cancellationToken = default)
     {
@@ -194,13 +194,14 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.GetPageWithoutEmbedding, new { limit });
+            var cursor = await runner.RunAsync(PreferenceQueries.GetPageWithoutEmbedding, new { limit = limit + 1 });
             var records = await cursor.ToListAsync();
-            return records.Select(r =>
+            var items = records.Select(r =>
             {
                 var node = r["p"].As<INode>();
                 return MapToPreference(node, null);
             }).ToList();
+            return PaginationHelper.ApplyPagination(items, limit);
         }, cancellationToken);
     }
 

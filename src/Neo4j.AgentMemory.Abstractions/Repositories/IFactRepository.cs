@@ -37,9 +37,10 @@ public interface IFactRepository
 
     /// <summary>
     /// Returns up to <paramref name="limit"/> facts that have no embedding set.
-    /// Used for batch back-fill operations.
+    /// Used for batch back-fill operations.  Uses the N+1 pattern so callers can
+    /// detect a next page without an extra COUNT(*) round-trip.
     /// </summary>
-    Task<IReadOnlyList<Fact>> GetPageWithoutEmbeddingAsync(int limit, CancellationToken cancellationToken = default);
+    Task<PagedResult<Fact>> GetPageWithoutEmbeddingAsync(int limit, CancellationToken cancellationToken = default);
 
     /// <summary>Sets the embedding vector on an existing fact node.</summary>
     Task UpdateEmbeddingAsync(string factId, float[] embedding, CancellationToken cancellationToken = default);

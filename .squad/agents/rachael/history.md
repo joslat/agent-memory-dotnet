@@ -155,3 +155,16 @@ Comprehensive ecosystem integration strategy assessment:
 
 - **`AIFunctionArguments` constructor** in MEAI 10.4.1: `new AIFunctionArguments(IDictionary<string, object?> args)`. Used in tests to invoke `AIFunction` directly.
 
+## Learnings
+
+### MAF P2 Improvements (Wave 3, 2026-07)
+
+1. **`AIContextProvider` does NOT have a virtual `StateKey` property.** `ChatHistoryProvider` does (it inherits from a different base), but `AIContextProvider` doesn't. Adding `StateKey` to `Neo4jMemoryContextProvider` must be a new property (no `override` keyword).
+
+2. **`GetContextForRunAsync` dead parameter — chose Option B (use as query hint).** When `messages` is empty, falls back to `GetMessagesAsync` (which calls `RecallAsync` with empty query). Tests already mock `RecallAsync`, so both the empty and non-empty paths are covered by the same mock setup.
+
+3. **P2-2 rename breaks tests.** `ConfigurationValidationTests.cs` had `DefaultSessionIdHeader`/`DefaultConversationIdHeader` — must update test method names and property references to `DefaultSessionIdKey`/`DefaultConversationIdKey`.
+
+4. **`Neo4jChatHistoryProvider` already had correct `conversationId ??= sessionId` fallback from P1-2.** P2-4 only needed to fix `Neo4jMemoryContextProvider.ExtractIds` (line 213).
+
+5. **`MemoryToolFactory` is `Tools.MemoryToolFactory` (in a sub-namespace).** When registering in `ServiceCollectionExtensions.cs`, use the fully qualified `Tools.MemoryToolFactory` or add a `using Neo4j.AgentMemory.AgentFramework.Tools;` directive.

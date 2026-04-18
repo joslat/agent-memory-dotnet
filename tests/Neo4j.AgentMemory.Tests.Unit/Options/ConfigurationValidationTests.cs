@@ -509,15 +509,15 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
-    public void AgentFrameworkOptions_Default_SessionIdHeaderIsNotEmpty()
+    public void AgentFrameworkOptions_Default_SessionIdKeyIsNotEmpty()
     {
-        new AgentFrameworkOptions().DefaultSessionIdHeader.Should().NotBeNullOrWhiteSpace();
+        new AgentFrameworkOptions().DefaultSessionIdKey.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void AgentFrameworkOptions_Default_ConversationIdHeaderIsNotEmpty()
+    public void AgentFrameworkOptions_Default_ConversationIdKeyIsNotEmpty()
     {
-        new AgentFrameworkOptions().DefaultConversationIdHeader.Should().NotBeNullOrWhiteSpace();
+        new AgentFrameworkOptions().DefaultConversationIdKey.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]

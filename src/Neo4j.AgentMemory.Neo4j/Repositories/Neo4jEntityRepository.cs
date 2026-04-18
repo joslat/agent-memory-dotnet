@@ -408,7 +408,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> GetPageWithoutEmbeddingAsync(
+    public async Task<PagedResult<Entity>> GetPageWithoutEmbeddingAsync(
         int limit,
         CancellationToken cancellationToken = default)
     {
@@ -416,13 +416,14 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetPageWithoutEmbedding, new { limit });
+            var cursor = await runner.RunAsync(EntityQueries.GetPageWithoutEmbedding, new { limit = limit + 1 });
             var records = await cursor.ToListAsync();
-            return records.Select(r =>
+            var items = records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, null);
             }).ToList();
+            return PaginationHelper.ApplyPagination(items, limit);
         }, cancellationToken);
     }
 
