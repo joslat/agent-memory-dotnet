@@ -268,3 +268,69 @@ Joi's bulk docs update was reported as successful but edits did not persist to d
 
 **Pattern confirmed:** Every major implementation sprint needs a corresponding doc update task. Numeric claims drift by default.
 
+---
+
+### L11: Full Docs Inventory & Freshness Audit (2026-07-25)
+
+**Session:** Comprehensive docs review requested by Jose Luis Latorre Millas
+**Model used:** Claude Sonnet 4.6 (highest deep-thinking model available)
+
+**Scope:** All files in docs/, root-level .md files, and samples/*/README.md
+
+---
+
+#### KEY FINDING: The "28 tools" claim is WRONG across 4 documents
+
+- **Actual code count:** 21 `[McpServerTool]` attributes across 7 tool class files in `src/Neo4j.AgentMemory.McpServer/Tools/`
+- **L9 sprint introduced incorrect numbers:** L9 history claims "Used grep to count MCP tools (`Tool(` attributes) → 28 actual" — this was a false positive from a broad grep pattern matching non-tool code. The docs were updated FROM the correct 21 to an incorrect 28.
+- **Files with wrong "28 tools" claim:** README.md (×2), architecture-review-assessment.md, feature-record.md, python-dotnet-comparison.md
+- **Files with correct "21 tools":** implementation-status.md, architecture.md, the actual code
+
+**Lesson:** When updating docs from code counts, always use the most specific attribute name (`[McpServerTool]`) not a broad substring (`Tool(`).
+
+---
+
+#### FULL DOCS AUDIT RESULTS
+
+**Healthy / Current (no action needed):**
+- `docs/parity-assessment.md` — Fresh (July 2026). Authoritative. ✅
+- `docs/schema.md` — Current. "Definitive Schema Reference." ✅
+- `docs/design.md` — Domain model stable. Accurate. ✅
+- `docs/improvement-suggestions.md` — C1–C10 forward-looking roadmap valid. ✅
+- `docs/package-strategy.md` — Decision made, rationale captured. ✅
+- `samples/*/README.md` — Both accurate and up to date. ✅
+
+**Need targeted updates:**
+- `README.md` — Fix 28→21 tools; "License to be defined" (Apache 2.0 is in LICENSE); "Planned capabilities" should read as "Implemented"; Contributing "will be added" stale
+- `docs/architecture-review-assessment.md` — Fix 28→21 tools; per-project table shows 9 packages (should be 11)
+- `docs/feature-record.md` — Fix 28→21 tools; test counts stale
+- `docs/python-dotnet-comparison.md` — Fix 28→21 tools
+- `docs/implementation-status.md` — Fix "10 packages" → 11; test counts stale; Phase 6 description still says "21 tools (6 core + 15 extended)" correct but narrative says Phase 6 completion had 398 tests — stale
+- `docs/architecture.md` — Missing SemanticKernel package section; MCP package name wrong in "Future Adapter Packages" table
+
+**Frozen/completed-work docs to archive:**
+- `docs/refactoring-plan.md` — All 4 waves complete. Historical only.
+- `docs/python-agent-memory-analysis.md` — Phase 1 Reference. Superseded by comparison + parity docs.
+- `docs/cypher-analysis.md` — Earlier parity analysis. Superseded by parity-assessment.md (July 2026).
+- `Agent-memory-for-dotnet-implementation-plan.md` (root) — All 6 phases done. Historical.
+
+**Purpose-clarification docs:**
+- `docs/maf-1.1.0-migration-guide.md` — External upstream reference, not project-specific. Add label.
+- `docs/HotChocolate.Data.Neo4J-lessons-learned-and-ideas-to-apply.md` — Research spike. Add label.
+- `Squad-Workshop.md` (root) — Squad framework workshop tutorial, not project doc. Should be in `.squad/`.
+
+**Critical missing docs:**
+- `docs/getting-started.md` — No developer onboarding path. 🔴 Critical DX gap.
+- `CONTRIBUTING.md` — Never created despite README forward-reference.
+- `CHANGELOG.md` — No version history. Needed before NuGet release.
+
+**Test count ground truth:**
+- Grep of `[Fact]`/`[Theory]` attributes in tests/ = ~1,477 test methods
+- Various docs claim: 1,059 / 1,124 / 1,211 / 1,438 / 2,040+ (all inconsistent)
+- Recommend running `dotnet test --list-tests` for ground truth before updating docs
+
+---
+
+**Decision written to:** `.squad/decisions/inbox/joi-doc-audit.md`
+**Skill pattern extracted to:** `.squad/skills/docs-freshness-audit/SKILL.md`
+

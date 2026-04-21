@@ -2,12 +2,12 @@
   "version": 1,
   "defaultModel": "claude-sonnet-4.6",
   "agentModelOverrides": {
-    "deckard": "claude-opus-4.6"
+    "deckard": "claude-sonnet-4.6"
   },
-  "analysisModel": "claude-opus-4.6",
+  "analysisModel": "claude-sonnet-4.6",
   "modelPolicy": {
     "implementation": "claude-sonnet-4.6",
-    "deepAnalysis": "claude-opus-4.6",
+    "deepAnalysis": "claude-sonnet-4.6",
     "mechanical": "claude-haiku-4.5"
   }
 }

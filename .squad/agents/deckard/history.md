@@ -28,6 +28,30 @@
 
 ## Learnings
 
+### 2026-07-25 — Architecture-Level Documentation Audit
+
+Performed a full audit comparing implemented codebase (11 packages, all phases complete) against all design/architecture documents. Key findings:
+
+1. **`docs/architecture.md` is the most critically stale doc.** Three major structural problems:
+   - §5 boundary verification claims are factually false (B1 "Abstractions zero NuGet refs" and "M.E.AI grep = zero matches" — both wrong since D-AR2-1 MEAI adoption)
+   - §3.4.2 fully describes `Neo4j.AgentMemory.GraphRagAdapter` as a live package — it was merged into Neo4j and **deleted**
+   - §6 references IEmbeddingProvider (deleted) and describes GraphRagAdapter future bridge (never happened as described)
+
+2. **Joi ran a complementary doc audit the same day.** Her findings (inbox: `joi-doc-audit.md`) covered: MCP tool count drift (claims 28, code has 21), stale test count language, root-level planning docs to archive. My audit adds: B1/B5/B6 boundary rule falseness, GraphRagAdapter structural stale section, Azure version wrong (13.0.0 vs actual 5.3.0), `now.md` Phase 1 claim, missing neo4j-maf-provider-analysis.md reference.
+
+3. **Boundary rule B1 needs permanent update.** `Microsoft.Extensions.AI.Abstractions` is an approved exception to "Abstractions MUST NOT reference any NuGet package" (rationale: MEAI.Abstractions is a near-BCL contract layer with zero runtime coupling). This exception must be documented explicitly in B1, not silently violated.
+
+4. **Test count ground truth must come from `dotnet test --list-tests`.** Static [Fact]/[Theory] decorator count = 1,477 methods; with [InlineData] multipliers + MemberData the actual count is higher. README claims 2,040+ (most recent). No single authoritative verified count exists in docs. Recommendation: add a CI step that writes test count to a badge/file.
+
+5. **Archive candidates identified:** `docs/refactoring-plan.md`, `docs/python-agent-memory-analysis.md`, `docs/cypher-analysis.md`, `Agent-memory-for-dotnet-implementation-plan.md` — all complete historical artifacts with no remaining actionable content.
+
+6. **`now.md` must be updated when major milestones complete.** It still says Phase 1 focus. Convention: update `now.md` at the end of each sprint/phase, not just at the start.
+
+**Output:** `.squad/decisions/inbox/deckard-doc-audit.md` (12 Tier-1 findings, 4 Tier-2, 5–6 archive candidates)  
+**Key file paths:** `docs/architecture.md`, `.squad/identity/now.md`, `docs/implementation-status.md §5`, `docs/meai-ecosystem-analysis.md §1`
+
+---
+
 ### 2026-07-19 — HotChocolate.Data.Neo4J Deep Dive
 
 Completed architectural study of ChilliCream's HotChocolate.Data.Neo4J (v13.9.16, ~106 source files, tag 13.9.16 on ChilliCream/graphql-platform). Key findings:

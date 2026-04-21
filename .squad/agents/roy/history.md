@@ -451,6 +451,46 @@
 - OpenTelemetry metrics (7 counters + 5 histograms) and activity tracing
 - GraphRAG adapter with Vector/Fulltext/Hybrid/Graph search modes
 - Azure Language Services extraction
+
+---
+
+## Learnings
+
+### 2025-07-23: Documentation Audit — Post-MEAI-Migration Staleness
+
+**Task:** Full audit of README, docs/design.md, docs/architecture.md, docs/implementation-status.md and all 16 docs/*.md files vs actual src/, tests/, samples/.
+
+**Key Mismatches Found:**
+
+1. **GraphRagAdapter package ghost** — `Neo4j.AgentMemory.GraphRagAdapter` was merged into `Neo4j.AgentMemory.Neo4j` but still appears as a separate package in README.md table, docs/architecture.md §3.4.2 (full section), docs/implementation-status.md Epic 24, docs/meai-ecosystem-analysis.md MEAI table, and `Agent-memory-for-dotnet-implementation-plan.md`. Architecture-review-assessment.md and improvement-suggestions.md correctly reflect the merge.
+
+2. **IEmbeddingProvider deleted** — Replaced by `IEmbeddingOrchestrator`. docs/design.md §5 still lists `IEmbeddingProvider` as service #11. docs/architecture.md §6.3 still says "we define our own `IEmbeddingProvider` in Abstractions". Actual Abstractions/Services has `IEmbeddingOrchestrator.cs`, no `IEmbeddingProvider.cs`.
+
+3. **MCP tool count drift** — Actual tool methods in `src/McpServer/Tools/`: 21 (6+2+6+2+1+1+3). README says 28, feature-record.md says 28, architecture-review-assessment.md says 28. implementation-status.md and architecture.md correctly say 21.
+
+4. **Test count inflation in README** — README claims "2,040+ tests (2,009 unit + 31 SK)". Actual grep count: ~1,477 [Fact] + [Theory] across all 3 test projects. architecture-review-assessment.md says 1,438. README count is ~40% inflated.
+
+5. **Service interface count stale** — design.md catalogs 15 interfaces. Actual Abstractions/Services has 24, including: IBackgroundEnrichmentQueue, IContextCompressor, IMemoryDecayService, IMergeStrategy, ISchemaManager, ISessionIdGenerator, IStreamingExtractor, IGraphQueryService added in later waves.
+
+6. **Package count confusion** — README says 11 packages (correct). implementation-status.md says "10 packages" (pre-SemanticKernel). SemanticKernel adapter is `src/Neo4j.AgentMemory.SemanticKernel/`.
+
+7. **Dead doc reference** — docs/implementation-status.md §5 Document Inventory references `docs/neo4j-maf-provider-analysis.md` which does not exist.
+
+8. **MEAI boundary rule stale** — docs/architecture.md §5 says "grep for `Microsoft.Extensions.AI` returns zero matches" — but MEAI.Abstractions 10.4.1 is now in Abstractions and every package (MEAI migration completed Wave 1).
+
+9. **Quick Start in README is broken** — Uses `IAgentMemory` (doesn't exist), `StoreMessageAsync` (doesn't exist), `AssembleContextAsync` (wrong name), `Neo4jSchemaBootstrapper` (actual: `SchemaBootstrapper`).
+
+10. **Archived/superseded docs** — `docs/cypher-analysis.md` superseded by parity-assessment.md; `docs/refactoring-plan.md` all complete; `docs/python-agent-memory-analysis.md` superseded; `HotChocolate.Data.Neo4J-lessons-learned-and-ideas-to-apply.md` is research in wrong location.
+
+**Key File Paths:**
+- Actual service interfaces: `src/Neo4j.AgentMemory.Abstractions/Services/*.cs` (24 files)
+- MCP tools: `src/Neo4j.AgentMemory.McpServer/Tools/*.cs` (7 files, 21 methods)
+- MCP resources: `src/Neo4j.AgentMemory.McpServer/Resources/*.cs` (6 files)
+- MCP prompts: `src/Neo4j.AgentMemory.McpServer/Prompts/*.cs` (3 files)
+- All src packages: 11 .csproj files in `src/`
+- Test projects: `tests/Neo4j.AgentMemory.Tests.Unit`, `Tests.Integration`, `Tests.Unit.SemanticKernel`
+
+**Decision record:** `.squad/decisions/inbox/roy-doc-audit.md`
 - Agent Framework integration (Microsoft.Extensions.AI)
 - 3 fulltext indexes (Python has none)
 - ReasoningStep vector index (Python only has task-level)

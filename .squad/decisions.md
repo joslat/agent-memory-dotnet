@@ -1320,6 +1320,90 @@ The codebase is in **excellent shape** post-refactoring. The 4 waves addressed a
 
 ---
 
+### D-DOC2: Documentation Audit Findings — Joi, Deckard, Roy (2026-04-21)
+
+**Status:** Findings Reported  
+**Scope:** Documentation Freshness & Accuracy Post-Refactoring  
+**Date:** 2026-04-21
+
+#### High-Level Summary
+
+Three concurrent audits identified **12 TIER 1 critical stale claims** in primary docs (README.md, docs/architecture.md, docs/design.md, docs/implementation-status.md). All three audits converge on the same findings with high signal-to-noise.
+
+#### TIER 1 Findings (Action Required Before Release)
+
+| Finding | Category | Severity | Evidence |
+|---------|----------|----------|----------|
+| **F1: MCP tool count wrong** | Numeric | 🔴 Critical | Actual: 21 tools in code; README, architecture-review-assessment, feature-record, python-dotnet-comparison claim 28 |
+| **F2: GraphRagAdapter ghost references** | Architecture | 🔴 Critical | Package merged into Neo4j; 3 docs still describe it as separate: architecture.md §3.4.2, implementation-status.md, meai-ecosystem-analysis.md |
+| **F3: README quick-start broken** | API | 🔴 Critical | IAgentMemory doesn't exist (use IMemoryService); StoreMessageAsync, AssembleContextAsync don't exist; Neo4jSchemaBootstrapper wrong name (use SchemaBootstrapper) |
+| **F4: Boundary rule B1 false assertions** | Architecture | 🔴 Critical | docs/architecture.md §5 claims "zero Abstractions dependencies" and "zero MEAI references"; both false per D-AR2-1 adoption. |
+| **F5: Package count wrong** | Numeric | 🔴 Critical | 11 actual packages; multiple docs claim 10 (predates SemanticKernel addition). |
+| **F6: Test count inconsistency** | Numeric | 🟡 Warning | Docs claim: 1,058 / 1,124 / 1,211 / 1,438 / 2,040+. Actual: ~1,477 grep [Fact]+[Theory], runtime count TBD. README "2,040+" most recent. |
+| **F7: IEmbeddingProvider stale** | Architecture | 🟡 Warning | docs/design.md, architecture.md §6 describe deleted interface as active. Replaced by D-AR2-1 migration. |
+| **F8: Deleted docs referenced** | Documentation | 🟡 Warning | docs/implementation-status.md §5 references non-existent `docs/neo4j-maf-provider-analysis.md`. |
+| **F9: .squad/identity/now.md stale** | State | 🟡 Warning | States Phase 1 focus; all 6 phases + gap closure complete (Deckard finding F10). |
+| **F10: Prerequisites wrong** | Documentation | 🟡 Warning | README says ".NET 8 SDK or later"; Directory.Build.props targets net9.0 (Deckard F11). |
+| **F11: Extracts incomplete** | Documentation | 🟡 Warning | design.md interface count (15 listed vs 24 actual); implementation-status.md missing SemanticKernel mention. |
+| **F12: Layer diagram stale** | Documentation | 🟡 Warning | architecture.md layer diagram shows non-existent GraphRagAdapter box. |
+
+#### Priority Fix Order
+
+1. **README.md** — Public-facing; broken quick-start code + numeric claims
+2. **docs/architecture.md** — Boundary rule false claims (F4), §3.4.2 ghost section, §5 verification false assertions
+3. **docs/design.md** — Service interface catalog stale (IEmbeddingProvider, count)
+4. **docs/implementation-status.md** — Package count, dead doc reference, SemanticKernel omission
+5. **All other docs** — MCP tool count 28→21, test counts, archive stale docs
+
+#### Archive Candidates (TIER 3)
+
+6 documents identified for archival:
+- `docs/refactoring-plan.md` (all waves complete)
+- `docs/python-agent-memory-analysis.md` (superseded by parity-assessment)
+- `docs/cypher-analysis.md` (superseded by parity-assessment)
+- `Agent-memory-for-dotnet-implementation-plan.md` (Phase 0–6 complete)
+- `Agent-Memory-for-DotNet-Specification.md` (add completion banner or archive)
+- `docs/HotChocolate.Data.Neo4J-lessons-learned-and-ideas-to-apply.md` (label as research spike)
+
+#### TIER 2 — Revalidation Needed
+
+- docs/feature-record.md, architecture-review-assessment.md: MCP tool count (28→21), per-feature test counts
+- docs/improvement-suggestions.md: Package count (9→11), SK status (mark ✅ Complete)
+- docs/python-dotnet-comparison.md: Partial obsolescence (keep + annotate as historical)
+
+#### Missing Docs (DX Gaps)
+
+| Doc | Priority | Rationale |
+|-----|----------|-----------|
+| `docs/getting-started.md` | 🔴 HIGH | No onboarding path; README quick-start broken. Critical DX gap. |
+| `CONTRIBUTING.md` | 🟡 MEDIUM | README says "will be added." Needed pre-community. |
+| `CHANGELOG.md` | 🟡 MEDIUM | No version history. Needed pre-NuGet release. |
+
+#### Convergence Analysis
+
+All three agents independently identified:
+- ✅ MCP tool count: 21 (not 28)
+- ✅ GraphRagAdapter ghost sections
+- ✅ README quick-start broken  
+- ✅ Test count inconsistency
+- ✅ Package count wrong (10→11)
+- ✅ IEmbeddingProvider stale
+- ✅ Archive candidate documents
+
+**Signal strength: VERY HIGH.** Zero contradictions between audits. High-priority fixes overlap 100%.
+
+#### Reference Documents
+
+- `joi-doc-audit.md` — Full inventory, numeric audit, archive recommendations
+- `deckard-doc-audit.md` — Boundary rule verification, structural integrity, tier classification
+- `roy-doc-audit.md` — API surface verification, code evidence, priority order
+
+#### Recommendation
+
+Perform immediate documentation sweep targeting TIER 1 fixes (5 documents, ~2 hours) before any public release or external communication. TIER 2 can be deferred to next sprint. TIER 3 (archival) can be scheduled for documentation cleanup sprint.
+
+---
+
 ## Governance
 
 - All meaningful changes require team consensus
