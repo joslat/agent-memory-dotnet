@@ -175,6 +175,53 @@ public sealed class Neo4jConversationRepositoryTitleTests
         result!.Title.Should().BeNull();
     }
 
+    // ── DeleteBySessionAsync ──
+
+    private static (Neo4jConversationRepository Repo, List<(string Cypher, object? Parameters)> Calls)
+        CreateDeleteWriteCapture()
+    {
+        var calls = new List<(string Cypher, object? Parameters)>();
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var work = call.Arg<Func<IAsyncQueryRunner, Task>>();
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner
+                    .RunAsync(Arg.Any<string>(), Arg.Any<object>())
+                    .Returns(ci =>
+                    {
+                        calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
+                        return Task.FromResult(Substitute.For<IResultCursor>());
+                    });
+                return work(runner);
+            });
+        return (new Neo4jConversationRepository(txRunner, NullLogger<Neo4jConversationRepository>.Instance), calls);
+    }
+
+    [Fact]
+    public async Task DeleteBySessionAsync_SendsCorrectCypher()
+    {
+        var (repo, calls) = CreateDeleteWriteCapture();
+
+        await repo.DeleteBySessionAsync("session-42");
+
+        calls.Should().ContainSingle();
+        calls[0].Cypher.Should().Contain("DETACH DELETE c");
+    }
+
+    [Fact]
+    public async Task DeleteBySessionAsync_PassesCorrectSessionId()
+    {
+        var (repo, calls) = CreateDeleteWriteCapture();
+
+        await repo.DeleteBySessionAsync("session-42");
+
+        var parameters = calls[0].Parameters!;
+        parameters.GetType().GetProperty("sessionId")!.GetValue(parameters).Should().Be("session-42");
+    }
+
     // ── Domain model ──
 
     [Fact]

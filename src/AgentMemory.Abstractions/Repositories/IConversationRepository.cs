@@ -36,6 +36,11 @@ public interface IConversationRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Deletes all conversations for a session in a single batch operation.
+    /// </summary>
+    Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lists all sessions with summary information.
     /// </summary>
     Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default);

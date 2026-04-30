@@ -35,6 +35,9 @@ public static class ConversationQueries
     /// <summary>Delete a Conversation and all its relationships.</summary>
     public const string Delete = "MATCH (c:Conversation {id: $id}) DETACH DELETE c";
 
+    /// <summary>Delete all Conversations for a session (batch, replaces N+1).</summary>
+    public const string DeleteBySession = "MATCH (c:Conversation {session_id: $sessionId}) DETACH DELETE c";
+
     // ── ListSessionsAsync ──────────────────────────────────────────────
 
     /// <summary>List sessions with conversation/message counts and last activity.</summary>

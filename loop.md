@@ -1,7 +1,7 @@
 ---
 configured: true
-interval: 2
-timeout: 45
+interval: 5
+timeout: 60
 description: "Drive docs/nextsteps.md tracking table — one task one stage per round"
 ---
 

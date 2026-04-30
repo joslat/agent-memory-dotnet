@@ -1268,3 +1268,25 @@ ew Neo4jSchemaBootstrapper(driver) — wrong class name and can't be directly in
 - Next: Address pris/rachael flagged issues in targeted follow-up
 
 **Reference:** .squad/orchestration-log/2026-04-30T19-43-32-doc-sprint.md
+
+### 2026-04-30: DELETE_SESSION_DATA Gap Round 3 (30% -> 60%)
+
+**Task:** Implement batch session-delete for Conversation and ReasoningTrace nodes; remove N+1 loop in `ShortTermMemoryService.ClearSessionAsync`.
+
+**Files Changed:**
+1. `src/AgentMemory.Neo4j/Queries/ConversationQueries.cs` -- added `DeleteBySession` const
+2. `src/AgentMemory.Abstractions/Repositories/IConversationRepository.cs` -- added `DeleteBySessionAsync`
+3. `src/AgentMemory.Neo4j/Repositories/Neo4jConversationRepository.cs` -- implemented `DeleteBySessionAsync`
+4. `src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs` -- added `DeleteBySession` const (OPTIONAL MATCH + DETACH DELETE traces + steps)
+5. `src/AgentMemory.Abstractions/Repositories/IReasoningTraceRepository.cs` -- added `DeleteBySessionAsync`
+6. `src/AgentMemory.Neo4j/Repositories/Neo4jReasoningTraceRepository.cs` -- implemented `DeleteBySessionAsync`
+7. `src/AgentMemory.Core/Services/ShortTermMemoryService.cs` -- added `IReasoningTraceRepository` dep; replaced N+1 loop with 3 batch calls
+
+**Key Design Decisions:**
+1. `ReasoningQueries.DeleteBySession` uses OPTIONAL MATCH so query succeeds for traces with no steps.
+2. `IReasoningTraceRepository` injected into `ShortTermMemoryService` -- clean Core->Abstractions dependency.
+3. N+1 loop eliminated; confirmed by DidNotReceive test assertions on GetBySessionAsync and DeleteAsync.
+
+**Build Outcome:** dotnet build -- 0 errors, 8 pre-existing integration warnings
+**Test Outcome:** 2057 passing. 1 pre-existing failure in BackgroundEnrichmentQueueTests (unrelated).
+

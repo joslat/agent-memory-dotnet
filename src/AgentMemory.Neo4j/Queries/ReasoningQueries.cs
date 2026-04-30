@@ -47,6 +47,14 @@ public static class ReasoningQueries
             LIMIT $limit";
 
     /// <summary>
+    /// Delete all ReasoningTrace nodes for a session, including their child ReasoningStep nodes.
+    /// </summary>
+    public const string DeleteBySession = @"
+        MATCH (t:ReasoningTrace {session_id: $sessionId})
+        OPTIONAL MATCH (t)-[:HAS_STEP]->(s:ReasoningStep)
+        DETACH DELETE t, s";
+
+    /// <summary>
     /// Vector similarity search over ReasoningTrace task embeddings (without success filter).
     /// </summary>
     public static string SearchByTaskVector(bool hasSuccessFilter)

@@ -92,4 +92,28 @@ public sealed class Neo4jReasoningTraceRepositoryTests
         parameters.GetType().GetProperty("conversationId")!.GetValue(parameters).Should().Be("conv-10");
         parameters.GetType().GetProperty("traceId")!.GetValue(parameters).Should().Be("trace-20");
     }
+
+    // ── DeleteBySessionAsync ──
+
+    [Fact]
+    public async Task DeleteBySessionAsync_SendsCorrectCypher()
+    {
+        var (repo, calls) = CreateWriteCapture();
+
+        await repo.DeleteBySessionAsync("session-42");
+
+        calls.Should().ContainSingle();
+        calls[0].Cypher.Should().Contain("DETACH DELETE t, s");
+    }
+
+    [Fact]
+    public async Task DeleteBySessionAsync_PassesCorrectSessionId()
+    {
+        var (repo, calls) = CreateWriteCapture();
+
+        await repo.DeleteBySessionAsync("session-42");
+
+        var parameters = calls[0].Parameters!;
+        parameters.GetType().GetProperty("sessionId")!.GetValue(parameters).Should().Be("session-42");
+    }
 }

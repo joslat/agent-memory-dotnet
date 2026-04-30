@@ -14,6 +14,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;
+    private readonly IReasoningTraceRepository _reasoningTraceRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -23,6 +24,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     public ShortTermMemoryService(
         IConversationRepository conversationRepo,
         IMessageRepository messageRepo,
+        IReasoningTraceRepository reasoningTraceRepo,
         IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IIdGenerator idGenerator,
@@ -31,6 +33,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     {
         _conversationRepo = conversationRepo;
         _messageRepo = messageRepo;
+        _reasoningTraceRepo = reasoningTraceRepo;
         _embeddingOrchestrator = embeddingOrchestrator;
         _clock = clock;
         _idGenerator = idGenerator;
@@ -132,10 +135,8 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     {
         _logger.LogDebug("Clearing session {SessionId}", sessionId);
         await _messageRepo.DeleteBySessionAsync(sessionId, cancellationToken);
-
-        var conversations = await _conversationRepo.GetBySessionAsync(sessionId, cancellationToken);
-        foreach (var conversation in conversations)
-            await _conversationRepo.DeleteAsync(conversation.ConversationId, cancellationToken);
+        await _conversationRepo.DeleteBySessionAsync(sessionId, cancellationToken);
+        await _reasoningTraceRepo.DeleteBySessionAsync(sessionId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsOfAsync(
