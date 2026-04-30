@@ -3,3 +3,6 @@
 .squad/agents/*/history.md merge=union
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
+
+# Squad CLI YAML frontmatter parser requires LF endings
+loop.md text eol=lf
