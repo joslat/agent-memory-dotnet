@@ -12,17 +12,19 @@ Scored as of 2026-04-30. **Cost/Effort** and **Value** are 1–10 (1 = trivial/m
 
 | # | Proposal | Pros | Cons | Cost/Effort | Value | Priority |
 |---|----------|------|------|-------------|-------|----------|
-| 1 | **NuGet Release Preparation** — CHANGELOG, CONTRIBUTING, semantic versions, .csproj metadata, GitHub Actions publish workflow | Unlocks community discovery and real-world feedback; CI publish removes manual friction permanently | SemVer stability commitment from v1.0; poor package metadata is permanent; attracts support burden | 2 | 9 | HIGH |
-| 2 | **Aspire Demo Application** — `.NET Aspire AppHost` wiring a Neo4j container (ports 7474/7687), a seeded database, and an agent client console app. Either scripted interaction mode or `--interactive` open chat. Users can inspect the memory graph in Neo4j Browser at `http://localhost:7474`. | Makes the library tangible to evaluating developers; self-contained runnable demo with real Neo4j; showcases MAF + SK integration in one place; Neo4j Browser (port 7474) gives free graph visualization | Requires Docker + .NET Aspire tooling; not strictly a library feature; needs ongoing maintenance as APIs evolve | 4 | 9 | HIGH |
-| 3 | **DELETE_SESSION_DATA Gap Closure** — extend `ConversationRepository.DeleteSessionAsync` to also delete Conversation + ReasoningTrace nodes | Closes only remaining genuine parity gap; prevents user surprise migrating from Python; fix is trivially small | Cascading delete risk if Cypher scope is too broad; delete semantics must be documented to avoid audit-trail surprises | 1 | 5 | HIGH |
-| 4 | **Streaming Extraction** — `IStreamingExtractionPipeline` in Abstractions + Core impl with chunk/overlap/deduplication | Closes highest-value functional gap; eliminates caller burden for long docs; matches Python production behaviour | Cross-chunk entity merge is semantically hard; chunk-boundary artefacts can degrade quality; new public API surface locked under SemVer | 5 | 7 | MED |
-| 5 | **CLI Tool (`dotnet tool`)** — `migrate` and `schema-check` commands only. Scoped to v1: `migrate` + `schema-check` commands only. Richer inspection/export features in backlog. | Production ops need a CLI to run migrations; complements `MigrationRunner`; standard `dotnet tool` distribution | Narrow scope at v1; richer features deferred to backlog | 2 | 4 | MED |
-| 6 | **BenchmarkDotNet Harness** — batch UNWIND, vector search, decay pruning, hybrid retrieval benchmarks | Backs infrastructure depth claims with numbers; catches perf regressions in CI | Hardware-sensitive — dev numbers ≠ production; CI infrastructure complexity for Neo4j benchmarks; stale results worse than none | 3 | 4 | MED |
-| 7 | **S9 — Extract Truncation Strategies from `MemoryContextAssembler`** | Cleaner architecture; easier extension of context assembly; low risk refactor | Minimal user-visible benefit; no active pain point | 2 | 3 | MED |
+| 1 | **Package Rename (Neo4j.AgentMemory.* → AgentMemory.*)** — Rename all 11 packages, all C# namespaces, all class prefixes carrying `Neo4j` as the root. New root namespace: `AgentMemory.*`. Neo4j stays only as an adapter qualifier (`AgentMemory.Neo4j`, `AgentMemory.Extraction.AzureLanguage`, etc.). Affects all .csproj files, all `using` statements, all namespace declarations, all public type names, all documentation. Must complete before anything is published or demoed externally — NuGet IDs are permanent. | Removes implied Neo4j endorsement; avoids trademark confusion with `Neo4j.Driver` (official); correct package naming convention (product first, adapter second); reversible before publish, irreversible after | Wide mechanical change (~11 packages, all source files, all docs); high PR diff noise; any external forks/refs break (none exist yet — pre-v1) | 3 | 9 | HIGH (9/3 = 3.0 — highest ratio) |
+| 2 | **DELETE_SESSION_DATA Gap Closure** — extend `ConversationRepository.DeleteSessionAsync` to also delete Conversation + ReasoningTrace nodes | Closes only remaining genuine parity gap; prevents user surprise migrating from Python; fix is trivially small | Cascading delete risk if Cypher scope is too broad; delete semantics must be documented to avoid audit-trail surprises | 1 | 5 | HIGH |
+| 3 | **Aspire Demo Application** — `.NET Aspire AppHost` wiring a Neo4j container (ports 7474/7687), a seeded database, and an agent client console app. Either scripted interaction mode or `--interactive` open chat. Users can inspect the memory graph in Neo4j Browser at `http://localhost:7474`. | Makes the library tangible to evaluating developers; self-contained runnable demo with real Neo4j; showcases MAF + SK integration in one place; Neo4j Browser (port 7474) gives free graph visualization | Requires Docker + .NET Aspire tooling; not strictly a library feature; needs ongoing maintenance as APIs evolve | 4 | 9 | HIGH |
+| 4 | **NuGet Release Preparation** — CHANGELOG, CONTRIBUTING, semantic versions, .csproj metadata, GitHub Actions publish workflow | Unlocks community discovery and real-world feedback; CI publish removes manual friction permanently | SemVer stability commitment from v1.0; poor package metadata is permanent; attracts support burden | 2 | 9 | HIGH |
+| 5 | **Streaming Extraction** — `IStreamingExtractionPipeline` in Abstractions + Core impl with chunk/overlap/deduplication | Closes highest-value functional gap; eliminates caller burden for long docs; matches Python production behaviour | Cross-chunk entity merge is semantically hard; chunk-boundary artefacts can degrade quality; new public API surface locked under SemVer | 5 | 7 | MED |
+| 6 | **CLI Tool (`dotnet tool`)** — `migrate` and `schema-check` commands only. Scoped to v1: `migrate` + `schema-check` commands only. Richer inspection/export features in backlog. | Production ops need a CLI to run migrations; complements `MigrationRunner`; standard `dotnet tool` distribution | Narrow scope at v1; richer features deferred to backlog | 2 | 4 | MED |
+| 7 | **GDS Support (optional analytics package)** — New optional package `AgentMemory.Analytics` wrapping Neo4j Graph Data Science (GDS) procedures. Requires GDS plugin installed in Neo4j (separate install, not bundled with Community Edition). Provides: `AddGdsMemoryAnalytics()` DI extension; `MemoryPageRankService` (surfaces highly-connected memories); `MemoryCommunityService` (Louvain topic clustering with `communityId` tag). Graceful degradation: if GDS not installed, extension is a no-op and retrieval falls back to standard scoring. | PageRank and community detection improve memory context quality with zero schema changes; opt-in means zero impact for users without GDS; GDS is Cypher-callable so no new driver needed; real quality uplift for power users | Requires separate GDS plugin install (extra ops step); GDS is NOT bundled with Neo4j Community Edition; adds a new NuGet package to maintain; first version may need tuning for memory-specific graph shapes | 3 | 5 | MED (5/3 = 1.67) |
+| 8 | **BenchmarkDotNet Harness** — batch UNWIND, vector search, decay pruning, hybrid retrieval benchmarks | Backs infrastructure depth claims with numbers; catches perf regressions in CI | Hardware-sensitive — dev numbers ≠ production; CI infrastructure complexity for Neo4j benchmarks; stale results worse than none | 3 | 4 | MED |
+| 9 | **S9 — Extract Truncation Strategies from `MemoryContextAssembler`** | Cleaner architecture; easier extension of context assembly; low risk refactor | Minimal user-visible benefit; no active pain point | 2 | 3 | MED |
 
-> **Note:** §4 (Recommended Next Sequence) uses a different ordering that accounts for strategic execution dependencies — `DELETE_SESSION_DATA` is done first because it is trivial and should precede any release; NuGet Release unlocks community feedback; Aspire Demo makes the library real for evaluators. The matrix scores individual proposals in isolation; §4 explains the sequencing rationale.
+> **Note:** §4 (Recommended Next Sequence) applies strategic execution dependencies, not just raw score. Package Rename is #1 because NuGet IDs are permanent — publishing with incorrect package names is an irreversible mistake. DELETE_SESSION_DATA is #2 because it is trivial and can be done in the same sprint as the rename review. Aspire Demo is #3 to validate the renamed library end-to-end before release. NuGet Release Prep is deliberately #4 — it is gated on both the rename being complete and the demo giving a green light. The matrix scores individual proposals in isolation; §4 explains the sequencing rationale.
 
-> **Deferred to `docs/Improvement-Ideas-Backlog.md`:** Memory Conflict Detection + Provenance Scoring, GDS Integration (PageRank/community detection), Cross-Agent Memory Sharing, Local Embedding Adapter (ONNX), Local NLP Extractors, AutoGen.NET/LangChain.NET integrations, Opik observability, and full CLI tool feature set. These are well-reasoned future investments — see the backlog for expanded descriptions and implementation sketches.
+> **Deferred to `docs/Improvement-Ideas-Backlog.md`:** Memory Conflict Detection + Provenance Scoring, Cross-Agent Memory Sharing, Local Embedding Adapter (ONNX), Local NLP Extractors, AutoGen.NET/LangChain.NET integrations, Opik observability, and full CLI tool feature set. These are well-reasoned future investments — see the backlog for expanded descriptions and implementation sketches.
 
 ---
 
@@ -40,7 +42,7 @@ Concretely:
 - **Agent integrations:** Microsoft Agent Framework, Semantic Kernel, MCP server (21 tools, 6 resources, 3 prompts).
 - **Observability:** OpenTelemetry ActivitySource + Meter, instrumented decorators for all extraction and enrichment services.
 
-What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), streaming extraction for long documents, and an Aspire demo application for developer onboarding.
+What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), package rename (AgentMemory.* root namespace), streaming extraction for long documents, an Aspire demo application for developer onboarding, and an optional GDS analytics package.
 
 ---
 
@@ -115,41 +117,39 @@ The following items from `improvement-suggestions.md` and `parity-assessment.md`
 
 ## 4. Recommended Next Sequence
 
-Priority is ordered by strategic value and execution readiness. Each item is self-contained; they can be tackled sequentially without blocking each other.
+Priority is ordered by strategic execution dependencies. Publishing with incorrect package names is an irreversible mistake; that constraint drives the ordering more than raw scores do.
 
-**Ordering logic in one paragraph:** Step 1 (`DELETE_SESSION_DATA`) is the only genuine parity gap remaining — a single Cypher change that costs nothing to delay further but should be closed before any public release. Step 2 (NuGet prep) unlocks all downstream community value and is purely release scaffolding. Step 3 (Aspire demo) makes the library tangible to evaluating developers and provides Neo4j Browser graph visualisation at no extra cost. Step 4 (BenchmarkDotNet) backs architectural performance claims before the library is published at scale. Step 5 (CLI tool, scoped v1) is a narrow but production-necessary migration utility. Step 6 (Streaming extraction) closes the highest remaining functional gap.
+**Ordering logic in one paragraph:** Step 1 (Package Rename) has the highest value/cost ratio in the matrix and a one-way door — NuGet IDs are permanent. It must precede any external demo or release. Step 2 (DELETE_SESSION_DATA) is trivial and can run in the same sprint as the rename review with no dependency. Step 3 (Aspire Demo) validates that the renamed library works end-to-end and is the "wow effect" signal that the library is ready to ship. Step 4 (NuGet Release Prep) is deliberately gated on demo success — only after the demo gives a green light should we publish. Step 5 (Streaming Extraction) is the first post-release functional feature. Steps 6 and 7 (CLI Tool + GDS Support) are parallel additive work; neither blocks the other or any release.
 
-### Step 1 — `DELETE_SESSION_DATA` Gap Closure (do it now)
+### Step 1 — Package Rename (Neo4j.AgentMemory.* → AgentMemory.*)
+
+**What:** Rename all 11 packages, all C# namespaces, all class prefixes carrying `Neo4j` as the root. New root namespace: `AgentMemory.*`. Neo4j stays only as an adapter qualifier: `AgentMemory.Neo4j`, `AgentMemory.Extraction.AzureLanguage`, etc. Affects all `.csproj` files, all `using` statements, all namespace declarations, all public type names, all documentation.
+
+**Why first:** NuGet package IDs are permanent once published. Publishing under `Neo4j.AgentMemory.*` creates trademark ambiguity with `Neo4j.Driver` (the official Neo4j .NET driver) and implies Neo4j endorsement this project does not have. The rename is mechanical and wide, but the window to do it cleanly is now — pre-v1, before any external demo uses the wrong names, before any fork or NuGet consumer exists.
+
+**Benefit:** Correct public package names (product first, adapter second) from day one. No trademark confusion. No retroactive breaking change after publish. Demo uses the final public API surface.
+
+**Cons / Tradeoffs:**
+- Wide mechanical change: ~11 packages, all source files, all docs. High PR diff noise.
+- Any external forks or references break — but none exist yet (pre-v1).
+
+**Effort:** Medium (3). Roy + Holden validate tests still pass after rename.
+
+---
+
+### Step 2 — `DELETE_SESSION_DATA` Gap Closure
 
 **What:** Extend `ConversationRepository.DeleteSessionAsync` (or equivalent) to also delete associated Conversation nodes and ReasoningTrace nodes, matching Python's `DELETE_SESSION_DATA` semantics.
 
-**Why first:** This is the only genuine (non-decided) partial parity gap remaining. It is very small — likely a single Cypher addition — and worth closing before any release to prevent surprises for users migrating from the Python implementation.
+**Why second:** Trivial (Cost 1). Can be done in the same sprint as the rename review — no dependencies between the two. Worth closing before any release to prevent surprises for users migrating from the Python implementation.
 
-**Benefit:** Users migrating from Python will not encounter subtle data-retention differences. The session deletion contract becomes complete and predictable. The fix is so small that skipping it would be a poor trade-off once the codebase is published.
+**Benefit:** Users migrating from Python will not encounter subtle data-retention differences. The session deletion contract becomes complete and predictable.
 
 **Cons / Tradeoffs:**
 - Deleting Conversation and ReasoningTrace nodes **may be destructive in unexpected ways** if the caller expects them to survive session deletion for audit/replay purposes. The deletion semantics should be clearly documented.
 - A careless Cypher query could cascade deletes too broadly. The query must be scoped carefully to avoid cross-session data loss.
 
-**Effort:** Very low. One Cypher query change, one repository update, one test.
-
----
-
-### Step 2 — NuGet Release Preparation
-
-**What:** Create `CHANGELOG.md`, `CONTRIBUTING.md`, assign initial semantic versions to all packages, verify package metadata (`.csproj` `PackageId`, `Description`, `Authors`, `RepositoryUrl`, `PackageTags`), produce a release CI workflow (GitHub Actions → NuGet.org push).
-
-**Why second:** The code is demonstrably production-quality. Nothing of strategic value is added by delaying the release. Publishing makes the library discoverable by the .NET community and generates real feedback. This is the highest-leverage unlock available. No other step produces community or ecosystem value without it.
-
-**Benefit:** The library becomes publicly installable and discoverable. External feedback on API design is now possible. CI publish workflow removes manual release friction permanently.
-
-**Cons / Tradeoffs:**
-- Publishing a v1.0 creates a **SemVer stability commitment** — breaking changes in the public API require a v2.x bump and a deprecation cycle.
-- Metadata quality matters permanently: a poorly chosen `PackageId` or mismatched tags will be visible to all NuGet users.
-- CI secrets (NuGet API key) must be managed; rotating them later is low-effort but must not be forgotten.
-- Once published, the library will attract issue reports, which consume architect and engineer time.
-
-**Effort:** Low. No code changes required; purely release scaffolding.
+**Effort:** Very low (1). One Cypher query change, one repository update, one test.
 
 ---
 
@@ -157,65 +157,58 @@ Priority is ordered by strategic value and execution readiness. Each item is sel
 
 **What:** `.NET Aspire AppHost` wiring a Neo4j container (ports 7474/7687), a seeded database, and an agent client console app. Either scripted interaction mode or `--interactive` open chat. Users can inspect the memory graph in Neo4j Browser at `http://localhost:7474`.
 
-**Why third:** Makes the library tangible to evaluating developers. A self-contained runnable demo is the fastest path to adoption — it removes all setup friction for first-time users and showcases MAF + SK integration in one place. Neo4j Browser at port 7474 provides free graph visualisation with no extra tooling.
+**Why third:** Validates that the renamed library works end-to-end. This is the "wow effect" signal — a self-contained runnable demo is the fastest path to adoption and removes all setup friction for first-time users. It also gates the NuGet release: if the demo reveals issues, they must be fixed before publishing.
 
-**Benefit:** Reduces time-to-first-run for evaluators. Showcases MAF + SK integration together. Neo4j Browser gives immediate graph visualisation at no extra tooling cost. Reduces "how do I get started" support burden.
+**Benefit:** Proves renamed packages function correctly. Reduces time-to-first-run for evaluators. Showcases MAF + SK integration together. Neo4j Browser gives immediate graph visualisation at no extra tooling cost.
 
 **Cons / Tradeoffs:**
-- Requires Docker + .NET Aspire tooling — adds infrastructure prerequisites for first-time users.
+- Requires Docker + .NET Aspire tooling — adds infrastructure prerequisites.
 - Not strictly a library feature; needs ongoing maintenance as APIs evolve.
-- Seeded data must be kept representative and updated when the schema evolves.
 
 **Effort:** Medium (4). New AppHost project, seeding script, console agent client.
 
 ---
 
-### Step 4 — BenchmarkDotNet Harness
+### Step 4 — NuGet Release Preparation
 
-**What:** Add a `benchmarks/` project with `BenchmarkDotNet` measuring batch UNWIND vs single-insert, vector search latency at different dataset sizes, decay pruning throughput, and hybrid retrieval overhead.
+**What:** Create `CHANGELOG.md`, `CONTRIBUTING.md`, assign initial semantic versions to all packages, verify package metadata (`.csproj` `PackageId`, `Description`, `Authors`, `RepositoryUrl`, `PackageTags`), produce a release CI workflow (GitHub Actions → NuGet.org push).
 
-**Why fourth:** Demonstrates the performance characteristics that differentiate this implementation (batch UNWIND, decay, hybrid retrieval). Useful for NuGet marketing, issue triage, and detecting performance regressions. The data also helps users size Neo4j infrastructure.
+**Why fourth:** Only valid after the rename is complete (package IDs are permanent) and after the demo confirms the library is shippable. Publishing before either of those conditions is met would be an irreversible mistake. Once gated conditions are met, this is the highest-leverage unlock — it makes the library discoverable and generates real feedback.
 
-**Benefit:** Surfaces concrete numbers for the architectural advantages (.NET claims superior infrastructure depth — this puts data behind the claim). Performance regressions caught in CI before release. Users can make informed infrastructure sizing decisions.
+**Benefit:** Library becomes publicly installable and discoverable. External feedback on API design becomes possible. CI publish workflow removes manual release friction permanently.
 
 **Cons / Tradeoffs:**
-- Benchmark results are **hardware- and environment-sensitive** — results from a development laptop are not representative of production. Numbers published in documentation must be clearly qualified with the benchmark environment.
-- A `benchmarks/` project adds a separate build configuration. Maintaining it as the library evolves has an ongoing cost.
-- Benchmarks that run against a live Neo4j instance require infrastructure in CI. The benchmark run time may be too long for per-PR CI.
+- Publishing a v1.0 creates a **SemVer stability commitment** — breaking changes require a v2.x bump and a deprecation cycle.
+- Metadata quality matters permanently: a poorly chosen `PackageId` or mismatched tags will be visible to all NuGet users.
+- CI secrets (NuGet API key) must be managed.
 
-**Effort:** Low. No changes to production code.
+**Effort:** Low (2). No code changes required; purely release scaffolding.
 
 ---
 
-### Step 5 — CLI Tool (scoped v1: `migrate` + `schema-check`)
-
-**What:** `dotnet tool` providing two commands: `migrate` (runs pending schema migrations via `MigrationRunner`) and `schema-check` (validates the current schema against the expected baseline). Scoped to v1: `migrate` + `schema-check` commands only. Richer inspection/export features in backlog.
-
-**Why fifth:** Production deployments need a CLI to run schema migrations without deploying the full MCP server. Complements `MigrationRunner`. Standard `dotnet tool` distribution pattern makes it easy to install in CI pipelines and ops scripts.
-
-**Benefit:** Closes the production ops gap for schema management. Standard installable `dotnet tool` packaging.
-
-**Cons / Tradeoffs:**
-- Narrow v1 scope (ops-only). Users expecting Python CLI feature parity (extract, stats, inspect) will need to wait for richer features in backlog.
-
-**Effort:** Low (2). Two commands wiring existing `MigrationRunner` infrastructure.
-
----
-
-### Step 6 — Streaming Extraction
+### Step 5 — Streaming Extraction
 
 **What:** Add `IStreamingExtractionPipeline` to Abstractions with chunked input support. Implement in Core with configurable chunk size, overlap tokens, and cross-chunk entity deduplication. Python's `streaming.py` is a clear reference for the design.
 
-**Why sixth:** This is the most significant functional gap for production use. Long documents (meeting transcripts, lengthy reports, large context windows) currently require the caller to chunk manually. A first-class streaming pipeline closes that gap with a clean interface.
+**Why fifth:** First post-release functional feature. This is the most significant functional gap for production use — long documents currently require the caller to chunk manually. Can be developed in parallel with or immediately after the NuGet release.
 
-**Benefit:** Long-document extraction becomes a first-class concern with no burden on the caller. Cross-chunk entity deduplication prevents duplicate graph nodes from independently chunked calls. Matches Python's production behaviour on real workloads.
+**Benefit:** Long-document extraction becomes a first-class concern with no burden on the caller. Cross-chunk entity deduplication prevents duplicate graph nodes. Matches Python's production behaviour on real workloads.
 
 **Cons / Tradeoffs:**
-- Cross-chunk entity merge is **semantically hard**: two mentions of the same entity in adjacent chunks may differ in phrasing. Merge logic requires careful heuristics or an extra LLM round-trip.
-- The new `IStreamingExtractionPipeline` interface expands the public API surface, which must be maintained under SemVer.
-- Chunk-boundary artefacts (sentences split mid-clause) can degrade extraction quality compared to whole-document processing.
+- Cross-chunk entity merge is **semantically hard**: two mentions of the same entity in adjacent chunks may differ in phrasing.
+- The new `IStreamingExtractionPipeline` interface expands the public API surface under SemVer.
 
 **Effort:** Medium (5). New interface + Core implementation + tests. No breaking changes to existing contracts.
+
+---
+
+### Step 6 — CLI Tool (scoped v1: `migrate` + `schema-check`) + GDS Support (parallel)
+
+These two items are additive and independent. Neither blocks the other or any release. They can be worked in parallel by different engineers.
+
+**CLI Tool:** `dotnet tool` providing `migrate` (runs pending schema migrations via `MigrationRunner`) and `schema-check` (validates current schema against expected baseline). Effort: Low (2).
+
+**GDS Support:** Optional package `AgentMemory.Analytics` wrapping Neo4j Graph Data Science procedures. `MemoryPageRankService` and `MemoryCommunityService`. Graceful degradation if GDS not installed. Depends on Aspire demo success. Does not block v1 release. Effort: Medium (3).
 
 ---
 
@@ -224,7 +217,7 @@ Priority is ordered by strategic value and execution readiness. Each item is sel
 See `docs/Improvement-Ideas-Backlog.md` for expanded descriptions and implementation sketches. Notable deferred items:
 
 - **Memory conflict detection (C2) and provenance reliability scoring (C1):** High-novelty features worth building eventually, but non-trivial and best scheduled after the library has real-world users providing feedback.
-- **GDS integration:** PageRank, community detection on the memory graph. Powerful, but requires Neo4j GDS plugin and adds operational complexity. Revisit post-v1.
+- **BenchmarkDotNet Harness:** Backs architectural performance claims. Useful before publicising perf results but not blocking release.
 - **Richer CLI tool features:** Inspect, export, stats commands. Deferred beyond v1 scope.
 
 ---

@@ -1857,3 +1857,29 @@ Four options analyzed with full scoring:
 - Next: Address pris/rachael flagged issues in targeted follow-up
 
 **Reference:** .squad/orchestration-log/2026-04-30T19-43-32-doc-sprint.md
+
+### 2026-04-30 — nextsteps.md Priority Matrix Reordered + 2 New Items Added
+
+**Trigger:** José challenged the Coordinator on the matrix ordering. Deckard applied the reorder.
+
+**What changed:**
+- Added **Package Rename (Neo4j.AgentMemory.* → AgentMemory.*)** — HIGH (V=9, C=3, ratio 3.0 — highest in matrix). Pre-v1 only window; NuGet IDs are permanent.
+- Added **GDS Support (AgentMemory.Analytics)** — MED (V=5, C=3, ratio 1.67). Optional analytics package; graceful degradation if GDS plugin not installed.
+- GDS removed from the deferred backlog note (now active matrix row #7).
+- §1 "What is not done yet" updated to include package rename and GDS analytics package.
+
+**New matrix order (strategic execution dependencies):**
+1. Package Rename — highest ratio; one-way door; must precede demo and release
+2. DELETE_SESSION_DATA — trivial; same sprint as rename review
+3. Aspire Demo — validates renamed library end-to-end; gating signal for NuGet release
+4. NuGet Release Prep — gated on rename complete + demo green light (moved from #1 to #4)
+5. Streaming Extraction — first post-release functional feature
+6. CLI Tool — ops utility; additive
+7. GDS Support — optional analytics add-on; additive
+8. BenchmarkDotNet Harness — backs perf claims
+9. S9 Truncation Strategies — architecture cleanup; lowest priority
+
+**Architectural rationale:** Publishing with wrong package names is irreversible. NuGet Release Prep deliberately demoted to #4 — it is gated on (a) rename complete and (b) Aspire demo giving green light. This is the right sequencing: correctness before discoverability.
+
+**Decisions inbox:** `.squad/decisions/inbox/deckard-reorder-nextsteps-2026-04-30.md`
+
