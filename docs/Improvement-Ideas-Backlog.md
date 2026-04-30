@@ -41,10 +41,10 @@ When a conflict is detected:
 
 ### Implementation Sketch
 
-- **New service:** `ConflictDetectionService` in `Neo4j.AgentMemory.Core`
-- **New Cypher queries:** in `Neo4j.AgentMemory.Neo4j`, querying for predicate collisions on shared entity targets
+- **New service:** `ConflictDetectionService` in `AgentMemory.Core`
+- **New Cypher queries:** in `AgentMemory.Neo4j`, querying for predicate collisions on shared entity targets
 - **Schema change:** `ProvenanceScore` as indexed properties on `Fact` nodes; `conflictStatus` enum property
-- **New interfaces:** `IConflictDetectedEvent`, `IConflictHandler` in `Neo4j.AgentMemory.Abstractions`
+- **New interfaces:** `IConflictDetectedEvent`, `IConflictHandler` in `AgentMemory.Abstractions`
 - **Hook point:** `IFactRepository.UpsertAsync` triggers detection on write; background job handles periodic sweeps
 
 ### Why Deferred
@@ -63,7 +63,7 @@ PageRank applied to the memory graph would surface the most semantically central
 
 ### How It Would Work
 
-An optional `Neo4j.AgentMemory.Analytics` package, requiring the Neo4j GDS plugin to be installed. The package is a zero-dependency add-on; the core library functions without it.
+An optional `AgentMemory.Analytics` package, requiring the Neo4j GDS plugin to be installed. The package is a zero-dependency add-on; the core library functions without it.
 
 `MemoryPageRankService`:
 - Projects the in-memory graph into GDS using `gds.graph.project`
@@ -82,7 +82,7 @@ An optional `Neo4j.AgentMemory.Analytics` package, requiring the Neo4j GDS plugi
 
 ### Implementation Sketch
 
-- **New package:** `Neo4j.AgentMemory.Analytics` with `IMemoryAnalyticsService`
+- **New package:** `AgentMemory.Analytics` with `IMemoryAnalyticsService`
 - **DI registration:** `AddAgentMemoryAnalytics(this IServiceCollection services)` extension
 - **Scheduler hook:** Integrate with existing background job infrastructure for periodic GDS projection refresh
 - **GDS version pinning:** Test against GDS 2.x; document minimum version requirement
@@ -144,7 +144,7 @@ All current embedding support requires a cloud provider: Azure OpenAI, OpenAI, o
 
 ### How It Would Work
 
-A new package `Neo4j.AgentMemory.Embedding.Onnx` implementing `IEmbeddingGenerator<string, Embedding<float>>` from Microsoft.Extensions.AI (MEAI). This keeps it fully drop-in compatible with the existing embedding pipeline.
+A new package `AgentMemory.Embedding.Onnx` implementing `IEmbeddingGenerator<string, Embedding<float>>` from Microsoft.Extensions.AI (MEAI). This keeps it fully drop-in compatible with the existing embedding pipeline.
 
 Internals use `Microsoft.ML.OnnxRuntime` to load a bundled or user-supplied ONNX model. The default model would be `all-MiniLM-L6-v2` (384 dimensions, ~90 MB), a widely-used sentence embedding model with permissive licensing (Apache 2.0).
 
@@ -159,7 +159,7 @@ Model dimensionality must match the Neo4j vector index dimension. A startup vali
 
 ### Implementation Sketch
 
-- **New package:** `Neo4j.AgentMemory.Embedding.Onnx`
+- **New package:** `AgentMemory.Embedding.Onnx`
 - **Dependencies:** `Microsoft.ML.OnnxRuntime`, `Microsoft.Extensions.AI`
 - **Model distribution:** model file is NOT bundled in NuGet (too large); user supplies path or downloads via a provided script
 - **Tokenizer:** use `Microsoft.ML.Tokenizers` (SharpToken alternative) for BPE/WordPiece tokenization
@@ -182,7 +182,7 @@ For high-volume extraction scenarios (indexing historical conversations, batch p
 ### How It Would Work
 
 **Option A — ONNX NER model:**  
-Export a fine-tuned NER model (e.g., based on `dslim/bert-base-NER` or a GLiNER-equivalent) to ONNX format. Implement `INerExtractor` in a new package `Neo4j.AgentMemory.Extraction.LocalNlp` using `Microsoft.ML.OnnxRuntime`. This handles entity extraction (PERSON, ORG, LOC, etc.) but not zero-shot generalization.
+Export a fine-tuned NER model (e.g., based on `dslim/bert-base-NER` or a GLiNER-equivalent) to ONNX format. Implement `INerExtractor` in a new package `AgentMemory.Extraction.LocalNlp` using `Microsoft.ML.OnnxRuntime`. This handles entity extraction (PERSON, ORG, LOC, etc.) but not zero-shot generalization.
 
 **Option B — Python GLiNER via gRPC sidecar:**  
 A lightweight Python gRPC service wraps GLiNER. The .NET package calls it via a generated proto client. Allows full GLiNER capabilities without a native .NET port. Adds operational complexity (Python sidecar must be running).
@@ -190,11 +190,11 @@ A lightweight Python gRPC service wraps GLiNER. The .NET package calls it via a 
 **Option C — Wait for native .NET GLiNER:**  
 The GLiNER model architecture is not fundamentally tied to Python. A .NET port is theoretically possible. Monitor the ecosystem.
 
-The new package would implement `IExtractionService` from `Neo4j.AgentMemory.Abstractions`, making it a drop-in replacement for the LLM extractor.
+The new package would implement `IExtractionService` from `AgentMemory.Abstractions`, making it a drop-in replacement for the LLM extractor.
 
 ### Implementation Sketch
 
-- **New package:** `Neo4j.AgentMemory.Extraction.LocalNlp`
+- **New package:** `AgentMemory.Extraction.LocalNlp`
 - **Start with Option A** (ONNX NER) for entities; combine with a local rule-based fact extractor for common patterns
 - **Fallback:** graceful degradation to LLM extractor when local model confidence is below threshold
 - **DI:** `UseLocalNlpExtraction(modelPath)` builder extension
@@ -215,7 +215,7 @@ As agent memory systems scale, understanding _why_ memory retrieval improved or 
 
 ### How It Would Work
 
-An optional package `Neo4j.AgentMemory.Observability.Opik` wraps the extraction and context assembly pipeline to emit Opik-compatible traces.
+An optional package `AgentMemory.Observability.Opik` wraps the extraction and context assembly pipeline to emit Opik-compatible traces.
 
 Each memory operation (extraction, enrichment, context assembly, conflict detection) becomes an Opik span with:
 - Input prompt / retrieved context
@@ -233,7 +233,7 @@ builder.AddAgentMemory(options =>
 
 ### Implementation Sketch
 
-- **New package:** `Neo4j.AgentMemory.Observability.Opik`
+- **New package:** `AgentMemory.Observability.Opik`
 - **Pattern:** Decorator over `IExtractionService` and `IMemoryContextAssembler`
 - **SDK dependency:** Awaiting official Comet ML .NET SDK (currently Python/JS only)
 - **Fallback plan:** If no official SDK, implement a thin HTTP client against the Opik REST API directly
@@ -280,7 +280,7 @@ The MCP server already provides most of these capabilities for developer use via
 
 ### AutoGen.NET (Microsoft Agent Framework)
 
-AutoGen.NET has been renamed and absorbed into Microsoft Agent Framework (MAF). **Any AutoGen.NET integration IS the existing MAF adapter.** No separate work is needed here — the `Neo4j.AgentMemory.AgentFramework` package covers this. Close this item.
+AutoGen.NET has been renamed and absorbed into Microsoft Agent Framework (MAF). **Any AutoGen.NET integration IS the existing MAF adapter.** No separate work is needed here — the `AgentMemory.AgentFramework` package covers this. Close this item.
 
 ### LangChain.NET
 

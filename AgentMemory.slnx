@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/Neo4j/" />
+  <Folder Name="/Neo4j/neo4j-maf-provider/" />
+  <Folder Name="/Neo4j/neo4j-maf-provider/dotnet/" />
+  <Folder Name="/Neo4j/neo4j-maf-provider/dotnet/src/">
+    <Project Path="Neo4j/neo4j-maf-provider/dotnet/src/Neo4j.AgentFramework.GraphRAG/Neo4j.AgentFramework.GraphRAG.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj" />
+    <Project Path="src/AgentMemory.AgentFramework/AgentMemory.AgentFramework.csproj" />
+    <Project Path="src/AgentMemory.Core/AgentMemory.Core.csproj" />
+    <Project Path="src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
+    <Project Path="src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj" />
+    <Project Path="src/AgentMemory.Extraction.AzureLanguage/AgentMemory.Extraction.AzureLanguage.csproj" />
+    <Project Path="src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj" />
+    <Project Path="src/AgentMemory.Observability/AgentMemory.Observability.csproj" />
+    <Project Path="src/AgentMemory.McpServer/AgentMemory.McpServer.csproj" />
+    <Project Path="src/AgentMemory/AgentMemory.csproj" />
+    <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj" />
+    <Project Path="tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj" />
+    <Project Path="tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj" />
+  </Folder>
+</Solution>

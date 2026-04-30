@@ -48,7 +48,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 | Deviation | Reason |
 |---|---|
-| Package naming: `Neo4j.AgentMemory.*` instead of `AgentMemory.*` | Naming decision to clarify Neo4j backing. Spec §2.2 lists these as "candidate packages" so this is within spec. |
+| Package naming: `AgentMemory.*` instead of `AgentMemory.*` | Naming decision to clarify Neo4j backing. Spec §2.2 lists these as "candidate packages" so this is within spec. |
 | `Extraction.Abstractions` merged into `Abstractions` | Extraction interfaces live in main Abstractions package. Simpler than a separate package. |
 | `reasoning_step_embedding_idx` added (not in original plan) | Enables future semantic search over reasoning steps. Useful and low-cost. |
 | `task_embedding_idx` added for ReasoningTrace | Enables `SearchByTaskVectorAsync`. Added in SchemaBootstrapper. |
@@ -88,7 +88,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 | # | Epic | Description | Status | Commit | Notes |
 |---|---|---|---|---|---|
-| 16 | Neo4j Agent Framework Package | Neo4j.AgentMemory.AgentFramework project | ✅ Done | Phase 3 | Microsoft.Agents.AI.Abstractions 1.1.0 |
+| 16 | Neo4j Agent Framework Package | AgentMemory.AgentFramework project | ✅ Done | Phase 3 | Microsoft.Agents.AI.Abstractions 1.1.0 |
 | 17 | Context Provider | Neo4jMemoryContextProvider extends AIContextProvider | ✅ Done | Phase 3 | Pre-run context injection |
 | 18 | Chat Message Store | Neo4jChatMessageStore MAF-compatible persistence | ✅ Done | Phase 3 | Session/conversation storage |
 | 19 | Convenience Facade | Neo4jMicrosoftMemoryFacade (pre-run + post-run orchestration) | ✅ Done | Phase 3 | Simplified integration API |
@@ -103,12 +103,12 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 | # | Epic | Description | Status | Commit | Notes |
 |---|---|---|---|---|---|
-| 24 | GraphRAG Adapter Package | GraphRAG retrieval capability (planned as separate package, internalized into Neo4j package) | ✅ Done | Phase 4 | Built into Neo4j.AgentMemory.Neo4j — see architecture.md §3.4.2 |
+| 24 | GraphRAG Adapter Package | GraphRAG retrieval capability (planned as separate package, internalized into Neo4j package) | ✅ Done | Phase 4 | Built into AgentMemory.Neo4j — see architecture.md §3.4.2 |
 | 25 | IGraphRagContextSource | Neo4jGraphRagContextSource with 4 search modes | ✅ Done | Phase 4 | Vector, Fulltext, Hybrid, Graph |
 | 26 | GraphRagOptions | IndexName, SearchMode, FulltextIndexName, TopK, FilterStopWords | ✅ Done | Phase 4 | Full configuration surface |
-| 27 | Observability Package | Neo4j.AgentMemory.Observability project | ✅ Done | Phase 4 | OpenTelemetry.Api 1.12.0 |
+| 27 | Observability Package | AgentMemory.Observability project | ✅ Done | Phase 4 | OpenTelemetry.Api 1.12.0 |
 | 28 | OTel Decorators | InstrumentedMemoryService + InstrumentedGraphRagContextSource | ✅ Done | Phase 4 | Decorator pattern, no Scrutor |
-| 29 | MemoryActivitySource | ActivitySource "Neo4j.AgentMemory" for distributed tracing | ✅ Done | Phase 4 | All memory + GraphRAG spans |
+| 29 | MemoryActivitySource | ActivitySource "AgentMemory" for distributed tracing | ✅ Done | Phase 4 | All memory + GraphRAG spans |
 | 30 | MemoryMetrics | Meter with 7 counters + 5 histograms | ✅ Done | Phase 4 | messages, entities, graphrag, recall/persist durations |
 | 31 | DI Infrastructure Phase 4 | AddGraphRagAdapter() + AddAgentMemoryObservability() | ✅ Done | Phase 4 | Registration order enforced |
 | 32 | BlendedAgent Sample | Combined Memory + GraphRAG sample app with OTel console output | ✅ Done | Phase 4 | 3 retrieval modes demonstrated |
@@ -117,9 +117,9 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 | # | Epic | Description | Status | Commit | Notes |
 |---|---|---|---|---|---|
-| 33 | Azure Language Extraction Package | Neo4j.AgentMemory.Extraction.AzureLanguage project | ✅ Done | Phase 5 | Azure.AI.TextAnalytics integration |
+| 33 | Azure Language Extraction Package | AgentMemory.Extraction.AzureLanguage project | ✅ Done | Phase 5 | Azure.AI.TextAnalytics integration |
 | 34 | Azure Extractors | Entity, Key Phrase, PII extractors using Azure Text Analytics | ✅ Done | Phase 5 | IEntityExtractor, IFactExtractor implementations |
-| 35 | Enrichment Package | Neo4j.AgentMemory.Enrichment project | ✅ Done | Phase 5 | Geocoding + entity enrichment services |
+| 35 | Enrichment Package | AgentMemory.Enrichment project | ✅ Done | Phase 5 | Geocoding + entity enrichment services |
 | 36 | Geocoding Service | NominatimGeocodingService with caching and rate limiting | ✅ Done | Phase 5 | IGeocodingService implementation |
 | 37 | Entity Enrichment Service | WikimediaEntityEnrichmentService for augmenting entities | ✅ Done | Phase 5 | IEnrichmentService implementation |
 | 38 | Decorator Chain | Cache → RateLimiter → Backend services | ✅ Done | Phase 5 | Cross-cutting enrichment concerns |
@@ -133,7 +133,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 |---|---|---|---|---|---|
 | 40 | IGraphQueryService Interface | New interface in Abstractions for raw Cypher query execution | ✅ Done | Phase 6 | Clean architecture boundary |
 | 41 | Neo4jGraphQueryService | IGraphQueryService implementation using INeo4jTransactionRunner | ✅ Done | Phase 6 | Node/Relationship/Path conversion |
-| 42 | MCP Server Package | Neo4j.AgentMemory.McpServer project with ModelContextProtocol 1.2.0 | ✅ Done | Phase 6 | 10th src package |
+| 42 | MCP Server Package | AgentMemory.McpServer project with ModelContextProtocol 1.2.0 | ✅ Done | Phase 6 | 10th src package |
 | 43 | Core MCP Tools (6) | memory_search, memory_get_context, memory_store_message, memory_add_entity, memory_add_preference, memory_add_fact | ✅ Done | Phase 6 | Delegates to IMemoryService, ILongTermMemoryService |
 | 44 | Extended MCP Tools (15) | conversation, session, entity, relationship, reasoning (start/step/complete), graph_query, record_tool_call, export_graph, find_duplicates, extract_and_persist, extract_session, generate_embeddings, get_observations | ✅ Done | Phase 6 | Delegates to all service layers |
 | 45 | MCP Server DI | AddAgentMemoryMcpTools() extension on IMcpServerBuilder | ✅ Done | Phase 6 | Registers all 7 tool classes + 6 resource classes + 3 prompt classes |
@@ -146,7 +146,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 #### Epic 1 — Foundation & Scaffold (commit `f0c2922`)
 **Delivered:**
-- Solution file (`Neo4j.AgentMemory.slnx`)
+- Solution file (`AgentMemory.slnx`)
 - `Directory.Build.props` with shared build settings (.NET 9, nullable, implicit usings)
 - Three source projects: Abstractions, Core, Neo4j
 - Two test projects: Unit, Integration
@@ -353,7 +353,7 @@ dotnet test
 ### Run Only Unit Tests
 
 ```bash
-dotnet test tests/Neo4j.AgentMemory.Tests.Unit
+dotnet test tests/AgentMemory.Tests.Unit
 ```
 
 ### Local Neo4j (for manual exploration)
@@ -367,7 +367,7 @@ Connects at `bolt://localhost:7687` with credentials `neo4j/password`.
 ### Current Test Results
 
 ```
-Passed!  - Failed: 0, Passed: 1058, Skipped: 0 - Neo4j.AgentMemory.Tests.Unit.dll
+Passed!  - Failed: 0, Passed: 1058, Skipped: 0 - AgentMemory.Tests.Unit.dll
 ```
 
 **Test breakdown by phase:**

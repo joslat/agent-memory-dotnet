@@ -49,11 +49,11 @@ This plan addressed **7 concrete code quality findings** + **11 functional parit
 
 | Item | Description | Status |
 |------|-------------|--------|
-| A1 | Single NuGet meta-package | ✅ **Complete** — `Neo4j.AgentMemory` meta-package with `AddNeo4jAgentMemory()` |
+| A1 | Single NuGet meta-package | ✅ **Complete** — `AgentMemory` meta-package with `AddNeo4jAgentMemory()` |
 | A2 | Provider tag in enrichment cache keys | ✅ **Complete** — Quick wins sprint |
 | A3 | Fix missing duration metric in Observability | ✅ **Complete** — Quick wins sprint |
 | A4 | Externalize LLM system prompts | ✅ **Complete** — `LlmExtractionOptions.*Prompt` properties, defaults preserved |
-| A5 | Semantic Kernel adapter | ✅ **Complete** — `Neo4j.AgentMemory.SemanticKernel` (Neo4jMemoryPlugin + Neo4jTextSearch) |
+| A5 | Semantic Kernel adapter | ✅ **Complete** — `AgentMemory.SemanticKernel` (Neo4jMemoryPlugin + Neo4jTextSearch) |
 
 ---
 
@@ -63,10 +63,10 @@ All 10 roadmap items have been implemented:
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Single NuGet meta-package | ✅ `Neo4j.AgentMemory` with unified DI |
+| 1 | Single NuGet meta-package | ✅ `AgentMemory` with unified DI |
 | 2 | Provider tag in enrichment cache keys | ✅ Quick wins sprint |
 | 3 | Fix missing duration metric | ✅ Quick wins sprint |
-| 4 | Semantic Kernel adapter | ✅ `Neo4j.AgentMemory.SemanticKernel` package |
+| 4 | Semantic Kernel adapter | ✅ `AgentMemory.SemanticKernel` package |
 | 5 | Fix AgentFramework embedding leaks | ✅ Quick wins sprint |
 | 6 | Configuration validation tests | ✅ 60 tests covering 20 Options classes |
 | 7 | Externalize LLM system prompts | ✅ Configurable via `LlmExtractionOptions` |
@@ -106,7 +106,7 @@ All 10 roadmap items have been implemented:
 **Solution: Create `IEmbeddingOrchestrator` Service**
 
 ```csharp
-// New file: src/Neo4j.AgentMemory.Core/Services/IEmbeddingOrchestrator.cs
+// New file: src/AgentMemory.Core/Services/IEmbeddingOrchestrator.cs
 public interface IEmbeddingOrchestrator
 {
     Task<float[]> EmbedEntityAsync(string entityName, CancellationToken ct = default);
@@ -130,18 +130,18 @@ public interface IEmbeddingOrchestrator
 5. Update unit tests — most just need to mock `IEmbeddingOrchestrator` instead of `IEmbeddingGenerator`
 
 **Files to Create:**
-- `src/Neo4j.AgentMemory.Abstractions/Services/IEmbeddingOrchestrator.cs` (interface)
-- `src/Neo4j.AgentMemory.Core/Services/EmbeddingOrchestrator.cs` (implementation)
+- `src/AgentMemory.Abstractions/Services/IEmbeddingOrchestrator.cs` (interface)
+- `src/AgentMemory.Core/Services/EmbeddingOrchestrator.cs` (implementation)
 
 **Files to Modify:**
-- `src/Neo4j.AgentMemory.Core/Services/ShortTermMemoryService.cs` (lines 73, 92)
-- `src/Neo4j.AgentMemory.Core/Services/LongTermMemoryService.cs` (lines 51, 83, 115)
-- `src/Neo4j.AgentMemory.Core/Services/MemoryService.cs` (lines 199, 219, 238)
-- `src/Neo4j.AgentMemory.Core/Services/MemoryExtractionPipeline.cs` (lines 140, 186, 247)
-- `src/Neo4j.AgentMemory.Core/Services/MemoryContextAssembler.cs` (line 57)
-- `src/Neo4j.AgentMemory.Core/Resolution/CompositeEntityResolver.cs` (line 100)
-- `src/Neo4j.AgentMemory.Core/Resolution/SemanticMatchEntityMatcher.cs` (line 32)
-- `src/Neo4j.AgentMemory.Core/ServiceCollectionExtensions.cs` (DI registration)
+- `src/AgentMemory.Core/Services/ShortTermMemoryService.cs` (lines 73, 92)
+- `src/AgentMemory.Core/Services/LongTermMemoryService.cs` (lines 51, 83, 115)
+- `src/AgentMemory.Core/Services/MemoryService.cs` (lines 199, 219, 238)
+- `src/AgentMemory.Core/Services/MemoryExtractionPipeline.cs` (lines 140, 186, 247)
+- `src/AgentMemory.Core/Services/MemoryContextAssembler.cs` (line 57)
+- `src/AgentMemory.Core/Resolution/CompositeEntityResolver.cs` (line 100)
+- `src/AgentMemory.Core/Resolution/SemanticMatchEntityMatcher.cs` (line 32)
+- `src/AgentMemory.Core/ServiceCollectionExtensions.cs` (DI registration)
 
 **Test Impact:**
 - ~50+ tests that mock `IEmbeddingGenerator` may need updating to also/instead mock `IEmbeddingOrchestrator`
@@ -228,12 +228,12 @@ public abstract class ExtractorBase<T> : IExtractor<T>
 7. Update tests
 
 **Files to Create:**
-- `src/Neo4j.AgentMemory.Core/Extraction/ExtractorBase.cs`
-- `src/Neo4j.AgentMemory.Core/Extraction/ConversationTextBuilder.cs` (shared helper)
+- `src/AgentMemory.Core/Extraction/ExtractorBase.cs`
+- `src/AgentMemory.Core/Extraction/ConversationTextBuilder.cs` (shared helper)
 
 **Files to Modify:**
-- All 4 files in `src/Neo4j.AgentMemory.Extraction.Llm/` (simplify to use base class)
-- All 4 files in `src/Neo4j.AgentMemory.Extraction.AzureLanguage/` (simplify to use base class)
+- All 4 files in `src/AgentMemory.Extraction.Llm/` (simplify to use base class)
+- All 4 files in `src/AgentMemory.Extraction.AzureLanguage/` (simplify to use base class)
 
 **Test Impact:**
 - Existing extractor tests should pass without modification (behavior unchanged)
@@ -249,7 +249,7 @@ public abstract class ExtractorBase<T> : IExtractor<T>
 
 **Problem:**
 
-`src/Neo4j.AgentMemory.Core/Services/MemoryExtractionPipeline.cs` (393 lines, 14 constructor dependencies) handles **four distinct responsibilities:**
+`src/AgentMemory.Core/Services/MemoryExtractionPipeline.cs` (393 lines, 14 constructor dependencies) handles **four distinct responsibilities:**
 
 1. **Extraction orchestration** (lines 66–113): Run 4 extractors in parallel with fault tolerance
 2. **Validation & filtering** (lines 117–131, 174–181, 237–243, 292–298): Confidence filtering + entity validation
@@ -293,12 +293,12 @@ ExtractionPipelineOrchestrator (composes both stages)
 5. Update DI registrations
 
 **Files to Create:**
-- `src/Neo4j.AgentMemory.Core/Extraction/ExtractionStage.cs`
-- `src/Neo4j.AgentMemory.Core/Extraction/PersistenceStage.cs`
+- `src/AgentMemory.Core/Extraction/ExtractionStage.cs`
+- `src/AgentMemory.Core/Extraction/PersistenceStage.cs`
 
 **Files to Modify:**
-- `src/Neo4j.AgentMemory.Core/Services/MemoryExtractionPipeline.cs` (refactor to compose stages)
-- `src/Neo4j.AgentMemory.Core/ServiceCollectionExtensions.cs` (register new stages)
+- `src/AgentMemory.Core/Services/MemoryExtractionPipeline.cs` (refactor to compose stages)
+- `src/AgentMemory.Core/ServiceCollectionExtensions.cs` (register new stages)
 
 **Test Impact:**
 - Existing pipeline tests may need adjustment for new composition
@@ -344,11 +344,11 @@ After Finding 3's stage split, the solution becomes natural:
 6. Document the unified pipeline in code comments and architecture.md
 
 **Files to Delete:**
-- `src/Neo4j.AgentMemory.Core/Services/MultiExtractorPipeline.cs`
+- `src/AgentMemory.Core/Services/MultiExtractorPipeline.cs`
 
 **Files to Modify:**
-- `src/Neo4j.AgentMemory.Core/Extraction/ExtractionStage.cs` (add multi-extractor support)
-- `src/Neo4j.AgentMemory.Core/ServiceCollectionExtensions.cs`
+- `src/AgentMemory.Core/Extraction/ExtractionStage.cs` (add multi-extractor support)
+- `src/AgentMemory.Core/ServiceCollectionExtensions.cs`
 
 **Test Impact:**
 - `MultiExtractorPipelineTests` → migrate to `ExtractionStageTests`
@@ -406,10 +406,10 @@ Numeric confidence thresholds are scattered across the codebase, some configurab
 4. Add tests verifying defaults match current values
 
 **Files to Modify:**
-- `src/Neo4j.AgentMemory.Abstractions/Options/ExtractionOptions.cs` (add 2 properties)
-- `src/Neo4j.AgentMemory.Extraction.AzureLanguage/AzureLanguageOptions.cs` (add 2 properties)
-- `src/Neo4j.AgentMemory.Core/Extraction/PatternBasedPreferenceDetector.cs` (use options)
-- `src/Neo4j.AgentMemory.Extraction.AzureLanguage/AzureLanguageFactExtractor.cs` (use options)
+- `src/AgentMemory.Abstractions/Options/ExtractionOptions.cs` (add 2 properties)
+- `src/AgentMemory.Extraction.AzureLanguage/AzureLanguageOptions.cs` (add 2 properties)
+- `src/AgentMemory.Core/Extraction/PatternBasedPreferenceDetector.cs` (use options)
+- `src/AgentMemory.Extraction.AzureLanguage/AzureLanguageFactExtractor.cs` (use options)
 
 **Test Impact:** Minimal. Default values preserve current behavior.
 
@@ -421,7 +421,7 @@ Numeric confidence thresholds are scattered across the codebase, some configurab
 
 **Problem:**
 
-`src/Neo4j.AgentMemory.Extraction.AzureLanguage/AzureLanguageRelationshipExtractor.cs` line 46:
+`src/AgentMemory.Extraction.AzureLanguage/AzureLanguageRelationshipExtractor.cs` line 46:
 
 ```csharp
 var entities = await _client.RecognizeEntitiesAsync(
@@ -460,12 +460,12 @@ public class ExtractionContext
 5. Entity extractor runs first (or in parallel — cache handles it), relationship extractor reuses
 
 **Files to Create:**
-- `src/Neo4j.AgentMemory.Extraction.AzureLanguage/Internal/ExtractionContext.cs`
+- `src/AgentMemory.Extraction.AzureLanguage/Internal/ExtractionContext.cs`
 
 **Files to Modify:**
-- `src/Neo4j.AgentMemory.Extraction.AzureLanguage/AzureLanguageEntityExtractor.cs` (inject + use context)
-- `src/Neo4j.AgentMemory.Extraction.AzureLanguage/AzureLanguageRelationshipExtractor.cs` (inject + use context)
-- `src/Neo4j.AgentMemory.Extraction.AzureLanguage/ServiceCollectionExtensions.cs` (register context)
+- `src/AgentMemory.Extraction.AzureLanguage/AzureLanguageEntityExtractor.cs` (inject + use context)
+- `src/AgentMemory.Extraction.AzureLanguage/AzureLanguageRelationshipExtractor.cs` (inject + use context)
+- `src/AgentMemory.Extraction.AzureLanguage/ServiceCollectionExtensions.cs` (register context)
 
 **Test Impact:** Minimal. New test: `ExtractionContextTests` verifying caching behavior.
 
@@ -575,7 +575,7 @@ Our 207+ queries break down by operation type and domain:
 The original plan is correct. Enhancements added based on analysis:
 
 ```
-src/Neo4j.AgentMemory.Neo4j/Queries/
+src/AgentMemory.Neo4j/Queries/
 ├── MetadataFilterBuilder.cs       (ALREADY EXISTS — shared WHERE clause builder)
 ├── EntityQueries.cs               (~54 constants + 2 methods for dynamic queries)
 ├── FactQueries.cs                 (~27 constants)
@@ -676,9 +676,9 @@ const string SimpleDelete = @"
 ```
 
 **Files to modify:**
-- `src/Neo4j.AgentMemory.Abstractions/Repositories/IMessageRepository.cs` (add `DeleteAsync`)
-- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jMessageRepository.cs` (implement)
-- New test: `tests/Neo4j.AgentMemory.Neo4j.Tests/Repositories/Neo4jMessageRepositoryTests.cs`
+- `src/AgentMemory.Abstractions/Repositories/IMessageRepository.cs` (add `DeleteAsync`)
+- `src/AgentMemory.Neo4j/Repositories/Neo4jMessageRepository.cs` (implement)
+- New test: `tests/AgentMemory.Neo4j.Tests/Repositories/Neo4jMessageRepositoryTests.cs`
 
 **Implementation — G3 (List Sessions):**
 
@@ -711,9 +711,9 @@ LIMIT $limit
 ```
 
 **Files to modify:**
-- `src/Neo4j.AgentMemory.Abstractions/Domain/SessionSummary.cs` (create)
-- `src/Neo4j.AgentMemory.Abstractions/Repositories/IConversationRepository.cs` (add `ListSessionsAsync`)
-- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jConversationRepository.cs` (implement)
+- `src/AgentMemory.Abstractions/Domain/SessionSummary.cs` (create)
+- `src/AgentMemory.Abstractions/Repositories/IConversationRepository.cs` (add `ListSessionsAsync`)
+- `src/AgentMemory.Neo4j/Repositories/Neo4jConversationRepository.cs` (implement)
 
 **Effort:** Low (2-3 hours for all three)
 
@@ -791,13 +791,13 @@ RETURN COUNT(ef) + COUNT(eb) AS deleted
 ```
 
 **Files to modify:**
-- `src/Neo4j.AgentMemory.Abstractions/Domain/EntityProvenance.cs` (create)
-- `src/Neo4j.AgentMemory.Abstractions/Domain/ExtractionStats.cs` (create)
-- `src/Neo4j.AgentMemory.Abstractions/Domain/ExtractorStats.cs` (create)
-- `src/Neo4j.AgentMemory.Abstractions/Repositories/IExtractorRepository.cs` (add 4 methods)
-- `src/Neo4j.AgentMemory.Abstractions/Repositories/IEntityRepository.cs` (add `GetEntitiesFromMessageAsync`)
-- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jExtractorRepository.cs` (implement 4 methods)
-- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs` (implement 1 method)
+- `src/AgentMemory.Abstractions/Domain/EntityProvenance.cs` (create)
+- `src/AgentMemory.Abstractions/Domain/ExtractionStats.cs` (create)
+- `src/AgentMemory.Abstractions/Domain/ExtractorStats.cs` (create)
+- `src/AgentMemory.Abstractions/Repositories/IExtractorRepository.cs` (add 4 methods)
+- `src/AgentMemory.Abstractions/Repositories/IEntityRepository.cs` (add `GetEntitiesFromMessageAsync`)
+- `src/AgentMemory.Neo4j/Repositories/Neo4jExtractorRepository.cs` (implement 4 methods)
+- `src/AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs` (implement 1 method)
 
 **Effort:** Low-Medium (3-4 hours for all five)
 
@@ -862,10 +862,10 @@ RETURN
 ```
 
 **Files to modify:**
-- `src/Neo4j.AgentMemory.Abstractions/Domain/DuplicatePair.cs` (create)
-- `src/Neo4j.AgentMemory.Abstractions/Domain/DeduplicationStats.cs` (create)
-- `src/Neo4j.AgentMemory.Abstractions/Repositories/IEntityRepository.cs` (add 3 methods)
-- `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs` (implement 3 methods)
+- `src/AgentMemory.Abstractions/Domain/DuplicatePair.cs` (create)
+- `src/AgentMemory.Abstractions/Domain/DeduplicationStats.cs` (create)
+- `src/AgentMemory.Abstractions/Repositories/IEntityRepository.cs` (add 3 methods)
+- `src/AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs` (implement 3 methods)
 
 **Effort:** Low (2-3 hours for all three)
 
@@ -891,7 +891,7 @@ These are not part of the 7 core findings but are recommended based on the archi
 ### A1: Single NuGet Package (DECIDED)
 
 **Status:** ✅ Decided (April 2026)  
-**Action:** Publish `Neo4j.AgentMemory` as single NuGet package bundling all 9 assemblies.  
+**Action:** Publish `AgentMemory` as single NuGet package bundling all 9 assemblies.  
 **Implementation:** Create packaging .csproj that includes all project outputs. See `architecture-review-assessment.md` §3.  
 **Effort:** Trivial (1-2 hours)
 
@@ -899,27 +899,27 @@ These are not part of the 7 core findings but are recommended based on the archi
 
 **Status:** Ready  
 **Action:** Include provider name in cache key format: `enrichment:{provider}:{entityName}:{entityType}`  
-**File:** `src/Neo4j.AgentMemory.Enrichment/Enrichment/CachingEnrichmentDecorator.cs`  
+**File:** `src/AgentMemory.Enrichment/Enrichment/CachingEnrichmentDecorator.cs`  
 **Effort:** Trivial (30 min)
 
 ### A3: Fix Missing Duration Metric in Observability (S13)
 
 **Status:** Ready  
 **Action:** Add `Stopwatch` + `_metrics.ExtractionDuration.Record()` to `InstrumentedMemoryService.ExtractFromSessionAsync`  
-**File:** `src/Neo4j.AgentMemory.Observability/InstrumentedMemoryService.cs`  
+**File:** `src/AgentMemory.Observability/InstrumentedMemoryService.cs`  
 **Effort:** Trivial (15 min)
 
 ### A4: Externalize LLM System Prompts (S11)
 
 **Status:** Ready  
 **Action:** Move hardcoded system prompts from LLM extractors to embedded resources or `LlmExtractionOptions`  
-**Files:** All 4 `Llm*Extractor.cs` files in `src/Neo4j.AgentMemory.Extraction.Llm/`  
+**Files:** All 4 `Llm*Extractor.cs` files in `src/AgentMemory.Extraction.Llm/`  
 **Effort:** Low (2-3 hours)
 
 ### A5: Semantic Kernel Adapter (S15)
 
 **Status:** Strategic — requires separate design  
-**Action:** Create `Neo4j.AgentMemory.SemanticKernel` package (~500 LOC)  
+**Action:** Create `AgentMemory.SemanticKernel` package (~500 LOC)  
 **Effort:** Medium (3-5 days)
 
 ---
@@ -955,7 +955,7 @@ Wave 4 (Days 16-17): Functional Parity Gaps  ← AFTER Cypher centralization
 ## Verification Criteria
 
 After **each wave**:
-1. `dotnet build Neo4j.AgentMemory.slnx` — 0 errors, 0 warnings
+1. `dotnet build AgentMemory.slnx` — 0 errors, 0 warnings
 2. `dotnet test` — all 1,058+ tests pass
 3. No new circular dependencies
 4. No boundary violations

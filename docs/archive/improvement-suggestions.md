@@ -23,8 +23,8 @@ The Agent Memory for .NET solution is **architecturally sound** — zero boundar
 - ✅ **Wave 3 Complete** — Cypher query centralization (140 constants in 13 domain classes)
 - ✅ **Wave 4 Complete** — 11 functional parity gaps resolved (82.1% → 98.5%)
 - ✅ **Quick Wins Complete** — Cache key provider tag, duration metrics, embedding leak fixes
-- ✅ **NuGet Meta-Package** — `Neo4j.AgentMemory` with `AddNeo4jAgentMemory()` convenience DI
-- ✅ **Semantic Kernel Adapter** — `Neo4j.AgentMemory.SemanticKernel` (plugin + text search + DI extensions)
+- ✅ **NuGet Meta-Package** — `AgentMemory` with `AddNeo4jAgentMemory()` convenience DI
+- ✅ **Semantic Kernel Adapter** — `AgentMemory.SemanticKernel` (plugin + text search + DI extensions)
 - ✅ **Externalized LLM Prompts** — Configurable via `LlmExtractionOptions.*Prompt` properties
 - ✅ **Observability Decorators** — 5 instrumented extractors/enrichment + 9 new metrics
 - ✅ **Configuration Validation Tests** — 60 tests covering all 20 Options classes
@@ -151,7 +151,7 @@ external dependency has been removed — retriever types were internalized.
 |-----------|-------|
 | **Category** | DRY / Architecture |
 | **Current State** | Two separate packages (522 + 509 LOC) with ~95% identical structure: both implement the same 4 extractor interfaces (`IEntityExtractor`, `IFactExtractor`, `IRelationshipExtractor`, `IPreferenceExtractor`), both have identical error-handling patterns (try-catch → log → return empty), both have their own options classes and DI registrations. They differ only in the underlying extraction engine (IChatClient vs. TextAnalyticsClient). |
-| **Proposed Improvement** | Create `Neo4j.AgentMemory.Extraction` with an `IExtractionEngine` strategy interface. Each engine (LLM, AzureLanguage) becomes a strategy. Shared pipeline code (validation, error handling, DI registration) lives once. Optional: separate NuGet packages for engine-specific dependencies via `Neo4j.AgentMemory.Extraction.Llm` and `Neo4j.AgentMemory.Extraction.AzureLanguage` that only contain the strategy implementation + SDK dependency — but share the pipeline package. |
+| **Proposed Improvement** | Create `AgentMemory.Extraction` with an `IExtractionEngine` strategy interface. Each engine (LLM, AzureLanguage) becomes a strategy. Shared pipeline code (validation, error handling, DI registration) lives once. Optional: separate NuGet packages for engine-specific dependencies via `AgentMemory.Extraction.Llm` and `AgentMemory.Extraction.AzureLanguage` that only contain the strategy implementation + SDK dependency — but share the pipeline package. |
 | **Impact Score** | 7/10 — Reduces duplication, enables runtime strategy switching, simplifies new-engine onboarding |
 | **Effort Score** | 5/10 — Requires refactoring 2 packages, updating DI, updating tests |
 | **Priority** | **High** (Impact/Effort = 1.4) |
@@ -309,7 +309,7 @@ external dependency has been removed — retriever types were internalized.
 
 ### S14: Consider a Meta-Package for Quick Start
 
-> **✅ COMPLETE:** `Neo4j.AgentMemory` meta-package created with `AddNeo4jAgentMemory()` unified DI registration.
+> **✅ COMPLETE:** `AgentMemory` meta-package created with `AddNeo4jAgentMemory()` unified DI registration.
 
 | Attribute | Value |
 |-----------|-------|
@@ -319,7 +319,7 @@ external dependency has been removed — retriever types were internalized.
 
 ### S15: Build Semantic Kernel Adapter
 
-> **✅ COMPLETE:** `Neo4j.AgentMemory.SemanticKernel` package with `Neo4jMemoryPlugin` (5 kernel functions), `Neo4jTextSearch` (ITextSearch impl), and DI extensions.
+> **✅ COMPLETE:** `AgentMemory.SemanticKernel` package with `Neo4jMemoryPlugin` (5 kernel functions), `Neo4jTextSearch` (ITextSearch impl), and DI extensions.
 
 | Attribute | Value |
 |-----------|-------|
@@ -378,7 +378,7 @@ BEFORE (9 packages):                     AFTER (8 core + 2 optional):
 ### Detailed Extraction Merge Proposal
 
 ```
-Neo4j.AgentMemory.Extraction (base pipeline package)
+AgentMemory.Extraction (base pipeline package)
 ├── IExtractionEngine.cs          ← NEW: strategy interface
 ├── ExtractionEngineBase.cs       ← NEW: shared validation, error handling, mapping
 ├── CompositeEntityExtractor.cs   ← Delegates to IExtractionEngine
@@ -388,13 +388,13 @@ Neo4j.AgentMemory.Extraction (base pipeline package)
 ├── ExtractionOptions.cs          ← Unified options
 └── ServiceCollectionExtensions.cs
 
-Neo4j.AgentMemory.Extraction.Llm (LLM engine - depends on base + M.E.AI)
+AgentMemory.Extraction.Llm (LLM engine - depends on base + M.E.AI)
 ├── LlmExtractionEngine.cs       ← Implements IExtractionEngine
 ├── LlmExtractionOptions.cs
 ├── LlmResponseModels.cs (internal)
 └── ServiceCollectionExtensions.cs
 
-Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azure SDK)
+AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azure SDK)
 ├── AzureLanguageExtractionEngine.cs  ← Implements IExtractionEngine
 ├── AzureLanguageOptions.cs
 ├── ITextAnalyticsClientWrapper.cs (internal)
@@ -467,8 +467,8 @@ Neo4j.AgentMemory.Extraction.AzureLanguage (Azure engine - depends on base + Azu
 | S10 — Cache key provider tag | Provider type name included in enrichment cache keys | Quick Wins Sprint |
 | S13 — Duration metric fix | All `ExtractFrom*` methods now record duration metrics | Quick Wins Sprint |
 | Embedding leak fixes | `MemoryToolFactory` + `ContextProvider` use `IEmbeddingOrchestrator` | Quick Wins Sprint |
-| S14 — NuGet meta-package | `Neo4j.AgentMemory` with `AddNeo4jAgentMemory()` unified DI | Roadmap Sprint |
-| S15 — Semantic Kernel adapter | `Neo4j.AgentMemory.SemanticKernel` (plugin + text search + DI) | Roadmap Sprint |
+| S14 — NuGet meta-package | `AgentMemory` with `AddNeo4jAgentMemory()` unified DI | Roadmap Sprint |
+| S15 — Semantic Kernel adapter | `AgentMemory.SemanticKernel` (plugin + text search + DI) | Roadmap Sprint |
 | S11 — Externalize prompts | `LlmExtractionOptions.*Prompt` nullable properties with defaults | Roadmap Sprint |
 | S12 — Observability decorators | 5 instrumented extractor/enrichment decorators + 9 new metrics | Roadmap Sprint |
 | Config validation tests | 60 tests covering all 20 Options classes | Roadmap Sprint |

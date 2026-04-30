@@ -2,7 +2,7 @@
 
 > **Generated:** 2026-04-17 | **Updated:** 2026-04-17 (Post Gap Closure Sprint — Waves A/B/C)
 > **Author:** Sebastian (GraphRAG Interop Engineer) | **Reviewer:** Deckard (Lead Architect)
-> **Project:** Neo4j.AgentMemory for .NET 9
+> **Project:** AgentMemory for .NET 9
 > **Total Unit Tests:** 1059 | **Integration Tests:** 71+ | **Test Files:** 111+ test class files
 
 ---
@@ -38,7 +38,7 @@
 
 **Value Score:** 95/100
 **Description:** Manages conversational context — messages within sessions and conversations. Supports CRUD, batch operations, vector similarity search, and session lifecycle. This is the "working memory" that agents use to maintain conversation flow.
-**Package:** Neo4j.AgentMemory.Core + Neo4j.AgentMemory.Neo4j
+**Package:** AgentMemory.Core + AgentMemory.Neo4j
 
 ### Sub-Features
 
@@ -74,7 +74,7 @@
 
 **Value Score:** 95/100
 **Description:** Persistent structured knowledge storage — entities (people, places, things), facts (subject-predicate-object triples), preferences (user likes/dislikes), and relationships between entities. Supports vector similarity search, automatic embedding generation, and preference deletion.
-**Package:** Neo4j.AgentMemory.Core + Neo4j.AgentMemory.Neo4j
+**Package:** AgentMemory.Core + AgentMemory.Neo4j
 
 ### Sub-Features
 
@@ -117,7 +117,7 @@
 
 **Value Score:** 90/100
 **Description:** Multi-stage entity deduplication pipeline: Exact match → Fuzzy match (FuzzySharp token-sort ratio) → Semantic match (cosine similarity on embeddings). Above auto-merge threshold (0.95), entities are merged. In the SAME_AS confidence band (0.85–0.95), a SAME_AS relationship is created. Below threshold, a new entity is created. Prevents knowledge graph pollution from duplicate mentions.
-**Package:** Neo4j.AgentMemory.Core
+**Package:** AgentMemory.Core
 
 ### Sub-Features
 
@@ -173,7 +173,7 @@
 
 **Value Score:** 90/100
 **Description:** Five-stage pipeline: (1) Extract entities/facts/preferences/relationships in parallel, (2) Validate entities, (3) Resolve entities against existing graph, (4) Generate embeddings, (5) Persist to repositories with EXTRACTED_FROM provenance. Supports selective extraction via `ExtractionTypes` flags and graceful degradation on errors.
-**Package:** Neo4j.AgentMemory.Core
+**Package:** AgentMemory.Core
 
 ### Sub-Features
 
@@ -214,7 +214,7 @@
 
 **Value Score:** 85/100
 **Description:** Production extractors using `IChatClient` (Microsoft.Extensions.AI) to extract structured knowledge from conversation text via LLM prompting. Four granular extractors (entity, fact, preference, relationship) with JSON parsing, type normalization, confidence mapping, and configurable model selection.
-**Package:** Neo4j.AgentMemory.Extraction.Llm
+**Package:** AgentMemory.Extraction.Llm
 
 ### Sub-Features
 
@@ -267,7 +267,7 @@
 
 **Value Score:** 80/100
 **Description:** Records agent reasoning processes as traces with sequential steps, tool call invocations, and outcomes. Supports vector similarity search on task embeddings for finding similar past reasoning patterns. Enables agent self-reflection and learning.
-**Package:** Neo4j.AgentMemory.Core + Neo4j.AgentMemory.Neo4j
+**Package:** AgentMemory.Core + AgentMemory.Neo4j
 
 ### Sub-Features
 
@@ -299,7 +299,7 @@
 
 **Value Score:** 85/100
 **Description:** Database schema management for Neo4j — creates 10 unique constraints, 3 fulltext indexes, 6 vector indexes, 12 property indexes, and 2 schema persistence indexes. Supports configurable embedding dimensions and Cypher-based migrations. Ensures data integrity and query performance.
-**Package:** Neo4j.AgentMemory.Neo4j
+**Package:** AgentMemory.Neo4j
 
 ### Sub-Features
 
@@ -336,7 +336,7 @@
 
 **Value Score:** 90/100
 **Description:** Semantic vector search across all memory layers — messages, entities, facts, preferences, and reasoning traces. Uses configurable embedding dimensions (default 1536) and cosine similarity. The `IEmbeddingProvider` abstraction supports any embedding backend.
-**Package:** Neo4j.AgentMemory.Abstractions + Neo4j.AgentMemory.Core + Neo4j.AgentMemory.Neo4j
+**Package:** AgentMemory.Abstractions + AgentMemory.Core + AgentMemory.Neo4j
 
 ### Sub-Features
 
@@ -364,7 +364,7 @@
 
 **Value Score:** 85/100
 **Description:** Model Context Protocol server exposing 21 tools for memory operations. Any MCP-compatible AI agent can search memory, store messages, add entities/facts/preferences, manage conversations, record reasoning traces, execute Cypher queries, find duplicate entities, trigger extraction, get observations, export graphs, and generate embeddings. Security-gated advanced features (graph query, export, duplicates).
-**Package:** Neo4j.AgentMemory.McpServer
+**Package:** AgentMemory.McpServer
 
 ### Sub-Features
 
@@ -453,7 +453,7 @@
 
 **Value Score:** 80/100
 **Description:** Microsoft Agent Framework adapter — provides `AIContextProvider` for injecting memory into agent runs, chat message store for MAF-compatible persistence, reasoning trace recorder, memory facade for simplified usage, tool factory creating 6 callable memory tools, and bidirectional type mapper between MAF/MEAI and internal types.
-**Package:** Neo4j.AgentMemory.AgentFramework
+**Package:** AgentMemory.AgentFramework
 
 ### Sub-Features
 
@@ -512,7 +512,7 @@
 
 **Value Score:** 85/100
 **Description:** Retrieval-Augmented Generation adapter for external Neo4j knowledge graphs. Supports four search modes: Vector (embedding similarity), Fulltext (BM25), Hybrid (concurrent vector + fulltext with max-score merge), and Graph (traversal-based). Includes stop word filtering for fulltext queries.
-**Package:** Neo4j.AgentMemory.GraphRagAdapter
+**Package:** AgentMemory.GraphRagAdapter
 
 ### Sub-Features
 
@@ -554,7 +554,7 @@
 
 **Value Score:** 70/100
 **Description:** Cloud-native extraction alternative using Azure AI Language service. Extracts named entities (NER), facts (key phrases + linked entities), and relationships (co-occurrence). No LLM required — uses deterministic NLP models. Useful for cost-sensitive or low-latency scenarios.
-**Package:** Neo4j.AgentMemory.Extraction.AzureLanguage
+**Package:** AgentMemory.Extraction.AzureLanguage
 
 ### Sub-Features
 
@@ -597,7 +597,7 @@
 
 **Value Score:** 75/100
 **Description:** OpenTelemetry instrumentation for production monitoring. Provides distributed tracing (spans) for all memory operations and counters/histograms for metrics. Decorator pattern wraps `IMemoryService` and `IGraphRagContextSource` transparently.
-**Package:** Neo4j.AgentMemory.Observability
+**Package:** AgentMemory.Observability
 
 ### Sub-Features
 
@@ -638,7 +638,7 @@
 
 **Value Score:** 50/100
 **Description:** Location string to geographic coordinate resolution using OpenStreetMap's Nominatim API. Includes rate limiting (1 req/sec per Nominatim policy) and in-memory caching (24-hour TTL). Used for enriching LOCATION entities with coordinates.
-**Package:** Neo4j.AgentMemory.Enrichment
+**Package:** AgentMemory.Enrichment
 
 ### Sub-Features
 
@@ -674,7 +674,7 @@
 
 **Value Score:** 55/100
 **Description:** Entity enrichment from external knowledge sources. Currently Wikipedia-only via Wikimedia REST API — fetches summary, description, image URL, and Wikipedia link. Includes in-memory caching with configurable TTL (default 24 hours).
-**Package:** Neo4j.AgentMemory.Enrichment
+**Package:** AgentMemory.Enrichment
 
 ### Sub-Features
 
@@ -707,7 +707,7 @@
 
 **Value Score:** 85/100
 **Description:** Hierarchical configuration via `IOptions<T>` pattern. Root `MemoryOptions` contains sub-options for all memory layers. Each package has its own `ServiceCollectionExtensions` for DI registration. Supports full customization of thresholds, limits, strategies, and feature flags.
-**Package:** Neo4j.AgentMemory.Abstractions + all packages
+**Package:** AgentMemory.Abstractions + all packages
 
 ### Sub-Features
 
@@ -737,7 +737,7 @@
 
 **Value Score:** 80/100
 **Description:** Graph relationships connecting all memory layers. These relationships enable traversal-based context assembly and full provenance tracking — you can trace from a fact back to the message it was extracted from, to the entities it's about, to similar entities via SAME_AS.
-**Package:** Neo4j.AgentMemory.Neo4j (repositories)
+**Package:** AgentMemory.Neo4j (repositories)
 
 ### Sub-Features
 
@@ -784,7 +784,7 @@
 
 **Value Score:** 90/100
 **Description:** The "recall brain" — assembles optimal context from all memory layers for an agent run. Retrieves recent messages, semantically relevant messages, entities, facts, preferences, reasoning traces, and GraphRAG context in parallel. Applies configurable token/character budgets with four truncation strategies (OldestFirst, LowestScoreFirst, Proportional, Fail).
-**Package:** Neo4j.AgentMemory.Core
+**Package:** AgentMemory.Core
 
 ### Sub-Features
 
@@ -816,7 +816,7 @@
 
 **Value Score:** 70/100
 **Description:** Static validation utility filtering extracted entities before persistence. Rejects entities with names that are too short, numeric-only, punctuation-only, or common stop words (221 words ported from Python reference). All rules are independently configurable.
-**Package:** Neo4j.AgentMemory.Core
+**Package:** AgentMemory.Core
 
 ### Sub-Features
 
@@ -852,7 +852,7 @@
 
 **Value Score:** 60/100
 **Description:** Phase 1 placeholder implementations enabling full memory testing without AI dependencies. Stub extractors return empty results, stub embedding provider returns deterministic hash-based vectors, stub pipeline orchestrates stubs. GUID generator and system clock provide testable infrastructure abstractions.
-**Package:** Neo4j.AgentMemory.Core
+**Package:** AgentMemory.Core
 
 ### Sub-Features
 
@@ -890,7 +890,7 @@
 
 **Value Score:** N/A (infrastructure)
 **Description:** Neo4j Testcontainers-based integration tests verifying real database connectivity and basic CRUD operations. Uses Neo4j 5.26 Docker image.
-**Package:** Neo4j.AgentMemory.Tests.Integration
+**Package:** AgentMemory.Tests.Integration
 
 | Test Class | Test Method | What It Verifies |
 |------------|-------------|-----------------|

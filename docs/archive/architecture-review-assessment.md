@@ -116,27 +116,27 @@ An 11-package .NET solution delivering:
 ### Package Dependency Graph
 
 ```
-Neo4j.AgentMemory.Abstractions (MEAI.Abstractions 10.4.1)
+AgentMemory.Abstractions (MEAI.Abstractions 10.4.1)
 │
-├─→ Neo4j.AgentMemory.Core (+ FuzzySharp, M.E.*)
+├─→ AgentMemory.Core (+ FuzzySharp, M.E.*)
 │   │
-│   ├─→ Neo4j.AgentMemory.Neo4j (+ Neo4j.Driver 6.0.0)
+│   ├─→ AgentMemory.Neo4j (+ Neo4j.Driver 6.0.0)
 │   │
-│   ├─→ Neo4j.AgentMemory.AgentFramework (+ M.Agents.AI 1.1.0)
+│   ├─→ AgentMemory.AgentFramework (+ M.Agents.AI 1.1.0)
 │   │
-│   ├─→ Neo4j.AgentMemory.Extraction.Llm (+ M.E.AI)
+│   ├─→ AgentMemory.Extraction.Llm (+ M.E.AI)
 │   │
-│   └─→ Neo4j.AgentMemory.Observability (+ OpenTelemetry.Api 1.12.0)
+│   └─→ AgentMemory.Observability (+ OpenTelemetry.Api 1.12.0)
 │
-├─→ Neo4j.AgentMemory.Extraction.AzureLanguage (+ Azure.AI.TextAnalytics 5.3.0)
+├─→ AgentMemory.Extraction.AzureLanguage (+ Azure.AI.TextAnalytics 5.3.0)
 │
-├─→ Neo4j.AgentMemory.Enrichment (+ M.E.Http, M.E.Caching.Memory)
+├─→ AgentMemory.Enrichment (+ M.E.Http, M.E.Caching.Memory)
 │
-├─→ Neo4j.AgentMemory.McpServer (+ ModelContextProtocol 1.2.0)
+├─→ AgentMemory.McpServer (+ ModelContextProtocol 1.2.0)
 │
-├─→ Neo4j.AgentMemory.SemanticKernel (+ Microsoft.SemanticKernel 1.74.0)
+├─→ AgentMemory.SemanticKernel (+ Microsoft.SemanticKernel 1.74.0)
 │
-└─→ Neo4j.AgentMemory [META-PACKAGE] (Abstractions + Core + Neo4j + Extraction.Llm)
+└─→ AgentMemory [META-PACKAGE] (Abstractions + Core + Neo4j + Extraction.Llm)
 ```
 
 ### Cross-Reference Matrix
@@ -195,41 +195,41 @@ Each package serves a **distinct audience** with **distinct external dependencie
 
 ### NuGet Publishing Plan
 
-**Decision (April 2026, updated):** Publish as **multi-package with meta-package** — individual NuGet packages per project, plus `Neo4j.AgentMemory` meta-package for convenience. The meta-package bundles Abstractions + Core + Neo4j + Extraction.Llm for the common use case. Framework adapters (SK, MAF) and optional packages (Observability, Enrichment, MCP) are separate NuGet packages.
+**Decision (April 2026, updated):** Publish as **multi-package with meta-package** — individual NuGet packages per project, plus `AgentMemory` meta-package for convenience. The meta-package bundles Abstractions + Core + Neo4j + Extraction.Llm for the common use case. Framework adapters (SK, MAF) and optional packages (Observability, Enrichment, MCP) are separate NuGet packages.
 
 ```bash
 # Quick start — most users
-dotnet add package Neo4j.AgentMemory
+dotnet add package AgentMemory
 
 # Semantic Kernel users
-dotnet add package Neo4j.AgentMemory.SemanticKernel
+dotnet add package AgentMemory.SemanticKernel
 
 # MAF users
-dotnet add package Neo4j.AgentMemory.AgentFramework
+dotnet add package AgentMemory.AgentFramework
 
 # Production observability
-dotnet add package Neo4j.AgentMemory.Observability
+dotnet add package AgentMemory.Observability
 ```
 
 **Package topology:**
 
 ```
-Neo4j.AgentMemory (meta-package, convenience)
-├── Neo4j.AgentMemory.Abstractions (standalone NuGet)
-├── Neo4j.AgentMemory.Core (standalone NuGet)
-├── Neo4j.AgentMemory.Neo4j (standalone NuGet)
-└── Neo4j.AgentMemory.Extraction.Llm (standalone NuGet)
+AgentMemory (meta-package, convenience)
+├── AgentMemory.Abstractions (standalone NuGet)
+├── AgentMemory.Core (standalone NuGet)
+├── AgentMemory.Neo4j (standalone NuGet)
+└── AgentMemory.Extraction.Llm (standalone NuGet)
 
-Neo4j.AgentMemory.SemanticKernel (standalone NuGet, references Abstractions)
-Neo4j.AgentMemory.AgentFramework (standalone NuGet, references Abstractions + Core)
-Neo4j.AgentMemory.Extraction.AzureLanguage (standalone NuGet, references Abstractions + Core)
-Neo4j.AgentMemory.Enrichment (standalone NuGet, references Abstractions)
-Neo4j.AgentMemory.Observability (standalone NuGet, references Abstractions + Core)
-Neo4j.AgentMemory.McpServer (standalone NuGet, references Abstractions)
+AgentMemory.SemanticKernel (standalone NuGet, references Abstractions)
+AgentMemory.AgentFramework (standalone NuGet, references Abstractions + Core)
+AgentMemory.Extraction.AzureLanguage (standalone NuGet, references Abstractions + Core)
+AgentMemory.Enrichment (standalone NuGet, references Abstractions)
+AgentMemory.Observability (standalone NuGet, references Abstractions + Core)
+AgentMemory.McpServer (standalone NuGet, references Abstractions)
 ```
 
 **Rationale:**
-- **1-install DX for most users** — `dotnet add package Neo4j.AgentMemory` gets you running
+- **1-install DX for most users** — `dotnet add package AgentMemory` gets you running
 - **No dependency pollution** — MAF, SK, OpenTelemetry, Azure SDK stay in their own packages
 - **Version coherence** — All assemblies in meta-package ship and version together
 - **Framework adapter independence** — SK and MAF can track their SDK releases independently
@@ -257,7 +257,7 @@ Neo4j.AgentMemory.McpServer (standalone NuGet, references Abstractions)
 
 **SemanticKernel** — SK adapter. `Neo4jMemoryPlugin` exposes memory operations as SK kernel functions (recall, store_message, extract, search entities/facts/preferences). `Neo4jTextSearch` implements SK's `ITextSearch<TRecord>` for RAG integration. `KernelMemoryExtensions` provides `AddNeo4jMemoryPlugin()` and `AddNeo4jTextSearch()` DI helpers. ~277 LOC.
 
-**Meta-package (Neo4j.AgentMemory)** — Convenience package referencing Abstractions + Core + Neo4j + Extraction.Llm. Provides `AddNeo4jAgentMemory()` unified DI registration that wires all three subsystems in a single call. ~33 LOC.
+**Meta-package (AgentMemory)** — Convenience package referencing Abstractions + Core + Neo4j + Extraction.Llm. Provides `AddNeo4jAgentMemory()` unified DI registration that wires all three subsystems in a single call. ~33 LOC.
 
 ---
 
@@ -325,7 +325,7 @@ builder.Services.AddAgentMemoryFramework(options => { ... });  // MAF
 
 ### What Was Consolidated
 
-Previously, GraphRAG retrieval lived in a separate `Neo4j.AgentMemory.GraphRagAdapter` package that depended on the external `neo4j-maf-provider` project (via ProjectReference). This created two problems:
+Previously, GraphRAG retrieval lived in a separate `AgentMemory.GraphRagAdapter` package that depended on the external `neo4j-maf-provider` project (via ProjectReference). This created two problems:
 
 1. **NuGet publishing blocked** — ProjectReference to an external repo can't be published as a NuGet package
 2. **Redundant package** — GraphRAG retrieval is fundamentally a Neo4j concern, not a separate adapter
@@ -335,7 +335,7 @@ Previously, GraphRAG retrieval lived in a separate `Neo4j.AgentMemory.GraphRagAd
 ### Current Neo4j Package Structure
 
 ```
-Neo4j.AgentMemory.Neo4j/
+AgentMemory.Neo4j/
 ├── Infrastructure/
 │   ├── Neo4jDriverFactory.cs          (driver lifecycle)
 │   ├── Neo4jSessionFactory.cs         (session management)
@@ -431,12 +431,12 @@ We adapted **3 retriever types** and supporting utilities:
 
 | Component | Source | Our Adaptation |
 |-----------|--------|----------------|
-| `VectorRetriever` | neo4j-maf-provider | `Neo4j.AgentMemory.Neo4j.Retrieval.VectorRetriever` — same Cypher patterns, typed to our domain |
-| `FulltextRetriever` | neo4j-maf-provider | `Neo4j.AgentMemory.Neo4j.Retrieval.FulltextRetriever` — same BM25 queries, same stop word filter |
-| `HybridRetriever` | neo4j-maf-provider | `Neo4j.AgentMemory.Neo4j.Retrieval.HybridRetriever` — same merge/rerank logic |
-| `IRetriever` | neo4j-maf-provider | `Neo4j.AgentMemory.Neo4j.Retrieval.IRetriever` — same interface shape |
-| `StopWords` | neo4j-maf-provider | `Neo4j.AgentMemory.Neo4j.Retrieval.StopWordFilter` — 107-word English list |
-| `RetrieverResult` | neo4j-maf-provider | `Neo4j.AgentMemory.Neo4j.Retrieval.RetrieverResult` — same record types |
+| `VectorRetriever` | neo4j-maf-provider | `AgentMemory.Neo4j.Retrieval.VectorRetriever` — same Cypher patterns, typed to our domain |
+| `FulltextRetriever` | neo4j-maf-provider | `AgentMemory.Neo4j.Retrieval.FulltextRetriever` — same BM25 queries, same stop word filter |
+| `HybridRetriever` | neo4j-maf-provider | `AgentMemory.Neo4j.Retrieval.HybridRetriever` — same merge/rerank logic |
+| `IRetriever` | neo4j-maf-provider | `AgentMemory.Neo4j.Retrieval.IRetriever` — same interface shape |
+| `StopWords` | neo4j-maf-provider | `AgentMemory.Neo4j.Retrieval.StopWordFilter` — 107-word English list |
+| `RetrieverResult` | neo4j-maf-provider | `AgentMemory.Neo4j.Retrieval.RetrieverResult` — same record types |
 
 **What we did NOT internalize** (not needed):
 - `Neo4jContextProvider` — MAF-specific; we have our own `Neo4jMemoryContextProvider`
@@ -511,14 +511,14 @@ We adapted **3 retriever types** and supporting utilities:
 **Status:** Wave 3 complete. Cypher queries centralized in per-domain static C# classes within `Queries/` directory.
 
 **Implementation:** All 207+ Cypher queries now organized in domain-specific classes:
-- `src/Neo4j.AgentMemory.Neo4j/Queries/MessageQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/ConversationQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/EntityQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/FactQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/PreferenceQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/RelationshipQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/ExtractorQueries.cs`
-- `src/Neo4j.AgentMemory.Neo4j/Queries/ReasoningQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/MessageQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/ConversationQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/EntityQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/FactQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/PreferenceQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/RelationshipQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/ExtractorQueries.cs`
+- `src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs`
 - And others (schema, migrations, utilities)
 
 **Approach chosen: Per-domain static C# classes** (the .NET-idiomatic equivalent of Python's `queries.py`). This provides:
@@ -564,7 +564,7 @@ See `docs/refactoring-plan.md` Finding 5 for implementation details and naming c
 **Decision: Single NuGet Package**
 
 ```bash
-dotnet add package Neo4j.AgentMemory
+dotnet add package AgentMemory
 ```
 
 That single install gives you **everything** — all 9 assemblies in one package:
@@ -671,8 +671,8 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 
 | Gap | Severity | Status | Notes |
 |-----|----------|--------|-------|
-| ~~**Semantic Kernel adapter**~~ | ~~High~~ | ✅ **Shipped** | `Neo4j.AgentMemory.SemanticKernel` — plugin, text search, DI extensions. 31 tests. |
-| ~~**Meta-package**~~ | ~~High~~ | ✅ **Shipped** | `Neo4j.AgentMemory` — Abstractions + Core + Neo4j + Extraction.Llm. Unified DI registration. |
+| ~~**Semantic Kernel adapter**~~ | ~~High~~ | ✅ **Shipped** | `AgentMemory.SemanticKernel` — plugin, text search, DI extensions. 31 tests. |
+| ~~**Meta-package**~~ | ~~High~~ | ✅ **Shipped** | `AgentMemory` — Abstractions + Core + Neo4j + Extraction.Llm. Unified DI registration. |
 | **NuGet publishing** | High | Not started | Packages not yet on NuGet. Publish order defined. |
 | **Provider tag in enrichment cache keys** | Medium | Not started | Correctness bug: cache key lacks provider name; switching providers returns stale data. |
 | **Fix missing duration metric** | Low | Not started | `InstrumentedMemoryService.ExtractFromSessionAsync` lacks Stopwatch/duration recording. |
@@ -707,7 +707,7 @@ Pragmatic improvements I'd make if starting a new sprint, ordered by impact/effo
 
 | Change | Why | Impact | Effort | Status |
 |--------|-----|--------|--------|--------|
-| ~~**Single NuGet package**~~ — ~~Publish as `Neo4j.AgentMemory` bundling all assemblies~~ | ~~1-install DX~~ | ~~Very High~~ | ~~Trivial~~ | ✅ **Meta-package shipped** |
+| ~~**Single NuGet package**~~ — ~~Publish as `AgentMemory` bundling all assemblies~~ | ~~1-install DX~~ | ~~Very High~~ | ~~Trivial~~ | ✅ **Meta-package shipped** |
 | **Provider tag in enrichment cache keys** — Include provider name to prevent stale cache on provider switch | Correctness bug | Medium | Trivial | 📅 Not started |
 | **Fix missing duration metric** in `InstrumentedMemoryService.ExtractFromSessionAsync` | Telemetry gap | Low | Trivial | 📅 Not started |
 | ✅ **Parameterize all confidence thresholds** — Move hardcoded 0.5/0.8/0.85/0.95 to Options | Configurability | Medium | Low | ✅ **Wave 2 Complete** |

@@ -174,25 +174,25 @@ level.
 
 | Python Module | .NET Project | Notes |
 |---------------|-------------|-------|
-| `neo4j_agent_memory/core/memory.py` | `Neo4j.AgentMemory.Core/Services/MemoryService.cs` | Facade; core entry point |
-| `neo4j_agent_memory/memory/short_term.py` | `Neo4j.AgentMemory.Core/Services/ShortTermMemoryService.cs` | Conversation/message ops |
-| `neo4j_agent_memory/memory/long_term.py` | `Neo4j.AgentMemory.Core/Services/LongTermMemoryService.cs` | Entities/facts/preferences |
-| `neo4j_agent_memory/memory/reasoning.py` | `Neo4j.AgentMemory.Core/Services/ReasoningMemoryService.cs` | Traces/steps/tool calls |
-| `neo4j_agent_memory/extraction/` | `Neo4j.AgentMemory.Extraction.Llm/` + `Neo4j.AgentMemory.Extraction.AzureLanguage/` | Extraction backends |
-| `neo4j_agent_memory/extraction/pipeline.py` | `Neo4j.AgentMemory.Core/Services/MemoryExtractionPipeline.cs` | Pipeline orchestration |
-| `neo4j_agent_memory/resolution/` | `Neo4j.AgentMemory.Core/Resolution/` | Entity resolution chain |
-| `neo4j_agent_memory/enrichment/` | `Neo4j.AgentMemory.Enrichment/` | External entity enrichment |
-| `neo4j_agent_memory/graph/` | `Neo4j.AgentMemory.Neo4j/` | Neo4j infra + repositories |
-| `neo4j_agent_memory/graph/schema.py` | `Neo4j.AgentMemory.Neo4j/Schema/` | Index/constraint creation |
+| `neo4j_agent_memory/core/memory.py` | `AgentMemory.Core/Services/MemoryService.cs` | Facade; core entry point |
+| `neo4j_agent_memory/memory/short_term.py` | `AgentMemory.Core/Services/ShortTermMemoryService.cs` | Conversation/message ops |
+| `neo4j_agent_memory/memory/long_term.py` | `AgentMemory.Core/Services/LongTermMemoryService.cs` | Entities/facts/preferences |
+| `neo4j_agent_memory/memory/reasoning.py` | `AgentMemory.Core/Services/ReasoningMemoryService.cs` | Traces/steps/tool calls |
+| `neo4j_agent_memory/extraction/` | `AgentMemory.Extraction.Llm/` + `AgentMemory.Extraction.AzureLanguage/` | Extraction backends |
+| `neo4j_agent_memory/extraction/pipeline.py` | `AgentMemory.Core/Services/MemoryExtractionPipeline.cs` | Pipeline orchestration |
+| `neo4j_agent_memory/resolution/` | `AgentMemory.Core/Resolution/` | Entity resolution chain |
+| `neo4j_agent_memory/enrichment/` | `AgentMemory.Enrichment/` | External entity enrichment |
+| `neo4j_agent_memory/graph/` | `AgentMemory.Neo4j/` | Neo4j infra + repositories |
+| `neo4j_agent_memory/graph/schema.py` | `AgentMemory.Neo4j/Schema/` | Index/constraint creation |
 | `neo4j_agent_memory/config/settings.py` | All `*Options.cs` files in `Abstractions/Options/` | Configuration |
 | `neo4j_agent_memory/schema/models.py` | (No equivalent) | POLE+O schema model config |
-| `neo4j_agent_memory/mcp/` | `Neo4j.AgentMemory.McpServer/` | MCP server |
-| `neo4j_agent_memory/observability/` | `Neo4j.AgentMemory.Observability/` | Tracing/metrics |
-| `neo4j_agent_memory/integrations/` | `Neo4j.AgentMemory.AgentFramework/` + `GraphRagAdapter/` | Framework adapters |
+| `neo4j_agent_memory/mcp/` | `AgentMemory.McpServer/` | MCP server |
+| `neo4j_agent_memory/observability/` | `AgentMemory.Observability/` | Tracing/metrics |
+| `neo4j_agent_memory/integrations/` | `AgentMemory.AgentFramework/` + `GraphRagAdapter/` | Framework adapters |
 | `neo4j_agent_memory/embeddings/` | `IEmbeddingProvider` (abstracted, no dedicated package) | Embedding abstraction |
 | `neo4j_agent_memory/services/geocoder.py` | (No equivalent) | Geocoding service |
 | `neo4j_agent_memory/cli/` | (No equivalent) | CLI tool |
-| — | `Neo4j.AgentMemory.Abstractions/` | Interface-only package (Python has no equivalent) |
+| — | `AgentMemory.Abstractions/` | Interface-only package (Python has no equivalent) |
 
 ### 2.3 Dependency Comparison
 
@@ -259,8 +259,8 @@ level.
 | **CLI tool** | `neo4j-agent-memory` (Typer) | ❌ Not implemented | 🟡 Minor gap | Schema setup, health checks |
 | **Session strategies** | per_conversation, per_day, persistent | Session ID parameter (manual) | ✅ Parity | ISessionIdGenerator with 3 strategies |
 | **Token-budget / compression** | `observation_threshold` (auto-compress at 30K tokens) | ❌ Not implemented | 🟡 Minor gap | Python truncates/summarises |
-| **Unit tests** | 20+ test files (unit/) | Neo4j.AgentMemory.Tests.Unit (multiple folders) | ✅ Both have tests | |
-| **Integration tests** | `tests/integration/` | `Neo4j.AgentMemory.Tests.Integration/` | ✅ Both have tests | |
+| **Unit tests** | 20+ test files (unit/) | AgentMemory.Tests.Unit (multiple folders) | ✅ Both have tests | |
+| **Integration tests** | `tests/integration/` | `AgentMemory.Tests.Integration/` | ✅ Both have tests | |
 | **Benchmark tests** | `tests/benchmark/` | ❌ Not implemented | 🟡 Minor gap | Python has performance benchmarks |
 
 ---
@@ -478,7 +478,7 @@ level.
 
 | Feature | Description |
 |---------|-------------|
-| **Abstractions package** | `Neo4j.AgentMemory.Abstractions` — interface-only package enables clean substitution and testing |
+| **Abstractions package** | `AgentMemory.Abstractions` — interface-only package enables clean substitution and testing |
 | **Azure Language extraction** | `AzureLanguageEntityExtractor` + `AzureLanguageFactExtractor` + `AzureLanguageRelationshipExtractor` — enterprise-grade cloud NLP |
 | **GraphRAG adapter** | `Neo4jGraphRagContextSource` — reads external Neo4j knowledge graphs via vector/fulltext/hybrid, blends results into recall |
 | **Granular extraction interfaces** | Separate `IEntityExtractor`, `IFactExtractor`, `IPreferenceExtractor`, `IRelationshipExtractor` allow individual replacement |

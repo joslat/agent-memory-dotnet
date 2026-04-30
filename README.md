@@ -158,7 +158,7 @@ The first implementation focus is:
 
 1. **Native .NET Neo4j memory core**
 2. **Microsoft Agent Framework adapter**
-3. **GraphRAG retrieval built into `Neo4j.AgentMemory.Neo4j`** (internalized from separate adapter pattern)
+3. **GraphRAG retrieval built into `AgentMemory.Neo4j`** (internalized from separate adapter pattern)
 4. **Tests and validation harness**
 5. **MCP server for external client access**
 
@@ -189,17 +189,17 @@ The solution ships these packages:
 
 | Package | Phase | Purpose |
 |---------|-------|---------|
-| `Neo4j.AgentMemory.Abstractions` | 1 | Domain models, service/repository interfaces, configuration options — zero external dependencies |
-| `Neo4j.AgentMemory.Core` | 1 | Memory services, extraction pipeline, context assembly, stubs |
-| `Neo4j.AgentMemory.Neo4j` | 1 | Neo4j repository implementations, Cypher queries, schema bootstrap, GraphRAG retrieval |
-| `Neo4j.AgentMemory.Extraction.Llm` | 2 | LLM-driven entity/fact/preference/relationship extractors (Microsoft.Extensions.AI) |
-| `Neo4j.AgentMemory.Extraction.AzureLanguage` | 5 | Azure Text Analytics extractors — NER, key phrases, PII |
-| `Neo4j.AgentMemory.AgentFramework` | 3 | Microsoft Agent Framework adapter — context provider, chat store, memory tools, trace recorder |
-| `Neo4j.AgentMemory.SemanticKernel` | 6 | Semantic Kernel adapter — memory plugin with native SK integration |
-| `Neo4j.AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
-| `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory operations |
-| `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 21 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
-| `Neo4j.AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
+| `AgentMemory.Abstractions` | 1 | Domain models, service/repository interfaces, configuration options — zero external dependencies |
+| `AgentMemory.Core` | 1 | Memory services, extraction pipeline, context assembly, stubs |
+| `AgentMemory.Neo4j` | 1 | Neo4j repository implementations, Cypher queries, schema bootstrap, GraphRAG retrieval |
+| `AgentMemory.Extraction.Llm` | 2 | LLM-driven entity/fact/preference/relationship extractors (Microsoft.Extensions.AI) |
+| `AgentMemory.Extraction.AzureLanguage` | 5 | Azure Text Analytics extractors — NER, key phrases, PII |
+| `AgentMemory.AgentFramework` | 3 | Microsoft Agent Framework adapter — context provider, chat store, memory tools, trace recorder |
+| `AgentMemory.SemanticKernel` | 6 | Semantic Kernel adapter — memory plugin with native SK integration |
+| `AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
+| `AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory operations |
+| `AgentMemory.McpServer` | 6 | MCP Server — 21 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
+| `AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
 
 Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation.
 
@@ -223,7 +223,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and contribution guideli
 
 1. **Install the core package** (or meta-package):
    ```bash
-   dotnet add package Neo4j.AgentMemory
+   dotnet add package AgentMemory
    ```
 
 2. **Configure memory services**:

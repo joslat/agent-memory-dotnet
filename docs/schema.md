@@ -507,7 +507,7 @@ The .NET implementation stores additional properties on `RELATED_TO` beyond the 
 
 ### G1 — ✅ RESOLVED: `timestamp` in ReasoningStep CREATE
 
-**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Queries/ReasoningQueries.cs` (line 80-93)
+**Verified in:** `src/AgentMemory.Neo4j/Queries/ReasoningQueries.cs` (line 80-93)
 
 The `AddStep` constant now includes `timestamp: datetime()` in the CREATE clause:
 ```cypher
@@ -529,7 +529,7 @@ CREATE (s:ReasoningStep {
 
 ### G2 — ✅ RESOLVED: `timestamp` in ToolCall CREATE
 
-**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Queries/ToolCallQueries.cs` (line 9-24)
+**Verified in:** `src/AgentMemory.Neo4j/Queries/ToolCallQueries.cs` (line 9-24)
 
 The `Add` constant now includes `timestamp: datetime()` in the CREATE clause:
 ```cypher
@@ -553,7 +553,7 @@ CREATE (tc:ToolCall {
 
 ### G3 — ✅ RESOLVED: `context` and `created_at` on MENTIONS relationship
 
-**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Queries/EntityQueries.cs` (line 92-96)
+**Verified in:** `src/AgentMemory.Neo4j/Queries/EntityQueries.cs` (line 92-96)
 
 The `AddMention` constant now sets all 5 Python properties:
 ```cypher
@@ -572,7 +572,7 @@ await runner.RunAsync(EntityQueries.AddMention, new { messageId, entityId, confi
 
 ### G4 — Schema Node Repository (P2 — Low Priority)
 
-**File:** New `src/Neo4j.AgentMemory.Neo4j/Repositories/Neo4jSchemaRepository.cs`
+**File:** New `src/AgentMemory.Neo4j/Repositories/Neo4jSchemaRepository.cs`
 
 Python uses the Schema node for custom entity schema persistence (defining entity types, subtypes, relationship types via YAML/JSON config). .NET currently uses fixed types defined in `DefaultSchemas.cs`.
 

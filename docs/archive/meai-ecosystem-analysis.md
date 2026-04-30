@@ -52,11 +52,11 @@ We now reference `Microsoft.Extensions.AI.Abstractions` **version 10.4.1** in **
 
 | Package | MEAI Reference | Usage |
 |---------|---------------|-------|
-| `Neo4j.AgentMemory.Abstractions` | ✅ 10.4.1 | `IEmbeddingGenerator<string, Embedding<float>>` (migration completed) |
-| `Neo4j.AgentMemory.Core` | ✅ 10.4.1 (transitive) | `IChatClient` in `ContextCompressor` |
-| `Neo4j.AgentMemory.AgentFramework` | ✅ 10.4.1 | `ChatMessage`, `ChatRole` for MAF mapping |
-| `Neo4j.AgentMemory.GraphRagAdapter` | ✅ 10.4.1 | `IEmbeddingGenerator<string, Embedding<float>>` |
-| `Neo4j.AgentMemory.Extraction.Llm` | ✅ 10.4.1 | `IChatClient` for all 4 LLM extractors |
+| `AgentMemory.Abstractions` | ✅ 10.4.1 | `IEmbeddingGenerator<string, Embedding<float>>` (migration completed) |
+| `AgentMemory.Core` | ✅ 10.4.1 (transitive) | `IChatClient` in `ContextCompressor` |
+| `AgentMemory.AgentFramework` | ✅ 10.4.1 | `ChatMessage`, `ChatRole` for MAF mapping |
+| `AgentMemory.GraphRagAdapter` | ✅ 10.4.1 | `IEmbeddingGenerator<string, Embedding<float>>` |
+| `AgentMemory.Extraction.Llm` | ✅ 10.4.1 | `IChatClient` for all 4 LLM extractors |
 
 **Migration completed:** The custom `IEmbeddingProvider` interface has been **DELETED** from Abstractions. All packages now use MEAI's native `IEmbeddingGenerator<string, Embedding<float>>` interface. The `StubEmbeddingProvider` has been renamed to `StubEmbeddingGenerator`.
 
@@ -66,7 +66,7 @@ We now reference `Microsoft.Extensions.AI.Abstractions` **version 10.4.1** in **
 
 ### Our MAF Adapter — Current Architecture
 
-The `Neo4j.AgentMemory.AgentFramework` adapter implements:
+The `AgentMemory.AgentFramework` adapter implements:
 
 ```
 AIContextProvider (MAF)
@@ -285,7 +285,7 @@ Neo4jContextProvider : AIContextProvider
 ### Our Architecture
 
 ```
-Neo4j.AgentMemory (full stack)
+AgentMemory (full stack)
   ├─ Abstractions           — Domain models, service interfaces
   ├─ Core                   — Memory services, extraction pipeline, context assembly
   ├─ Neo4j                  — Persistence, schema, indexes
@@ -387,8 +387,8 @@ var recall = await memory.RecallAsync(new RecallRequest { SessionId = sessionId,
 
 ## 1. Install (30 seconds)
 ```shell
-dotnet add package Neo4j.AgentMemory
-dotnet add package Neo4j.AgentMemory.OpenAI  # or .Ollama, .AzureAI
+dotnet add package AgentMemory
+dotnet add package AgentMemory.OpenAI  # or .Ollama, .AzureAI
 ```
 
 ## 2. Start Neo4j (30 seconds)
@@ -513,19 +513,19 @@ User says "I'm Alice, I work at Acme, and I prefer dark mode"
 
 ### Medium-Term
 5. **Build SK adapter** — Thin plugin wrapper, trivial with MEAI unification.
-6. **Metapackage `Neo4j.AgentMemory`** — Single NuGet that bundles Core + Neo4j + common defaults.
-7. **Provider packages** — `Neo4j.AgentMemory.OpenAI` that auto-registers `IChatClient` + `IEmbeddingGenerator` with one call.
+6. **Metapackage `AgentMemory`** — Single NuGet that bundles Core + Neo4j + common defaults.
+7. **Provider packages** — `AgentMemory.OpenAI` that auto-registers `IChatClient` + `IEmbeddingGenerator` with one call.
 
 ### Architecture Target State
 
 ```
-Neo4j.AgentMemory.Abstractions (+ MEAI Abstractions)
+AgentMemory.Abstractions (+ MEAI Abstractions)
     ↑                   ↑                    ↑
-Neo4j.AgentMemory.Core   Neo4j.AgentMemory.Neo4j   Neo4j.AgentMemory.Extraction.*
+AgentMemory.Core   AgentMemory.Neo4j   AgentMemory.Extraction.*
     ↑                   ↑                    ↑
-Neo4j.AgentMemory.MAF   Neo4j.AgentMemory.SK   Neo4j.AgentMemory.MCP
+AgentMemory.MAF   AgentMemory.SK   AgentMemory.MCP
                     ↑
-            Neo4j.AgentMemory (metapackage)
+            AgentMemory (metapackage)
 ```
 
 Every layer uses MEAI interfaces. Framework adapters are thin. Consumers pick what they need.

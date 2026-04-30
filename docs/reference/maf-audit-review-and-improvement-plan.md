@@ -2,7 +2,7 @@
 
 **Author:** Rachael (MAF Integration Engineer)  
 **Date:** April 2026  
-**Scope:** Complete audit of `Neo4j.AgentMemory.AgentFramework` adapter layer and MAF samples against the MAF 1.1.0 migration guide.
+**Scope:** Complete audit of `AgentMemory.AgentFramework` adapter layer and MAF samples against the MAF 1.1.0 migration guide.
 
 ---
 
@@ -32,7 +32,7 @@ Code quality concerns are largely minor (missing null guards, a potential memory
 | `Mapping/MafTypeMapper.cs` | ✅ Correct | Clean bidirectional mapping; no leakage |
 | `Tools/MemoryTool.cs` | ❌ Wrong | Custom tool type; incompatible with MAF `AIFunction` contract |
 | `Tools/MemoryToolFactory.cs` | ❌ Wrong | Returns `IReadOnlyList<MemoryTool>` — not injectable into MAF tool slots |
-| `Neo4j.AgentMemory.AgentFramework.csproj` | ⚠️ Issue | References `Microsoft.Agents.AI.Abstractions 1.1.0`; guide specifies `Microsoft.Agents.AI 1.1.0` |
+| `AgentMemory.AgentFramework.csproj` | ⚠️ Issue | References `Microsoft.Agents.AI.Abstractions 1.1.0`; guide specifies `Microsoft.Agents.AI 1.1.0` |
 
 ### 1.2 Deprecated API Usage
 
@@ -59,7 +59,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/Neo4j.AgentMemory.AgentFramework.csproj`
+#### `src/AgentMemory.AgentFramework/AgentMemory.AgentFramework.csproj`
 
 **Issue 1** — `Microsoft.Agents.AI.Abstractions` vs `Microsoft.Agents.AI`  
 - **Lines:** `<PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.1.0" />`  
@@ -69,7 +69,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/Neo4jMemoryContextProvider.cs`
+#### `src/AgentMemory.AgentFramework/Neo4jMemoryContextProvider.cs`
 
 **Issue 2** — `base(null, null, null)` constructor call  
 - **Lines:** 28  
@@ -107,7 +107,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/Neo4jChatMessageStore.cs`
+#### `src/AgentMemory.AgentFramework/Neo4jChatMessageStore.cs`
 
 **Issue 6** — Not a `ChatHistoryProvider` subclass  
 - **Lines:** 12  
@@ -152,7 +152,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/Neo4jMicrosoftMemoryFacade.cs`
+#### `src/AgentMemory.AgentFramework/Neo4jMicrosoftMemoryFacade.cs`
 
 **Issue 7** — Dead `messages` parameter in `GetContextForRunAsync`  
 - **Lines:** 37, 44  
@@ -170,7 +170,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/AgentTraceRecorder.cs`
+#### `src/AgentMemory.AgentFramework/AgentTraceRecorder.cs`
 
 **Issue 8** — Missing null guards on constructor parameters  
 - **Lines:** 21–31  
@@ -214,7 +214,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/AgentFrameworkOptions.cs`
+#### `src/AgentMemory.AgentFramework/AgentFrameworkOptions.cs`
 
 **Issue 11** — Misleading "Header" naming for StateBag keys  
 - **Lines:** 11–12  
@@ -229,7 +229,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/ServiceCollectionExtensions.cs`
+#### `src/AgentMemory.AgentFramework/ServiceCollectionExtensions.cs`
 
 **Issue 12** — `AgentTraceRecorder` and `MemoryToolFactory` not registered  
 - **Lines:** 36–41  
@@ -255,7 +255,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/Mapping/MafTypeMapper.cs`
+#### `src/AgentMemory.AgentFramework/Mapping/MafTypeMapper.cs`
 
 **Issue 14** — Potential duplicate messages in `ToContextMessages`  
 - **Lines:** 53–57  
@@ -273,7 +273,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/Tools/MemoryTool.cs` and `MemoryToolFactory.cs`
+#### `src/AgentMemory.AgentFramework/Tools/MemoryTool.cs` and `MemoryToolFactory.cs`
 
 **Issue 15** — Custom `MemoryTool` type is not a MAF `AIFunction`  
 - **Lines:** `MemoryTool.cs:10`, `MemoryToolFactory.cs:37`  
@@ -295,7 +295,7 @@ No RC1 or RC3 deprecated APIs detected. `AIContextProvider`, `InvokingContext`, 
 
 ---
 
-#### `src/Neo4j.AgentMemory.AgentFramework/ContextFormatOptions.cs`
+#### `src/AgentMemory.AgentFramework/ContextFormatOptions.cs`
 
 **Issue 16** — `MaxContextMessages = 10` includes the prefix message  
 - **Lines:** 13  
@@ -381,7 +381,7 @@ This copies `AgentFrameworkOptions.ContextFormat` into a separate `ContextFormat
 
 **Issue 19** — No actual MAF `AIAgent` constructed  
 - **Severity:** 🔴 Critical  
-- **File:** `samples/Neo4j.AgentMemory.Sample.MinimalAgent/Program.cs`, lines 105–110  
+- **File:** `samples/AgentMemory.Sample.MinimalAgent/Program.cs`, lines 105–110  
 - **Description:** The "agent turn" is a hardcoded `List<ChatMessage>`. The sample doesn't show how to register `Neo4jMemoryContextProvider` with a real agent, or how to pass it to `ChatClientAgentOptions.AIContextProviders`. This defeats the purpose of the MAF sample.
 - **Fix:** Add a section showing agent creation:
   ```csharp
@@ -397,7 +397,7 @@ This copies `AgentFrameworkOptions.ContextFormat` into a separate `ContextFormat
 
 **Issue 20** — README.md references stale `IEmbeddingProvider`/`StubEmbeddingProvider`  
 - **Severity:** 🟡 Medium  
-- **File:** `samples/Neo4j.AgentMemory.Sample.MinimalAgent/README.md`, line 97  
+- **File:** `samples/AgentMemory.Sample.MinimalAgent/README.md`, line 97  
 - **Description:** The "Key DI registration pattern" in the README still shows:
   ```csharp
   services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>(); // swap for real provider
@@ -410,7 +410,7 @@ This copies `AgentFrameworkOptions.ContextFormat` into a separate `ContextFormat
 
 **Issue 21** — Sample uses floating `Version="*"` for `Microsoft.Extensions.Hosting`  
 - **Severity:** 🟢 Low  
-- **File:** `samples/Neo4j.AgentMemory.Sample.MinimalAgent/Neo4j.AgentMemory.Sample.MinimalAgent.csproj`, line 10  
+- **File:** `samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj`, line 10  
 - **Description:** `Version="*"` is unpredictable in reproducible builds. Pin to a specific version.
 - **Fix:** `<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />`
 
@@ -425,13 +425,13 @@ This copies `AgentFrameworkOptions.ContextFormat` into a separate `ContextFormat
 
 **Issue 22** — Duplicate `StubEmbeddingGenerator` class shadows `Core.Stubs` import  
 - **Severity:** 🟡 Medium  
-- **File:** `samples/Neo4j.AgentMemory.Sample.BlendedAgent/Program.cs`, lines 23, 261–293  
-- **Description:** The file both `using Neo4j.AgentMemory.Core.Stubs;` (line 23) and defines a local `internal sealed class StubEmbeddingGenerator` (lines 261–293). The local class shadows the imported namespace's class. The `using` directive is therefore either unused (causing a warning or error with `TreatWarningsAsErrors`) or causes an ambiguity. The `StubEmbeddingGenerator` from `Core.Stubs` should be used instead.
+- **File:** `samples/AgentMemory.Sample.BlendedAgent/Program.cs`, lines 23, 261–293  
+- **Description:** The file both `using AgentMemory.Core.Stubs;` (line 23) and defines a local `internal sealed class StubEmbeddingGenerator` (lines 261–293). The local class shadows the imported namespace's class. The `using` directive is therefore either unused (causing a warning or error with `TreatWarningsAsErrors`) or causes an ambiguity. The `StubEmbeddingGenerator` from `Core.Stubs` should be used instead.
 - **Fix:** Remove the local `StubEmbeddingGenerator` class (lines 261–293). The `Core.Stubs` import already provides it.
 
 **Issue 23** — README.md shows both `IEmbeddingProvider` and `IEmbeddingGenerator` as separate registrations  
 - **Severity:** 🟡 Medium  
-- **File:** `samples/Neo4j.AgentMemory.Sample.BlendedAgent/README.md`, lines 140–141  
+- **File:** `samples/AgentMemory.Sample.BlendedAgent/README.md`, lines 140–141  
 - **Description:**
   ```csharp
   services.AddSingleton<IEmbeddingProvider, StubEmbeddingProvider>();         // swap for real provider
@@ -445,7 +445,7 @@ This copies `AgentFrameworkOptions.ContextFormat` into a separate `ContextFormat
 
 **Issue 24** — No actual MAF `AIAgent` constructed (same as MinimalAgent Issue 19)  
 - **Severity:** 🔴 Critical  
-- **File:** `samples/Neo4j.AgentMemory.Sample.BlendedAgent/Program.cs`
+- **File:** `samples/AgentMemory.Sample.BlendedAgent/Program.cs`
 
 ### 4.3 Missing Samples
 
@@ -556,7 +556,7 @@ Total: ~54 unit tests covering the AgentFramework layer. Good breadth.
     Show MAF's native OTel alongside our memory OTel for complete observability.
 
 20. **[P3-7] ✅ Done — `TreatWarningsAsErrors` verified clean for AgentFramework**
-    `dotnet build Neo4j.AgentMemory.slnx -v q` confirms 0 warnings, 0 errors across the entire solution. The duplicate `StubEmbeddingGenerator` was removed in P1-5 so there are no CS0436/ambiguity warnings.
+    `dotnet build AgentMemory.slnx -v q` confirms 0 warnings, 0 errors across the entire solution. The duplicate `StubEmbeddingGenerator` was removed in P1-5 so there are no CS0436/ambiguity warnings.
 
 ---
 
