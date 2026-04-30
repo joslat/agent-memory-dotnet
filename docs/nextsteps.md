@@ -6,7 +6,7 @@
 |---|---|---|---|---|---|---|---|
 | 1 – HIGH | F | Package Rename | Rename all packages AgentMemory.* → AgentMemory.* | 100% | ✅ Deckard | rename-plan.md | Executed by Roy (acef3ef). All 8 review gates passed. Approved by Deckard 2026-04-30. |
 | 2 – HIGH | F | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 100% | ✅ Deckard | delete-session-gap-plan.md | PR: https://github.com/joslat/agent-memory-dotnet/pull/1 |
-| 3 – HIGH | S | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | 10% | — | — | Depends on Package Rename (#1) |
+| 3 – HIGH | S | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | — | — | — | Depends on Package Rename (#1). Branch `loop/aspire-demo` claimed; resume from step 5 (plan). |
 | 4 – HIGH |  | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 0% | — | — | Depends on #1 and #3 |
 | 5 – MED |  | Streaming Extraction | IStreamingExtractionPipeline with chunk/overlap/deduplication | 0% | — | — | — |
 | 6 – MED |  | CLI Tool | `dotnet tool` with `migrate` + `schema-check` commands | 0% | — | — | v1 scope only |

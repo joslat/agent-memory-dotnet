@@ -9,6 +9,8 @@ description: "Drive docs/nextsteps.md tracking table — one task end-to-end per
 
 You are the Lead. **Each round you take one task from the queue and drive it end-to-end to a merged PR**, then exit. No multi-round staging — plan, implement, test, self-review, open the PR, wait for CI, and (if review and CI are green) merge it, all in one round. On successful merge, you also flip the row to `State = F`, `% Done = 100%`, and stamp the reviewer in the `Reviewed` column.
 
+**One round = one full task, claim through merge.** The only legitimate reasons a round ends before merge are: (a) a `BLOCKED:` condition the rules below define, or (b) the 80%-timeout cost-discipline rule fires mid-implementation. **Claiming a task is not, by itself, a round.** Do not stop after claim. Do not stop after plan. Do not stop after "branch created". Continue through every step until you reach step 15 or hit a defined exit condition. If you find yourself thinking "I'll do the plan in the next round" — you are wrong; do it now, in this round.
+
 ## Operating mode — UNATTENDED
 
 This loop runs autonomously. **No human is at the terminal.** That changes how you behave:
@@ -32,11 +34,11 @@ This loop runs autonomously. **No human is at the terminal.** That changes how y
   - *empty* → available to be picked
   - `S` → Started (claimed; in progress)
   - `F` → Finished (PR merged, all CI green, review approved). Set by the loop on successful merge.
-- **`% Done`** — progress reporting. Used by the loop to know whether to start fresh or resume:
-  - `0%` → just claimed, no work yet
-  - `50%` → WIP (timeout hit before merge; resume on the existing branch)
-  - `90%` → PR open with review pending or BLOCKED — non-terminal (next round may resume or a human may take it)
-  - `100%` → PR merged successfully — task complete, set by the loop
+- **`% Done`** — reporting-only. Set by the loop at well-defined points; **never used as a reason to stop a round early.**
+  - `50%` — WIP exit because the 80% timeout fired mid-implementation. Resume on next round.
+  - `90%` — PR is open; round exited because of CI-pending or BLOCKED-after-PR. Resume on next round (or human takes over).
+  - `100%` — PR merged and post-merge G5 verification passed. Terminal.
+  Any other value (`0%`, `10%`, `30%`, etc.) is **not a valid stopping point.** If you set `% Done` to anything other than 50/90/100 and exit, you have done it wrong.
 
 ## Round picking order
 
@@ -49,7 +51,7 @@ This loop runs autonomously. **No human is at the terminal.** That changes how y
 1. **Verify a clean working tree on `main`.** If there are uncommitted changes or you're already on a feature branch from a previous round (and step 3 below didn't pick that task to resume), abort with a `BLOCKED:` note in `.squad/decisions.md` and exit. Never discard or stash anything.
 2. **Pull `main`.**
 3. **Pick the round's task** using the order above.
-4. **Claim (new task only).** Edit only the picked row's `State` cell from empty to `S`. Commit on `main` with message `loop: claim <task name>` and push. Check out a new branch `loop/<slug>`. (Resuming an `S` task: skip claim; check out the existing `loop/<slug>` branch and pull.)
+4. **Claim (new task only) — then keep going in the same round.** Edit only the picked row's `State` cell from empty to `S`. Commit on `main` with message `loop: claim <task name>` and push. Check out a new branch `loop/<slug>`. **Do not set `% Done` to anything yet — it stays empty until you exit at 50/90/100.** **Do not exit here.** Immediately proceed to step 5. (Resuming an `S` task: skip claim; check out the existing `loop/<slug>` branch and pull, then jump to whichever step matches the row's `% Done`: empty/50% → step 5 or 6, 90% → step 11.)
 5. **Plan — mandatory, every task, every size.** Write the implementation plan to `docs/plans/<slug>-plan.md` using **Claude Opus 4.7** (the highest-tier model available — pick it explicitly, do not let the agent default to a smaller model).
 
    **The plan is an executable runbook, not a design sketch.** Its purpose: a smaller, cheaper model (Claude Sonnet 4.6, GPT-5.5, etc.) executes the plan literally, top to bottom, without making design decisions. The Opus-tier reasoning happens here, once; the implementer just follows instructions. If the implementer would have to *choose* between two options, the plan failed — go back and pick the option, with rationale, in the plan.
