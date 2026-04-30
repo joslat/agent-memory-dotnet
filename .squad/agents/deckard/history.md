@@ -28,6 +28,34 @@
 
 ## Learnings
 
+### 2026-04-30 — nextsteps.md Matrix Pruned per José's Decisions
+
+**What changed:** José reviewed the nextsteps.md proposal matrix and made explicit scope decisions. The matrix was pruned from 14 rows to 7. Two new items were added (Aspire Demo, CLI Tool scoped v1). The §4 Recommended Next Sequence was reordered.
+
+**Removed from active matrix (moved to `docs/Improvement-Ideas-Backlog.md`):**
+- **AutoGen.NET Integration** — AutoGen .NET is now MAF; integrating it would mean integrating with MAF twice.
+- **Local Embedding Adapter (ONNX)** — "no onnx... no extra infrastructure layer" (José).
+- **LangChain.NET Integration** — not in Python parity scope; no direction to keep it.
+- **Cross-Agent Memory Sharing (C6)** — "I do not think we need or even, should do the cross-agent memory sharing" (José).
+- **Local NLP Extractors (GLiNER/ONNX NER)** — "no nlp" (José).
+- **Opik Observability** — "no opik so far" (José).
+- **Memory Conflict Detection + Provenance Scoring (C1/C2)** — post-launch; deferred to backlog.
+- **GDS Integration** — post-launch; deferred to backlog.
+
+**Added:**
+- **Aspire Demo Application** (HIGH, V=9, C=4) — .NET Aspire AppHost + Neo4j container + seeded DB + console agent client. Neo4j Browser at port 7474 gives free graph visualisation.
+- **CLI Tool (scoped v1)** (MED, V=4, C=2) — migrate + schema-check commands only. Richer features deferred to backlog.
+
+**New §4 Recommended Sequence:**
+1. DELETE_SESSION_DATA gap closure (trivial, do it now)
+2. NuGet Release Preparation (unlocks community feedback)
+3. Aspire Demo Application (makes library real for evaluators)
+4. BenchmarkDotNet Harness (backs performance claims)
+5. CLI Tool v1 (migrations + schema-check)
+6. Streaming Extraction (highest remaining functional gap)
+
+**Core v1 scope decision:** v1 = Python parity + solid NuGet release + developer demo. No ONNX, no extra infra layers, no speculative integrations.
+
 ### 2026-04-30 — Architecture.md B1 Fix + Nextsteps Proposal Matrix
 
 **B1 fix — what was wrong and what changed:**

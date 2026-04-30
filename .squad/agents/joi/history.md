@@ -331,6 +331,26 @@ Joi's bulk docs update was reported as successful but edits did not persist to d
 - `docs/refactoring-plan.md` — All 4 waves complete. Historical only.
 - `docs/python-agent-memory-analysis.md` — Phase 1 Reference. Superseded by comparison + parity docs.
 - `docs/cypher-analysis.md` — Earlier parity analysis. Superseded by parity-assessment.md (July 2026).
+
+---
+
+### L-latest: Improvement Ideas Backlog Created (2026-04-30)
+
+**Task:** José requested a structured post-launch backlog preserving 8 deferred improvement ideas with expanded implementation sketches.
+
+**File created:** `docs/Improvement-Ideas-Backlog.md`
+
+**Items documented:**
+1. Memory Conflict Detection + Provenance Scoring — `ConflictDetectionService`, `IConflictHandler`, `ProvenanceScore` on Fact nodes
+2. GDS Integration (PageRank + Community Detection) — optional `Neo4j.AgentMemory.Analytics` package, GDS plugin required
+3. Cross-Agent Memory Sharing — `SharedMemorySpace` concept, namespace-aware repositories, `MemoryNamespace` node type
+4. Local Embedding Adapter (ONNX) — `Neo4j.AgentMemory.Embedding.Onnx`, `Microsoft.ML.OnnxRuntime`, `all-MiniLM-L6-v2`
+5. Local NLP Extractors (GLiNER / ONNX NER) — `Neo4j.AgentMemory.Extraction.LocalNlp`, blocked on ecosystem maturity
+6. Opik Observability Integration — `Neo4j.AgentMemory.Observability.Opik`, blocked on upstream .NET SDK
+7. Full CLI Tool Feature Set — `export-memory`, `import-memory`, `stats`, `prune`, `search` commands
+8. Additional Framework Integrations — AutoGen.NET = MAF (done), LangChain.NET (low ROI), Semantic Router (speculative)
+
+**Key convention:** Items include implementation sketches with package names, interface names, and Cypher patterns — enough detail to restart without re-analysis. Promotion path documented at file end.
 - `Agent-memory-for-dotnet-implementation-plan.md` (root) — All 6 phases done. Historical.
 
 **Purpose-clarification docs:**

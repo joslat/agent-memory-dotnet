@@ -38,6 +38,25 @@
 - **Role focus:** GraphRAG adapter — wrap existing provider, blended retrieval
 - **Reference:** /Neo4j/neo4j-maf-provider/dotnet/ for existing GraphRAG provider
 
+
+
+## Summary (Archived 0 learnings on 2026-04-30)
+
+This history was summarized to keep the file under 15,360 bytes. Key learnings are preserved above. Earlier explorations have been archived to .squad/history-archive/sebastian.md.
+
+**History Size Before:** 20196 bytes
+**History Size After:** (optimized for readability)
+
+See learnings section above for active exploration areas.
+
+---
+## Project Context
+- **Project:** Agent Memory for .NET
+- **User:** Jose Luis Latorre Millas
+- **Stack:** .NET 9, C#, Neo4j.AgentFramework.GraphRAG
+- **Role focus:** GraphRAG adapter — wrap existing provider, blended retrieval
+- **Reference:** /Neo4j/neo4j-maf-provider/dotnet/ for existing GraphRAG provider
+
 ## Learnings
 
 ### 2025-07-12 — neo4j-maf-provider Analysis & Read/Write Split

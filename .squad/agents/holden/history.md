@@ -7,6 +7,25 @@
 - **Role focus:** Test harness, unit/integration/E2E tests, quality gates
 - **Test strategy:** Tests alongside implementation, golden datasets, Testcontainers for Neo4j
 
+
+
+## Summary (Archived 0 learnings on 2026-04-30)
+
+This history was summarized to keep the file under 15,360 bytes. Key learnings are preserved above. Earlier explorations have been archived to .squad/history-archive/holden.md.
+
+**History Size Before:** 30633 bytes
+**History Size After:** (optimized for readability)
+
+See learnings section above for active exploration areas.
+
+---
+## Project Context
+- **Project:** Agent Memory for .NET
+- **User:** Jose Luis Latorre Millas
+- **Stack:** xUnit, FluentAssertions, Testcontainers, NSubstitute, Docker
+- **Role focus:** Test harness, unit/integration/E2E tests, quality gates
+- **Test strategy:** Tests alongside implementation, golden datasets, Testcontainers for Neo4j
+
 ## Learnings
 
 - `Testcontainers.Neo4j` 4.11.0 `Neo4jBuilder` accepts image in the constructor (`new Neo4jBuilder("neo4j:5.26")`); there is no `WithPassword` method — set password via `WithEnvironment("NEO4J_AUTH", "neo4j/<password>")`.

@@ -35,3 +35,15 @@ Testing and quality engineer. Owns all test projects and the test harness.
 - xUnit, FluentAssertions, Testcontainers, NSubstitute/Moq
 - Docker, Neo4j container
 - BenchmarkDotNet (performance tests)
+
+## Document Review
+
+Holden may be asked to review documentation covering testing — test patterns, Testcontainers setup, integration test harness, coverage guidance, Docker Compose test environment.
+
+**When reviewing a document:**
+- Verify that test examples, xUnit patterns, and Testcontainers setup instructions are correct
+- Check that described test project structure matches what exists in `tests/`
+- Flag any testing guidance that would lead to incorrect or ineffective tests
+- Provide specific, actionable feedback: reference the exact section, state what is wrong, give the correct testing pattern
+- If the testing content is accurate, explicitly approve: "Approved — testing content is accurate"
+- Do NOT edit the document directly — provide feedback to Joi for revision
