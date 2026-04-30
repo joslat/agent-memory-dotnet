@@ -1,3 +1,17 @@
+## Implementation Tracking
+
+| Priority | Task Name | Description | % Done | Reviewed | Plan File | Notes |
+|---|---|---|---|---|---|---|
+| 1 – HIGH | Package Rename | Rename all packages Neo4j.AgentMemory.* → AgentMemory.* | 0% | — | rename-plan.md | Plan written by Deckard (opus 4.7). Ready to execute. |
+| 2 – HIGH | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 0% | — | — | Trivial fix, no dedicated plan needed |
+| 3 – HIGH | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | 0% | — | — | Depends on Package Rename (#1) |
+| 4 – HIGH | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 0% | — | — | Depends on #1 and #3 |
+| 5 – MED | Streaming Extraction | IStreamingExtractionPipeline with chunk/overlap/deduplication | 0% | — | — | — |
+| 6 – MED | CLI Tool | `dotnet tool` with `migrate` + `schema-check` commands | 0% | — | — | v1 scope only |
+| 7 – MED | GDS Support | Optional AgentMemory.Analytics package, GDS PageRank + community detection | 0% | — | — | Depends on #3 (Aspire Demo validates GDS optionality) |
+| 8 – MED | BenchmarkDotNet Harness | Perf benchmarks for batch ops, vector search, decay, hybrid retrieval | 0% | — | — | — |
+| 9 – MED | S9 Truncation Refactor | Extract truncation strategies from MemoryContextAssembler | 0% | — | — | Low priority architectural cleanup |
+
 # Agent Memory for .NET — Next Steps
 
 **Author:** Deckard (Lead / Solution Architect)  
