@@ -9,7 +9,7 @@
 
 ## 1. Domain Model Overview
 
-The domain model comprises **31 domain types** organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, and configuration. All domain types are defined in `Neo4j.AgentMemory.Abstractions`.
+The domain model comprises **31 domain types** organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, and configuration. All domain types are defined in `AgentMemory.Abstractions`.
 
 ### Key Design Decisions
 
@@ -307,19 +307,19 @@ public enum ExtractionTypes
 
 ### 4.4 Phase 2+: Real Extraction (✅ COMPLETE)
 
-LLM-based extraction is implemented via `Neo4j.AgentMemory.Extraction.Llm`:
+LLM-based extraction is implemented via `AgentMemory.Extraction.Llm`:
 - Four granular extractors: Entity, Fact, Preference, Relationship
 - Uses `IChatClient` (Microsoft.Extensions.AI) for provider-neutral LLM calls
 - JSON schema for structured output with type normalization
 - Configurable model selection and confidence mapping
 - Streaming extraction pipeline for chunked large-document processing (Wave 4C)
-- Azure Cognitive Services alternative via `Neo4j.AgentMemory.Extraction.AzureLanguage`
+- Azure Cognitive Services alternative via `AgentMemory.Extraction.AzureLanguage`
 
 ---
 
 ## 5. Service Interface Catalog
 
-All service interfaces are defined in `Neo4j.AgentMemory.Abstractions.Services`.
+All service interfaces are defined in `AgentMemory.Abstractions.Services`.
 
 | # | Interface | Purpose | Key Methods |
 |---|---|---|---|
@@ -343,7 +343,7 @@ All service interfaces are defined in `Neo4j.AgentMemory.Abstractions.Services`.
 
 ## 6. Repository Interface Catalog
 
-All repository interfaces are defined in `Neo4j.AgentMemory.Abstractions.Repositories`.
+All repository interfaces are defined in `AgentMemory.Abstractions.Repositories`.
 
 | # | Interface | Purpose | Key Methods | Neo4j Node |
 |---|---|---|---|---|
@@ -407,7 +407,7 @@ MemoryOptions (root)
 ### 7.2 Neo4j-Specific Configuration
 
 ```
-Neo4jOptions (in Neo4j.AgentMemory.Neo4j)
+Neo4jOptions (in AgentMemory.Neo4j)
 ├── Uri (default: "bolt://localhost:7687")
 ├── Username (default: "neo4j")
 ├── Password (default: "password")

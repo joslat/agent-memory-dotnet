@@ -19,7 +19,7 @@ This document analyzes four packaging strategies for shipping Agent Memory for .
 - **1,438 tests** (1,407 unit + 31 SK)
 - **~16,600 LOC** across 276 source files
 - **Zero circular dependencies**, zero boundary violations
-- **Meta-package** already exists: `Neo4j.AgentMemory` references Abstractions + Core + Neo4j + Extraction.Llm
+- **Meta-package** already exists: `AgentMemory` references Abstractions + Core + Neo4j + Extraction.Llm
 - **SemanticKernel adapter** shipped with plugin, text search, and DI extensions
 
 ---
@@ -28,27 +28,27 @@ This document analyzes four packaging strategies for shipping Agent Memory for .
 
 ### Description
 
-Ship everything — all 11 assemblies — as a single NuGet package called `Neo4j.AgentMemory`. One install, one version, everything included.
+Ship everything — all 11 assemblies — as a single NuGet package called `AgentMemory`. One install, one version, everything included.
 
 ### Package Structure
 
 ```
-Neo4j.AgentMemory (single NuGet)
-├── Neo4j.AgentMemory.Abstractions.dll
-├── Neo4j.AgentMemory.Core.dll
-├── Neo4j.AgentMemory.Neo4j.dll
-├── Neo4j.AgentMemory.Extraction.Llm.dll
-├── Neo4j.AgentMemory.Extraction.AzureLanguage.dll
-├── Neo4j.AgentMemory.Enrichment.dll
-├── Neo4j.AgentMemory.Observability.dll
-├── Neo4j.AgentMemory.McpServer.dll
-├── Neo4j.AgentMemory.AgentFramework.dll
-└── Neo4j.AgentMemory.SemanticKernel.dll
+AgentMemory (single NuGet)
+├── AgentMemory.Abstractions.dll
+├── AgentMemory.Core.dll
+├── AgentMemory.Neo4j.dll
+├── AgentMemory.Extraction.Llm.dll
+├── AgentMemory.Extraction.AzureLanguage.dll
+├── AgentMemory.Enrichment.dll
+├── AgentMemory.Observability.dll
+├── AgentMemory.McpServer.dll
+├── AgentMemory.AgentFramework.dll
+└── AgentMemory.SemanticKernel.dll
 ```
 
 ### Benefits
 
-- **Zero-confusion onboarding**: `dotnet add package Neo4j.AgentMemory` — done.
+- **Zero-confusion onboarding**: `dotnet add package AgentMemory` — done.
 - **Version coherence**: Everything ships together. No version matrix to manage.
 - **Discovery**: One NuGet.org listing, one README, one search result.
 - **Simplest CI/CD**: One package to build, sign, and publish.
@@ -94,7 +94,7 @@ Any .NET developer wanting agent memory. No decision paralysis about which packa
 
 Split the solution into two distinct products:
 - **Layer 1:** `Neo4j.GraphDatabase` — A standalone .NET infrastructure package for Neo4j graph databases and GraphRAG. MEAI-native. No memory-specific logic. Targets any .NET developer working with Neo4j who wants higher-level abstractions than raw Neo4j.Driver.
-- **Layer 2:** `Neo4j.AgentMemory` — Agentic memory built on top of Layer 1. Memory lifecycle, extraction, enrichment, decay, entity resolution.
+- **Layer 2:** `AgentMemory` — Agentic memory built on top of Layer 1. Memory lifecycle, extraction, enrichment, decay, entity resolution.
 
 ### Package Structure
 
@@ -104,15 +104,15 @@ Layer 1:
   Neo4j.GraphDatabase.SemanticKernel      (SK text search adapter)
 
 Layer 2:
-  Neo4j.AgentMemory                       (memory meta-package)
-  Neo4j.AgentMemory.Abstractions          (memory contracts)
-  Neo4j.AgentMemory.Core                  (memory logic)
-  Neo4j.AgentMemory.Extraction.Llm        (LLM extraction)
-  Neo4j.AgentMemory.Extraction.Azure      (Azure NLP extraction)
-  Neo4j.AgentMemory.AgentFramework        (MAF adapter)
-  Neo4j.AgentMemory.Observability         (OpenTelemetry)
-  Neo4j.AgentMemory.Enrichment            (geocoding, Wikipedia)
-  Neo4j.AgentMemory.McpServer             (MCP tools)
+  AgentMemory                       (memory meta-package)
+  AgentMemory.Abstractions          (memory contracts)
+  AgentMemory.Core                  (memory logic)
+  AgentMemory.Extraction.Llm        (LLM extraction)
+  AgentMemory.Extraction.Azure      (Azure NLP extraction)
+  AgentMemory.AgentFramework        (MAF adapter)
+  AgentMemory.Observability         (OpenTelemetry)
+  AgentMemory.Enrichment            (geocoding, Wikipedia)
+  AgentMemory.McpServer             (MCP tools)
 ```
 
 ### Benefits
@@ -176,25 +176,25 @@ Layer 2:
 
 ### Description
 
-Keep the current fine-grained package structure. Each project ships as its own NuGet package. The `Neo4j.AgentMemory` meta-package provides convenience for the common case (Abstractions + Core + Neo4j + Extraction.Llm in one install).
+Keep the current fine-grained package structure. Each project ships as its own NuGet package. The `AgentMemory` meta-package provides convenience for the common case (Abstractions + Core + Neo4j + Extraction.Llm in one install).
 
 ### Package Structure
 
 ```
 Meta-package (convenience):
-  Neo4j.AgentMemory                       → references Abstractions + Core + Neo4j + Extraction.Llm
+  AgentMemory                       → references Abstractions + Core + Neo4j + Extraction.Llm
 
 Individual packages (for power users and specific use cases):
-  Neo4j.AgentMemory.Abstractions          (contracts only, MEAI.Abstractions)
-  Neo4j.AgentMemory.Core                  (business logic, FuzzySharp)
-  Neo4j.AgentMemory.Neo4j                 (persistence, Neo4j.Driver 6.0.0)
-  Neo4j.AgentMemory.Extraction.Llm        (LLM extraction, MEAI IChatClient)
-  Neo4j.AgentMemory.Extraction.AzureLanguage (Azure NLP, Azure.AI.TextAnalytics)
-  Neo4j.AgentMemory.Enrichment            (Nominatim, Wikimedia, Diffbot)
-  Neo4j.AgentMemory.Observability         (OpenTelemetry decorators)
-  Neo4j.AgentMemory.McpServer             (MCP 1.2.0)
-  Neo4j.AgentMemory.AgentFramework        (MAF 1.1.0)
-  Neo4j.AgentMemory.SemanticKernel        (SK 1.74.0)
+  AgentMemory.Abstractions          (contracts only, MEAI.Abstractions)
+  AgentMemory.Core                  (business logic, FuzzySharp)
+  AgentMemory.Neo4j                 (persistence, Neo4j.Driver 6.0.0)
+  AgentMemory.Extraction.Llm        (LLM extraction, MEAI IChatClient)
+  AgentMemory.Extraction.AzureLanguage (Azure NLP, Azure.AI.TextAnalytics)
+  AgentMemory.Enrichment            (Nominatim, Wikimedia, Diffbot)
+  AgentMemory.Observability         (OpenTelemetry decorators)
+  AgentMemory.McpServer             (MCP 1.2.0)
+  AgentMemory.AgentFramework        (MAF 1.1.0)
+  AgentMemory.SemanticKernel        (SK 1.74.0)
 ```
 
 ### Benefits
@@ -202,7 +202,7 @@ Individual packages (for power users and specific use cases):
 - **Architecture matches packaging** — each package boundary reflects a real architectural boundary.
 - **Dependency isolation** — SK users don't pull MAF. MAF users don't pull SK. Nobody pulls OpenTelemetry unless they want it.
 - **Independent versioning** — SK adapter can track SK releases. MAF adapter can track MAF releases. Core can evolve independently.
-- **Meta-package handles 80% case** — Most users just `dotnet add package Neo4j.AgentMemory`.
+- **Meta-package handles 80% case** — Most users just `dotnet add package AgentMemory`.
 - **Library authors can depend on Abstractions only** — The ~3,350 LOC contracts package enables building against memory interfaces without pulling the full implementation.
 
 ### Target Audience
@@ -261,11 +261,11 @@ Merge related packages to reduce package count while preserving key dependency i
 ### Package Structure
 
 ```
-Neo4j.AgentMemory                         (= Abstractions + Core + Neo4j + Extraction.Llm merged)
-Neo4j.AgentMemory.Extraction.Azure        (Azure-specific extraction)
-Neo4j.AgentMemory.SemanticKernel          (SK adapter)
-Neo4j.AgentMemory.AgentFramework          (MAF adapter)
-Neo4j.AgentMemory.Extras                  (Observability + Enrichment + McpServer merged)
+AgentMemory                         (= Abstractions + Core + Neo4j + Extraction.Llm merged)
+AgentMemory.Extraction.Azure        (Azure-specific extraction)
+AgentMemory.SemanticKernel          (SK adapter)
+AgentMemory.AgentFramework          (MAF adapter)
+AgentMemory.Extras                  (Observability + Enrichment + McpServer merged)
 ```
 
 ### Benefits
@@ -420,7 +420,7 @@ If we went monolithic (Option A), every MAF breaking change would force a new re
 
 With Option C, the MAF adapter depends on Abstractions + Core (both stable), adapts MAF types to memory types, and can version independently. When MAF 2.0 drops, only one small package changes. This is the correct pattern.
 
-The same logic applies to SemanticKernel. SK is releasing monthly with frequent API changes. Having `Neo4j.AgentMemory.SemanticKernel` as a separate package means we can track SK releases without touching the core engine.
+The same logic applies to SemanticKernel. SK is releasing monthly with frequent API changes. Having `AgentMemory.SemanticKernel` as a separate package means we can track SK releases without touching the core engine.
 
 **Rachael's position: Option C, strongly. Adapter isolation is non-negotiable.**
 
@@ -456,7 +456,7 @@ From a testing perspective, the current 11-project structure is ideal:
 
 2. **Integration tests are scoped.** The integration test project references Neo4j + Core + Abstractions — exactly what it needs. No framework adapter noise.
 
-3. **SK tests are separate.** `Neo4j.AgentMemory.Tests.Unit.SemanticKernel` has 31 tests that reference only the SK adapter + Abstractions. If SK was bundled into the main package, these tests would need the entire dependency graph.
+3. **SK tests are separate.** `AgentMemory.Tests.Unit.SemanticKernel` has 31 tests that reference only the SK adapter + Abstractions. If SK was bundled into the main package, these tests would need the entire dependency graph.
 
 4. **Consolidation hurts test isolation.** Option D's "Extras" bag would mean testing MCP tools requires pulling OpenTelemetry, and testing Observability requires pulling MCP protocol. Test setup complexity increases with package merging.
 
@@ -470,15 +470,15 @@ Let me address the elephant in the room: "11 packages is too many."
 
 **It's not.** Here's why:
 
-Most developers will encounter ONE package: `dotnet add package Neo4j.AgentMemory`. That's it. The meta-package is their entry point. They follow the getting-started guide, write 5 lines of setup code, and have a working memory system.
+Most developers will encounter ONE package: `dotnet add package AgentMemory`. That's it. The meta-package is their entry point. They follow the getting-started guide, write 5 lines of setup code, and have a working memory system.
 
 When they need SK integration, they add ONE more package. When they need MAF, ONE more. The getting-started docs will have clear decision trees:
 
 ```
-"Using Semantic Kernel?" → dotnet add package Neo4j.AgentMemory.SemanticKernel
-"Using MAF?" → dotnet add package Neo4j.AgentMemory.AgentFramework  
-"Need observability?" → dotnet add package Neo4j.AgentMemory.Observability
-"Just want memory?" → dotnet add package Neo4j.AgentMemory ← default
+"Using Semantic Kernel?" → dotnet add package AgentMemory.SemanticKernel
+"Using MAF?" → dotnet add package AgentMemory.AgentFramework  
+"Need observability?" → dotnet add package AgentMemory.Observability
+"Just want memory?" → dotnet add package AgentMemory ← default
 ```
 
 This mirrors how Microsoft ships its own packages. Nobody complains that `Microsoft.Extensions.AI` has Abstractions, OpenAI, Ollama, and AzureAIInference as separate packages. It's the established .NET pattern.
@@ -497,7 +497,7 @@ What WOULD hurt DX is Option B's two-layer approach. Explaining "first install t
 
 1. **The architecture we have is correct.** Zero circular dependencies, zero boundary violations, strict layering. The package structure reflects real architectural boundaries. Changing the packaging would break the alignment between architecture and delivery.
 
-2. **The meta-package solves the DX problem.** The worry about "too many packages" is addressed by `Neo4j.AgentMemory` which gives you Abstractions + Core + Neo4j + Extraction.Llm in one install. 80%+ of users will never need to think about individual packages.
+2. **The meta-package solves the DX problem.** The worry about "too many packages" is addressed by `AgentMemory` which gives you Abstractions + Core + Neo4j + Extraction.Llm in one install. 80%+ of users will never need to think about individual packages.
 
 3. **The two-layer approach (Option B) doesn't survive scrutiny.** The Neo4j layer is fundamentally memory-specific. The reusable code (~600 LOC of retrievers + driver factory) is too thin to justify a separate product. There's no proven demand for a mid-level Neo4j .NET framework. The engineering investment (~2-3 months) would be better spent on memory features.
 
@@ -508,17 +508,17 @@ What WOULD hurt DX is Option B's two-layer approach. Explaining "first install t
 ### What to Ship (NuGet Publishing Order)
 
 ```
-1. Neo4j.AgentMemory.Abstractions          (leaf — no project deps)
-2. Neo4j.AgentMemory.Core                  (depends on 1)
-3. Neo4j.AgentMemory.Neo4j                 (depends on 1, 2)
-4. Neo4j.AgentMemory.Extraction.Llm        (depends on 1, 2)
-5. Neo4j.AgentMemory.Extraction.AzureLanguage (depends on 1, 2)
-6. Neo4j.AgentMemory.Enrichment            (depends on 1)
-7. Neo4j.AgentMemory.Observability          (depends on 1, 2)
-8. Neo4j.AgentMemory.McpServer             (depends on 1)
-9. Neo4j.AgentMemory.AgentFramework        (depends on 1, 2)
-10. Neo4j.AgentMemory.SemanticKernel        (depends on 1)
-11. Neo4j.AgentMemory                       (meta-package, depends on 1-4)
+1. AgentMemory.Abstractions          (leaf — no project deps)
+2. AgentMemory.Core                  (depends on 1)
+3. AgentMemory.Neo4j                 (depends on 1, 2)
+4. AgentMemory.Extraction.Llm        (depends on 1, 2)
+5. AgentMemory.Extraction.AzureLanguage (depends on 1, 2)
+6. AgentMemory.Enrichment            (depends on 1)
+7. AgentMemory.Observability          (depends on 1, 2)
+8. AgentMemory.McpServer             (depends on 1)
+9. AgentMemory.AgentFramework        (depends on 1, 2)
+10. AgentMemory.SemanticKernel        (depends on 1)
+11. AgentMemory                       (meta-package, depends on 1-4)
 ```
 
 ### Challenging Jose's Assumptions

@@ -10,7 +10,7 @@
 
 ### 1.1 Direct answer to the GraphRAG question
 
-Earlier, `Neo4j.AgentMemory.GraphRagAdapter` was called **optional** in a strict architectural sense:
+Earlier, `AgentMemory.GraphRagAdapter` was called **optional** in a strict architectural sense:
 
 - A **minimum viable Neo4j Memory Provider** can exist without GraphRAG.
 - The **memory provider** and the **GraphRAG provider** solve different problems.
@@ -207,34 +207,34 @@ Used later for:
 ## 6. Final Solution Structure
 
 ```text
-Neo4j.AgentMemory.sln
+AgentMemory.sln
 │
 ├── src/
-│   ├── Neo4j.AgentMemory.Abstractions/
-│   ├── Neo4j.AgentMemory.Core/
-│   ├── Neo4j.AgentMemory.Neo4j/
-│   ├── Neo4j.AgentMemory.Extraction.Abstractions/
-│   ├── Neo4j.AgentMemory.Extraction.Llm/
-│   ├── Neo4j.AgentMemory.Extraction.AzureLanguage/            (phase 5)
-│   ├── Neo4j.AgentMemory.Extraction.Onnx/                     (phase 5)
-│   ├── Neo4j.AgentMemory.AgentFramework/
-│   ├── Neo4j.AgentMemory.GraphRagAdapter/
-│   ├── Neo4j.AgentMemory.Mcp/                                 (phase 6)
-│   ├── Neo4j.AgentMemory.Observability/                       (phase 4)
-│   └── Neo4j.AgentMemory.Cli/                                 (optional late phase)
+│   ├── AgentMemory.Abstractions/
+│   ├── AgentMemory.Core/
+│   ├── AgentMemory.Neo4j/
+│   ├── AgentMemory.Extraction.Abstractions/
+│   ├── AgentMemory.Extraction.Llm/
+│   ├── AgentMemory.Extraction.AzureLanguage/            (phase 5)
+│   ├── AgentMemory.Extraction.Onnx/                     (phase 5)
+│   ├── AgentMemory.AgentFramework/
+│   ├── AgentMemory.GraphRagAdapter/
+│   ├── AgentMemory.Mcp/                                 (phase 6)
+│   ├── AgentMemory.Observability/                       (phase 4)
+│   └── AgentMemory.Cli/                                 (optional late phase)
 │
 ├── tests/
-│   ├── Neo4j.AgentMemory.Tests.Unit/
-│   ├── Neo4j.AgentMemory.Tests.Integration/
-│   ├── Neo4j.AgentMemory.Tests.EndToEnd/
-│   ├── Neo4j.AgentMemory.Tests.Performance/
-│   └── Neo4j.AgentMemory.Tests.Contract/
+│   ├── AgentMemory.Tests.Unit/
+│   ├── AgentMemory.Tests.Integration/
+│   ├── AgentMemory.Tests.EndToEnd/
+│   ├── AgentMemory.Tests.Performance/
+│   └── AgentMemory.Tests.Contract/
 │
 ├── samples/
-│   ├── Neo4j.AgentMemory.Sample.MinimalAgent/
-│   ├── Neo4j.AgentMemory.Sample.MemoryPlusGraphRag/
-│   ├── Neo4j.AgentMemory.Sample.ReasoningTrace/
-│   └── Neo4j.AgentMemory.Sample.McpClient/                    (phase 6)
+│   ├── AgentMemory.Sample.MinimalAgent/
+│   ├── AgentMemory.Sample.MemoryPlusGraphRag/
+│   ├── AgentMemory.Sample.ReasoningTrace/
+│   └── AgentMemory.Sample.McpClient/                    (phase 6)
 │
 ├── deploy/
 │   ├── docker-compose.dev.yml
@@ -506,7 +506,7 @@ All vector indexes use cosine similarity with configurable dimensions (default: 
 
 ## 10. Exact Project Responsibilities
 
-## 10.1 `Neo4j.AgentMemory.Abstractions`
+## 10.1 `AgentMemory.Abstractions`
 
 Contains:
 - domain contracts
@@ -520,7 +520,7 @@ Must not reference:
 - Azure SDKs
 - MCP SDK
 
-## 10.2 `Neo4j.AgentMemory.Core`
+## 10.2 `AgentMemory.Core`
 
 Contains:
 - `MemoryService`
@@ -534,7 +534,7 @@ Contains:
 - `PreferenceInferenceService`
 - `FactInferenceService`
 
-## 10.3 `Neo4j.AgentMemory.Neo4j`
+## 10.3 `AgentMemory.Neo4j`
 
 Contains:
 - `Neo4jMemoryStore`
@@ -554,7 +554,7 @@ Suggested repositories:
 - `ToolCallRepository`
 - `SchemaRepository`
 
-## 10.4 `Neo4j.AgentMemory.Extraction.Abstractions`
+## 10.4 `AgentMemory.Extraction.Abstractions`
 
 Contains:
 - `IMessageExtractor`
@@ -565,7 +565,7 @@ Contains:
 - `ExtractedPreference`
 - `ExtractedFact`
 
-## 10.5 `Neo4j.AgentMemory.Extraction.Llm`
+## 10.5 `AgentMemory.Extraction.Llm`
 
 Contains:
 - `LlmStructuredExtractionPipeline`
@@ -579,7 +579,7 @@ First version extraction strategy:
 - separate optional preference/fact inference step if needed
 - no Python NLP runtime
 
-## 10.6 `Neo4j.AgentMemory.AgentFramework`
+## 10.6 `AgentMemory.AgentFramework`
 
 This is the **MAF layer**.
 It sits **on top of** the memory core.
@@ -594,7 +594,7 @@ Contains:
 
 This package is the only package that should know MAF lifecycle types.
 
-## 10.7 `Neo4j.AgentMemory.GraphRagAdapter`
+## 10.7 `AgentMemory.GraphRagAdapter`
 
 This is a **required sibling adapter**, not a core dependency.
 
@@ -609,7 +609,7 @@ Responsibilities:
 - unify result shape with memory context shape
 - keep GraphRAG retrieval separate from memory persistence
 
-## 10.8 `Neo4j.AgentMemory.Mcp`
+## 10.8 `AgentMemory.Mcp`
 
 Built later.
 Contains:
@@ -725,7 +725,7 @@ Because these are different responsibilities:
 
 ## 12.3 Adapter responsibilities
 
-`Neo4j.AgentMemory.GraphRagAdapter` will:
+`AgentMemory.GraphRagAdapter` will:
 
 - reference `Neo4j.AgentFramework.GraphRAG`,
 - create and configure Neo4j GraphRAG providers,
@@ -902,7 +902,7 @@ Freeze architecture and non-goals.
 ### Deliverables
 - ✅ architecture decision records (D1–D6)
 - ✅ solution structure
-- ✅ naming conventions (`Neo4j.AgentMemory.*`)
+- ✅ naming conventions (`AgentMemory.*`)
 - ✅ package boundaries (Abstractions → Core → Neo4j)
 - ✅ coding standards (.NET 9, nullable, immutable records)
 - ✅ provider configuration model (IOptions pattern)
@@ -989,10 +989,10 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 dotnet build
 
 # Unit tests (34 tests passing)
-dotnet test tests/Neo4j.AgentMemory.Tests.Unit
+dotnet test tests/AgentMemory.Tests.Unit
 
 # Integration tests (require Docker + Testcontainers — auto-provisions Neo4j)
-dotnet test tests/Neo4j.AgentMemory.Tests.Integration
+dotnet test tests/AgentMemory.Tests.Integration
 
 # All tests
 dotnet test
@@ -1081,9 +1081,9 @@ Integrate the memory system with Microsoft Agent Framework.
 Add the required GraphRAG adapter and baseline operational telemetry.
 
 ### Deliverables
-- `Neo4j.AgentMemory.GraphRagAdapter`
+- `AgentMemory.GraphRagAdapter`
 - blended context support
-- `Neo4j.AgentMemory.Observability`
+- `AgentMemory.Observability`
 - OpenTelemetry spans/metrics/logs
 - sample app combining memory + GraphRAG
 

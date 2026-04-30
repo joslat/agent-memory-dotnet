@@ -31,7 +31,7 @@ The browser UI is available at `http://localhost:7474`.
 ### Option A — Meta-package (recommended for most projects)
 
 ```bash
-dotnet add package Neo4j.AgentMemory
+dotnet add package AgentMemory
 ```
 
 This pulls in `Abstractions`, `Core`, `Neo4j`, and `Extraction.Llm` in one reference.
@@ -41,14 +41,14 @@ This pulls in `Abstractions`, `Core`, `Neo4j`, and `Extraction.Llm` in one refer
 Install only what you need:
 
 ```bash
-dotnet add package Neo4j.AgentMemory.Abstractions
-dotnet add package Neo4j.AgentMemory.Core
-dotnet add package Neo4j.AgentMemory.Neo4j
-dotnet add package Neo4j.AgentMemory.Extraction.Llm     # optional: LLM-based extraction
-dotnet add package Neo4j.AgentMemory.AgentFramework     # optional: Microsoft Agent Framework
-dotnet add package Neo4j.AgentMemory.SemanticKernel     # optional: Semantic Kernel
-dotnet add package Neo4j.AgentMemory.McpServer          # optional: MCP server
-dotnet add package Neo4j.AgentMemory.Observability      # optional: OpenTelemetry
+dotnet add package AgentMemory.Abstractions
+dotnet add package AgentMemory.Core
+dotnet add package AgentMemory.Neo4j
+dotnet add package AgentMemory.Extraction.Llm     # optional: LLM-based extraction
+dotnet add package AgentMemory.AgentFramework     # optional: Microsoft Agent Framework
+dotnet add package AgentMemory.SemanticKernel     # optional: Semantic Kernel
+dotnet add package AgentMemory.McpServer          # optional: MCP server
+dotnet add package AgentMemory.Observability      # optional: OpenTelemetry
 ```
 
 ---
@@ -61,9 +61,9 @@ dotnet add package Neo4j.AgentMemory.Observability      # optional: OpenTelemetr
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Neo4j.AgentMemory.Core;
-using Neo4j.AgentMemory.Core.Stubs;
-using Neo4j.AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Core;
+using AgentMemory.Core.Stubs;
+using AgentMemory.Neo4j.Infrastructure;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -134,8 +134,8 @@ await bootstrapper.BootstrapAsync();
 The primary facade is `IMemoryService`. Resolve it from DI:
 
 ```csharp
-using Neo4j.AgentMemory.Abstractions.Services;
-using Neo4j.AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.Abstractions.Domain;
 
 await using var scope = host.Services.CreateAsyncScope();
 var memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
@@ -203,7 +203,7 @@ var snapshot = await memory.RecallAsOfAsync(
 ## 5. Microsoft Agent Framework Integration
 
 ```csharp
-using Neo4j.AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework;
 
 builder.Services.AddAgentMemoryFramework(options =>
 {
@@ -240,11 +240,11 @@ await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
 ## 6. Semantic Kernel Integration
 
 ```bash
-dotnet add package Neo4j.AgentMemory.SemanticKernel
+dotnet add package AgentMemory.SemanticKernel
 ```
 
 ```csharp
-using Neo4j.AgentMemory.SemanticKernel;
+using AgentMemory.SemanticKernel;
 
 builder.AddNeo4jMemoryPlugin(); // registers as SK plugin
 ```
@@ -257,7 +257,7 @@ var result = await kernel.InvokeAsync("Neo4jMemory", "recall",
     new KernelArguments { ["query"] = "Alice preferences", ["sessionId"] = sessionId });
 ```
 
-For a full runnable example, see `samples/Neo4j.AgentMemory.Sample.MinimalAgent`.
+For a full runnable example, see `samples/AgentMemory.Sample.MinimalAgent`.
 
 ---
 
@@ -289,7 +289,7 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
 | [`docs/architecture.md`](architecture.md) | Full architecture walkthrough — packages, layers, boundaries |
 | [`docs/schema.md`](schema.md) | Neo4j graph schema — node types, relationships, indexes |
 | [`docs/nextsteps.md`](nextsteps.md) | Active forward-looking backlog |
-| [`samples/Neo4j.AgentMemory.Sample.MinimalAgent`](../samples/Neo4j.AgentMemory.Sample.MinimalAgent/) | Runnable MAF sample — best starting point |
-| [`samples/Neo4j.AgentMemory.Sample.BlendedAgent`](../samples/Neo4j.AgentMemory.Sample.BlendedAgent/) | Blended GraphRAG + memory sample |
-| [`samples/Neo4j.AgentMemory.Sample.McpHost`](../samples/Neo4j.AgentMemory.Sample.McpHost/) | MCP server host sample |
+| [`samples/AgentMemory.Sample.MinimalAgent`](../samples/AgentMemory.Sample.MinimalAgent/) | Runnable MAF sample — best starting point |
+| [`samples/AgentMemory.Sample.BlendedAgent`](../samples/AgentMemory.Sample.BlendedAgent/) | Blended GraphRAG + memory sample |
+| [`samples/AgentMemory.Sample.McpHost`](../samples/AgentMemory.Sample.McpHost/) | MCP server host sample |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to build, test, and contribute |

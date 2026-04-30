@@ -2,7 +2,7 @@
 
 | Priority | Task Name | Description | % Done | Reviewed | Plan File | Notes |
 |---|---|---|---|---|---|---|
-| 1 – HIGH | Package Rename | Rename all packages Neo4j.AgentMemory.* → AgentMemory.* | 0% | — | rename-plan.md | Plan written by Deckard (opus 4.7). Ready to execute. |
+| 1 – HIGH | Package Rename | Rename all packages AgentMemory.* → AgentMemory.* | 100% | ✅ Deckard | rename-plan.md | Executed by Roy (acef3ef). All 8 review gates passed. Approved by Deckard 2026-04-30. |
 | 2 – HIGH | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 0% | — | — | Trivial fix, no dedicated plan needed |
 | 3 – HIGH | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | 0% | — | — | Depends on Package Rename (#1) |
 | 4 – HIGH | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 0% | — | — | Depends on #1 and #3 |
@@ -26,7 +26,7 @@ Scored as of 2026-04-30. **Cost/Effort** and **Value** are 1–10 (1 = trivial/m
 
 | # | Proposal | Pros | Cons | Cost/Effort | Value | Priority |
 |---|----------|------|------|-------------|-------|----------|
-| 1 | **Package Rename (Neo4j.AgentMemory.* → AgentMemory.*)** — Rename all 11 packages, all C# namespaces, all class prefixes carrying `Neo4j` as the root. New root namespace: `AgentMemory.*`. Neo4j stays only as an adapter qualifier (`AgentMemory.Neo4j`, `AgentMemory.Extraction.AzureLanguage`, etc.). Affects all .csproj files, all `using` statements, all namespace declarations, all public type names, all documentation. Must complete before anything is published or demoed externally — NuGet IDs are permanent. | Removes implied Neo4j endorsement; avoids trademark confusion with `Neo4j.Driver` (official); correct package naming convention (product first, adapter second); reversible before publish, irreversible after | Wide mechanical change (~11 packages, all source files, all docs); high PR diff noise; any external forks/refs break (none exist yet — pre-v1) | 3 | 9 | HIGH (9/3 = 3.0 — highest ratio) |
+| 1 | **Package Rename (AgentMemory.* → AgentMemory.*)** — Rename all 11 packages, all C# namespaces, all class prefixes carrying `Neo4j` as the root. New root namespace: `AgentMemory.*`. Neo4j stays only as an adapter qualifier (`AgentMemory.Neo4j`, `AgentMemory.Extraction.AzureLanguage`, etc.). Affects all .csproj files, all `using` statements, all namespace declarations, all public type names, all documentation. Must complete before anything is published or demoed externally — NuGet IDs are permanent. | Removes implied Neo4j endorsement; avoids trademark confusion with `Neo4j.Driver` (official); correct package naming convention (product first, adapter second); reversible before publish, irreversible after | Wide mechanical change (~11 packages, all source files, all docs); high PR diff noise; any external forks/refs break (none exist yet — pre-v1) | 3 | 9 | HIGH (9/3 = 3.0 — highest ratio) |
 | 2 | **DELETE_SESSION_DATA Gap Closure** — extend `ConversationRepository.DeleteSessionAsync` to also delete Conversation + ReasoningTrace nodes | Closes only remaining genuine parity gap; prevents user surprise migrating from Python; fix is trivially small | Cascading delete risk if Cypher scope is too broad; delete semantics must be documented to avoid audit-trail surprises | 1 | 5 | HIGH |
 | 3 | **Aspire Demo Application** — `.NET Aspire AppHost` wiring a Neo4j container (ports 7474/7687), a seeded database, and an agent client console app. Either scripted interaction mode or `--interactive` open chat. Users can inspect the memory graph in Neo4j Browser at `http://localhost:7474`. | Makes the library tangible to evaluating developers; self-contained runnable demo with real Neo4j; showcases MAF + SK integration in one place; Neo4j Browser (port 7474) gives free graph visualization | Requires Docker + .NET Aspire tooling; not strictly a library feature; needs ongoing maintenance as APIs evolve | 4 | 9 | HIGH |
 | 4 | **NuGet Release Preparation** — CHANGELOG, CONTRIBUTING, semantic versions, .csproj metadata, GitHub Actions publish workflow | Unlocks community discovery and real-world feedback; CI publish removes manual friction permanently | SemVer stability commitment from v1.0; poor package metadata is permanent; attracts support burden | 2 | 9 | HIGH |
@@ -48,7 +48,7 @@ All six implementation phases are complete. The gap-closure sprint (Waves A–C)
 
 Concretely:
 
-- **Packages:** `Neo4j.AgentMemory.Abstractions`, `.Core`, `.Neo4j`, `.AgentFramework`, `.Extraction.Llm`, `.Extraction.AzureLanguage`, `.Enrichment`, `.Observability`, `.McpServer`, `.SemanticKernel`, plus the `Neo4j.AgentMemory` meta-package.
+- **Packages:** `AgentMemory.Abstractions`, `.Core`, `.Neo4j`, `.AgentFramework`, `.Extraction.Llm`, `.Extraction.AzureLanguage`, `.Enrichment`, `.Observability`, `.McpServer`, `.SemanticKernel`, plus the `AgentMemory` meta-package.
 - **Architecture:** Strict ports-and-adapters layering, zero boundary violations, zero circular dependencies.
 - **Persistence:** Native Neo4j `datetime()` for all timestamps, 145+ centralised Cypher constants, MigrationRunner with versioned `.cypher` files.
 - **Search:** Vector (5 indexes + reasoning-step index), fulltext BM25 (3 indexes), hybrid (vector + BM25), and graph multi-hop traversal.
@@ -56,7 +56,7 @@ Concretely:
 - **Agent integrations:** Microsoft Agent Framework, Semantic Kernel, MCP server (21 tools, 6 resources, 3 prompts).
 - **Observability:** OpenTelemetry ActivitySource + Meter, instrumented decorators for all extraction and enrichment services.
 
-What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), package rename (AgentMemory.* root namespace), streaming extraction for long documents, an Aspire demo application for developer onboarding, and an optional GDS analytics package.
+What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), streaming extraction for long documents, an Aspire demo application for developer onboarding, and an optional GDS analytics package. Package rename is complete (merged 2026-04-30).
 
 ---
 
@@ -135,11 +135,11 @@ Priority is ordered by strategic execution dependencies. Publishing with incorre
 
 **Ordering logic in one paragraph:** Step 1 (Package Rename) has the highest value/cost ratio in the matrix and a one-way door — NuGet IDs are permanent. It must precede any external demo or release. Step 2 (DELETE_SESSION_DATA) is trivial and can run in the same sprint as the rename review with no dependency. Step 3 (Aspire Demo) validates that the renamed library works end-to-end and is the "wow effect" signal that the library is ready to ship. Step 4 (NuGet Release Prep) is deliberately gated on demo success — only after the demo gives a green light should we publish. Step 5 (Streaming Extraction) is the first post-release functional feature. Steps 6 and 7 (CLI Tool + GDS Support) are parallel additive work; neither blocks the other or any release.
 
-### Step 1 — Package Rename (Neo4j.AgentMemory.* → AgentMemory.*)
+### Step 1 — Package Rename (AgentMemory.* → AgentMemory.*)
 
 **What:** Rename all 11 packages, all C# namespaces, all class prefixes carrying `Neo4j` as the root. New root namespace: `AgentMemory.*`. Neo4j stays only as an adapter qualifier: `AgentMemory.Neo4j`, `AgentMemory.Extraction.AzureLanguage`, etc. Affects all `.csproj` files, all `using` statements, all namespace declarations, all public type names, all documentation.
 
-**Why first:** NuGet package IDs are permanent once published. Publishing under `Neo4j.AgentMemory.*` creates trademark ambiguity with `Neo4j.Driver` (the official Neo4j .NET driver) and implies Neo4j endorsement this project does not have. The rename is mechanical and wide, but the window to do it cleanly is now — pre-v1, before any external demo uses the wrong names, before any fork or NuGet consumer exists.
+**Why first:** NuGet package IDs are permanent once published. Publishing under `AgentMemory.*` creates trademark ambiguity with `Neo4j.Driver` (the official Neo4j .NET driver) and implies Neo4j endorsement this project does not have. The rename is mechanical and wide, but the window to do it cleanly is now — pre-v1, before any external demo uses the wrong names, before any fork or NuGet consumer exists.
 
 **Benefit:** Correct public package names (product first, adapter second) from day one. No trademark confusion. No retroactive breaking change after publish. Demo uses the final public API surface.
 
@@ -240,7 +240,7 @@ See `docs/Improvement-Ideas-Backlog.md` for expanded descriptions and implementa
 
 - **Do not break existing package contracts** for any of the above. Every item above is additive — new interfaces, new packages, new optional parameters. Existing consumers of `v1.x` should not be broken by any of these.
 - **Do not hard-code test counts or tool counts in new docs.** They drift. Use durable wording (see decision D-DOC-2).
-- **Do not create a separate `GraphRagAdapter` package again.** That concern correctly lives inside `Neo4j.AgentMemory.Neo4j`. The merge was the right decision.
+- **Do not create a separate `GraphRagAdapter` package again.** That concern correctly lives inside `AgentMemory.Neo4j`. The merge was the right decision.
 - **Do not invert dependency direction.** If an integration package needs to reference a framework SDK, it references Abstractions (and optionally Core), not Neo4j or any other adapter.
 
 ---

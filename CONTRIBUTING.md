@@ -19,7 +19,7 @@ Thank you for your interest in contributing! This guide covers environment setup
 ```bash
 git clone https://github.com/joslat/agent-memory-dotnet.git
 cd agent-memory-dotnet
-dotnet restore Neo4j.AgentMemory.slnx
+dotnet restore AgentMemory.slnx
 ```
 
 ---
@@ -27,7 +27,7 @@ dotnet restore Neo4j.AgentMemory.slnx
 ## 2. Build
 
 ```bash
-dotnet build Neo4j.AgentMemory.slnx
+dotnet build AgentMemory.slnx
 ```
 
 The solution is configured via `Directory.Build.props`:
@@ -44,7 +44,7 @@ A clean build must produce **zero errors and zero warnings** in `src/`. PRs that
 ### Unit tests (no external dependencies)
 
 ```bash
-dotnet test tests/Neo4j.AgentMemory.Tests.Unit/Neo4j.AgentMemory.Tests.Unit.csproj
+dotnet test tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj
 ```
 
 Unit tests cover all packages and use stub implementations (no Neo4j, no LLM required).
@@ -52,13 +52,13 @@ Unit tests cover all packages and use stub implementations (no Neo4j, no LLM req
 ### Semantic Kernel adapter unit tests
 
 ```bash
-dotnet test tests/Neo4j.AgentMemory.Tests.Unit.SemanticKernel/Neo4j.AgentMemory.Tests.Unit.SemanticKernel.csproj
+dotnet test tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj
 ```
 
 ### Integration tests (requires Docker)
 
 ```bash
-dotnet test tests/Neo4j.AgentMemory.Tests.Integration/Neo4j.AgentMemory.Tests.Integration.csproj
+dotnet test tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj
 ```
 
 Integration tests use [Testcontainers](https://testcontainers.com/guides/getting-started-with-testcontainers-for-dotnet/) to spin up a disposable Neo4j 5 container automatically. Docker Desktop must be running.
@@ -66,7 +66,7 @@ Integration tests use [Testcontainers](https://testcontainers.com/guides/getting
 ### All tests at once
 
 ```bash
-dotnet test Neo4j.AgentMemory.slnx
+dotnet test AgentMemory.slnx
 ```
 
 ---
@@ -90,10 +90,10 @@ Abstractions  ←  Core  ←  Neo4j / Extraction / AgentFramework / SemanticKern
 
 ### Cypher queries
 
-All Cypher query strings are stored as typed constants in domain-specific `Queries/` classes within `Neo4j.AgentMemory.Neo4j`. Do not inline Cypher strings in repository implementations.
+All Cypher query strings are stored as typed constants in domain-specific `Queries/` classes within `AgentMemory.Neo4j`. Do not inline Cypher strings in repository implementations.
 
 ```
-Neo4j.AgentMemory.Neo4j/
+AgentMemory.Neo4j/
 └── Queries/
     ├── MessageQueries.cs
     ├── EntityQueries.cs
@@ -111,7 +111,7 @@ All async methods accept a `CancellationToken cancellationToken = default` param
 
 ### Stubs
 
-Stub implementations live in `Neo4j.AgentMemory.Core/Stubs/` and are used in unit tests. They implement the same interfaces as production types and return deterministic results without any external service dependency.
+Stub implementations live in `AgentMemory.Core/Stubs/` and are used in unit tests. They implement the same interfaces as production types and return deterministic results without any external service dependency.
 
 ### No TODO / FIXME / HACK
 

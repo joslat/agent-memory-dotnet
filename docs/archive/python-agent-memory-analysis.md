@@ -123,16 +123,16 @@ MemoryClient (top-level facade)
 
 ```
 Host Application
-├── Neo4j.AgentMemory.AgentFramework (Phase 3 adapter)
-├── Neo4j.AgentMemory.GraphRagAdapter (Phase 4 adapter)
-├── Neo4j.AgentMemory.Neo4j (infrastructure)
+├── AgentMemory.AgentFramework (Phase 3 adapter)
+├── AgentMemory.GraphRagAdapter (Phase 4 adapter)
+├── AgentMemory.Neo4j (infrastructure)
 │   ├── Repositories (implement Abstractions.Repositories)
 │   ├── Infrastructure (driver, schema, migrations)
 │   └── Cypher queries
-├── Neo4j.AgentMemory.Core (orchestration)
+├── AgentMemory.Core (orchestration)
 │   ├── Services (implement Abstractions.Services)
 │   └── Stubs (Phase 1 placeholders)
-└── Neo4j.AgentMemory.Abstractions (contracts)
+└── AgentMemory.Abstractions (contracts)
     ├── Domain (records, enums)
     ├── Services (interfaces)
     ├── Repositories (interfaces)
@@ -533,7 +533,7 @@ Eight framework adapters, each implementing the framework's memory interface:
 | Google ADK | `Neo4jMemoryService` | Async memory service |
 | Strands | `Neo4jTools` | Memory tools |
 
-**Our .NET equivalent:** Phase 3 — `Neo4j.AgentMemory.AgentFramework` package (MAF only)
+**Our .NET equivalent:** Phase 3 — `AgentMemory.AgentFramework` package (MAF only)
 
 **Adaptation strategy:** REFERENCE (Python's Microsoft AF integration is useful reference)
 
@@ -615,7 +615,7 @@ Notable features:
 **Adaptation strategy:** ADAPT
 
 **Gaps:**
-- Python ships test utilities as a published subpackage (`neo4j_agent_memory.testing`) — users can import fixtures for their own tests. We don't publish test utilities yet. Consider a `Neo4j.AgentMemory.Testing` package in a future phase.
+- Python ships test utilities as a published subpackage (`neo4j_agent_memory.testing`) — users can import fixtures for their own tests. We don't publish test utilities yet. Consider a `AgentMemory.Testing` package in a future phase.
 - Python's `MemoryFixtures` factory pattern is cleaner than manually constructing records. Recommendation: add a `TestDataBuilder` or similar to our test projects.
 
 ---
@@ -1293,7 +1293,7 @@ Python features being implemented now:
 
 | Python Feature | .NET Target |
 |---|---|
-| Microsoft AF integration (`Neo4jMicrosoftMemory`) | `Neo4j.AgentMemory.AgentFramework` package |
+| Microsoft AF integration (`Neo4jMicrosoftMemory`) | `AgentMemory.AgentFramework` package |
 | Context provider | MAF `IContextProvider` implementation |
 | Chat message store | MAF chat history implementation |
 | Tool definitions for agents | Memory operations as MAF tools |
@@ -1302,7 +1302,7 @@ Python features being implemented now:
 
 | Python Feature | .NET Target |
 |---|---|
-| Not in Python | `Neo4j.AgentMemory.GraphRagAdapter` package |
+| Not in Python | `AgentMemory.GraphRagAdapter` package |
 | Not in Python | Blended retrieval (memory + GraphRAG) |
 
 ### Phase 5+ — Advanced Features

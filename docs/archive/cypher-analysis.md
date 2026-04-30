@@ -2,7 +2,7 @@
 
 > **Generated from source analysis of both codebases**
 > Python source: `Neo4j/agent-memory/src/neo4j_agent_memory/`
-> .NET source: `src/Neo4j.AgentMemory.Neo4j/`, `src/Neo4j.AgentMemory.McpServer/`
+> .NET source: `src/AgentMemory.Neo4j/`, `src/AgentMemory.McpServer/`
 
 ---
 

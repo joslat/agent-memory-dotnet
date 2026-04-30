@@ -68,7 +68,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                    INFRASTRUCTURE (Phase 1)                          │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Neo4j.AgentMemory.Neo4j                                    │   │
+│  │  AgentMemory.Neo4j                                    │   │
 │  │  (persistence — repositories, Cypher, schema, transactions) │   │
 │  │                                                              │   │
 │  │  + Neo4j.Driver 6.0.0                                       │   │
@@ -80,7 +80,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                    ORCHESTRATION (Phase 1)                           │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Neo4j.AgentMemory.Core                                     │   │
+│  │  AgentMemory.Core                                     │   │
 │  │  (services, stubs, validation, context assembly)            │   │
 │  │                                                              │   │
 │  │  + Microsoft.Extensions.DI/Logging/Options 10.0.5           │   │
@@ -91,7 +91,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                    FOUNDATION (Phase 1)                              │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Neo4j.AgentMemory.Abstractions                             │   │
+│  │  AgentMemory.Abstractions                             │   │
 │  │  (domain models, service interfaces, repository interfaces, │   │
 │  │   configuration options — IGeocodingService,                │   │
 │  │   IEnrichmentService added Phase 5)                         │   │
@@ -111,10 +111,10 @@ graph TD
     SK["SemanticKernel Adapter<br/>(Phase 6)"] --> Core
     OBS["Observability<br/>(Phase 4)"] --> Core
     MCP["MCP Server<br/>(Phase 6)"] --> Core
-    Neo4j["Neo4j.AgentMemory.Neo4j<br/>(+ GraphRAG retrieval)"] --> Core
+    Neo4j["AgentMemory.Neo4j<br/>(+ GraphRAG retrieval)"] --> Core
     Neo4j --> Abs
-    Core["Neo4j.AgentMemory.Core"] --> Abs
-    Abs["Neo4j.AgentMemory.Abstractions<br/>(M.E.AI.Abstractions only)"]
+    Core["AgentMemory.Core"] --> Abs
+    Abs["AgentMemory.Abstractions<br/>(M.E.AI.Abstractions only)"]
     OBS -. decorates .-> MAF
     OBS -. decorates .-> Neo4j
 ```
@@ -123,7 +123,7 @@ graph TD
 
 ## 3. Package Responsibilities
 
-### 3.1 Neo4j.AgentMemory.Abstractions
+### 3.1 AgentMemory.Abstractions
 
 | Attribute | Value |
 |---|---|
@@ -134,13 +134,13 @@ graph TD
 
 **Namespace structure:**
 ```
-Neo4j.AgentMemory.Abstractions.Domain        — records and enums
-Neo4j.AgentMemory.Abstractions.Services      — service interfaces
-Neo4j.AgentMemory.Abstractions.Repositories  — repository interfaces
-Neo4j.AgentMemory.Abstractions.Options       — configuration records
+AgentMemory.Abstractions.Domain        — records and enums
+AgentMemory.Abstractions.Services      — service interfaces
+AgentMemory.Abstractions.Repositories  — repository interfaces
+AgentMemory.Abstractions.Options       — configuration records
 ```
 
-### 3.2 Neo4j.AgentMemory.Core
+### 3.2 AgentMemory.Core
 
 | Attribute | Value |
 |---|---|
@@ -149,7 +149,7 @@ Neo4j.AgentMemory.Abstractions.Options       — configuration records
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
 | **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver |
 
-### 3.3 Neo4j.AgentMemory.Neo4j
+### 3.3 AgentMemory.Neo4j
 
 | Attribute | Value |
 |---|---|
@@ -160,7 +160,7 @@ Neo4j.AgentMemory.Abstractions.Options       — configuration records
 
 ### 3.4 Adapter Packages
 
-#### 3.4.1 Neo4j.AgentMemory.AgentFramework (Phase 3 ✅ COMPLETE)
+#### 3.4.1 AgentMemory.AgentFramework (Phase 3 ✅ COMPLETE)
 
 | Attribute | Value |
 |---|---|
@@ -186,20 +186,20 @@ Neo4j.AgentMemory.Abstractions.Options       — configuration records
 
 **Namespace structure:**
 ```
-Neo4j.AgentMemory.AgentFramework.Integration     — context provider, message store, facade
-Neo4j.AgentMemory.AgentFramework.Tools            — memory tool definitions and factory
-Neo4j.AgentMemory.AgentFramework.Mapping          — MAF type mapping
-Neo4j.AgentMemory.AgentFramework.Tracing          — reasoning trace recording
+AgentMemory.AgentFramework.Integration     — context provider, message store, facade
+AgentMemory.AgentFramework.Tools            — memory tool definitions and factory
+AgentMemory.AgentFramework.Mapping          — MAF type mapping
+AgentMemory.AgentFramework.Tracing          — reasoning trace recording
 ```
 
-#### 3.4.2 GraphRAG Retrieval — built into Neo4j.AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
+#### 3.4.2 GraphRAG Retrieval — built into AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
 
-GraphRAG retrieval capability is implemented directly inside `Neo4j.AgentMemory.Neo4j` rather than as a separate package. This keeps the retrieval infrastructure co-located with the repositories that own the same Neo4j driver connection.
+GraphRAG retrieval capability is implemented directly inside `AgentMemory.Neo4j` rather than as a separate package. This keeps the retrieval infrastructure co-located with the repositories that own the same Neo4j driver connection.
 
 | Attribute | Value |
 |---|---|
 | **Purpose** | Expose `IGraphRagContextSource` with vector, fulltext, hybrid, and graph-enriched retrieval modes |
-| **Location** | `Neo4j.AgentMemory.Neo4j` — `Retrieval/` subfolder |
+| **Location** | `AgentMemory.Neo4j` — `Retrieval/` subfolder |
 | **Key types** | `Neo4jGraphRagContextSource : IGraphRagContextSource`, `GraphRagOptions`, `IRetriever`, `VectorRetriever`, `FulltextRetriever`, `HybridRetriever`, `RetrieverResult` |
 
 **Key Patterns:**
@@ -210,12 +210,12 @@ GraphRAG retrieval capability is implemented directly inside `Neo4j.AgentMemory.
 
 **Namespace structure:**
 ```
-Neo4j.AgentMemory.Neo4j.Retrieval           — IRetriever, RetrieverResult, public surface
-Neo4j.AgentMemory.Neo4j.Retrieval.Internal  — VectorRetriever, FulltextRetriever, HybridRetriever
-Neo4j.AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
+AgentMemory.Neo4j.Retrieval           — IRetriever, RetrieverResult, public surface
+AgentMemory.Neo4j.Retrieval.Internal  — VectorRetriever, FulltextRetriever, HybridRetriever
+AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 ```
 
-#### 3.4.3 Neo4j.AgentMemory.Observability (Phase 4 ✅ COMPLETE)
+#### 3.4.3 AgentMemory.Observability (Phase 4 ✅ COMPLETE)
 
 | Attribute | Value |
 |---|---|
@@ -230,14 +230,14 @@ Neo4j.AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 2. **OTel API only** — Uses only the vendor-neutral `OpenTelemetry.Api` package. The actual exporter (OTLP, console, etc.) is wired up by the host application.
 3. **Registration order** — Must be called **after** `AddAgentMemoryCore()` and `AddGraphRagAdapter()`. If no `IGraphRagContextSource` is registered, the decorator step is silently skipped.
 4. **Metrics** — `MemoryMetrics` exposes counters (`messages.stored`, `entities.extracted`, `graphrag.queries`) and histograms (`recall.duration`, `persist.duration`, `graphrag.duration`).
-5. **Tracing** — All spans are emitted under `ActivitySource` name `"Neo4j.AgentMemory"` (version `1.0.0`).
+5. **Tracing** — All spans are emitted under `ActivitySource` name `"AgentMemory"` (version `1.0.0`).
 
 **Namespace structure:**
 ```
-Neo4j.AgentMemory.Observability    — all types (decorators, metrics, activity source, DI)
+AgentMemory.Observability    — all types (decorators, metrics, activity source, DI)
 ```
 
-#### 3.4.4 Neo4j.AgentMemory.Extraction.AzureLanguage (Phase 5 ✅ COMPLETE)
+#### 3.4.4 AgentMemory.Extraction.AzureLanguage (Phase 5 ✅ COMPLETE)
 
 | Attribute | Value |
 |---|---|
@@ -256,10 +256,10 @@ Neo4j.AgentMemory.Observability    — all types (decorators, metrics, activity 
 
 **Namespace structure:**
 ```
-Neo4j.AgentMemory.Extraction.AzureLanguage    — Azure-backed extractors and DI
+AgentMemory.Extraction.AzureLanguage    — Azure-backed extractors and DI
 ```
 
-#### 3.4.5 Neo4j.AgentMemory.Enrichment (Phase 5 ✅ COMPLETE)
+#### 3.4.5 AgentMemory.Enrichment (Phase 5 ✅ COMPLETE)
 
 | Attribute | Value |
 |---|---|
@@ -281,19 +281,19 @@ Neo4j.AgentMemory.Extraction.AzureLanguage    — Azure-backed extractors and DI
 
 **Namespace structure:**
 ```
-Neo4j.AgentMemory.Enrichment                           — services and DI
-Neo4j.AgentMemory.Enrichment.Geocoding                 — Nominatim geocoding impl
-Neo4j.AgentMemory.Enrichment.EntityEnrichment          — Wikimedia enrichment impl
-Neo4j.AgentMemory.Enrichment.Decorators                — Cache/RateLimit decorators
+AgentMemory.Enrichment                           — services and DI
+AgentMemory.Enrichment.Geocoding                 — Nominatim geocoding impl
+AgentMemory.Enrichment.EntityEnrichment          — Wikimedia enrichment impl
+AgentMemory.Enrichment.Decorators                — Cache/RateLimit decorators
 ```
 
 #### 3.4.6 Shipped Adapter Packages
 
-All adapter packages have shipped. The table below was the original roadmap; `Neo4j.AgentMemory.McpServer` is the completed MCP package.
+All adapter packages have shipped. The table below was the original roadmap; `AgentMemory.McpServer` is the completed MCP package.
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|
-| `Neo4j.AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 21 MCP tools, 6 resources, 3 prompts |
+| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 21 MCP tools, 6 resources, 3 prompts |
 
 ---
 
@@ -443,8 +443,8 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 - ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.4.1 (approved, B1)
 - ✅ Core .csproj: FuzzySharp + M.E.AI.Abstractions + M.E.DI/Logging/Options (no Neo4j.Driver, no framework SDKs)
 - ✅ Neo4j .csproj: Neo4j.Driver 6.0.0 + M.E.DI/Logging/Options (no Microsoft.Agents.*, no MCP SDK)
-- ✅ `grep` for `Microsoft.Agents` across `src/Neo4j.AgentMemory.Neo4j/` returns zero matches
-- ✅ GraphRAG retrieval (`Neo4jGraphRagContextSource`, `IRetriever`, `VectorRetriever`, `FulltextRetriever`, `HybridRetriever`) lives inside `Neo4j.AgentMemory.Neo4j` — no separate `GraphRagAdapter` package exists
+- ✅ `grep` for `Microsoft.Agents` across `src/AgentMemory.Neo4j/` returns zero matches
+- ✅ GraphRAG retrieval (`Neo4jGraphRagContextSource`, `IRetriever`, `VectorRetriever`, `FulltextRetriever`, `HybridRetriever`) lives inside `AgentMemory.Neo4j` — no separate `GraphRagAdapter` package exists
 
 ---
 
@@ -486,11 +486,11 @@ We adapt the following **Cypher query patterns** from the retriever layer:
 
 ### 6.4 How GraphRAG Retrieval Is Bridged (Phase 4 ✅ Complete)
 
-Rather than a separate adapter package, GraphRAG retrieval was internalized into `Neo4j.AgentMemory.Neo4j`:
+Rather than a separate adapter package, GraphRAG retrieval was internalized into `AgentMemory.Neo4j`:
 
 ```
 ┌──────────────────────┐     ┌──────────────────────────────────┐
-│ Core Memory Engine   │     │ Neo4j.AgentMemory.Neo4j           │
+│ Core Memory Engine   │     │ AgentMemory.Neo4j           │
 │                      │     │   (same package as Neo4j repos)   │
 │ IGraphRagContextSource ◄────── Neo4jGraphRagContextSource     │
 │   (in Abstractions)  │     │     │                             │
@@ -526,8 +526,8 @@ The upstream `neo4j-maf-provider` was built for **MAF 0.3** (pre-GA). Our Phase 
 
 | Test Layer | Project | Scope | Key Dependencies |
 |---|---|---|---|
-| **Unit** | `Neo4j.AgentMemory.Tests.Unit` | Core services, stubs, domain logic, validation | xUnit 2.9.2, FluentAssertions 8.9.0, NSubstitute 5.3.0, coverlet 6.0.2 |
-| **Integration** | `Neo4j.AgentMemory.Tests.Integration` | Repository implementations, schema bootstrap, transaction behavior | Testcontainers.Neo4j 4.11.0, Neo4j.Driver 6.0.0, real Neo4j container |
+| **Unit** | `AgentMemory.Tests.Unit` | Core services, stubs, domain logic, validation | xUnit 2.9.2, FluentAssertions 8.9.0, NSubstitute 5.3.0, coverlet 6.0.2 |
+| **Integration** | `AgentMemory.Tests.Integration` | Repository implementations, schema bootstrap, transaction behavior | Testcontainers.Neo4j 4.11.0, Neo4j.Driver 6.0.0, real Neo4j container |
 | **E2E** | `Tests.E2E` (Phase 3+) | Full pipeline with MAF adapter | MAF test host + Testcontainers |
 
 ### Testing Rules
