@@ -1231,3 +1231,10 @@ Fix applied correctly. ✅
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+---
+
+### 2026-04-30T23:39:49.488+02:00: BLOCKED cycle start
+**By:** Jose Luis Latorre Millas (via Squad)
+**What:** BLOCKED: cycle aborted before claim because the working tree on `main` is dirty (`loop.md` modified).
+**Why:** The loop requires a clean working tree before pulling `main`, claiming a task, or creating a feature branch. No `docs/nextsteps.md` row was advanced in this cycle.
