@@ -5,7 +5,7 @@
 | Priority | State | Task Name | Description | % Done | Reviewed | Plan File | Notes |
 |---|---|---|---|---|---|---|---|
 | 1 – HIGH | F | Package Rename | Rename all packages AgentMemory.* → AgentMemory.* | 100% | ✅ Deckard | rename-plan.md | Executed by Roy (acef3ef). All 8 review gates passed. Approved by Deckard 2026-04-30. |
-| 2 – HIGH | S | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 10% | — | — | Trivial fix, no dedicated plan needed |
+| 2 – HIGH | S | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 30% | — | delete-session-gap-plan.md | Trivial fix, no dedicated plan needed |
 | 3 – HIGH |  | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | 0% | — | — | Depends on Package Rename (#1) |
 | 4 – HIGH |  | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 0% | — | — | Depends on #1 and #3 |
 | 5 – MED |  | Streaming Extraction | IStreamingExtractionPipeline with chunk/overlap/deduplication | 0% | — | — | — |
