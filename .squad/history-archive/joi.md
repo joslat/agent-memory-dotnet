@@ -1,24 +1,10 @@
+
+# Joi History Archive
+
+Archived on 2026-04-30
+
 # Joi — History
 
-## Project Context
-- **Project:** Agent Memory for .NET
-- **User:** Jose Luis Latorre Millas
-- **Stack:** Markdown, Mermaid, .NET samples
-- **Role focus:** Documentation, samples, developer experience, ADRs
-- **Spec:** Agent-Memory-for-DotNet-Specification.md (source of truth)
-
-
-
-## Summary (Archived 0 learnings on 2026-04-30)
-
-This history was summarized to keep the file under 15,360 bytes. Key learnings are preserved above. Earlier explorations have been archived to .squad/history-archive/joi.md.
-
-**History Size Before:** 25137 bytes
-**History Size After:** (optimized for readability)
-
-See learnings section above for active exploration areas.
-
----
 ## Project Context
 - **Project:** Agent Memory for .NET
 - **User:** Jose Luis Latorre Millas

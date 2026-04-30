@@ -2,1084 +2,6 @@
 
 ## Active Decisions
 
-### D1: Package Structure (Deckard, 2025-01-28)
-
-**Status:** Approved  
-**Scope:** Phase 1 (Core Memory Engine)
-
-We commit to the following package structure for Phase 1:
-
-```
-src/
-  Neo4j.AgentMemory.Abstractions/
-  Neo4j.AgentMemory.Core/
-  Neo4j.AgentMemory.Neo4j/
-
-tests/
-  Neo4j.AgentMemory.Tests.Unit/
-  Neo4j.AgentMemory.Tests.Integration/
-
-deploy/
-  docker-compose.dev.yml
-```
-
-**Rationale:** Establishes clear layering with abstractions as contracts, core as business logic, and Neo4j as persistence adapter. Testcontainers support enables real integration testing.
-
----
-
-### D2: Dependency Direction (Deckard, 2025-01-28)
-
-**Status:** Approved  
-**Scope:** Phase 1 (Core Memory Engine)
-
-Strictly enforce:
-- Core → Abstractions only
-- Neo4j → Abstractions + Core
-- No reverse dependencies
-- No MAF/GraphRAG types in Phase 1
-
-**Rationale:** Maintains clean architecture boundaries. Contracts-first design ensures dependency direction is correct from day one.
-
----
-
-### D3: Test Harness (Deckard, 2025-01-28)
-
-**Status:** Approved  
-**Scope:** Phase 1 (Core Memory Engine)
-
-Use Testcontainers for .NET with Neo4j for all integration tests. Every repository and service must have integration test coverage before Phase 1 completion.
-
-**Rationale:** Ensures real Neo4j integration testing without manual infrastructure setup. All Phase 1 tests must run in CI with Testcontainers.
-
----
-
-### D4: Bootstrap Order (Deckard, 2025-01-28)
-
-**Status:** Approved  
-**Scope:** Phase 1 (Core Memory Engine)
-
-Build in this sequence:
-1. Abstractions (contracts first)
-2. Neo4j infrastructure (driver, schema, transactions)
-3. Short-term memory (messages, conversations)
-4. Long-term memory (entities, facts, preferences, relationships)
-5. Reasoning memory (traces, steps, tool calls)
-6. Context assembler
-
-**Rationale:** Enables parallel work after abstractions stabilize. Lower layers unblock higher layers.
-
----
-
-### D5: Stubbing Strategy (Deckard, 2025-01-28)
-
-**Status:** Approved  
-**Scope:** Phase 1 (Core Memory Engine)
-
-Stub `IEmbeddingProvider` and `IExtractionService` in Phase 1. Implement in Phase 2.
-
-**Rationale:** Extraction workflows testable with stub implementations until Phase 2. Allows memory core to progress independently.
-
----
-
-### D6: Domain Models and Interface Design (Roy, 2025-01-27)
-
-**Status:** Approved  
-**Scope:** Abstractions Package Foundation
-
-#### 6.1 Domain Models as C# Records
-
-All domain models use C# records for immutability, value semantics, and concise init-only property syntax.
-
-**Rationale:** Records provide structural equality, prevent accidental mutation, improve readability, and fit naturally for data transfer between layers.
-
----
-
-#### 6.2 Repository Pattern with Consistent Naming
-
-All repositories follow standard naming:
-- `UpsertAsync` for add-or-update operations
-- `GetByXAsync` for lookups
-- `SearchByVectorAsync` for semantic searches
-- Return tuples `(Entity, double Score)` for scored results
-
-**Rationale:** Consistency reduces cognitive load. Tuple returns avoid extra wrapper types. Clear semantics and testability.
-
----
-
-#### 6.3 Layered Service Interfaces
-
-- **IMemoryService** — facade for high-level operations
-- **IShortTermMemoryService** — conversation and message operations
-- **ILongTermMemoryService** — entities, facts, preferences, relationships
-- **IReasoningMemoryService** — traces, steps, tool calls
-- **IMemoryContextAssembler** — orchestrates recall across layers
-- **IMemoryExtractionPipeline** — coordinates extraction
-- Individual extractors: IEntityExtractor, IFactExtractor, etc.
-
-**Rationale:** Clear separation of concerns. Each layer independently testable. Facade simplifies common operations. Pipeline pattern allows composition.
-
----
-
-#### 6.4 Zero Framework Dependencies in Abstractions
-
-Abstractions package has NO dependencies on:
-- Neo4j.Driver
-- Microsoft.Agents.*
-- GraphRAG SDKs
-- Any infrastructure concerns
-
-**Rationale:** Maintains clean architecture boundaries. Core logic remains portable. Adapters evolve independently. Easier to test in isolation.
-
----
-
-#### 6.5 Provenance and Metadata Throughout
-
-All extracted long-term memory includes:
-- `SourceMessageIds` for traceability
-- `Metadata` dictionaries for extensibility
-- `CreatedAtUtc` timestamps
-
-**Rationale:** Debugging and auditing support. Enables future features (expiration, user corrections). Meets spec requirement for provenance.
-
----
-
-#### 6.6 Strong Typing with Enums
-
-Use enums for all status/strategy/mode values:
-- `ToolCallStatus` (Pending, Success, Error, Cancelled)
-- `SessionStrategy` (PerConversation, PerDay, PersistentPerUser)
-- `RetrievalBlendMode` (MemoryOnly, GraphRagOnly, Blended, etc.)
-- `TruncationStrategy` (OldestFirst, LowestScoreFirst, Proportional, Fail)
-- `ExtractionTypes` (flags enum)
-
-**Rationale:** Compile-time safety, IntelliSense support, avoids stringly-typed APIs, clear intent.
-
----
-
-#### 6.7 GraphRAG Types in Abstractions
-
-Define `IGraphRagContextSource`, `GraphRagContextRequest`, `GraphRagContextResult` in Abstractions, not adapter.
-
-**Rationale:** Dependency inversion principle. Core depends on abstraction. Adapter implements abstraction. Enables testing with mocks.
-
----
-
-### D7: LLM-Based Extraction Framework (Roy, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 2 (Extraction & Resolution)
-
-Implement extraction via `Neo4j.AgentMemory.Extraction.Llm` using `Microsoft.Extensions.AI.Abstractions.IChatClient` for LLM-based structured extraction. This provides vendor-neutral LLM integration (supports OpenAI, Anthropic, local models, etc.) via dependency injection.
-
-**Rationale:** LLM-based extraction avoids Python runtime dependency. IChatClient abstracts over any LLM backend. Extraction services for entities, facts, and preferences use a common template-based prompt pattern.
-
----
-
-### D8: FuzzySharp for Entity Resolution (Roy, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 2 (Extraction & Resolution)
-
-Add `FuzzySharp 2.0.2` to `Neo4j.AgentMemory.Core.csproj` for entity name fuzzy matching. Uses `Fuzz.TokenSortRatio` to handle name permutations (e.g., "John Smith" vs "Smith John").
-
-**Rationale:** Provides .NET-native equivalent to Python's `rapidfuzz.fuzz.token_sort_ratio`. Phase 2 entity resolution chain uses fuzzy matching as the second stage (exact → fuzzy → semantic → new).
-
----
-
-### D9: Entity Resolution Chain Lives in Core (Roy, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 2 (Extraction & Resolution)
-
-Implement `CompositeEntityResolver` and matcher chain (`ExactMatchEntityMatcher`, `FuzzyMatchEntityMatcher`, `SemanticMatchEntityMatcher`) in `Neo4j.AgentMemory.Core`, not in the Neo4j persistence layer. Resolution is business logic, not a persistence concern.
-
-**Rationale:** Clean separation: Core owns resolution strategy, Neo4j repositories own persistence of SAME_AS relationships and entity merges. Testable in isolation. Reusable across multiple persistence backends.
-
----
-
-### D10: EntityResolutionResult for Metadata (Roy, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 2 (Extraction & Resolution)
-
-New `EntityResolutionResult` record in `Abstractions/Domain/Extraction/` captures `MatchType` (Exact/Fuzzy/Semantic), `Confidence` (0.0–1.0), and `MergedFrom` metadata. Internal to resolution chain; public `IEntityResolver.ResolveAsync()` still returns `Task<Entity>` for backward compatibility.
-
-**Rationale:** Separates resolution metadata (needed for SAME_AS relationship creation) from the public interface contract. Prevents breaking changes when resolution internals evolve.
-
----
-
-### D11: AgentFramework as Thin Adapter (Deckard, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 3 (MAF Adapter)
-
-The `Neo4j.AgentMemory.AgentFramework` package is a thin translation layer only. Contains `MemoryContextProvider : AIContextProvider`, type mappers (ChatMessage ↔ Message, session ↔ conversation), DI registration, and MAF-specific configuration. All memory logic stays in Core/Abstractions.
-
-**Rationale:** Clean architecture. If MAF API changes or a different framework emerges, only this package changes. Core remains framework-agnostic. Adapter logic is testable in isolation via `InternalsVisibleTo`.
-
----
-
-### D12: Explicit Type Mapping Strategy (Deckard, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 3 (MAF Adapter)
-
-Dedicated stateless mapper classes (`ChatMessageMapper`, `SessionMapper`, `ContextMapper`) in `AgentFramework/Mapping/` namespace handle all MAF ↔ domain type conversions. Mappers are `internal`, exposed to tests via `InternalsVisibleTo`.
-
-**Rationale:** Prevents MAF types from leaking into domain logic. When MAF evolves, changes are isolated. Clear, testable, single-responsibility functions.
-
----
-
-### D13: Dual-Lifecycle Implementation (Deckard, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 3 (MAF Adapter)
-
-`MemoryContextProvider` implements:
-- **Pre-run:** `ProvideAIContextAsync(InvokingContext)` → assemble memory context via `IMemoryContextAssembler`, return populated `AIContext`
-- **Post-run:** `StoreAIContextAsync(InvokedContext)` → persist messages, trigger extraction pipeline, handle exceptions gracefully
-
-Graceful degradation: pre-run failures return empty context (agent works without memory); post-run failures are logged but don't break agent response.
-
-**Rationale:** Maps directly to MAF's `AIContextProvider` dual lifecycle. No custom middleware required. Ensures agent framework never breaks due to memory subsystem failures.
-
----
-
-### D14: OpenTelemetry API for Observability (Deckard, 2026-04-12)
-
-**Status:** Approved  
-**Scope:** Phase 4 (Observability)
-
-Observability implemented via decorator pattern (`InstrumentedMemoryService`, `InstrumentedGraphRagContextSource`) in a new `Neo4j.AgentMemory.Observability` package. Depends on `OpenTelemetry.Api` only (not SDK). Uses `System.Diagnostics.ActivitySource` for tracing and `System.Diagnostics.Metrics.Meter` for metrics. Consumers bring their own SDK/exporters.
-
-Manual decoration (not Scrutor); opt-in via `AddAgentMemoryObservability()` DI extension. Zero overhead when not used.
-
-**Rationale:** Keeps library lightweight. Consumers control telemetry pipeline. No opinionated exporter choice. Core library uncoupled from telemetry. Follows OpenTelemetry semantic conventions with `memory.*` namespace tags.
-
----
-
-### D15: MAF 1.1.0 API Integration Blueprint (Deckard, 2026-04-12)
-
-**Status:** Reference/Approved  
-**Scope:** Phase 3 (MAF Adapter) — Reference Analysis
-
-Documented comprehensive MAF 1.1.0 API surface analysis covering primary extension points (`AIContextProvider`, `InvokingContext`, `InvokedContext`, `AIContext`), supporting types (`ChatHistoryProvider`, `AIAgent`, `AgentSession`, `AgentResponse`), integration patterns for context recall/persist, message type mapping (`ChatMessage` from M.E.AI), and session state management via `AgentSessionStateBag`.
-
-**Rationale:** Reference for adapter implementation. Clarifies what MAF provides, what we extend, and how the dual lifecycle maps to our recall/persist pattern. Decouples from rapid MAF evolution by documenting specific version (1.1.0) assumptions.
-
----
-
-## Findings & Recommendations
-
-### F1: Cross-Memory Relationships Missing (HIGH) — Deckard, 2026-04-13
-
-**Finding:** Python reference implements 6+ cross-memory relationship types that link traces to messages, tool calls to messages, and conversations to traces. Our .NET implementation has only SAME_AS.
-
-**Missing Relationships:**
-- `INITIATED_BY` — reasoning trace → initiating message
-- `TRIGGERED_BY` — tool call → triggering message
-- `HAS_TRACE` — conversation → reasoning trace
-- `EXTRACTED_FROM` — entity/fact → source message (as graph relationship)
-- `ABOUT` — preference → associated entity
-
-**Impact:** Context assembly cannot traverse across memory tiers via graph relationships. Limits graph-native query power.
-
-**Recommendation:** Add to SchemaBootstrapper and repository UpsertAsync/AddAsync methods. Single highest-impact improvement available.
-
----
-
-### F2: Entity Alias Merging Incomplete (MEDIUM) — Deckard, 2026-04-13
-
-**Finding:** When entity resolution finds match at ≥0.95 confidence, SAME_AS relationship created but target entity's `Aliases` array not updated with source entity's name.
-
-**Recommendation:** Update `Neo4jEntityRepository.MergeEntitiesAsync` to consolidate aliases into target entity's aliases array.
-
----
-
-### F3: Cypher Query Centralization (MEDIUM) — Deckard, 2026-04-13
-
-**Finding:** Python's `graph/queries.py` centralizes 60+ Cypher queries as constants. Our implementation has queries inline in 9 repository classes.
-
-**Recommendation:** Create `Neo4j/Queries/CypherQueries.cs` with organized constants. Improves maintainability, enables Cypher review without implementation logic, reduces duplication.
-
----
-
-### F4: Test Documentation Stale (LOW) — Deckard, 2026-04-13
-
-**Finding:** `docs/implementation-status.md` claims 398 unit tests. Actual count is 419 (Holden's +21 update).
-
-**Recommendation:** Update test counts and Phase status references in documentation.
-
----
-
-### F5: Post-Run Extraction Not Automated (LOW) — Deckard, 2026-04-13
-
-**Finding:** Spec §4.4 says MAF adapter should "trigger extraction on newly persisted content." Current implementation requires manual `ExtractAndPersistAsync()` call.
-
-**Recommendation:** Add optional auto-extraction hook in `Neo4jMicrosoftMemoryFacade` or document the pattern clearly in samples.
-
----
-
-### G1–G5: Entity Resolution Persistence Decisions (Gaff, 2025-07-15)
-
-**Implemented Decisions:**
-- **D-G1:** MENTIONS as native Neo4j relationship (no properties, batch via UNWIND)
-- **D-G2:** SAME_AS stores confidence + matchType as relationship properties (directional, queried bidirectionally)
-- **D-G3:** MergeEntitiesAsync uses Neo4j 5 CALL subquery syntax (single transaction)
-- **D-G4:** SearchByNameAsync uses toLower CONTAINS (not fulltext index, simpler for Phase 2)
-- **D-G5:** entity_merged_into_idx added to SchemaBootstrapper (efficient dead entity queries)
-
-**Status:** All implemented and verified working.
-
----
-
-### H1: Integration Test Framework Ready (Holden, 2026-04-13)
-
-**Finding:** 9 repository classes need integration test coverage via Testcontainers. Harness is fully implemented and ready:
-- `IntegrationTestBase` abstract class with fixture and helpers
-- `TestDataSeeders` factory methods for all domain types
-- `Neo4jTestCollection` collection definition
-- `Neo4jConnectivityTests` smoke tests passing
-
-**Recommendation:** Scaffold integration test classes for each repository class when prioritized. ~50 test methods per repository class. Single-sprint effort.
-
----
-
-### D16: Cross-Memory Relationships Implementation (Gaff, 2026-04-13)
-
-**Status:** Implemented  
-**Scope:** Phase 2 (Extraction & Resolution) — Relationship Completion
-
-All 9 missing cross-memory relationship types from audit finding F1 are now implemented across Neo4j repositories.
-
-#### D-G6: All 9 Missing Relationship Types
-
-| Type | Auto-Wired | Method | Purpose |
-|---|---|---|---|
-| FIRST_MESSAGE | ✅ | - | Conversation → first message |
-| EXTRACTED_FROM | ✅ | via UpsertAsync | Entity/fact/preference provenance |
-| CALLS | ✅ | via AddAsync | Tool invocation tracking |
-| ABOUT | ❌ | CreateAboutRelationshipAsync | Preference → entity association |
-| INITIATED_BY | ❌ | CreateInitiatedByRelationshipAsync | Trace → initiating message |
-| TRIGGERED_BY | ❌ | CreateTriggeredByRelationshipAsync | Tool call → source message |
-| HAS_TRACE | ❌ | CreateHasTraceRelationshipAsync | Conversation → reasoning trace |
-| IN_SESSION | ❌ | (paired with HAS_TRACE) | Trace ↔ conversation bidirectional |
-| HAS_PREFERENCE | ❌ | CreateConversationPreferenceRelationshipAsync | Conversation → preference |
-| HAS_FACT | ❌ | CreateConversationFactRelationshipAsync | Conversation → fact |
-
-Auto-wired relationships are derived from node properties (SourceMessageIds, ToolName, ConversationId) and created during UpsertAsync/AddAsync. Explicit relationships require caller context and are invoked by the extraction pipeline/service layer.
-
-**Rationale:** Relationships that can be inferred from node data are automatic. Relationships requiring external knowledge (entity association, triggering message, conversation linkage) are explicit methods, giving the pipeline full control over when they fire.
-
----
-
-#### D-G7: CALLS Creates and Tracks Tool Nodes
-
-`Neo4jToolCallRepository.AddAsync` auto-creates `:Tool {name}` nodes on first encounter and increments `tool.totalCalls` counter via:
-
-```cypher
-MERGE (tool:Tool {name: $toolName}) ON CREATE SET tool.createdAtUtc = $now
-MERGE (tc)-[:CALLS]->(tool)
-SET tool.totalCalls = COALESCE(tool.totalCalls, 0) + 1
-```
-
-Enables tool usage analytics without separate infrastructure.
-
----
-
-#### D-G8: UpsertBatchAsync Uses UNWIND for Efficiency
-
-Batch upserts for Entity and Fact use `UNWIND $items AS item` pattern for single round-trip per batch. Embeddings set individually (Neo4j vector property constraints). EXTRACTED_FROM relationships created per-entity within transaction.
-
----
-
-#### D-G9: FIRST_MESSAGE Idempotent via WHERE NOT EXISTS
-
-`(conv)-[:FIRST_MESSAGE]->()` created with:
-
-```cypher
-WHERE NOT EXISTS { MATCH (conv)-[:FIRST_MESSAGE]->() }
-```
-
-Safe to call multiple times; relationship created only for the actual first message.
-
----
-
-#### D-G10: HAS_TRACE and IN_SESSION Atomic
-
-Both directions created in single Cypher statement:
-
-```cypher
-MERGE (c)-[:HAS_TRACE]->(t)
-MERGE (t)-[:IN_SESSION]->(c)
-```
-
-Ensures consistency — either both exist or neither.
-
----
-
-### D17: Repository Interface Additions and Service-Layer Completion (Roy, 2026-04-13)
-
-**Status:** Implemented  
-**Scope:** Phase 2 (Extraction & Resolution) — Service Facade Completion
-
-Added 9 interface methods across 4 repositories and 1 service to complete CRUD contract and enable extraction pipeline wiring.
-
-#### D-R1: UpsertBatchAsync Added to Entity and Fact Repositories
-
-```csharp
-Task<IReadOnlyList<Entity>> UpsertBatchAsync(IReadOnlyList<Entity>, CancellationToken);
-Task<IReadOnlyList<Fact>> UpsertBatchAsync(IReadOnlyList<Fact>, CancellationToken);
-```
-
-Needed for efficient extraction pipeline bulk writes. Neo4j implementations use UNWIND for single round-trip per batch.
-
-**Rationale:** Batch operations critical for throughput at scale. Interface contract enables mocking and testing; Neo4j implementation can evolve independently.
-
----
-
-#### D-R2: DeleteAsync Added to Preference Repository
-
-```csharp
-Task DeleteAsync(string preferenceId, CancellationToken = default);
-```
-
-Preferences must be deletable for user revocation and conflict resolution. `Neo4jPreferenceRepository` implements via `DETACH DELETE`.
-
-**Rationale:** Without delete, preferences are write-only. Contradictory preferences accumulate and inject conflicting facts into context.
-
----
-
-#### D-R3: Cross-Memory Relationship Methods
-
-Added to entity, fact, and preference repositories:
-
-- `CreateExtractedFromRelationshipAsync(entityId/factId/preferenceId, messageId)` — provenance edges
-- `CreateAboutRelationshipAsync(preferenceId/factId, entityId)` — semantic linkage
-
-Completes EXTRACTED_FROM and ABOUT relationship graph edges identified in finding F1. All Neo4j implementations pre-existed; interfaces now declare contracts.
-
----
-
-#### D-R4: Conditional Re-Embedding After Entity Merge
-
-In `CompositeEntityResolver`, after auto-merge (confidence ≥ threshold), re-embed **only if aliases list changed**:
-
-```csharp
-if (aliasesChanged) {
-    var reEmbedded = entity with {
-        Embedding = await _embeddingProvider.GenerateEmbeddingAsync(
-            $"{entity.Name} {string.Join(" ", entity.Aliases)}", ...)
-    };
-    return reEmbedded;
-}
-```
-
-Preserves existing test contract: exact matches (no new aliases) don't trigger embedding provider re-calls. Conditional re-embedding fixes bug where merged aliases weren't reflected in embedding vector.
-
-**Rationale:** Keeps embedding semantics correct without breaking test invariants.
-
----
-
-#### D-R5: EXTRACTED_FROM Wired in MemoryExtractionPipeline
-
-After upserting each entity, fact, and preference, pipeline calls `CreateExtractedFromRelationshipAsync` for every source message ID. Failures logged as warnings (non-fatal) to preserve pipeline resilience.
-
-Closes provenance gap where graph edges from memory nodes to source messages were never created.
-
----
-
-#### D-R6: DeletePreferenceAsync Added to Service Facade
-
-Added to `ILongTermMemoryService`:
-
-```csharp
-Task DeletePreferenceAsync(string preferenceId, CancellationToken);
-```
-
-Service-layer callers should not inject repository interfaces directly. Service facade exposes all CRUD operations. Preferences were the only long-term memory type without a delete path.
-
----
-
-### D18: MAF Post-Run Integration and Advanced MCP Tools (Rachael, 2026-04-13)
-
-**Status:** Implemented  
-**Scope:** Phase 3 (MAF Adapter) + Phase 4 (MCP Tools)
-
-Completed spec §4.4 auto-extraction compliance via `StoreAIContextAsync` hook and added 4 advanced memory operations to MCP tooling.
-
-#### D-R1: StoreAIContextAsync Is the Canonical Post-Run Hook
-
-`Neo4jMemoryContextProvider.StoreAIContextAsync(InvokedContext)` is the spec §4.4 extraction trigger (not middleware).
-
-```csharp
-public override async Task StoreAIContextAsync(InvokedContext context, CancellationToken cancellationToken = default)
-{
-    try
-    {
-        if (_options.AutoExtractOnPersist) {
-            // Persist ResponseMessages
-            // Trigger MemoryExtractionPipeline
-        }
-    }
-    catch (Exception ex) {
-        _logger.LogWarning(...); // Non-fatal
-    }
-}
-```
-
-MAF's designed post-run lifecycle hook. No custom middleware needed. Implementation entirely in AgentFramework adapter.
-
----
-
-#### D-R2: Auto-Extraction Is Opt-Out (Default ON)
-
-`AgentFrameworkOptions.AutoExtractOnPersist = true` controls post-run extraction (default enabled).
-
-**Rationale:** Spec §4.4 says extraction SHALL happen automatically. Opt-out satisfies SHALL while allowing consumers to disable. Extraction failures never break agent response — logged as warnings only.
-
----
-
-#### D-R3: StoreAIContextAsync Persists ResponseMessages Only
-
-Hook persists only `context.ResponseMessages` (assistant outputs), not request messages.
-
-**Rationale:** Request messages are either already in memory from prior turns or were injected by `ProvideAIContextAsync` and should not be double-stored. Only net-new assistant responses warrant persistence.
-
----
-
-#### D-R4: AdvancedMemoryTools File Pattern
-
-Four new MCP tools live in `AdvancedMemoryTools.cs`:
-
-| Tool | Purpose |
-|---|---|
-| memory_record_tool_call | Persist tool invocation with result |
-| memory_export_graph | Export entire Neo4j graph |
-| memory_find_duplicates | Detect potential duplicate entities |
-| extract_and_persist | Run extraction on arbitrary text |
-
-Registered via `.WithTools<AdvancedMemoryTools>()` in `ServiceCollectionExtensions.AddAgentMemoryMcpTools()`.
-
-**Rationale:** Grouping by concern (not service dependency) keeps files manageable. Extends existing 5-file pattern with 6th for advanced/cross-cutting ops. Total: 18 tools registered.
-
----
-
-#### D-R5: Graph Query Tools Gate Behind EnableGraphQuery
-
-Both `memory_export_graph` and `memory_find_duplicates` gate behind `McpServerOptions.EnableGraphQuery = true`. Use `IGraphQueryService` with raw Cypher, same security model as `graph_query` tool.
-
-**Rationale:** Execute raw Cypher against Neo4j — same trust boundary as existing `graph_query`. Reusing gate avoids new option surface.
-
----
-
-#### D-R6: memory_find_duplicates Uses Name Containment + Length Ratio
-
-Duplicate detection uses Cypher:
-
-```cypher
-MATCH (e1:Entity), (e2:Entity) WHERE e1.id <> e2.id
-AND toLower(e1.name) CONTAINS toLower(e2.name)
-WITH e1, e2, min(len(e1.name), len(e2.name)) / max(len(e1.name), len(e2.name)) AS similarity
-WHERE similarity >= $threshold
-```
-
-**Rationale:** Semantic similarity requires embeddings (not always available). FuzzySharp in Core, not available in McpServer (only references Abstractions). Name containment with length ratio in pure Cypher catches "John" vs "John Smith"-style duplicates reliably, transparent to operators.
-
----
-
-### SC-1: Multi-Stage Extraction Pipeline — HIGH PRIORITY
-
-**Finding:** Python's `ExtractionPipeline` chains spaCy → GLiNER → LLM with 5 configurable merge strategies. .NET runs exactly one extractor per type. For production cost control, combining a cheap fast extractor with LLM fallback is critical.
-
-**Recommendation:** Add `IExtractionPipeline` composition to `MemoryExtractionPipeline`:
-- Accept `IReadOnlyList<IEntityExtractor>` instead of a single `IEntityExtractor`.
-- Implement at least `CONFIDENCE` and `FIRST_SUCCESS` merge strategies.
-- Short-circuit on `FIRST_SUCCESS` to avoid unnecessary LLM calls.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-2: Fact Deduplication — HIGH PRIORITY
-
-**Finding:** Python has `fact_deduplication_enabled` config. .NET writes a new `Fact` node on every extraction without checking for semantic duplicates. Contradicting or stale facts silently accumulate.
-
-**Recommendation:** Add deduplication in `IFactRepository.UpsertAsync`:
-- Compute fact hash (subject + predicate + object, normalized).
-- Check existing fact by hash before insert; update confidence if hash matches.
-- Optional: vector-similarity fallback for semantically equivalent facts above threshold.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-3: Background Enrichment Queue — MEDIUM PRIORITY
-
-**Finding:** Python's `BackgroundEnrichmentQueue` is non-blocking. .NET's `WikimediaEnrichmentService` is synchronous and blocks the ingestion path.
-
-**Recommendation:** Introduce `IBackgroundEnrichmentQueue` backed by `Channel<EnrichmentTask>`. Register as `IHostedService`. Extraction pipeline enqueues; hosted service dequeues and calls `IEnrichmentService.EnrichAsync()`. Enables non-blocking enrichment without changing the pipeline interface.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-4: MCP Resources and Prompts — MEDIUM PRIORITY
-
-**Finding:** Python exposes 4 MCP resources (`memory://context/{id}`, `memory://entities`, etc.) and 3 MCP prompts (memory-conversation, memory-reasoning, memory-review). These provide Claude Desktop with auto-injected context and slash-command workflows.
-
-**Recommendation:** Add `[McpServerResource]` handlers in `McpServer` for at minimum `memory://context/{sessionId}`. Add `[McpServerPrompt]` for `memory-conversation`. Both are low-effort and improve end-user DX significantly.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-5: Streaming Extraction — MEDIUM PRIORITY
-
-**Finding:** Python's `StreamingExtractor` splits large texts into overlapping chunks and yields `ExtractionResult` via async generator. Needed for transcripts, long documents, RAG inputs.
-
-**Recommendation:** Add `ExtractStreamingAsync(IAsyncEnumerable<string> chunks)` overload to `IMemoryExtractionPipeline`. Use `IAsyncEnumerable<ExtractionResult>` return type.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-6: .NET Exclusive Features to Document
-
-**Finding:** The following .NET features have no Python equivalent and should be highlighted in README:
-
-- **GraphRAG adapter** (`Neo4jGraphRagContextSource`): reads external Neo4j KGs via vector/fulltext/hybrid.
-- **Abstractions package**: enables clean test substitution and consumer packages.
-- **Azure Language extraction**: enterprise cloud NLP without local ML models.
-- **`DeletePreferenceAsync`**: preference retraction — Python API lacks this entirely.
-- **`UpsertBatchAsync`** on entities and facts: UNWIND-based bulk persistence.
-- **`extract_and_persist` MCP tool**: explicit extraction trigger; Python has no equivalent.
-
-**Recommendation:** Update README.md to highlight these differentiators in the "Why .NET" section.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-7: Geocoding + Geospatial Index — LOW PRIORITY
-
-**Finding:** Python adds a `Neo4j Point` property to Location entities via Nominatim/Google geocoding and creates a point index (`entity_location_idx`). Enables radius queries.
-
-**Recommendation:** Low priority unless location-based query use cases are confirmed. If needed: `IGeocodingService` → `HttpClient` → `IEntityRepository` update → one Cypher point index creation in `ISchemaRepository.SetupAsync()`.
-
-**Status:** Proposed  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### SC-8: Python Framework Integrations — NOT A PRIORITY
-
-**Finding:** Python supports LangChain, OpenAI Agents, Pydantic AI, LlamaIndex, CrewAI, Google ADK, AWS AgentCore. These are Python-ecosystem frameworks.
-
-**Recommendation:** No action required for .NET. The equivalent integration surface is MAF (already implemented). If .NET ecosystem equivalents are requested (e.g., Semantic Kernel), treat as separate integration packages.
-
-**Status:** Acknowledged  
-**Reference:** `docs/python-dotnet-comparison.md` (Sebastian, 2025-07-12)
-
----
-
-### D-PKG1: Publish AgentFramework as Separate NuGet Package
-
-**Status:** Approved  
-**Scope:** NuGet Packaging Topology
-
-**Decision:** `Neo4j.AgentMemory.AgentFramework` SHOULD be published as its own NuGet package.
-
-**Rationale:** The MAF dependency (`Microsoft.Agents.AI.Abstractions 1.1.0`) must not pollute non-MAF consumers. The boundary is architecturally correct. Independent versioning lets the adapter track MAF releases while Core evolves separately.
-
-**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
-
----
-
-### D-PKG2: GraphRAG Retrieval Separation Strategy
-
-**Status:** Approved  
-**Scope:** NuGet Packaging Topology
-
-**Decision:** Keep `Neo4j.AgentMemory.GraphRagAdapter` as-is for the neo4j-maf-provider bridge. Future: create `Neo4j.AgentMemory.Retrieval` for standalone read-only search without full memory engine.
-
-**Rationale:** The GraphRagAdapter serves a specific bridge role. A separate Retrieval package would serve users who want vector/fulltext/hybrid search without committing to the full memory engine. The current ProjectReference to neo4j-maf-provider source needs resolution before NuGet publishing.
-
-**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
-
----
-
-### D-PKG3: Meta-Package Strategy
-
-**Status:** Proposed  
-**Scope:** NuGet Packaging Topology
-
-**Decision:** Consider publishing `Neo4j.AgentMemory` meta-package (Abstractions + Core + Neo4j + Extraction.Llm) for convenience.
-
-**Rationale:** Reduces onboarding friction. Users install one package for the common case. Power users can pick individual packages.
-
-**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
-
----
-
-### D-PKG4: NuGet Publish Order
-
-**Status:** Approved  
-**Scope:** NuGet Packaging Topology
-
-**Decision:** Publish in dependency order: Abstractions → Core → Neo4j → Extension packages → Adapter packages → Meta-package.
-
-**Rationale:** Each tier depends only on previously published tiers. Prevents circular dependency issues.
-
-**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
-
----
-
-### D-FEAT1: Tier 1 Feature Priorities
-
-**Status:** Proposed  
-**Scope:** Feature Roadmap (Next 6 months)
-
-**Decision:** The next features to implement are (in order):
-1. Batch Operations (P1)
-2. Health Checks (O1)
-3. Conversation Summarization (I1)
-4. Fluent Configuration Builder (D1)
-5. Semantic Kernel Adapter (F1)
-
-**Rationale:** These address production readiness (P1, O1), user demand aligned with Python community (I1), developer experience (D1), and market reach (F1). All are High impact with Medium or smaller effort.
-
-**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
-
----
-
-### D-FEAT2: Python Parity Targets
-
-**Status:** Proposed  
-**Scope:** Feature Roadmap (Python Alignment)
-
-**Decision:** Prioritize features that address open Python agent-memory issues (#91, #44, #42, #13) to position .NET as the more mature implementation.
-
-**Rationale:** 8 of 21 open Python issues map to our Tier 1–2 proposals. Implementing them first demonstrates .NET leadership in the agent memory space.
-
-**Reference:** `docs/package-strategy-and-features.md` (Deckard, July 2026)
-
----
-
-### D-AR1: Merge Extraction Packages with Strategy Pattern (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Architecture Consolidation
-
-Merge `Extraction.Llm` and `Extraction.AzureLanguage` into a unified `Extraction` base package with an `IExtractionEngine` strategy interface. Keep engine-specific NuGet dependencies in sub-packages.
-
-**Rationale:** ~95% structural duplication. Same 4 interfaces, same error handling, same pipeline. Only the engine (IChatClient vs TextAnalyticsClient) differs. Strategy pattern eliminates duplication and enables runtime engine selection.
-
-**Impact:** HIGH — Reduces code duplication, simplifies new engine onboarding, enables runtime switching.  
-**Risk:** Breaking change for current consumers. Mitigate with semantic versioning.
-
----
-
-### D-AR2: Consolidate Embedding Generation into IEmbeddingOrchestrator (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Architecture Consolidation
-
-Extract embedding text-composition and call logic from 5+ call sites into a single `IEmbeddingOrchestrator` service in Core.
-
-**Rationale:** `GenerateEmbeddingAsync()` is called from ShortTermMemoryService (2×), LongTermMemoryService (3×), MemoryExtractionPipeline (3×), MemoryContextAssembler (1×), and MemoryService batch methods. Each site has its own text composition and error handling.
-
-**Impact:** HIGH — Eliminates most DRY violations, single point for embedding strategy changes.  
-**Risk:** LOW — Internal refactor only.
-
----
-
-### D-AR3: Keep Observability as Separate Package (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Architecture Consolidation
-
-Retain `Neo4j.AgentMemory.Observability` as a separate package despite its small size (427 LOC).
-
-**Rationale:** Observability is opt-in. Moving to Core would force OpenTelemetry.Api dependency on all consumers. Separate package signals first-class support while keeping Core lean.
-
-**Impact:** None (no change).  
-**Risk:** None.
-
----
-
-### D-AR4: Resolve Dual Pipeline Ambiguity (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Architecture Consolidation
-
-Clarify the relationship between `MemoryExtractionPipeline` and `MultiExtractorPipeline`. Rename to `DefaultExtractionPipeline` and `MultiProviderExtractionPipeline`, and document selection criteria in DI registration comments.
-
-**Rationale:** Two `IMemoryExtractionPipeline` implementations exist with no clear guidance on when to use which. This creates confusion for consumers.
-
-**Impact:** MEDIUM — Reduces consumer confusion.  
-**Risk:** LOW — Naming change only.
-
----
-
-### D-AR5: Publish Meta-Package for Quick Start (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Architecture Consolidation
-
-Create a `Neo4j.AgentMemory` convenience meta-package that references Abstractions + Core + Neo4j + Extraction.Llm.
-
-**Rationale:** Current onboarding requires installing 3+ packages. Meta-package reduces friction to a single `dotnet add package Neo4j.AgentMemory`.
-
-**Impact:** HIGH — Significantly improves developer experience.  
-**Risk:** None — Empty project with dependency declarations.
-
----
-
-### D-GAP1: datetime() Migration — Full Migration (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Python-Parity Closure
-
-Migrate all 7 remaining repository files from ISO 8601 strings to Neo4j native `datetime()`. The codebase is already half-migrated (Entity ON MATCH, ToolCall, Extractor all use `datetime()`). No data migration needed — Neo4j auto-converts on next upsert. Enables temporal queries (`duration()`, range) and achieves 100% schema parity.
-
-**Files affected:** Neo4jConversationRepository, Neo4jMessageRepository, Neo4jFactRepository, Neo4jPreferenceRepository, Neo4jRelationshipRepository, Neo4jReasoningTraceRepository, Neo4jReasoningStepRepository.
-
-**Effort:** ~1 day.
-
----
-
-### D-GAP2: Schema Node — Skip Repository, Add Indexes Only (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Python-Parity Closure
-
-Python stores entity extraction config as versioned Schema nodes in the graph. .NET uses `IOptions<T>` — a strictly superior pattern for .NET consumers (compile-time validation, IntelliSense, appsettings.json). Add the 2 Schema indexes (`schema_name_idx`, `schema_id_idx`) to SchemaBootstrapper for index parity, but skip the repository. Document as decided omission.
-
-**Effort:** Trivial (~10 minutes).
-
----
-
-### D-GAP3: Session Strategy — Implement Generator (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Python-Parity Closure
-
-Implement `ISessionIdGenerator` + `SessionIdGenerator`. The `SessionStrategy` enum and `ShortTermMemoryOptions.SessionStrategy` config property already exist but nothing reads them. Implement the generator service: PerConversation → new UUID, PerDay → `{userId}-{yyyy-MM-dd}`, PersistentPerUser → userId. Wire into MCP tools.
-
-**Effort:** Half day.
-
----
-
-### D-GAP4: Metadata Filters — Pragmatic 5-Operator Subset (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Python-Parity Closure
-
-Implement 5 core operators ($eq, $ne, $contains, $in, $exists) for metadata filtering. Python has 12 operators. The 5-operator subset covers 95% of real-world metadata filtering. Numeric comparison operators ($gt, $lt, etc.) are rarely needed for JSON string metadata and can be added later.
-
-**Effort:** ~1 day.
-
----
-
-### D-GAP5: Fact Deduplication — Skip (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Python-Parity Closure
-
-Skip fact deduplication. The `fact_deduplication_enabled` referenced in comparisons doesn't correspond to implemented logic in Python. Entity deduplication (SAME_AS) covers the common case. Document as "not in Python reference."
-
----
-
-### D-GAP6: MCP Resource URIs — Add Python-Standard Resources (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Python-Parity Closure
-
-Add `memory://context/{session_id}` and `memory://preferences` resources. Keep existing .NET resources (`memory://status`, `memory://conversations`, `memory://entities`, `memory://schema`) and add the two Python-standard URIs. Maximum compatibility with clients expecting either set.
-
-**Effort:** Half day.
-
----
-
-### BUG-G7: MCP Resources Use Wrong Property Names (Deckard, 2026-07)
-
-**Status:** Bug Found  
-**Scope:** Python-Parity Closure
-
-`ConversationListResource.cs` and `EntityListResource.cs` use camelCase (`c.createdAtUtc`, `c.conversationId`, `e.entityId`) in Cypher but the schema is snake_case (`c.created_at`, `c.id`, `e.id`). These resources **will return empty results** against real data. **FIX IMMEDIATELY.**
-
----
-
-### BUG-G8: MemoryStatusResource Missing Trace Count (Deckard, 2026-07)
-
-**Status:** Bug Found  
-**Scope:** Python-Parity Closure
-
-MemoryStatusResource returns 5 node type counts but omits ReasoningTrace. Python returns 6. Add one OPTIONAL MATCH line.
-
----
-
-### D-DOC1: Post-Sprint Documentation Audit Process (Joi, 2026-07)
-
-**Status:** Proposed  
-**Scope:** Documentation Governance
-
-After every sprint or major feature merge, a documentation audit should be performed. The audit should:
-
-1. Verify all numeric claims (test counts, tool counts, parity percentages) against actual code
-2. Check phase/status trackers against git log
-3. Search for "not implemented" / "❌" markers and verify each one against source
-4. Update the implementation-status.md test results section
-
-**Consequences:**
-- Prevents documentation drift from accumulating
-- Keeps README accurate for new developers evaluating the project
-- Ensures the feature-record and comparison docs remain reliable references
-
-**Note:** Joi's docs audit attempt encountered file persistence issues (edits reported as successful but did not persist to disk). Documentation updates should be re-applied with disk persistence verification.
-
----
-
-### D-AR2-1: Adopt MEAI IEmbeddingGenerator<T> as Primary Embedding Contract (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Impact:** HIGH  
-**Breaking Change:** Yes (IEmbeddingProvider consumers must migrate)
-
-**Decision:** Replace our custom `IEmbeddingProvider` interface in Abstractions with MEAI's `IEmbeddingGenerator<string, Embedding<float>>`. Abstractions gains a dependency on `Microsoft.Extensions.AI.Abstractions` (~50KB).
-
-**Rationale:**
-- Core already depends on M.E.AI.Abstractions 10.4.1
-- GraphRagAdapter already uses IEmbeddingGenerator<T> — creating a DUAL abstraction
-- Every major .NET AI SDK (OpenAI, Azure, Ollama) implements IEmbeddingGenerator<T> natively
-- Eliminates all consumer adapter code
-- Enables MEAI middleware pipeline (caching, telemetry) on embedding calls
-- Makes Semantic Kernel integration trivial (SK uses IEmbeddingGenerator<T>)
-- M.E.AI.Abstractions is effectively part of the .NET BCL now
-
-**Migration path:**
-1. Add M.E.AI.Abstractions to Abstractions.csproj
-2. Replace all IEmbeddingProvider usage with IEmbeddingGenerator<T>
-3. Remove IEmbeddingProvider interface
-4. Update DI registrations
-5. Provide migration guide for external consumers
-
----
-
-### D-AR2-2: Merge Extraction Packages with Strategy Pattern (Deckard, 2026-07)
-
-**Status:** Proposed (reaffirms D-AR1 from prior review)  
-**Impact:** MEDIUM
-
-**Decision:** Create `Neo4j.AgentMemory.Extraction` base package with `IExtractionEngine` strategy interface. Keep `Extraction.Llm` and `Extraction.AzureLanguage` as thin sub-packages with only engine implementation + SDK dependency.
-
-**Rationale:** ~95% structural duplication between the two packages. Strategy pattern enables runtime engine selection and simplifies adding new engines.
-
----
-
-### D-AR2-3: Publish Neo4j.AgentMemory Meta-Package (Deckard, 2026-07)
-
-**Status:** Proposed (reaffirms D-PKG3)  
-**Impact:** HIGH (DX)
-
-**Decision:** Publish `Neo4j.AgentMemory` convenience meta-package containing Abstractions + Core + Neo4j + Extraction.Llm. One-line install for the common use case.
-
----
-
-### D-AR2-4: Future Semantic Kernel Adapter (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Impact:** HIGH (market reach)
-
-**Decision:** After D-AR2-1 (MEAI migration), create `Neo4j.AgentMemory.SemanticKernel` adapter package (~200 LOC). Exposes memory operations as SK kernel functions/plugins. Trivially easy because SK already uses IEmbeddingGenerator<T>.
-
-**Prerequisite:** D-AR2-1 must be implemented first.
-
----
-
-### D-AR2-5: Fluent DI Builder API (Deckard, 2026-07)
-
-**Status:** Proposed  
-**Impact:** MEDIUM (DX)
-
-**Decision:** Create unified `AddNeo4jAgentMemory()` fluent builder that wires all subsystems: Neo4j connection, embedding provider, extraction engine, schema bootstrap, observability. Replace current multi-call DI setup with single entry point.
-
-```csharp
-services.AddNeo4jAgentMemory(opts => {
-    opts.Neo4j.Uri = "bolt://localhost:7687";
-    opts.Embedding.UseOpenAI(apiKey);
-    opts.Extraction.UseLlm();
-    opts.Observability.Enable();
-});
-```
-
----
-
-### D-GAFF-1: ToolCallStatus Enum Parity Gap (Gaff, 2026-07)
-
-**Status:** Decision Required  
-**Impact:** MEDIUM (correctness)
-
-**Finding:** The .NET `ToolCallStatus` enum has 4 values: `Pending`, `Success`, `Error`, `Cancelled`. Python defines 6: `pending`, `success`, `failure`, `error`, `timeout`, `cancelled`.
-
-`Neo4jToolCallRepository.cs:61` has Cypher checking `$status IN ['error', 'timeout']` for `failed_calls` increment, but `Timeout` is not a valid enum value so that branch is dead code.
-
-**Recommendation:** Add `Failure` and `Timeout` to `ToolCallStatus` enum.
-
-**Impact on serialization/deserialization:** TBD (requires review of storage format and consumer dependencies).
-
----
-
-### D-GAFF-2: Documentation Count Updates (Gaff, 2026-07)
-
-**Status:** Decision Required  
-**Impact:** LOW (documentation accuracy)
-
-**Findings:**
-1. MCP Tool Count: README.md, feature-record.md, python-dotnet-comparison.md, and schema.md all say "21 tools" but actual count is **28** `[McpServerTool]` attributes.
-2. Test File Count: feature-record.md and python-dotnet-comparison.md say "55+ test files" but actual count is **111+** test class files.
-3. Schema.md Internal Contradiction: Section 2.5 lists `relationship_id (MemoryRelationship.id)` as ".NET extension" constraint, but section 2.3 correctly states this phantom constraint was removed.
-
-**Recommendation:** Update all documents in a single documentation sweep. Delete phantom constraint row from schema.md §2.5.
-
----
-
-### D-GAFF-3: Schema Index Parity (Gaff, 2026-07)
-
-**Status:** Informational  
-**Impact:** LOW
-
-**Finding:** Python: `schema_id_idx` on Schema.id; .NET: `schema_version_idx` on Schema.version. Real schema difference not explicitly documented in the parity tables.
-
-**Decision:** Accept the difference as intentional. Document in schema.md if Schema node is ever added to .NET.
-
----
-
-### D-RACHAEL-1: MEAI Ecosystem Strategy Deep-Dive (Rachael, 2026-07)
-
-**Status:** Analysis Complete (supports D-AR2-1)  
-**Impact:** HIGH (architecture)
-
-**Summary:** Extensive analysis confirming:
-- MEAI is already foundational to 5 of 10 packages
-- Codebase has a "split personality" problem (custom IEmbeddingProvider vs MEAI IEmbeddingGenerator)
-- Consumers must register both embedding interfaces for blended scenarios
-- Migration to IEmbeddingGenerator is mechanical (11 Core/AgentFramework files) but impacts many call sites
-- Abstractions gains ~100KB, zero new transitive dependencies
-
-**Conclusion:** D-AR2-1 (unified MEAI migration) is the right strategic move. All three agents align on this recommendation.
-
-**Reference:** `docs/meai-ecosystem-analysis.md` (full analysis with code citations).
-
----
-
 ### D-WAVE1: IEmbeddingOrchestrator + ExtractorBase<T> (Roy, 2026-07-18)
 
 **Status:** Implemented ✅  
@@ -1100,6 +22,8 @@ Both Extraction.Llm and Extraction.AzureLanguage now reference Core. No circular
 
 #### Error Handling
 The orchestrator's `EmbedTextAsync` catches exceptions and returns empty array. Previously, some services propagated exceptions. This is intentional — centralized, consistent error handling means failed embeddings return empty vectors rather than crashing the pipeline.
+
+---
 
 ---
 
@@ -1148,6 +72,8 @@ Multi-extractor fan-out with merge strategies (Union, Intersection, Confidence, 
 
 ---
 
+---
+
 ### D-WAVE2-THRESHOLDS: Thresholds Parameterization + Azure API Cache (Gaff, 2026-07-18)
 
 **Status:** Implemented ✅  
@@ -1186,6 +112,8 @@ Multi-extractor fan-out with merge strategies (Union, Intersection, Confidence, 
 
 ---
 
+---
+
 ### D-WAVE3-CYPHER: Cypher Query Centralization (Deckard, 2026-07-22)
 
 **Status:** Implemented ✅  
@@ -1195,6 +123,8 @@ Multi-extractor fan-out with merge strategies (Union, Intersection, Confidence, 
 All 12 query classes are well-organized, consistently named (PascalCase), and thoroughly documented with XML doc summaries. 140 centralized query constants across `EntityQueries`, `FactQueries`, `PreferenceQueries`, `RelationshipQueries`, `ConversationQueries`, `MessageQueries`, `ExtractorQueries`, `ToolCallQueries`, `ReasoningTraceQueries`, `SessionQueries`, `ConfigurationQueries`, and `SharedFragments`. The pattern of one constant per repository method with matching comments (`// ── MethodName ──`) makes cross-referencing easy.
 
 **CypherQueryRegistry reflection design** is clean and correct. Filters for static classes in the right namespace, extracts `const string` fields only. Good foundation for EXPLAIN-based query validation.
+
+---
 
 ---
 
@@ -1219,6 +149,8 @@ All 12 query classes are well-organized, consistently named (PascalCase), and th
 - **I1: ListSessions ordering** — Fixed `collect(m)` to `collect(m ORDER BY m.timestamp)`
 - **I2: PreferenceQueries duplicate** — Unified `UpdateEmbedding` to reference `SetEmbedding`
 - **I3: Placeholder parameter** — Removed unused placeholder parameter in `GetDeduplicationStats`
+
+---
 
 ---
 
@@ -1320,87 +252,977 @@ The codebase is in **excellent shape** post-refactoring. The 4 waves addressed a
 
 ---
 
-### D-DOC2: Documentation Audit Findings — Joi, Deckard, Roy (2026-04-21)
+---
 
-**Status:** Findings Reported  
-**Scope:** Documentation Freshness & Accuracy Post-Refactoring  
-**Date:** 2026-04-21
 
-#### High-Level Summary
+### 2026-04-30: Documentation batch fix
+**By:** José (via Joi)
+**What:** Fixed README API refs, MCP count (28→21), GraphRagAdapter ghost refs; created getting-started.md, CONTRIBUTING.md, CHANGELOG.md; archived completed planning docs
+**Why:** Docs were pointing to non-existent APIs and deleted packages; missing contributor and onboarding docs
 
-Three concurrent audits identified **12 TIER 1 critical stale claims** in primary docs (README.md, docs/architecture.md, docs/design.md, docs/implementation-status.md). All three audits converge on the same findings with high signal-to-noise.
+**Detail:**
+- README quick-start was already using correct API (`IMemoryService`, `AddMessageAsync`, `RecallAsync`, 21 tools) — verified clean
+- The remaining "28 tools" occurrence was in `docs/python-dotnet-comparison.md` — handled by archiving that doc
+- GraphRagAdapter ghost package references in active docs were resolved via archiving (meai-ecosystem-analysis.md, feature-record.md, python-dotnet-comparison.md); references in architecture.md and nextsteps.md are contextually correct (DI method name `AddGraphRagAdapter()` and a prohibition note)
+- Created `docs/getting-started.md` — full onboarding guide covering prerequisites, installation, DI config, first memory store, MAF/SK integration, embedding providers
+- Created `CONTRIBUTING.md` — build/test commands, ports-and-adapters architecture rules, Cypher constants convention, PR process
+- Created `CHANGELOG.md` — Keep a Changelog format, [Unreleased] section populated from nextsteps.md §1 feature inventory
+- Archived 8 completed planning documents to `docs/archive/`
 
-#### TIER 1 Findings (Action Required Before Release)
+---
 
-| Finding | Category | Severity | Evidence |
-|---------|----------|----------|----------|
-| **F1: MCP tool count wrong** | Numeric | 🔴 Critical | Actual: 21 tools in code; README, architecture-review-assessment, feature-record, python-dotnet-comparison claim 28 |
-| **F2: GraphRagAdapter ghost references** | Architecture | 🔴 Critical | Package merged into Neo4j; 3 docs still describe it as separate: architecture.md §3.4.2, implementation-status.md, meai-ecosystem-analysis.md |
-| **F3: README quick-start broken** | API | 🔴 Critical | IAgentMemory doesn't exist (use IMemoryService); StoreMessageAsync, AssembleContextAsync don't exist; Neo4jSchemaBootstrapper wrong name (use SchemaBootstrapper) |
-| **F4: Boundary rule B1 false assertions** | Architecture | 🔴 Critical | docs/architecture.md §5 claims "zero Abstractions dependencies" and "zero MEAI references"; both false per D-AR2-1 adoption. |
-| **F5: Package count wrong** | Numeric | 🔴 Critical | 11 actual packages; multiple docs claim 10 (predates SemanticKernel addition). |
-| **F6: Test count inconsistency** | Numeric | 🟡 Warning | Docs claim: 1,058 / 1,124 / 1,211 / 1,438 / 2,040+. Actual: ~1,477 grep [Fact]+[Theory], runtime count TBD. README "2,040+" most recent. |
-| **F7: IEmbeddingProvider stale** | Architecture | 🟡 Warning | docs/design.md, architecture.md §6 describe deleted interface as active. Replaced by D-AR2-1 migration. |
-| **F8: Deleted docs referenced** | Documentation | 🟡 Warning | docs/implementation-status.md §5 references non-existent `docs/neo4j-maf-provider-analysis.md`. |
-| **F9: .squad/identity/now.md stale** | State | 🟡 Warning | States Phase 1 focus; all 6 phases + gap closure complete (Deckard finding F10). |
-| **F10: Prerequisites wrong** | Documentation | 🟡 Warning | README says ".NET 8 SDK or later"; Directory.Build.props targets net9.0 (Deckard F11). |
-| **F11: Extracts incomplete** | Documentation | 🟡 Warning | design.md interface count (15 listed vs 24 actual); implementation-status.md missing SemanticKernel mention. |
-| **F12: Layer diagram stale** | Documentation | 🟡 Warning | architecture.md layer diagram shows non-existent GraphRagAdapter box. |
+### 2026-04-30: Architecture.md fixes + nextsteps.md proposal table
+**By:** José (via Deckard)
+**What:** Fixed architecture.md §5 B1 false boundary assertion and §3.4.2 deleted package reference; added proposal priority matrix to nextsteps.md
+**Why:** Docs contained factual errors post-MEAI adoption and post-GraphRagAdapter merge; nextsteps.md needed a structured decision aid
 
-#### Priority Fix Order
+---
 
-1. **README.md** — Public-facing; broken quick-start code + numeric claims
-2. **docs/architecture.md** — Boundary rule false claims (F4), §3.4.2 ghost section, §5 verification false assertions
-3. **docs/design.md** — Service interface catalog stale (IEmbeddingProvider, count)
-4. **docs/implementation-status.md** — Package count, dead doc reference, SemanticKernel omission
-5. **All other docs** — MCP tool count 28→21, test counts, archive stale docs
+# Roy — API Accuracy Review
+**Date:** 2026-04-30  
+**Reviewer:** Roy (Core Memory Domain Engineer)  
+**Requested by:** José  
+**Scope:** `docs/getting-started.md`, `CONTRIBUTING.md`, `README.md`
 
-#### Archive Candidates (TIER 3)
+---
 
-6 documents identified for archival:
-- `docs/refactoring-plan.md` (all waves complete)
-- `docs/python-agent-memory-analysis.md` (superseded by parity-assessment)
-- `docs/cypher-analysis.md` (superseded by parity-assessment)
-- `Agent-memory-for-dotnet-implementation-plan.md` (Phase 0–6 complete)
-- `Agent-Memory-for-DotNet-Specification.md` (add completion banner or archive)
-- `docs/HotChocolate.Data.Neo4J-lessons-learned-and-ideas-to-apply.md` (label as research spike)
+## Summary
 
-#### TIER 2 — Revalidation Needed
+Three documents reviewed against actual implementation in `src/Neo4j.AgentMemory.Abstractions/` and `src/Neo4j.AgentMemory.Core/`. Two documents have actionable issues for Joi. One is approved as-is.
 
-- docs/feature-record.md, architecture-review-assessment.md: MCP tool count (28→21), per-feature test counts
-- docs/improvement-suggestions.md: Package count (9→11), SK status (mark ✅ Complete)
-- docs/python-dotnet-comparison.md: Partial obsolescence (keep + annotate as historical)
+---
 
-#### Missing Docs (DX Gaps)
+## 1. `docs/getting-started.md` — ISSUES FOUND
 
-| Doc | Priority | Rationale |
-|-----|----------|-----------|
-| `docs/getting-started.md` | 🔴 HIGH | No onboarding path; README quick-start broken. Critical DX gap. |
-| `CONTRIBUTING.md` | 🟡 MEDIUM | README says "will be added." Needed pre-community. |
-| `CHANGELOG.md` | 🟡 MEDIUM | No version history. Needed pre-NuGet release. |
+### Issue 1 — Section 3.3: Wrong type name for schema bootstrapper
 
-#### Convergence Analysis
+**Doc says:**
+```csharp
+var bootstrapper = host.Services.GetRequiredService<Neo4jSchemaBootstrapper>();
+```
 
-All three agents independently identified:
-- ✅ MCP tool count: 21 (not 28)
-- ✅ GraphRagAdapter ghost sections
-- ✅ README quick-start broken  
-- ✅ Test count inconsistency
-- ✅ Package count wrong (10→11)
-- ✅ IEmbeddingProvider stale
-- ✅ Archive candidate documents
+**Reality:**  
+The class is `SchemaBootstrapper` (namespace `Neo4j.AgentMemory.Neo4j.Infrastructure`), and DI registers it as `ISchemaBootstrapper`. The concrete type is never registered directly.
 
-**Signal strength: VERY HIGH.** Zero contradictions between audits. High-priority fixes overlap 100%.
+**Correction:**
+```csharp
+var bootstrapper = host.Services.GetRequiredService<ISchemaBootstrapper>();
+await bootstrapper.BootstrapAsync();
+```
 
-#### Reference Documents
+---
 
-- `joi-doc-audit.md` — Full inventory, numeric audit, archive recommendations
-- `deckard-doc-audit.md` — Boundary rule verification, structural integrity, tier classification
-- `roy-doc-audit.md` — API surface verification, code evidence, priority order
+### Issue 2 — Section 4: `recall.Messages.Count` and `recall.Entities.Count` do not exist
 
-#### Recommendation
+**Doc says:**
+```csharp
+Console.WriteLine($"Recalled {recall.Messages.Count} message(s), " +
+                  $"{recall.Entities.Count} entity/entities.");
+```
 
-Perform immediate documentation sweep targeting TIER 1 fixes (5 documents, ~2 hours) before any public release or external communication. TIER 2 can be deferred to next sprint. TIER 3 (archival) can be scheduled for documentation cleanup sprint.
+**Reality:**  
+`RecallResult` has no `Messages` or `Entities` properties. It has a single `Context` property of type `MemoryContext`. Messages and entities live inside `MemoryContext` as typed sections (`MemoryContextSection<T>`), each with an `Items` property:
+
+- `recall.Context.RecentMessages.Items` — `IReadOnlyList<Message>`
+- `recall.Context.RelevantMessages.Items` — `IReadOnlyList<Message>`
+- `recall.Context.RelevantEntities.Items` — `IReadOnlyList<Entity>`
+- `recall.Context.RelevantFacts.Items` — `IReadOnlyList<Fact>`
+- `recall.Context.RelevantPreferences.Items` — `IReadOnlyList<Preference>`
+
+**Correction (example):**
+```csharp
+Console.WriteLine($"Recalled {recall.Context.RecentMessages.Items.Count} message(s), " +
+                  $"{recall.Context.RelevantEntities.Items.Count} entity/entities.");
+```
+
+---
+
+### Issue 3 — Section 4.1: `Message` object initializer missing required properties
+
+**Doc says:**
+```csharp
+new Message { SessionId = sessionId, ConversationId = conversationId,
+              Role = "user", Content = "Set theme to dark." },
+```
+
+**Reality:**  
+`Message` is a `sealed record` with `required` properties. Two required properties are omitted — `MessageId` (string) and `TimestampUtc` (DateTimeOffset) — so this code **will not compile**.
+
+**Correction:**
+```csharp
+new Message { MessageId = Guid.NewGuid().ToString("N"),
+              SessionId = sessionId, ConversationId = conversationId,
+              Role = "user", Content = "Set theme to dark.",
+              TimestampUtc = DateTimeOffset.UtcNow },
+```
+
+Alternatively, the example could resolve `IIdGenerator` and `IClock` from DI and use them, which would be more idiomatic for this codebase.
+
+---
+
+### Issue 4 — Joi's question: `AddGraphRagAdapter()` (flag for Gaff)
+
+`AddGraphRagAdapter(Action<GraphRagOptions> configure)` **exists and is correctly named** in `Neo4j.AgentMemory.Neo4j.Infrastructure.ServiceCollectionExtensions`. This is Gaff's package domain. The method is not shown in `getting-started.md` but needs to be verified by Gaff for inclusion/accuracy if it gets added. No correction needed from Roy's side — flagging for Gaff.
+
+---
+
+### Section 3.1 DI Registration — APPROVED
+
+`AddAgentMemoryCore`, `IClock`/`SystemClock`, `IIdGenerator`/`GuidIdGenerator`, `StubEmbeddingGenerator`, `AddNeo4jAgentMemory` — all correct. Namespaces match actual code. No issues.
+
+### Section 5 MAF Integration — APPROVED
+
+`AddAgentMemoryFramework`, `AgentTraceRecorder`, `MemoryToolFactory`, `Neo4jMicrosoftMemoryFacade`, `GetContextForRunAsync`, `PersistAfterRunAsync` — all exist and are correctly named.
+
+### Interface names — APPROVED
+
+`IMemoryService`, `IShortTermMemoryService`, `ILongTermMemoryService`, `IReasoningMemoryService`, `IMemoryContextAssembler` — all exist in `src/Neo4j.AgentMemory.Abstractions/Services/`.
+
+### Method signatures on `IMemoryService` — APPROVED
+
+- `RecallAsync(RecallRequest, CancellationToken)` ✅
+- `RecallAsOfAsync(RecallRequest, DateTimeOffset, CancellationToken)` ✅
+- `AddMessageAsync(string, string, string, string, IReadOnlyDictionary<string,object>?, CancellationToken)` ✅
+- `AddMessagesAsync(IEnumerable<Message>, CancellationToken)` ✅
+- `ExtractAndPersistAsync(ExtractionRequest, CancellationToken)` ✅
+
+---
+
+## 2. `README.md` — ISSUES FOUND
+
+### Issue 1 — Quick Start: Wrong option property names for `AddNeo4jAgentMemory`
+
+**Doc says:**
+```csharp
+.AddNeo4jAgentMemory(options => {
+    options.ConnectionUri = "neo4j+ssc://your-neo4j-instance";
+    options.AuthToken = AuthTokens.Basic("neo4j", "password");
+})
+```
+
+**Reality:**  
+`Neo4jOptions` has `Uri`, `Username`, and `Password` properties — **not** `ConnectionUri` or `AuthToken`. There is no `AuthToken` property; `AuthTokens` is a Neo4j Driver type and is not used here.
+
+**Correction:**
+```csharp
+.AddNeo4jAgentMemory(options => {
+    options.Uri      = "bolt://localhost:7687";
+    options.Username = "neo4j";
+    options.Password = "password";
+})
+```
+
+---
+
+### Issue 2 — Quick Start: Wrong schema bootstrap pattern
+
+**Doc says:**
+```csharp
+var schemaBootstrapper = new Neo4jSchemaBootstrapper(driver);
+await schemaBootstrapper.BootstrapAsync();
+```
+
+**Reality:**  
+- The class is `SchemaBootstrapper`, not `Neo4jSchemaBootstrapper`.
+- It cannot be directly instantiated with just a `driver` — its constructor requires `INeo4jTransactionRunner`, `IOptions<Neo4jOptions>`, and `ILogger<SchemaBootstrapper>`.
+- It should be obtained from DI as `ISchemaBootstrapper`.
+
+**Correction:**
+```csharp
+var bootstrapper = provider.GetRequiredService<ISchemaBootstrapper>();
+await bootstrapper.BootstrapAsync();
+```
+
+---
+
+### Package table and project status sections — APPROVED
+
+All package names, interface references, and architectural descriptions in these sections are accurate.
+
+---
+
+## 3. `CONTRIBUTING.md` — APPROVED
+
+**Approved — core domain content is accurate for CONTRIBUTING.md.**
+
+Verified:
+- Architecture description (ports-and-adapters, dependency direction) ✅
+- Stubs location (`Neo4j.AgentMemory.Core/Stubs/`) ✅  
+- `sealed record` with `required` properties and `DateTimeOffset` with `Utc` suffix ✅
+- `CancellationToken cancellationToken = default` on all async methods ✅
+- Cypher in `Queries/` constants files ✅
+- Reviewer checklist item #5 ("No `IAgentMemory` / `StoreMessageAsync` / `AssembleContextAsync`") correctly identifies non-existent APIs ✅
+- Build and test commands reference the correct solution file ✅
+
+---
+
+## Action Items for Joi
+
+| # | Document | Section | Action |
+|---|----------|---------|--------|
+| 1 | `getting-started.md` | §3.3 | Change `Neo4jSchemaBootstrapper` → `ISchemaBootstrapper`; resolve from DI |
+| 2 | `getting-started.md` | §4 | Fix `recall.Messages.Count` → `recall.Context.RecentMessages.Items.Count`; fix `recall.Entities.Count` → `recall.Context.RelevantEntities.Items.Count` |
+| 3 | `getting-started.md` | §4.1 | Add `MessageId` and `TimestampUtc` to `Message` initializer in batch example |
+| 4 | `README.md` | Quick Start §3 | Change `options.ConnectionUri`/`options.AuthToken` → `options.Uri`/`options.Username`/`options.Password` |
+| 5 | `README.md` | Quick Start §2 | Change `new Neo4jSchemaBootstrapper(driver)` → `provider.GetRequiredService<ISchemaBootstrapper>()` |
+
+**Flag for Gaff:** Verify `AddGraphRagAdapter` coverage in `getting-started.md` if GraphRAG setup guidance is planned.
+
+---
+
+# Gaff Review — 2026-04-30
+
+**Reviewer:** Gaff (Neo4j Persistence Engineer)  
+**Documents reviewed:**
+1. `docs/getting-started.md`
+2. `docs/architecture.md` §3.3
+
+---
+
+## Critical Question: DI Method Name
+
+**Verified in:** `src/Neo4j.AgentMemory.Neo4j/Infrastructure/ServiceCollectionExtensions.cs`
+
+The package exposes **two** extension methods:
+
+| Method | Purpose |
+|--------|---------|
+| `AddNeo4jAgentMemory(Action<Neo4jOptions> configure)` | Registers driver, session factory, transaction runner, schema bootstrapper, migration runner, and all repository implementations |
+| `AddGraphRagAdapter(Action<GraphRagOptions> configure)` | Registers `Neo4jGraphRagContextSource` as `IGraphRagContextSource` |
+
+- `AddNeo4jAgentMemory()` — **CORRECT** name. ✅  
+- `AddGraphRagAdapter()` — **CORRECT** name (not `AddGraphRagAdapters()` or `AddNeo4jGraphRagAdapter()`). ✅  
+- `AddGraphRagAdapter()` is a separate call — it is NOT included in `AddNeo4jAgentMemory()`. Callers need both if they want GraphRAG retrieval.
+
+---
+
+## Document 1: `docs/getting-started.md`
+
+### Issue 1 — §3.3 Schema Bootstrap: Wrong type name
+
+**Section:** §3.3 Schema bootstrap  
+**Doc says:**
+```csharp
+var bootstrapper = host.Services.GetRequiredService<Neo4jSchemaBootstrapper>();
+await bootstrapper.BootstrapAsync();
+```
+
+**What it should say:**  
+The concrete class is `SchemaBootstrapper`, registered in DI under the `ISchemaBootstrapper` interface (`services.TryAddTransient<ISchemaBootstrapper, SchemaBootstrapper>()`). There is no public type named `Neo4jSchemaBootstrapper`. The correct resolution is:
+
+```csharp
+var bootstrapper = host.Services.GetRequiredService<ISchemaBootstrapper>();
+await bootstrapper.BootstrapAsync();
+```
+
+**Severity:** High — the code as written will throw a `InvalidOperationException` at runtime (no service for `Neo4jSchemaBootstrapper` registered).
+
+---
+
+### Issue 2 — §3.2 Configuration: `Database` option undocumented (minor omission)
+
+**Section:** §3.2 Configuration via `appsettings.json`  
+**Doc says:** Only `Uri`, `Username`, `Password` are shown.
+
+**Actual `Neo4jOptions` fields (from source):**
+- `Uri` (default: `bolt://localhost:7687`)
+- `Username` (default: `neo4j`)
+- `Password` (default: `password`)
+- `Database` (default: `neo4j`)
+- `MaxConnectionPoolSize` (default: `100`)
+- `ConnectionAcquisitionTimeout` (default: `60s`)
+- `EncryptionEnabled` (default: `false`)
+- `EmbeddingDimensions` (default: `1536`)
+
+**Recommendation:** At minimum, document `Database` since users targeting a non-default database name will need it. The rest can be omitted from the quickstart but should reference `Neo4jOptions` for full options.
+
+**Severity:** Medium — silent misconfiguration risk if database name differs from default.
+
+---
+
+### Issue 3 — `AddGraphRagAdapter()` not shown in getting-started.md
+
+**Section:** §3.1 DI registration (and the guide generally)  
+**Doc says:** Nothing about `AddGraphRagAdapter()`.
+
+**Observation:** The guide does not document how to register GraphRAG retrieval. Given that §5 documents `Neo4jMicrosoftMemoryFacade` (MAF integration), it would be appropriate to add a note explaining that `AddGraphRagAdapter()` is needed separately if the caller wants `IGraphRagContextSource`.  
+This is an omission rather than an error — the core path (no GraphRAG) is still correct.
+
+**Severity:** Low — omission only, nothing incorrect.
+
+---
+
+### Everything else in getting-started.md ✅
+
+- `AddNeo4jAgentMemory()` method name: **correct**
+- Config key paths (`Neo4j:Uri`, `Neo4j:Username`, `Neo4j:Password`): **correct** (match `Neo4jOptions` property names)
+- Docker connection port (`bolt://localhost:7687`): **correct**
+- `IMemoryService` usage pattern: **correct**
+- MAF registration (`AddAgentMemoryFramework()`): outside my scope, not verified here
+
+---
+
+## Document 2: `docs/architecture.md` §3.3
+
+### Issue 1 — §3.3 Dependencies: Missing `Microsoft.Extensions.AI.Abstractions`
+
+**Section:** §3.3 Neo4j.AgentMemory.Neo4j, Dependencies row  
+**Doc says:**
+> Abstractions (project ref), Core (project ref), Neo4j.Driver 6.0.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5
+
+**Actual csproj (`src/Neo4j.AgentMemory.Neo4j/Neo4j.AgentMemory.Neo4j.csproj`) includes:**
+```xml
+<PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+```
+
+The `Microsoft.Extensions.AI.Abstractions 10.4.1` package is referenced in the Neo4j project (required for embedding generator types used in vector retrieval) but is omitted from the architecture table.
+
+**Severity:** Low — documentation accuracy issue, no runtime impact.
+
+---
+
+### Everything else in §3.3 ✅
+
+- **Purpose** description: accurate
+- **Key types** listed: `Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions` — all confirmed present
+- **MUST NOT reference** `Microsoft.Agents.*`: confirmed — no such reference in csproj
+- `AddGraphRagAdapter()` mentioned in §3.4.2 (GraphRAG Retrieval section) and §3.4.3 (Observability registration order note): **both correct**
+
+**Verdict for architecture.md §3.3:** Approved with one minor fix needed (missing AI.Abstractions dependency).
+
+---
+
+## Summary for Joi
+
+| Doc | Issue | Severity | Action |
+|-----|-------|----------|--------|
+| getting-started.md | §3.3: `Neo4jSchemaBootstrapper` → should be `ISchemaBootstrapper` | **High** | Fix type name in code snippet |
+| getting-started.md | §3.2: `Database` option not documented | Medium | Add `Database` key to appsettings example |
+| getting-started.md | `AddGraphRagAdapter()` never mentioned | Low | Add note about optional GraphRAG registration |
+| architecture.md §3.3 | `Microsoft.Extensions.AI.Abstractions 10.4.1` missing from Dependencies | Low | Add to dependency list |
+
+---
+
+# Pris — Editorial Review
+**Date:** 2026-04-30  
+**Reviewer:** Pris (Editorial Reviewer)  
+**Scope:** docs/getting-started.md, CONTRIBUTING.md, CHANGELOG.md, docs/architecture.md (Deckard edits), docs/nextsteps.md (Deckard edits), README.md  
+**Specialist reviews in parallel:** Roy and Gaff (domain accuracy — results not consolidated here)
+
+---
+
+## 1. `docs/getting-started.md` — NEWLY CREATED by Joi
+
+### Verdict: Editorial review — 5 issues to address
+
+**What works well:** Section ordering is logical (prerequisites → install → configure → first use → integrations). Prerequisites table is excellent. Code blocks are well-formatted. Docker quickstart and DI registration examples are very clear. The `Next Steps` table is a good navigation aid.
+
+---
+
+**Issue 1 — §5 (MAF Integration): `sp` undefined — snippet does not compile**  
+*What is wrong:* The line `var facade = sp.GetRequiredService<Neo4jMicrosoftMemoryFacade>();` uses a variable `sp` that is never declared in the snippet. A developer copy-pasting this will get a compile error.  
+*What to write instead:* Replace `sp` with `host.Services` (consistent with the `host` variable established in §3.1), or show a properly scoped `await using var scope = host.Services.CreateAsyncScope();` block and use `scope.ServiceProvider`.
+
+---
+
+**Issue 2 — §5 (MAF Integration): `newMessages` undefined — snippet is incomplete**  
+*What is wrong:* `await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);` uses `newMessages` without declaring it. The reader cannot run or adapt this code.  
+*What to write instead:* Add a declaration before the call, for example:
+```csharp
+// newMessages is the list of ChatMessage objects produced by the agent run
+IList<ChatMessage> newMessages = agentResult.Messages;
+await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
+```
+or replace with a comment placeholder like `// your agent output messages`.
+
+---
+
+**Issue 3 — §3.3 (Schema Bootstrap): "health check" reference is vague**  
+*What is wrong:* "Or have it run automatically via the health check during DI startup if using the MAF adapter." A new developer has no idea what health check is meant or how to enable it.  
+*What to write instead:* Either expand with the specific hook/type name that triggers it, or remove the sentence and leave only the explicit bootstrap call. If this is a documented MAF adapter feature, reference the section where it is explained (e.g., "See §5 for the MAF adapter's `AgentTraceRecorder` startup integration.").
+
+---
+
+**Issue 4 — §3.1 vs README: `AddNeo4jAgentMemory` option property names are inconsistent (flag for Roy/Gaff)**  
+*What is wrong:* §3.1 uses `options.Uri`, `options.Username`, `options.Password`. The README Quick Start uses `options.ConnectionUri` and `options.AuthToken = AuthTokens.Basic(...)`. Both describe the same `AddNeo4jAgentMemory` registration call but with different property names. One of them is wrong.  
+*What to write instead:* Both documents must use the same property names that match the actual `Neo4jOptions` class. This requires domain confirmation from Roy or Gaff before correction. Flagged.
+
+---
+
+**Issue 5 — §6 (Semantic Kernel Integration): Section is too thin to be useful**  
+*What is wrong:* The section only shows package install and `AddAgentMemorySemanticKernel()` registration. There is no example of how to inject or invoke the plugin within a Semantic Kernel kernel or pipeline. A developer reading this cannot tell what the integration actually provides.  
+*What to write instead:* Add at minimum two lines showing how the memory plugin is invoked — e.g., how it appears in `kernel.Plugins` or how to call a specific function by name — or add a "See samples/..." pointer. Even one concrete usage sentence removes the feeling of an incomplete section.
+
+---
+
+## 2. `CONTRIBUTING.md` — NEWLY CREATED by Joi
+
+### Verdict: Editorial review — 1 issue to address
+
+**What works well:** Section structure is excellent. Build and test commands are precise and complete. Code conventions (sealed records, async patterns, Cypher in constants, no TODO/FIXME) are clearly stated. PR checklist is unusually helpful — especially item #5 which calls out the non-existent `IAgentMemory` interface directly. Commit message format with examples is strong.
+
+---
+
+**Issue 1 — §1 Prerequisites: "Neo4j" row is potentially misleading**  
+*What is wrong:* The prerequisites table lists "Neo4j 5.x | Integration tests" as a standalone row, and also lists "Docker Desktop | Testcontainers (integration tests start Neo4j automatically)" as a separate row. A new contributor reading this may believe they need to install and run a local Neo4j instance before they can run integration tests, when in fact Testcontainers handles this automatically.  
+*What to write instead:* Either remove the standalone "Neo4j" row and keep only Docker Desktop, or relabel it as "Neo4j 5.x (via Docker — Testcontainers manages this automatically)" to make the relationship explicit. The footnote in §3 explains this, but the prerequisites table is read first.
+
+---
+
+## 3. `CHANGELOG.md` — NEWLY CREATED by Joi
+
+### Verdict: Editorial review — 1 issue to address
+
+**What works well:** Keep a Changelog format is followed correctly. The note about no official NuGet releases yet is well-placed. The `[Unreleased]` section content is thorough and developer-useful. Category groupings (Packages, Memory capabilities, Search and retrieval, Graph schema, Testing) are logical.
+
+---
+
+**Issue 1 — Footer: `[Unreleased]` reference link resolves to empty diff**  
+*What is wrong:* `[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/HEAD...HEAD` compares HEAD with itself — clicking it produces an empty diff with zero context. This is the standard placeholder format, but it provides no value before the first release tag exists.  
+*What to write instead:* Replace with the repository URL until the first version tag is created:
+```
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet
+```
+Once `v0.1.0` or `v1.0.0` is tagged, update to `compare/v1.0.0...HEAD` per Keep a Changelog convention.
+
+---
+
+## 4. `docs/architecture.md` — UPDATED by Deckard
+
+### Verdict: Editorial review — 1 issue to address
+
+**What works well:** The boundary rule table (§5) is clearly written with strong rationale for each rule. B1, B4, and B6 additions are precise and internally consistent with the verification checklist. The §3.4.2 rename to "GraphRAG Retrieval — built into Neo4j.AgentMemory.Neo4j" is exactly right. §3.2 and §3.3 MUST NOT reference rows are clean. The Mermaid diagram in §2.2 renders correctly.
+
+---
+
+**Issue 1 — §3.1 vs §5 B1: Abstractions dependency description is contradictory within the document**  
+*What is wrong:* The §3.1 table row states "Dependencies: **None** — .NET 9 BCL only" and "MUST NOT reference: … any NuGet package." But §5 B1 explicitly approves `Microsoft.Extensions.AI.Abstractions` as an allowed dependency, and the verification checklist confirms it is present: "✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.4.1 (approved, B1)." The §3.1 table was not updated when the D-AR2-1 decision was made.  
+*What to write instead:* Update the §3.1 table:
+- Dependencies row: `**Microsoft.Extensions.AI.Abstractions** 10.4.1 (approved, D-AR2-1) — .NET 9 BCL otherwise`
+- MUST NOT reference row: `Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions`
+
+---
+
+## 5. `docs/nextsteps.md` — UPDATED by Deckard (Priority Matrix added)
+
+### Verdict: Editorial review — 3 issues to address
+
+**What works well:** The Priority Matrix is a genuine decision-aid addition. The scoring methodology (Value ÷ Cost with explicit tier thresholds) is transparent and reproducible. Pros/cons are specific, not generic. All arithmetic spot-checked — ratios are correct. The table is informative without being redundant with the narrative sections.
+
+---
+
+**Issue 1 — Priority Matrix: HIGH tier rows are not sorted by Value descending as declared**  
+*What is wrong:* The header row states items are "Sorted HIGH → MED → LOW, then by Value descending within tier." The HIGH tier rows are: Row 1 (Value=9, NuGet Release), Row 2 (Value=5, DELETE_SESSION_DATA), Row 3 (Value=6, AutoGen). Within HIGH tier, descending order should be 9 → 6 → 5 (NuGet Release → AutoGen → DELETE_SESSION_DATA). Rows 2 and 3 are swapped.  
+*What to write instead:* Move Row 3 (AutoGen Integration) above Row 2 (DELETE_SESSION_DATA) in the table, and update the # column accordingly (or retain original numbering and add a sort note).
+
+---
+
+**Issue 2 — Priority Matrix ordering vs §4 narrative ordering: unexplained divergence**  
+*What is wrong:* The matrix ranks items by Value ÷ Cost ratio (Steps 1–3 are NuGet Release, DELETE_SESSION_DATA, AutoGen in HIGH tier). But §4 Recommended Next Sequence uses a different ordering that prioritises strategic unlock logic (NuGet → Streaming → Local Embedding → Framework Integrations → DELETE_SESSION_DATA → BenchmarkDotNet). DELETE_SESSION_DATA is Step 5 in the narrative but HIGH in the matrix. Streaming Extraction is Step 2 in the narrative but MED in the matrix. Without explanation, readers cannot reconcile these two orderings.  
+*What to write instead:* Add a bridging sentence immediately after the Priority Matrix (before the `---` separator), e.g.: "Note: §4 (Recommended Next Sequence) uses a different ordering that accounts for strategic unlock dependencies — NuGet Release must come first because it gates community feedback; Streaming Extraction is elevated because it affects all users, not a subset. The matrix scores individual proposals in isolation; §4 explains the sequencing rationale."
+
+---
+
+**Issue 3 — Document header date is in the future relative to matrix score date**  
+*What is wrong:* The document header says "Date: 2026-07-25" but the Priority Matrix says "Scored as of 2026-04-30." The current datetime is 2026-04-30. A document cannot have been last edited three months from now.  
+*What to write instead:* Update the document header date to "2026-04-30" to match the actual edit date.
+
+---
+
+## 6. `README.md` — Reviewed for consistency
+
+### Verdict: Editorial review — 5 issues to address
+
+**What works well:** Project description is honest about independent community origin. Package table is accurate. Credits section present. Project status summary is well-calibrated.
+
+---
+
+**Issue 1 — Quick Start §step 2: Direct instantiation inconsistent with DI approach**  
+*What is wrong:* `var schemaBootstrapper = new Neo4jSchemaBootstrapper(driver);` instantiates directly with a `driver` parameter. `getting-started.md` §3.3 shows the recommended DI-based approach: `host.Services.GetRequiredService<Neo4jSchemaBootstrapper>()`. Inconsistency between README and the canonical getting started guide.  
+*What to write instead:* Replace with:
+```csharp
+var bootstrapper = host.Services.GetRequiredService<Neo4jSchemaBootstrapper>();
+await bootstrapper.BootstrapAsync();
+```
+or add a note: "Or resolve from DI — see `docs/getting-started.md` §3.3 for the recommended approach."
+
+---
+
+**Issue 2 — Quick Start §step 3: `options.ConnectionUri` / `options.AuthToken` inconsistent with getting-started.md**  
+*What is wrong:* This is the same inconsistency raised in getting-started.md Issue 4. The README uses `options.ConnectionUri` and `options.AuthToken = AuthTokens.Basic(...)` while getting-started.md uses `options.Uri`, `options.Username`, `options.Password`. Flagged for Roy/Gaff domain confirmation.
+
+---
+
+**Issue 3 — Contributing section: stale "(coming before first NuGet release)" qualifier**  
+*What is wrong:* "See `CONTRIBUTING.md` for contribution guidelines and coding standards (coming before first NuGet release)." CONTRIBUTING.md has now been created and is complete. The qualifier is stale.  
+*What to write instead:* Remove the parenthetical. Write: "See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and contribution guidelines."
+
+---
+
+**Issue 4 — "Planned capabilities" section header is misleading**  
+*What is wrong:* The section is headed "## Planned capabilities" but immediately followed by a note: "Note: All capabilities listed below are implemented." The section title contradicts its own content.  
+*What to write instead:* Rename to "## Capabilities" or "## Feature overview" and remove the note (since the capabilities are no longer planned, the note is also unnecessary).
+
+---
+
+**Issue 5 — "Initial scope" §3 references superseded architecture**  
+*What is wrong:* "3. GraphRAG adapter using the existing .NET provider" refers to a separate GraphRAG adapter package. This was superseded by the decision to internalize GraphRAG retrieval into `Neo4j.AgentMemory.Neo4j` (§6.4–6.5 of architecture.md). The README's "Initial scope" section now describes a design that was intentionally changed.  
+*What to write instead:* Either remove the "Initial scope" section (it describes history, not current state) or update item 3 to: "GraphRAG retrieval built into `Neo4j.AgentMemory.Neo4j` (internalized from separate adapter pattern)."
+
+---
+
+## Summary Table
+
+| Document | Verdict | Issue Count | Blocker? |
+|----------|---------|-------------|---------|
+| `docs/getting-started.md` | ❌ Needs revision | 5 issues | Issues 1–2 are copy-paste blockers |
+| `CONTRIBUTING.md` | ❌ Needs revision | 1 issue | Minor clarity — not a blocker |
+| `CHANGELOG.md` | ❌ Needs revision | 1 issue | Minor usability — not a blocker |
+| `docs/architecture.md` | ❌ Needs revision | 1 issue | Internal contradiction — should fix |
+| `docs/nextsteps.md` | ❌ Needs revision | 3 issues | Issue 3 (future date) is a factual error |
+| `README.md` | ❌ Needs revision | 5 issues | Issues 3–4 are stale/misleading |
+
+**Total outstanding items: 16 across 6 documents.** No document is currently approved for publication. Priority fixes before any release: getting-started.md Issues 1–2 (broken code), architecture.md Issue 1 (internal contradiction), nextsteps.md Issue 3 (date error), README.md Issues 3–4 (stale content).
+
+**Domain confirmation needed from Roy or Gaff:** Getting-started.md Issue 4 / README.md Issue 2 — `AddNeo4jAgentMemory` option property names must be verified against the actual `Neo4jOptions` class before either document is corrected.
+
+---
+
+# 2026-04-30: Revision pass complete
+
+**By:** José (via Joi)  
+**What:** Applied all Roy, Gaff, Pris review feedback to getting-started.md, README.md, architecture.md, CHANGELOG.md, nextsteps.md, CONTRIBUTING.md  
+**Status:** Ready for final re-review by specialists
+
+---
+
+## Changes applied
+
+### `docs/getting-started.md`
+- §3.2: Added `Database` option to `appsettings.json` example and DI snippet, with a note about silent misconfiguration risk (Gaff)
+- §3.3: Changed `GetRequiredService<Neo4jSchemaBootstrapper>()` → `GetRequiredService<ISchemaBootstrapper>()` (Roy/Gaff); removed vague "health check" sentence and replaced with a clear note about DI resolution (Pris)
+- §4: Fixed `recall.Messages.Count` → `recall.Context.RecentMessages.Items.Count`; `recall.Entities.Count` → `recall.Context.RelevantEntities.Items.Count` (Roy)
+- §4.1: Added `MessageId = Guid.NewGuid().ToString("N")` and `TimestampUtc = DateTimeOffset.UtcNow` to both `Message` initializers (Roy)
+- §5: Replaced undefined `sp` variable with `host.Services.CreateAsyncScope()` / `scope.ServiceProvider` (Pris); declared `newMessages` with a comment showing its origin (Pris); added `AddGraphRagAdapter()` opt-in note (Gaff)
+- §6: Added minimal SK plugin invocation example and `samples/` pointer (Pris)
+
+### `README.md`
+- Quick Start §2: Replaced `new Neo4jSchemaBootstrapper(driver)` with `provider.GetRequiredService<ISchemaBootstrapper>()` (Roy/Pris)
+- Quick Start §3: Replaced `options.ConnectionUri`/`options.AuthToken = AuthTokens.Basic(...)` with `options.Uri`/`options.Username`/`options.Password` (Roy)
+- Contributing section: Removed stale "(coming before first NuGet release)" qualifier; updated to markdown link (Pris)
+- Renamed `## Planned capabilities` → `## Capabilities`; removed the contradictory "Note: All capabilities listed below are implemented" (Pris)
+- Initial scope item 3: Updated to reflect GraphRAG retrieval built into `Neo4j.AgentMemory.Neo4j` (Pris)
+
+### `docs/architecture.md`
+- §3.1 Dependencies row: Updated from "**None** — .NET 9 BCL only" to include `Microsoft.Extensions.AI.Abstractions 10.4.1 (approved, D-AR2-1)` (Pris — internal contradiction with §5 B1)
+- §3.1 MUST NOT reference row: Added "**except** Microsoft.Extensions.AI.Abstractions" (Pris)
+- §3.3 Dependencies row: Added `Microsoft.Extensions.AI.Abstractions 10.4.1` (Gaff)
+
+### `CHANGELOG.md`
+- Replaced `[Unreleased]: .../compare/HEAD...HEAD` (empty diff) with the repository URL (Pris)
+
+### `docs/nextsteps.md`
+- Document header date: Changed from 2026-07-25 → 2026-04-30 (Pris — factual error, future date)
+- Priority Matrix: Swapped rows 2 and 3 — AutoGen (Value=6) now appears before DELETE_SESSION_DATA (Value=5), matching the declared "Value descending within tier" sort (Pris)
+- Added bridging note below the matrix explaining why §4 Recommended Next Sequence uses a different ordering than the matrix (Pris)
+
+### `CONTRIBUTING.md`
+- Prerequisites table: Removed standalone "Neo4j 5.x | Integration tests" row; merged the Testcontainers clarification into the Docker Desktop row to prevent new contributors from thinking they must install Neo4j separately (Pris)
+
+---
+
+## Confirmed API facts (from source verification)
+
+- `Neo4jOptions` has `Uri`, `Username`, `Password`, `Database` — **not** `ConnectionUri` or `AuthToken`
+- Schema bootstrapper DI interface is `ISchemaBootstrapper` (namespace `Neo4j.AgentMemory.Neo4j.Infrastructure`); concrete `SchemaBootstrapper` is never publicly registered
+- `RecallResult` has one property `Context` of type `MemoryContext` — no `Messages` or `Entities` on the result directly
+- `MemoryContext.RecentMessages` and `MemoryContext.RelevantEntities` are `MemoryContextSection<T>` with an `Items: IReadOnlyList<T>` property
+- `Message` is a `sealed record` with `required` properties: `MessageId`, `ConversationId`, `SessionId`, `Role`, `Content`, `TimestampUtc`
+
+---
+
+## Open questions / unresolved items
+
+1. **§5 MAF Integration — `agentResult.Messages`**: The `newMessages` fix uses `agentResult.Messages` as a placeholder. The actual property name on the MAF agent run result type was not verified from source. Recommend Gaff or Roy confirm the exact `agentResult` property before treating the snippet as copy-paste-ready.
+2. **§6 SK plugin name**: The `"AgentMemory"` plugin name and `"search_memory"` function name used in the new SK example are placeholders based on CHANGELOG naming. Roy should verify these match the actual registered plugin/function names in `Neo4j.AgentMemory.SemanticKernel`.
+
+---
+
+# Pris — Final Editorial Review
+**Date:** 2026-04-30T19:43:32+02:00  
+**Reviewer:** Pris (Editorial Reviewer)  
+**Pass:** Final (second pass — after Joi applied all Roy/Gaff/Pris feedback)  
+**Scope:** docs/getting-started.md, CONTRIBUTING.md, CHANGELOG.md, docs/architecture.md, docs/nextsteps.md, README.md
+
+---
+
+## 1. `docs/getting-started.md`
+
+**Verification of prior issues:**
+- Issue 1 (undefined `sp`): Fixed — proper `CreateAsyncScope()` block used ✅  
+- Issue 2 (`newMessages` undefined): Fixed — declared with origin comment ✅  
+- Issue 3 (vague "health check" sentence): Removed, clean DI note added ✅  
+- Issue 4 (`options.Uri/Username/Password` vs `ConnectionUri/AuthToken`): Resolved — `Uri`/`Username`/`Password` used consistently ✅  
+- Issue 5 (SK section too thin): Fixed — invocation example and samples pointer added ✅  
+
+**Pending confirmations (do NOT block approval):**
+- `agentResult.Messages` (§5, line ~230): pending Roy confirmation of actual MAF result property name  
+- `"AgentMemory"` plugin name / `"search_memory"` function name (§6): pending Rachael confirmation against actual `Neo4j.AgentMemory.SemanticKernel` registration
+
+### Verdict: Editorial approval — document is ready for publication
+
+---
+
+## 2. `CONTRIBUTING.md`
+
+**Verification of prior issues:**
+- Issue 1 (standalone Neo4j row misleading): Fixed — row removed, Testcontainers clarification merged into Docker Desktop row ✅  
+
+### Verdict: Editorial approval — document is ready for publication
+
+---
+
+## 3. `CHANGELOG.md`
+
+**Verification of prior issues:**
+- Issue 1 (`compare/HEAD...HEAD` empty link): Fixed — replaced with repository URL ✅  
+
+### Verdict: Editorial approval — document is ready for publication
+
+---
+
+## 4. `docs/architecture.md`
+
+**Verification of prior issues:**
+- Issue 1 (§3.1 table contradicted §5 B1 on Abstractions dependencies): Fixed — §3.1 table now lists `Microsoft.Extensions.AI.Abstractions 10.4.1 (approved, D-AR2-1)` and MUST NOT reference row is updated ✅  
+
+**New issue found:**
+
+### Editorial review — 1 issue to address
+
+**Issue 1 — §2.1 Package Dependency Diagram: Abstractions box still says "ZERO external dependencies"**  
+*Section:* §2.1 Package Dependency Diagram, ASCII art box for `Neo4j.AgentMemory.Abstractions` (line ~99)  
+*What is wrong:* The inner text of the Abstractions box still reads `ZERO external dependencies — .NET 9 BCL only`. This now contradicts the corrected §3.1 table and §5 B1 verification checklist, both of which confirm `Microsoft.Extensions.AI.Abstractions 10.4.1` is a deliberate approved dependency. The §3.1 fix was not back-propagated to the diagram.  
+*What to write instead:* Change the inner box text from:
+```
+│  ZERO external dependencies — .NET 9 BCL only               │
+```
+to:
+```
+│  One approved external dep: Microsoft.Extensions.AI.Abstractions │
+│  (D-AR2-1) — .NET 9 BCL otherwise                               │
+```
+or simply:
+```
+│  Deps: Microsoft.Extensions.AI.Abstractions only (D-AR2-1)   │
+```
+
+---
+
+## 5. `docs/nextsteps.md`
+
+**Verification of prior issues:**
+- Issue 1 (HIGH tier not sorted by Value descending): Fixed — AutoGen (Value=6) now before DELETE_SESSION_DATA (Value=5) ✅  
+- Issue 2 (matrix vs §4 narrative ordering unexplained): Fixed — bridging note added immediately after the matrix ✅  
+- Issue 3 (header date 2026-07-25 in the future): Fixed — date corrected to 2026-04-30 ✅  
+
+### Verdict: Editorial approval — document is ready for publication
+
+---
+
+## 6. `README.md`
+
+**Verification of prior issues:**
+- Issue 1 (direct `Neo4jSchemaBootstrapper` instantiation): Fixed — uses `provider.GetRequiredService<ISchemaBootstrapper>()` ✅  
+- Issue 2 (`ConnectionUri`/`AuthToken` vs `Uri`/`Username`/`Password`): Fixed — `Uri`/`Username`/`Password` used ✅  
+- Issue 3 (stale "(coming before first NuGet release)" qualifier): Removed ✅  
+- Issue 4 ("Planned capabilities" heading): Renamed to "Capabilities", contradictory note removed ✅  
+- Issue 5 ("GraphRAG adapter" reference): Updated to "GraphRAG retrieval built into `Neo4j.AgentMemory.Neo4j`" ✅  
+
+**New issue found:**
+
+### Editorial review — 1 issue to address
+
+**Issue 1 — Quick Start: Steps 2 and 3 are in the wrong order — `provider` used before it is defined**  
+*Section:* ## Getting Started → Quick Start, steps 2 and 3  
+*What is wrong:* Step 2 shows:
+```csharp
+var bootstrapper = provider.GetRequiredService<ISchemaBootstrapper>();
+await bootstrapper.BootstrapAsync();
+```
+But `provider` is not declared until Step 3. A developer following the Quick Start literally will encounter a compile error. This ordering bug was introduced when the fix for Issue 1 (replacing direct instantiation with DI resolution) was applied without swapping the step order.  
+*What to write instead:* Swap steps 2 and 3 so that services are configured before bootstrap is called:
+```
+1. Install the core package
+2. Configure memory services   ← was step 3
+3. Initialize Neo4j schema     ← was step 2
+4. Use in your agent
+```
+Step 2 should show the `ServiceCollection` / `BuildServiceProvider()` block, and step 3 should show `provider.GetRequiredService<ISchemaBootstrapper>()` / `BootstrapAsync()`. No code changes needed — just the section order.
+
+---
+
+## Summary Table
+
+| Document | Verdict | Remaining issues |
+|----------|---------|-----------------|
+| `docs/getting-started.md` | ✅ **Editorial approval — document is ready for publication** | None (2 lines pending Roy/Rachael confirmation — noted, not blocking) |
+| `CONTRIBUTING.md` | ✅ **Editorial approval — document is ready for publication** | None |
+| `CHANGELOG.md` | ✅ **Editorial approval — document is ready for publication** | None |
+| `docs/architecture.md` | ❌ **Editorial review — 1 issue to address** | §2.1 diagram text contradicts corrected §3.1 table |
+| `docs/nextsteps.md` | ✅ **Editorial approval — document is ready for publication** | None |
+| `README.md` | ❌ **Editorial review — 1 issue to address** | Quick Start steps 2 and 3 in wrong order — `provider` used before defined |
+
+**4 documents approved. 2 documents need single targeted fixes before publication.**  
+Both remaining issues are small (one text update in a diagram, one section reorder) and can be resolved in a single Joi pass.
+
+---
+
+# Roy — Messages Property Path Check
+**Date:** 2026-04-30  
+**Author:** Roy (Core Memory Domain Engineer)  
+**Requested by:** José
+
+---
+
+## Question
+
+Joi left an open question in `docs/getting-started.md`: is `agentResult.Messages` the correct property path for accessing messages from a recall or context assembly result?
+
+---
+
+## Findings
+
+### 1. `agentResult.Messages` (Section 5 — MAF Integration)
+
+```csharp
+IList<ChatMessage> newMessages = agentResult.Messages;
+await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
+```
+
+**`agentResult.Messages` is CORRECT.**
+
+Verified via reflection against `Microsoft.Agents.AI.Abstractions` 1.1.0:
+- `AIAgent.RunAsync(...)` returns `Task<AgentResponse>`
+- `AgentResponse.Messages` is a property of type `IList<ChatMessage>` ✅
+
+**However, there is a subtle type-compatibility bug in this snippet.**  
+`PersistAfterRunAsync` is declared as:
+```csharp
+public async Task PersistAfterRunAsync(IReadOnlyList<ChatMessage> messages, ...)
+```
+`IList<T>` does **not** extend `IReadOnlyList<T>` in .NET — they are separate interface hierarchies. Passing the `IList<ChatMessage>` variable directly to `PersistAfterRunAsync` will **not compile**.
+
+**Correct forms:**
+```csharp
+// Option A — use ToList() which returns List<T> (implements IReadOnlyList<T>)
+await facade.PersistAfterRunAsync(agentResult.Messages.ToList(), sessionId, conversationId);
+
+// Option B — explicit cast (works if the runtime type implements IReadOnlyList<T>)
+await facade.PersistAfterRunAsync((IReadOnlyList<ChatMessage>)agentResult.Messages, sessionId, conversationId);
+```
+
+---
+
+### 2. `recall.Context.RecentMessages.Items` (Section 4 — RecallResult)
+
+```csharp
+Console.WriteLine($"Recalled {recall.Context.RecentMessages.Items.Count} message(s), " +
+                  $"{recall.Context.RelevantEntities.Items.Count} entity/entities.");
+```
+
+**This path is CORRECT.**
+
+Verified against `src/Neo4j.AgentMemory.Abstractions/Domain/Context/`:
+- `IMemoryService.RecallAsync(...)` returns `RecallResult`
+- `RecallResult.Context` → `MemoryContext`
+- `MemoryContext.RecentMessages` → `MemoryContextSection<Message>`
+- `MemoryContextSection<T>.Items` → `IReadOnlyList<T>` ✅
+- `MemoryContext.RelevantEntities` → `MemoryContextSection<Entity>` ✅
+
+The path is fully valid.
+
+---
+
+## Summary
+
+| Code location | Property path | Verdict |
+|---|---|---|
+| Section 4 — `RecallResult` | `recall.Context.RecentMessages.Items` | ✅ Correct |
+| Section 4 — `RecallResult` | `recall.Context.RelevantEntities.Items` | ✅ Correct |
+| Section 5 — MAF `AgentResponse` | `agentResult.Messages` | ✅ Correct property name |
+| Section 5 — MAF `AgentResponse` | `IList<ChatMessage> newMessages = agentResult.Messages; await facade.PersistAfterRunAsync(newMessages, ...)` | ⚠️ Won't compile — `IList<T>` ≠ `IReadOnlyList<T>`. Use `.ToList()` or explicit cast. |
+
+---
+
+## Recommended Doc Fix
+
+In `docs/getting-started.md`, section 5, replace:
+```csharp
+IList<ChatMessage> newMessages = agentResult.Messages;
+await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
+```
+with:
+```csharp
+var newMessages = agentResult.Messages.ToList();
+await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
+```
+
+---
+
+# SK Plugin/Function Registration Names Verification
+
+**Date:** 2026-04-30  
+**Reviewer:** Rachael (MAF Expert)  
+**Requested by:** José  
+
+---
+
+## Summary
+
+The Semantic Kernel plugin registration in `docs/getting-started.md` **CONTAINS ERRORS**. The documentation needs corrections on both the registration method and the function invocation names.
+
+---
+
+## What the Docs Say
+
+**Section 6: Semantic Kernel Integration (lines 240-260)**
+
+Registration:
+```csharp
+builder.Services.AddAgentMemorySemanticKernel(); // registers as SK plugin
+```
+
+Plugin invocation example:
+```csharp
+var result = await kernel.InvokeAsync("AgentMemory", "search_memory",
+    new KernelArguments { ["query"] = "Alice preferences", ["sessionId"] = sessionId });
+```
+
+---
+
+## What the Actual API Is
+
+**File:** `src/Neo4j.AgentMemory.SemanticKernel/KernelMemoryExtensions.cs`
+
+**Actual registration method:**
+```csharp
+public static IKernelBuilder AddNeo4jMemoryPlugin(this IKernelBuilder builder)
+{
+    builder.Services.AddTransient<Neo4jMemoryPlugin>();
+    builder.Plugins.AddFromType<Neo4jMemoryPlugin>("Neo4jMemory");
+    return builder;
+}
+```
+
+**Actual plugin name:** `"Neo4jMemory"` (registered on line 20)
+
+**Actual kernel functions** (from `Neo4jMemoryPlugin.cs`):
+- `"recall"` (line 24) — `RecallAsync(string query, string sessionId, string? conversationId)`
+- `"add_message"` (line 46) — `AddMessageAsync(string sessionId, string conversationId, string role, string content)`
+- `"extract_from_session"` (line 60) — `ExtractFromSessionAsync(string sessionId)`
+- `"extract_from_conversation"` (line 70) — `ExtractFromConversationAsync(string conversationId)`
+- `"clear_session"` (line 80) — `ClearSessionAsync(string sessionId)`
+
+---
+
+## Discrepancies Found
+
+| Item | Docs | Actual | Issue |
+|------|------|--------|-------|
+| **Registration method** | `AddAgentMemorySemanticKernel()` | `AddNeo4jMemoryPlugin()` | ❌ Wrong method name |
+| **Plugin name** | `"AgentMemory"` | `"Neo4jMemory"` | ❌ Wrong plugin name |
+| **Example function** | `"search_memory"` | `"recall"` | ❌ Wrong function name (no "search_memory" exists) |
+| **DI usage** | Via `builder.Services.AddAgentMemorySemanticKernel()` | Via `builder.AddNeo4jMemoryPlugin()` (IKernelBuilder extension) | ❌ Wrong extension point |
+
+---
+
+## Fixes Needed
+
+### 1. **Fix the registration method name**
+   - **Change:** `builder.Services.AddAgentMemorySemanticKernel();`
+   - **To:** `builder.AddNeo4jMemoryPlugin();`
+   - **Note:** The method is an `IKernelBuilder` extension, not a `IServiceCollection` extension.
+
+### 2. **Fix the plugin name in invocation**
+   - **Change:** `kernel.InvokeAsync("AgentMemory", "search_memory", ...)`
+   - **To:** `kernel.InvokeAsync("Neo4jMemory", "recall", ...)`
+
+### 3. **Correct the function parameter names** (if shown in detail)
+   - The actual function expects `query` and `sessionId` parameters (and optional `conversationId`)
+
+---
+
+## Recommendations
+
+1. **Immediate action:** Update docs/getting-started.md Section 6 with correct method and function names.
+2. **Consider:** Add the other available functions (`add_message`, `extract_from_session`, `extract_from_conversation`, `clear_session`) to the documentation for discoverability.
+3. **Consider:** Show an example of DI setup for Semantic Kernel that includes the kernel builder pattern.
+
+---
+
+## Status
+
+🔴 **Action Required:** Documentation needs correction before release.
+
+---
+
+### 2026-04-30: Final targeted fixes applied
+**By:** José (via Joi)
+**What:** Applied 4 final corrections — SK names (Rachael), .ToList() (Roy), architecture diagram (Pris), README step order (Pris)
+**Status:** Ready for Pris final sign-off
+
+---
+
+# Pris — Final Sign-off (Third Pass)
+**Date:** 2026-04-30T19:43:32+02:00  
+**Reviewer:** Pris (Editorial Reviewer)  
+**Pass:** Sign-off pass — verifying Joi's targeted fixes on the 2 remaining documents  
+**Scope:** docs/architecture.md (§2.1 diagram fix), README.md (Quick Start step reorder)
+
+---
+
+## 1. `docs/architecture.md` — §2.1 Mermaid diagram box
+
+**Fix requested:** Change the Abstractions box inner text from "ZERO external dependencies — .NET 9 BCL only" to correctly state the single approved dependency (`Microsoft.Extensions.AI.Abstractions 10.4.1`).
+
+**Verification:** Line 99 of the §2.1 ASCII diagram now reads:
+```
+│  One approved external dep: M.E.AI.Abstractions 10.4.1      │   │
+```
+Fix applied correctly. ✅
+
+**Cross-consistency check:** The §2.2 Mermaid diagram node (line 117) also references `M.E.AI.Abstractions only` — consistent. The §3.1 table and §5 B1 checklist both agree. The document is now internally consistent on this point across all three locations.
+
+**Final scan for new issues:** None found. The rest of the document is unchanged from the previously approved state.
+
+### Verdict: Editorial approval — document is ready for publication
+
+---
+
+## 2. `README.md` — Quick Start step reorder
+
+**Fix requested:** Swap steps 2 and 3 so that `provider` (the `ServiceProvider`) is defined before it is used in `provider.GetRequiredService<ISchemaBootstrapper>()`.
+
+**Verification:**
+- Step 2 now shows the `ServiceCollection` / `AddNeo4jAgentMemory` / `BuildServiceProvider()` block — defines `provider` ✅
+- Step 3 now shows `provider.GetRequiredService<ISchemaBootstrapper>()` / `BootstrapAsync()` — uses `provider` correctly ✅
+- Step 4 (`provider.GetRequiredService<IMemoryService>()`) also reads cleanly after step 2 establishes `provider` ✅
+
+**Final scan for new issues:** None found. All five issues from the first pass were previously confirmed fixed. The reorder introduced no regressions.
+
+### Verdict: Editorial approval — document is ready for publication
+
+---
+
+## Summary
+
+| Document | Verdict |
+|----------|---------|
+| `docs/architecture.md` | ✅ **Editorial approval — document is ready for publication** |
+| `README.md` | ✅ **Editorial approval — document is ready for publication** |
+
+**All 6 documents in scope are now approved for publication.**
 
 ---
 
