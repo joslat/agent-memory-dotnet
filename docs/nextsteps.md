@@ -2,7 +2,7 @@
 
 | Priority | Task Name | Description | % Done | Reviewed | Plan File | Notes |
 |---|---|---|---|---|---|---|
-| 1 – HIGH | Package Rename | Rename all packages AgentMemory.* → AgentMemory.* | 0% | — | rename-plan.md | Plan written by Deckard (opus 4.7). Ready to execute. |
+| 1 – HIGH | Package Rename | Rename all packages AgentMemory.* → AgentMemory.* | 100% | ✅ Deckard | rename-plan.md | Executed by Roy (acef3ef). All 8 review gates passed. Approved by Deckard 2026-04-30. |
 | 2 – HIGH | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 0% | — | — | Trivial fix, no dedicated plan needed |
 | 3 – HIGH | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | 0% | — | — | Depends on Package Rename (#1) |
 | 4 – HIGH | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 0% | — | — | Depends on #1 and #3 |
@@ -56,7 +56,7 @@ Concretely:
 - **Agent integrations:** Microsoft Agent Framework, Semantic Kernel, MCP server (21 tools, 6 resources, 3 prompts).
 - **Observability:** OpenTelemetry ActivitySource + Meter, instrumented decorators for all extraction and enrichment services.
 
-What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), package rename (AgentMemory.* root namespace), streaming extraction for long documents, an Aspire demo application for developer onboarding, and an optional GDS analytics package.
+What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), streaming extraction for long documents, an Aspire demo application for developer onboarding, and an optional GDS analytics package. Package rename is complete (merged 2026-04-30).
 
 ---
 
