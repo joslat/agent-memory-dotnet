@@ -15,10 +15,11 @@
 | Deckard | Lead / Solution Architect | .squad/agents/deckard/charter.md | 🏗️ Active |
 | Roy | Core Memory Domain Engineer | .squad/agents/roy/charter.md | 🔧 Active |
 | Gaff | Neo4j Persistence Engineer | .squad/agents/gaff/charter.md | 🗄️ Active |
-| Rachael | MAF Integration Engineer | .squad/agents/rachael/charter.md | ⚛️ Active |
+| Rachael | MAF Expert | .squad/agents/rachael/charter.md | ⚛️ Active |
 | Sebastian | GraphRAG Interop Engineer | .squad/agents/sebastian/charter.md | 🔗 Active |
 | Holden | Testing & Harness Engineer | .squad/agents/holden/charter.md | 🧪 Active |
 | Joi | Docs / DevX Engineer | .squad/agents/joi/charter.md | 📝 Active |
+| Pris | Editorial Reviewer | .squad/agents/pris/charter.md | 📄 Active |
 | Scribe | Session Logger | .squad/agents/scribe/charter.md | 📋 Active |
 | Ralph | Work Monitor | .squad/agents/ralph/charter.md | 🔄 Active |
 

@@ -423,3 +423,5 @@ FodyWeavers.xsd
 .squad/sessions/
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
+# Squad: ignore runtime state (logs, inbox, sessions)
+.squad/.scratch/

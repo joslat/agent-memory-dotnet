@@ -28,7 +28,7 @@
     "rachael": {
       "persistent_name": "Rachael",
       "universe": "blade-runner",
-      "role": "MAF Integration Engineer",
+      "role": "MAF Expert",
       "created_at": "2026-04-12T17:30:00Z",
       "legacy_named": false,
       "status": "active"
@@ -54,6 +54,14 @@
       "universe": "blade-runner",
       "role": "Docs / DevX Engineer",
       "created_at": "2026-04-12T17:30:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "pris": {
+      "persistent_name": "Pris",
+      "universe": "blade-runner",
+      "role": "Editorial Reviewer",
+      "created_at": "2026-04-30T19:24:38Z",
       "legacy_named": false,
       "status": "active"
     }

@@ -1,6 +1,8 @@
-# Squad Workshop: Build a Tiny Full-Stack App with Your Repo-Native AI Team
+# Module 1 — Basic: Build a Tiny Full-Stack App with Your Repo-Native AI Team
 
 > A solo-dev workshop: build something with Squad, not just opinions.
+
+← Back to [Workshop Index](README.md)
 
 ---
 
@@ -120,7 +122,7 @@ winget install GitHub.Copilot --accept-source-agreements --accept-package-agreem
 squad --version
 ```
 
-**Expected:** `0.9.1` or later
+**Expected:** `0.9.4` or later
 
 **If not installed:**
 
@@ -133,6 +135,8 @@ npm install -g @bradygaster/squad-cli
 ```powershell
 npm install -g @bradygaster/squad-cli@latest
 ```
+
+> Earlier versions (0.9.1 and below) had two rough edges in `squad doctor` — a missing `casting/registry.json` and noisy false-positive warnings. Both are fixed in 0.9.4, so just upgrade and move on.
 
 ### 8. PowerShell execution policy (Windows only)
 
@@ -233,62 +237,34 @@ git push
 squad doctor
 ```
 
-**Expected (v0.9.1):** 8 passed, 0 failed, 2 warnings — after applying the fixes below.
+**Expected (v0.9.4):** `9 passed, 0 failed, 0 warnings, 2 info` — no manual fixes needed.
 
-#### Fix: `casting/registry.json` — ❌ FAIL
-
-In Squad **v0.9.1**, `squad init` creates the `.squad/casting/` directory but does not create the seed `registry.json` file. This is a known bug ([#579](https://github.com/bradygaster/squad/issues/579)) fixed in the dev branch ([PR #583](https://github.com/bradygaster/squad/pull/583)) but not yet released.
-
-**Fix it manually:**
-
-```powershell
-[System.IO.File]::WriteAllText(
-    "$PWD\.squad\casting\registry.json",
-    '{"version":1,"names":{}}',
-    [System.Text.UTF8Encoding]::new($false)
-)
-```
-
-> Use the .NET `WriteAllText` method — PowerShell 5.1's `Set-Content -Encoding UTF8` adds a BOM that breaks JSON parsing.
-
-Re-run `squad doctor` — it should now show ✅ for casting.
-
-#### Warnings: `vscode-jsonrpc` and `copilot-sdk` — ⚠️ Safe to ignore (v0.9.1)
-
-In Squad **v0.9.1**, `squad doctor` reports two warnings:
+#### Expected output (v0.9.4)
 
 ```
-⚠️  vscode-jsonrpc exports field — vscode-jsonrpc not found in node_modules
-⚠️  copilot-sdk session.js ESM patch — @github/copilot-sdk not found in node_modules
+🩺 Squad Doctor
+===============
+
+Mode: local
+
+✅  .squad/ directory exists — directory present
+✅  config.json valid — parses as JSON, schema OK
+✅  team.md found with ## Members header — file present, header found
+✅  routing.md found — file present
+✅  agents/ directory exists — directory present (2 agents)
+✅  casting/registry.json exists — file present, valid JSON
+✅  decisions.md exists — file present
+✅  .github/agents/squad.agent.md — file present (Copilot agent discovery file)
+✅  Node.js ≥22.5.0 (node:sqlite) — vXX.XX.X — node:sqlite available
+ℹ️  vscode-jsonrpc exports field — not found in node_modules (expected for global installs)
+ℹ️  copilot-sdk session.js ESM patch — not found in node_modules (expected for global installs)
+
+Summary: 9 passed, 0 failed, 0 warnings, 2 info
 ```
 
-These are **false positives** for CLI-based usage ([#565](https://github.com/bradygaster/squad/issues/565), [#449](https://github.com/bradygaster/squad/issues/449)):
+The two `ℹ️` info lines are not warnings — Squad explicitly tells you they're expected when the CLI is installed globally (which it is, in this workshop). Both packages are bundled inside the Squad CLI itself, not in your project's `node_modules/`. No action needed.
 
-- **`vscode-jsonrpc`** — Only needed for SDK-first mode (TypeScript `squad.config.ts`). Not needed when using the CLI + Copilot CLI workflow.
-- **`@github/copilot-sdk`** — Only relevant for Squad's embedded Copilot SDK sessions (internal watch/execute mode). The Copilot CLI handles this externally.
-
-Both packages are bundled inside the Squad CLI itself, not in your project's `node_modules/`. The doctor check is overly strict in v0.9.1 — this has been fixed in the dev branch ([PR #823](https://github.com/bradygaster/squad/pull/823)) but is not yet released.
-
-**No action needed.** These warnings do not affect the workshop.
-
-#### Expected final output (v0.9.1, after fix)
-
-```
-✅  .squad/ directory exists
-✅  config.json valid
-✅  team.md found with ## Members header
-✅  routing.md found
-✅  agents/ directory exists (2 agents)
-✅  casting/registry.json exists — valid JSON
-✅  decisions.md exists
-✅  Node.js ≥22.5.0 (node:sqlite)
-⚠️  vscode-jsonrpc exports field          ← safe to ignore
-⚠️  copilot-sdk session.js ESM patch      ← safe to ignore
-
-Summary: 8 passed, 0 failed, 2 warnings
-```
-
-> **Note:** If you are running a Squad version newer than 0.9.1, these issues may already be resolved. Check the [CHANGELOG](https://github.com/bradygaster/squad/blob/dev/CHANGELOG.md) for your version.
+> **If you're stuck on v0.9.1:** `squad init` won't scaffold `casting/registry.json` and `squad doctor` will report two warnings instead of info. Either upgrade (`npm install -g @bradygaster/squad-cli@latest`) or check the [CHANGELOG](https://github.com/bradygaster/squad/blob/main/CHANGELOG.md) for your version.
 
 ---
 
@@ -537,183 +513,6 @@ This is where Squad is supposed to earn its keep. The solo-dev docs position the
 
 ---
 
-## Step 7: Add a second-wave feature
-
-Now build something slightly annoying:
-
-```
-Add these features and update everything accordingly:
-1. Filter books by unread/read status (both API and UI)
-2. Validation rule: title is required, author is required
-3. Update all existing tests and add new ones for the filter and validation
-4. Update the UI to show a filter toggle (All / Unread / Read)
-```
-
-**What to watch for:**
-- Do the agents reuse prior decisions and skills cleanly?
-- Does the second feature go faster because the repo memory helped?
-- Does the team avoid re-explaining things that were already decided?
-
-If the team structure reduces re-explaining, you will feel the difference here.
-
----
-
-## Step 8: Commit and push
-
-Ask the team to wrap up:
-
-```
-Commit all changes with a clear commit message summarizing what was built.
-Push to origin.
-```
-
-Or do it manually:
-
-```powershell
-# In a separate terminal:
-git add -A
-git commit -m "feat: reading list app with CRUD, filtering, validation, and tests"
-git push
-```
-
----
-
-## Step 9: Look inside `.squad/`
-
-Before celebrating, inspect the team's artifacts. Open each file and evaluate:
-
-```powershell
-# Decisions — were they useful?
-Get-Content .squad\decisions.md
-
-# Routing — does it reflect the actual team?
-Get-Content .squad\routing.md
-
-# Team — who's on it?
-Get-Content .squad\team.md
-
-# Skills — did anything get captured?
-Get-ChildItem -Recurse .copilot\skills\
-
-# Agent histories — did they learn?
-Get-ChildItem .squad\agents\ -Recurse -Include history.md | ForEach-Object {
-    Write-Host "`n=== $($_.FullName) ===" -ForegroundColor Yellow
-    Get-Content $_
-}
-
-# Identity — current focus and wisdom
-Get-Content .squad\identity\now.md
-Get-Content .squad\identity\wisdom.md
-```
-
-**If those files are useful, Squad is doing real work. If they are just decorative AI confetti, you learned something equally valuable.**
-
----
-
-## Step 10: Observe it with Aspire (optional)
-
-If you have .NET Aspire installed:
-
-> **Important:** The Aspire dashboard is a **live telemetry collector** — it shows traces from active Squad sessions, not historical data. An empty dashboard means nothing is sending telemetry to it yet.
-
-The correct order is:
-
-### 10a. Exit the current Copilot CLI session
-
-```
-/quit
-```
-
-### 10b. Launch the Aspire dashboard
-
-```powershell
-squad aspire
-```
-
-This starts the Aspire dashboard and an OpenTelemetry collector. Keep this running — it will listen for incoming telemetry. The dashboard will be empty at first. That's expected.
-
-### 10c. Start a new Copilot CLI session (in a separate terminal)
-
-```powershell
-copilot --agent squad
-```
-
-### 10d. Do some work and watch the dashboard populate
-
-Give the team a small task so telemetry starts flowing:
-
-```
-Lead, give me a brief status summary of the project so far.
-```
-
-Now switch to the Aspire dashboard in your browser. You should start seeing:
-- Traces
-- Agent spawns
-- Token usage
-- Time to first token (TTFT)
-- Durations
-
-### 10e. When done, exit both
-
-Exit the Copilot CLI:
-
-```
-/quit
-```
-
-Then stop Aspire with `Ctrl+C` in its terminal.
-
-> If you are going to trust multi-agent coding, at least let it be observed instead of accepted on faith like a prophecy.
-
----
-
-## Step 11: Try Ralph — Watch Mode (optional, advanced)
-
-Ralph is Squad's autonomous polling agent. He watches for GitHub issues and auto-triages (or auto-executes) them.
-
-### 11a. Create a test issue on GitHub
-
-```powershell
-gh issue create --title "Add a 'notes' field to books" --body "Users should be able to add personal notes to each book in their reading list. Update the API, database model, and UI."
-```
-
-### 11b. Start Ralph in triage-only mode
-
-```powershell
-squad triage --interval 1
-```
-
-This polls every 1 minute and triages issues to team members without executing. Watch the output — Ralph should pick up your issue and assign it.
-
-### 11c. Start Ralph with execution (fully autonomous)
-
-```powershell
-squad triage --execute --interval 1 --copilot-flags "--yolo --agent squad"
-```
-
-Now Ralph will:
-1. Poll for issues
-2. Build a context snapshot
-3. Dispatch a Copilot agent to work on the issue
-4. Monitor execution and update the issue
-
-### 11d. Monitor Ralph
-
-```powershell
-squad triage --health
-```
-
-### 11e. Stop Ralph
-
-```powershell
-# Create the sentinel file to gracefully stop:
-New-Item -Path .squad\ralph-stop -ItemType File
-```
-
-Ralph finishes his current round and exits cleanly.
-
----
-
 ## What to watch for
 
 Success is not "the app compiles." A determined toaster can probably do that soon.
@@ -723,7 +522,6 @@ Success is not "the app compiles." A determined toaster can probably do that soo
 - [ ] The Lead catches something useful during review
 - [ ] The Tester adds test cases you would have skipped
 - [ ] Decisions are actually preserved in `decisions.md` and referenced later
-- [ ] The second feature goes faster because the repo memory helped
 - [ ] The team structure reduces re-explaining context
 
 **Failure looks like:**
@@ -737,54 +535,8 @@ That is why this is a workshop and not a demo. Demos flatter tools. Workshops em
 
 ---
 
-## Quick reference: Squad commands
+## You can stop here
 
-| Command | Purpose |
-|---|---|
-| `squad init` | Scaffold Squad in the current directory |
-| `squad doctor` | Diagnose setup issues |
-| `squad status` | Show active squad info |
-| `squad upgrade` | Update Squad-owned files (never touches team state) |
-| `squad upgrade --self` | Update the Squad CLI itself |
-| `squad triage` | Watch mode — poll and triage issues |
-| `squad triage --execute` | Watch mode with autonomous agent execution |
-| `squad nap` | Context hygiene — compress, prune, archive |
-| `squad aspire` | Open Aspire dashboard for observability |
-| `squad export` | Export squad to portable JSON |
+If module 1 was useful, you have a working app, a working team, and enough exposure to decide whether Squad is worth keeping in your toolbelt.
 
-## Quick reference: Copilot CLI commands
-
-| Command | Purpose |
-|---|---|
-| `copilot --agent squad` | Start Copilot CLI with the Squad agent |
-| `copilot --agent squad --yolo` | Start with auto-approve for all tool calls |
-| `/allow-all` | Enable all permissions inside a session |
-| `/quit` | Exit the Copilot CLI session |
-| `/login` | Authenticate if not logged in |
-| `/init` | Generate copilot-instructions.md |
-
----
-
-## Cleanup
-
-When done, you can delete the workshop repo:
-
-```powershell
-gh repo delete reading-list-squad-lab --yes
-cd ..
-Remove-Item -Recurse -Force reading-list-squad-lab
-```
-
----
-
-## Environment used in this workshop
-
-| Tool | Version |
-|---|---|
-| Node.js | 22.22.2 |
-| .NET SDK | 10.0.102 |
-| GitHub CLI | 2.89.0 |
-| Copilot CLI | 1.0.24 |
-| Squad CLI | 0.9.1 |
-| OS | Windows 11 |
-| Shell | PowerShell |
+If you want to test whether the persistent memory actually compounds — i.e., whether the *second* feature goes faster than the first — continue to **[Module 2 — Intermediate](02-intermediate.md)**.

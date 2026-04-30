@@ -1,9 +1,112 @@
-# Microsoft Agent Framework (MAF) 1.1.0 — Complete Migration Guide
+# Microsoft Agent Framework (MAF) 1.3.0 — Complete Migration Guide
 
-> **Purpose:** Enable AI coding agents and developers to upgrade any existing MAF project (from RC1, RC3, RC4, or earlier 1.0.x) to MAF 1.1.0.  
-> **Approach:** This guide shows **only the final 1.1.0 state** — not diffs from each prior version. Apply the target patterns regardless of your starting point.  
-> **Last verified:** April 2026 against `Microsoft.Agents.AI 1.1.0` ([NuGet](https://www.nuget.org/packages/Microsoft.Agents.AI/1.1.0))  
-> **Official docs:** [learn.microsoft.com/agent-framework](https://learn.microsoft.com/en-us/agent-framework/)
+> **Purpose:** Complete reference for implementing with MAF 1.3.0. Shows the final target patterns — apply regardless of your starting point.  
+> **Audience:** LLM agents performing code migration. This document is optimized for machine consumption.  
+> **Last verified:** April 2026 against `Microsoft.Agents.AI 1.3.0` ([NuGet](https://www.nuget.org/packages/Microsoft.Agents.AI/1.3.0)), API surface verified via `dotnet-inspect 0.7.6`  
+> **Official docs:** [learn.microsoft.com/agent-framework](https://learn.microsoft.com/en-us/agent-framework/)  
+> **Release notes:** [dotnet-1.3.0](https://github.com/microsoft/agent-framework/releases/tag/dotnet-1.3.0) · [Changelog vs 1.2.0](https://github.com/microsoft/agent-framework/compare/dotnet-1.2.0...dotnet-1.3.0)
+
+---
+
+## Sources & Verification Tools
+
+### NuGet Packages
+
+All MAF packages are published on [nuget.org](https://www.nuget.org/profiles/aspaborern). Key package links:
+
+| Package | NuGet Link |
+|---------|------------|
+| `Microsoft.Agents.AI` | [nuget.org/packages/Microsoft.Agents.AI](https://www.nuget.org/packages/Microsoft.Agents.AI/) |
+| `Microsoft.Agents.AI.Abstractions` | [nuget.org/packages/Microsoft.Agents.AI.Abstractions](https://www.nuget.org/packages/Microsoft.Agents.AI.Abstractions/) |
+| `Microsoft.Agents.AI.OpenAI` | [nuget.org/packages/Microsoft.Agents.AI.OpenAI](https://www.nuget.org/packages/Microsoft.Agents.AI.OpenAI/) |
+| `Microsoft.Agents.AI.Workflows` | [nuget.org/packages/Microsoft.Agents.AI.Workflows](https://www.nuget.org/packages/Microsoft.Agents.AI.Workflows/) |
+| `Microsoft.Agents.AI.Workflows.Generators` | [nuget.org/packages/Microsoft.Agents.AI.Workflows.Generators](https://www.nuget.org/packages/Microsoft.Agents.AI.Workflows.Generators/) |
+| `Microsoft.Agents.AI.Foundry` | [nuget.org/packages/Microsoft.Agents.AI.Foundry](https://www.nuget.org/packages/Microsoft.Agents.AI.Foundry/) |
+| `Microsoft.Agents.AI.A2A` | [nuget.org/packages/Microsoft.Agents.AI.A2A](https://www.nuget.org/packages/Microsoft.Agents.AI.A2A/) |
+| `Microsoft.Agents.AI.Hosting.A2A` | [nuget.org/packages/Microsoft.Agents.AI.Hosting.A2A](https://www.nuget.org/packages/Microsoft.Agents.AI.Hosting.A2A/) |
+| `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` | [nuget.org/packages/Microsoft.Agents.AI.Hosting.A2A.AspNetCore](https://www.nuget.org/packages/Microsoft.Agents.AI.Hosting.A2A.AspNetCore/) |
+| `Microsoft.Extensions.AI` | [nuget.org/packages/Microsoft.Extensions.AI](https://www.nuget.org/packages/Microsoft.Extensions.AI/) |
+| `Microsoft.Extensions.AI.OpenAI` | [nuget.org/packages/Microsoft.Extensions.AI.OpenAI](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/) |
+
+### Source Code Repository
+
+- **GitHub:** [github.com/microsoft/agent-framework](https://github.com/microsoft/agent-framework)
+- **.NET source:** [`dotnet/src/`](https://github.com/microsoft/agent-framework/tree/main/dotnet/src)
+- **.NET samples:** [`dotnet/samples/`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples)
+- **MAFVnext branch:** [`MAFVnext`](https://github.com/microsoft/agent-framework/tree/MAFVnext) — development branch with latest work-in-progress
+
+### API Verification with `dotnet-inspect`
+
+When patterns in this guide are unclear or you suspect an API has changed, use the `dotnet-inspect` CLI tool to inspect the actual package API surface at runtime:
+
+```bash
+# Install and run dotnet-inspect (requires .NET SDK)
+dnx dotnet-inspect@0.7.6 -y --source https://api.nuget.org/v3/index.json -- <command> --package <PackageName>@<Version> --source https://api.nuget.org/v3/index.json
+```
+
+> **Important:** The `--source https://api.nuget.org/v3/index.json` flag must appear on **both** the `dnx` command (tool installation) **and** the inspect command (package resolution). This is required when the workspace has custom NuGet feeds that don't host these packages.
+
+Example commands:
+
+```bash
+# List all types in a package
+dnx dotnet-inspect@0.7.6 -y --source https://api.nuget.org/v3/index.json -- types --package Microsoft.Agents.AI@1.3.0 --source https://api.nuget.org/v3/index.json
+
+# Inspect a specific type's API surface
+dnx dotnet-inspect@0.7.6 -y --source https://api.nuget.org/v3/index.json -- apis --package Microsoft.Agents.AI@1.3.0 --type ChatClientAgent --source https://api.nuget.org/v3/index.json
+
+# Check package dependency tree
+dnx dotnet-inspect@0.7.6 -y --source https://api.nuget.org/v3/index.json -- depends --package Microsoft.Agents.AI@1.3.0 --source https://api.nuget.org/v3/index.json
+```
+
+> **Skill reference:** For full `dotnet-inspect` documentation and advanced usage, see `.github/skills/dotnet-inspect/SKILL.md` in this repository.
+
+#### Installing the `dotnet-inspect` Copilot Skill
+
+The `dotnet-inspect` Copilot skill is maintained in the official repository by [@richlander](https://github.com/richlander):
+
+- **Repository:** [github.com/richlander/dotnet-inspect](https://github.com/richlander/dotnet-inspect)
+- **Skill file:** [skills/dotnet-inspect/SKILL.md](https://github.com/richlander/dotnet-inspect/tree/main/skills/dotnet-inspect)
+
+The skill teaches GitHub Copilot and other LLM agents how to use the `dotnet-inspect` CLI effectively — including the quick decision tree, key patterns, command reference, and important caveats.
+
+**Install or update the skill in your repository** by copying `SKILL.md` from the official source into `.github/skills/dotnet-inspect/SKILL.md`:
+
+```powershell
+# Download the latest SKILL.md from the official repository
+$skillDir = ".github/skills/dotnet-inspect"
+New-Item -ItemType Directory -Force -Path $skillDir
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/richlander/dotnet-inspect/main/skills/dotnet-inspect/SKILL.md" `
+  -OutFile "$skillDir/SKILL.md"
+```
+
+Or manually:
+1. Open [https://github.com/richlander/dotnet-inspect/blob/main/skills/dotnet-inspect/SKILL.md](https://github.com/richlander/dotnet-inspect/blob/main/skills/dotnet-inspect/SKILL.md)
+2. Copy the raw content
+3. Save to `.github/skills/dotnet-inspect/SKILL.md` in your repository
+
+> **This repository** already has the skill installed at [`.github/skills/dotnet-inspect/SKILL.md`](../.github/skills/dotnet-inspect/SKILL.md) (version 0.7.6).
+
+#### Installing the `dotnet-inspect` CLI Tool
+
+Install the CLI globally via `dotnet tool`:
+
+```bash
+dotnet tool install -g dotnet-inspect
+```
+
+Or run on-demand without installing (like `npx`), which will automatically install the latest version:
+
+```bash
+dnx dotnet-inspect -y -- <command>
+```
+
+To pin to a specific version (recommended for reproducible CI):
+
+```bash
+dnx dotnet-inspect@0.7.6 -y --source https://api.nuget.org/v3/index.json -- <command>
+```
 
 ---
 
@@ -35,7 +138,7 @@ MAF has three middleware layers. Place logic at the correct level:
 > *Source: [Agent Pipeline Architecture](https://learn.microsoft.com/en-us/agent-framework/agents/agent-pipeline?pivots=programming-language-csharp)*
 
 ### 6. Enable OpenTelemetry Observability
-Instrument both chat clients and agents for traces, metrics, and logs. Use `UseOpenTelemetry()` on the chat client builder and `WithOpenTelemetry()` on the agent.
+Instrument both chat clients and agents for traces, metrics, and logs. Use `UseOpenTelemetry()` on the chat client builder, and `agent.AsBuilder().UseOpenTelemetry(...).Build()` on the agent.
 > *Source: [Observability](https://learn.microsoft.com/en-us/agent-framework/agents/observability?pivots=programming-language-csharp)*
 
 ### 7. Use Structured Output (`RunAsync<T>`) for Type-Safe Responses
@@ -58,6 +161,7 @@ When registering agent middleware, always provide both `runFunc` and `runStreami
 
 ## Table of Contents
 
+- [**Sources & Verification Tools**](#sources--verification-tools)
 - [**Best Practices — Top Patterns to Follow**](#best-practices--top-patterns-to-follow)
 1. [Package References & Dependencies](#1-package-references--dependencies)
 2. [Namespace Changes](#2-namespace-changes)
@@ -81,8 +185,11 @@ When registering agent middleware, always provide both `runFunc` and `runStreami
 17.7. [Tool Approval — Human-in-the-Loop](#177-tool-approval--human-in-the-loop)
 17.8. [Observability — OpenTelemetry](#178-observability--opentelemetry)
 17.9. [Multimodal — Images](#179-multimodal--images)
+17.10. [A2A Agent — Remote Protocol Proxies](#1710-a2a-agent--remote-protocol-proxies)
+17.11. [Dynamic Tool Expansion (New in 1.3.0)](#1711-dynamic-tool-expansion-new-in-130)
+17.12. [Server-Side Foundry Toolbox (New in 1.3.0)](#1712-server-side-foundry-toolbox-new-in-130)
 18. [Session Serialization & Replay](#18-session-serialization--replay)
-19. [Breaking Changes Summary](#19-breaking-changes-summary)
+19. [API Patterns Summary](#19-api-patterns-summary)
 20. [Migration Checklist](#20-migration-checklist)
 - [**Misalignments — Document vs. Code Reality**](#misalignments--document-vs-code-reality)
 
@@ -90,33 +197,63 @@ When registering agent middleware, always provide both `runFunc` and `runStreami
 
 ## 1. Package References & Dependencies
 
-### NuGet Packages (1.1.0)
+### Prerequisites
+
+- **.NET SDK:** 8.0 or later (MAF 1.3.0 targets `net8.0`+; `net9.0` and `net10.0` are also supported)
+- **Azure.AI.OpenAI:** `2.8.0-beta.1` or later (if using Azure OpenAI)
+- **Azure.Identity:** latest stable (if using Azure credential providers)
+
+### Removing Old / Superseded Packages
+
+If migrating from an older agent framework, remove these superseded packages before adding MAF 1.3.0 references:
+
+```xml
+<!-- Remove all of these if present — they are superseded by Microsoft.Agents.AI* -->
+<PackageReference Include="Microsoft.Agents.Builder" />
+<PackageReference Include="Microsoft.Agents.Builder.OpenAI" />
+<PackageReference Include="Microsoft.Agents.Extensions.*" />
+<PackageReference Include="Microsoft.SemanticKernel" />
+<PackageReference Include="Microsoft.SemanticKernel.*" />
+<PackageReference Include="Microsoft.Bot.Builder" />
+<PackageReference Include="Microsoft.Bot.Builder.*" />
+```
+
+> **Note:** MAF replaces both Semantic Kernel's agent abstractions and the older Bot Framework SDK. If your project uses Semantic Kernel for non-agent features (e.g., connectors, memory), those can coexist — but all agent-related code should migrate to `Microsoft.Agents.AI`.
+
+### NuGet Packages (1.3.0)
 
 ```xml
 <!-- Core agent framework -->
-<PackageReference Include="Microsoft.Agents.AI" Version="1.1.0" />
+<PackageReference Include="Microsoft.Agents.AI" Version="1.3.0" />
 
 <!-- Provider-specific (pick what you use) -->
-<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.1.0" />
+<PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.3.0" />
 
 <!-- Workflows (if using multi-agent orchestration) -->
-<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.1.0" />
+<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.3.0" />
 
 <!-- Source-generated executors (if using [MessageHandler] pattern) -->
-<PackageReference Include="Microsoft.Agents.AI.Workflows.Generators" Version="1.1.0" />
+<PackageReference Include="Microsoft.Agents.AI.Workflows.Generators" Version="1.3.0" />
 
 <!-- Foundry integration (if using Azure AI Foundry) -->
-<PackageReference Include="Microsoft.Agents.AI.Foundry" Version="1.1.0" />
+<PackageReference Include="Microsoft.Agents.AI.Foundry" Version="1.3.0" />
+
+<!-- A2A agent proxy + hosting (if using A2A protocol) -->
+<PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.3.0" />
+<PackageReference Include="Microsoft.Agents.AI.Hosting.A2A" Version="1.3.0" />
+<PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.3.0" />
 ```
 
 ### Required Companion Dependencies
 
-MAF 1.1.0 requires these minimum versions of Microsoft.Extensions.AI:
+MAF 1.3.0 requires these minimum versions of Microsoft.Extensions.AI:
 
 ```xml
-<PackageReference Include="Microsoft.Extensions.AI" Version="10.4.0" />
-<PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.0" />
+<PackageReference Include="Microsoft.Extensions.AI" Version="10.5.0" />
+<PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.0" />
 ```
+
+> **Tip:** Check the [NuGet release page](https://www.nuget.org/packages/Microsoft.Agents.AI/1.3.0) for the exact `Microsoft.Extensions.AI` transitive requirement — newer patch versions of MEAI release frequently alongside MAF.
 
 ### Central Package Management (recommended)
 
@@ -128,12 +265,16 @@ If using `Directory.Packages.props`:
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Agents.AI" Version="1.1.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.1.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="1.1.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.Workflows.Generators" Version="1.1.0" />
-    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Agents.AI" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.OpenAI" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Workflows.Generators" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Foundry" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.3.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.5.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.0" />
     <PackageVersion Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
   </ItemGroup>
 </Project>
@@ -153,7 +294,7 @@ dotnet test
 
 ## 2. Namespace Changes
 
-MAF 1.1.0 consolidated namespaces. The key using statements are:
+MAF 1.3.0 consolidated namespaces. The key using statements are:
 
 ```csharp
 // Core agent types
@@ -166,11 +307,27 @@ using Microsoft.Extensions.AI;
 using Microsoft.Agents.AI.Workflows;
 ```
 
-**What changed from earlier RCs:**
-- `Microsoft.Agents.AI.ChatClientAgent` is now the primary simple agent class (was sometimes called differently in early RCs)
-- `AIAgent` is the base class for all agents
-- `AgentSession` replaced any earlier session abstractions
-- `AgentResponse` and `AgentResponseUpdate` replaced earlier response types
+**Old namespaces to remove** (if still referenced from prior versions):
+```csharp
+// Remove — superseded by Microsoft.Agents.AI
+using Microsoft.Agents.Builder;
+using Microsoft.Agents.Extensions;
+
+// Remove — superseded by Microsoft.Extensions.AI
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Agents;
+using Microsoft.SemanticKernel.ChatCompletion;
+
+// Remove — superseded by Microsoft.Agents.AI
+using Microsoft.Bot.Builder;
+using Microsoft.Bot.Schema;
+```
+
+**Key types and namespaces:**
+- `Microsoft.Agents.AI.ChatClientAgent` — primary simple agent class
+- `Microsoft.Agents.AI.AIAgent` — base class for all agents
+- `Microsoft.Agents.AI.AgentSession` — conversation session state
+- `Microsoft.Agents.AI.AgentResponse` / `AgentResponseUpdate` — response types
 
 ---
 
@@ -267,7 +424,7 @@ var agent = new ChatClientAgent(chatClient, new ChatClientAgentOptions
 });
 ```
 
-> **Breaking change from early RCs:** `ChatOptions` is now a **nested property** inside `ChatClientAgentOptions`, and `Name` is a property on the options object. In RC1, instructions and tools were set directly on the agent options object. In 1.1.0, they go inside `ChatOptions`.
+> **Note:** `ChatOptions` is a **nested property** inside `ChatClientAgentOptions`. Instructions and tools go inside `ChatOptions`, not directly on the agent options object.
 
 ---
 
@@ -473,7 +630,7 @@ AgentSession resumed = await agent.DeserializeSessionAsync(serialized);
 Key points:
 - Context providers run **around each agent invocation** (before + after)
 - They persist **across session resets** (unlike `ChatHistoryProvider`)
-- They are the correct way to implement **long-term memory** in MAF 1.1.0
+- They are the correct way to implement **long-term memory** in MAF
 
 ### Pipeline Position
 
@@ -757,7 +914,7 @@ List<ChatMessage>? messages = provider?.GetMessages(session);
 
 > *Source: [Agent Pipeline](https://learn.microsoft.com/en-us/agent-framework/agents/agent-pipeline?pivots=programming-language-csharp)*
 
-MAF 1.1.0 has a layered pipeline that executes on each `RunAsync`/`RunStreamingAsync` call:
+MAF 1.3.0 has a layered pipeline that executes on each `RunAsync`/`RunStreamingAsync` call:
 
 ```
 ┌─ Agent Middleware Layer ───────────────────────────────────────┐
@@ -790,7 +947,7 @@ MAF 1.1.0 has a layered pipeline that executes on each `RunAsync`/`RunStreamingA
 
 > *Source: [Middleware](https://learn.microsoft.com/en-us/agent-framework/agents/middleware/?pivots=programming-language-csharp) · [Defining Middleware](https://learn.microsoft.com/en-us/agent-framework/agents/middleware/defining-middleware?pivots=programming-language-csharp)*
 
-MAF 1.1.0 supports three middleware layers:
+MAF supports three middleware layers:
 
 ### Agent Run Middleware
 
@@ -957,7 +1114,7 @@ Use `[MessageHandler]` on methods in a `partial class` deriving from `Executor`.
 **Required package:**
 
 ```xml
-<PackageReference Include="Microsoft.Agents.AI.Workflows.Generators" Version="1.1.0" />
+<PackageReference Include="Microsoft.Agents.AI.Workflows.Generators" Version="1.3.0" />
 ```
 
 ### Basic Executor
@@ -1020,7 +1177,7 @@ var workflow = new WorkflowBuilder(uppercaseExecutor)
     .Build();
 ```
 
-> **Breaking change from earlier RCs:** `ReflectingExecutor` is obsoleted in favor of source-generated `[MessageHandler]` executors. Migrate any `ReflectingExecutor` subclasses to the `partial class` + `[MessageHandler]` pattern.
+> **Note:** `ReflectingExecutor` is obsoleted in favor of source-generated `[MessageHandler]` executors. Use the `partial class` + `[MessageHandler]` pattern instead.
 
 ---
 
@@ -1237,7 +1394,7 @@ Console.WriteLine(aggregated.Messages.Count);
 
 > **Note:** The compaction framework is currently experimental. Add `#pragma warning disable MAAI001` to use it.
 
-As conversations grow, token counts can exceed model limits and increase costs. MAF 1.1.0 provides compaction strategies to reduce history size while preserving important context.
+As conversations grow, token counts can exceed model limits and increase costs. MAF provides compaction strategies to reduce history size while preserving important context.
 
 ### Strategy Types
 
@@ -1302,7 +1459,7 @@ Compaction applies **only** to agents with in-memory history. Service-managed co
 
 > *Source: [Structured Output](https://learn.microsoft.com/en-us/agent-framework/agents/structured-output?pivots=programming-language-csharp)*
 
-MAF 1.1.0 supports type-safe structured output in three ways:
+MAF supports type-safe structured output in three ways:
 
 ### Pattern 1: Generic `RunAsync<T>()` (Recommended)
 
@@ -1412,9 +1569,11 @@ AIAgent agent = new ChatClientAgent(
     instrumentedChatClient,
     name: "MyAgent",
     instructions: "You are a helpful assistant.",
-    tools: [AIFunctionFactory.Create(GetWeather)]
-).WithOpenTelemetry(sourceName: SourceName,
-    configure: cfg => cfg.EnableSensitiveData = true);
+    tools: [AIFunctionFactory.Create(GetWeather)])
+    .AsBuilder()
+    .UseOpenTelemetry(sourceName: SourceName,
+        configure: cfg => cfg.EnableSensitiveData = true)
+    .Build();
 ```
 
 ### Configure OpenTelemetry Exporters
@@ -1460,6 +1619,274 @@ Console.WriteLine(await agent.RunAsync(message));
 
 ---
 
+## 17.10. A2A Agent — Remote Protocol Proxies
+
+> *Source: PR [#5423](https://github.com/microsoft/agent-framework/pull/5423) — "Migrate A2A agent and hosting to A2A SDK v1"*
+
+> The A2A agent and hosting stack uses A2A SDK `1.0.0-preview2`. All hosting extension methods, DI registration APIs, and the client type follow the v1 SDK patterns below.
+
+### Packages (1.3.0)
+
+```xml
+<PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.3.0" />
+<PackageReference Include="Microsoft.Agents.AI.Hosting.A2A" Version="1.3.0" />
+<PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.3.0" />
+```
+
+### What Changed
+
+| Area | 1.3.0 Pattern |
+|------|---------------|
+| A2A SDK dependency | `A2ASdk 1.0.0-preview2` |
+| Client type | `IA2AClient` (interface) via `GetService(typeof(IA2AClient))` |
+| Client factory | `A2AClientFactory.Create()` |
+| Hosting DI registration | `A2AServerServiceCollectionExtensions.AddA2AServer(agent, options)` |
+| Endpoint mapping | `A2AEndpointRouteBuilderExtensions.MapA2AHttpJson(path)` / `MapA2AJsonRpc(path)` |
+| Agent handler | `A2AAgentHandler` |
+| Server configuration | `A2AServerRegistrationOptions` |
+| SSE reconnection | Built-in using continuation tokens |
+| Streaming | SSE streaming supported in agent handler |
+| Samples location | `samples/02-agents/A2A/` |
+
+### DI Registration — Server Side
+
+```csharp
+// 1. Register the A2A server in DI
+services.AddA2AServer(agent, new A2AServerRegistrationOptions
+{
+    AgentCard = agentCard
+});
+
+// 2. Map protocol-specific endpoints
+app.MapA2AHttpJson("/agents/myagent");   // HTTP+JSON protocol (preferred)
+// or
+app.MapA2AJsonRpc("/agents/myagent");    // JSON-RPC protocol
+// or both — one per protocol binding, same agent
+```
+
+### Client Side — IA2AClient Interface
+
+```csharp
+// Resolve the A2A client via the IA2AClient interface
+IA2AClient client = (IA2AClient)agent.GetService(typeof(IA2AClient));
+```
+
+### Agent Card Extensions — Client Factory
+
+```csharp
+// A2AAgentCardExtensions and A2ACardResolverExtensions
+// use A2AClientFactory.Create() and accept optional A2AClientOptions
+
+// Resolve a remote agent from its agent card URL
+var options = new A2AClientOptions
+{
+    PreferredProtocol = A2AProtocol.HttpJson  // or A2AProtocol.JsonRpc
+};
+
+AIAgent remoteAgent = await A2ACardResolver.GetAgentAsync(agentCardUrl, options);
+```
+
+### SSE Stream Reconnection
+
+Stream reconnection is **built-in**. The `A2AAgent` automatically uses continuation tokens to recover interrupted SSE connections.
+
+```csharp
+// Stream reconnection is transparent — no code changes needed
+AIAgent remoteAgent = await A2ACardResolver.GetAgentAsync(agentCardUrl);
+AgentSession session = await remoteAgent.CreateSessionAsync();
+
+// If the SSE stream is interrupted, A2AAgent reconnects automatically
+// using the last received continuation token
+await foreach (var update in remoteAgent.RunStreamingAsync("Hello!", session))
+{
+    Console.Write(update.Text);
+}
+```
+
+### New Samples
+
+| Sample | Description |
+|--------|-------------|
+| `A2AAgent_ProtocolSelection` | Demonstrates selecting HTTP+JSON vs JSON-RPC protocol |
+| `A2AAgent_StreamReconnection` | Demonstrates SSE stream reconnection with continuation tokens |
+| `A2AClientServer` | Updated for v1 SDK APIs |
+| `AgentWebChat` | Updated for v1 SDK APIs |
+
+---
+
+## 17.11. Dynamic Tool Expansion (New in 1.3.0)
+
+> *Source: PR [#5425](https://github.com/microsoft/agent-framework/pull/5425) · Sample: [Agent_Step20_DynamicFunctionTools](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/Agents/Agent_Step20_DynamicFunctionTools)*
+
+MAF 1.3.0 introduces a sample demonstrating how to expand the set of available tools **during** a function-calling loop using `FunctionInvokingChatClient.CurrentContext`. This is a **progressive disclosure** pattern: register a lightweight catalog tool upfront, and let the LLM request additional tools on-demand.
+
+### Pattern: Progressive Tool Loading
+
+Instead of loading all tools on every request (inflating token counts), start with just a `RequestTools` tool pointing to a catalog. When the LLM needs a capability, it calls `RequestTools`, which dynamically adds the real tool to the current function-calling loop.
+
+```csharp
+using Microsoft.Extensions.AI;
+using System.ComponentModel;
+
+// Full catalog — not registered initially
+var toolCatalog = new Dictionary<string, AIFunction>
+{
+    ["GetWeather"] = AIFunctionFactory.Create(GetWeather),
+    ["GetLocalTime"] = AIFunctionFactory.Create(GetLocalTime),
+    ["ConvertTemperature"] = AIFunctionFactory.Create(ConvertTemperature),
+};
+
+// "RequestTools" is the gatekeeper — the only tool registered at startup
+AIFunction requestToolsFunc = AIFunctionFactory.Create(
+    ([Description("Names of the tools to make available")] string[] toolNames) =>
+    {
+        // FunctionInvokingChatClient.CurrentContext exposes the active ChatOptions
+        var context = FunctionInvokingChatClient.CurrentContext;
+        if (context?.Options?.Tools is not null)
+        {
+            foreach (var name in toolNames)
+            {
+                if (toolCatalog.TryGetValue(name, out var tool) &&
+                    !context.Options.Tools.OfType<AIFunction>().Any(t => t.Name == name))
+                {
+                    context.Options.Tools.Add(tool);
+                }
+            }
+        }
+        // Return empty string to avoid confusing the LLM with tool names in the result
+        return string.Empty;
+    },
+    name: "RequestTools",
+    description: "Make additional tools available. Call this before using any specialized tool. " +
+                 "Available tools: GetWeather, GetLocalTime, ConvertTemperature.");
+
+// Build agent with only RequestTools initially
+AIAgent agent = chatClient
+    .AsBuilder()
+    .BuildAIAgent(new ChatClientAgentOptions
+    {
+        Name = "LazyToolAgent",
+        ChatOptions = new()
+        {
+            Instructions = "You are a helpful assistant. Use RequestTools to request a tool before calling it.",
+            Tools = [requestToolsFunc]  // Only the catalog tool at startup
+        }
+    });
+
+// Run multi-question session
+AgentSession session = await agent.CreateSessionAsync();
+string[] prompts = [
+    "What's the weather like in Seattle and London?",
+    "What time is it in New York?",
+    "Can you convert those temperatures to Celsius?"
+];
+foreach (var prompt in prompts)
+    Console.WriteLine(await agent.RunAsync(prompt, session));
+```
+
+> **⚠️ Important limitation:** Tools added via `FunctionInvokingChatClient.CurrentContext` are only active for the **current LLM turn** (the current function-calling loop iteration for a single `RunAsync` call). They are **not** automatically persisted across subsequent `RunAsync` calls to the same session.
+
+> **Production pattern:** To persist dynamically loaded tools across turns, maintain a session-level cache in an `AIContextProvider` and re-inject the already-loaded tools on each invocation. See below.
+
+### Session-Persistent Dynamic Tools via `AIContextProvider`
+
+```csharp
+internal sealed class DynamicToolContextProvider : AIContextProvider
+{
+    private readonly ProviderSessionState<State> _sessionState;
+    private readonly Dictionary<string, AIFunction> _catalog;
+
+    public DynamicToolContextProvider(Dictionary<string, AIFunction> catalog)
+        : base(null, null)
+    {
+        _catalog = catalog;
+        _sessionState = new ProviderSessionState<State>(_ => new State(), GetType().Name);
+    }
+
+    public override string StateKey => _sessionState.StateKey;
+
+    protected override ValueTask<AIContext> ProvideAIContextAsync(
+        InvokingContext context, CancellationToken ct)
+    {
+        var state = _sessionState.GetOrInitializeState(context.Session);
+        // Re-inject tools that were loaded in previous turns
+        var persistedTools = state.LoadedToolNames
+            .Select(n => _catalog.TryGetValue(n, out var t) ? t : null)
+            .Where(t => t is not null)
+            .Cast<AIFunction>()
+            .ToList<AITool>();
+
+        return new(new AIContext { Tools = persistedTools });
+    }
+
+    protected override ValueTask StoreAIContextAsync(InvokedContext context, CancellationToken ct)
+    {
+        // Track which tools the LLM actually called in this turn
+        var state = _sessionState.GetOrInitializeState(context.Session);
+        var calledTools = context.ResponseMessages
+            .SelectMany(m => m.Contents.OfType<FunctionCallContent>())
+            .Select(c => c.Name)
+            .Where(name => _catalog.ContainsKey(name));
+        foreach (var name in calledTools)
+            if (!state.LoadedToolNames.Contains(name))
+                state.LoadedToolNames.Add(name);
+        _sessionState.SaveState(context.Session, state);
+        return default;
+    }
+
+    public class State
+    {
+        public List<string> LoadedToolNames { get; set; } = [];
+    }
+}
+```
+
+---
+
+## 17.12. Server-Side Foundry Toolbox (New in 1.3.0)
+
+> *Source: PR [#5450](https://github.com/microsoft/agent-framework/pull/5450) — "Add server-side Foundry Toolbox support"*
+
+MAF 1.3.0 adds server-side **Foundry Toolbox** support to `Microsoft.Agents.AI.Foundry`. Foundry Toolboxes are collections of tools hosted and executed by the Azure AI Foundry service — no local C# function implementations needed. This is distinct from local `AIFunctionFactory.Create`-based tools.
+
+### Package
+
+```xml
+<PackageReference Include="Microsoft.Agents.AI.Foundry" Version="1.3.0" />
+```
+
+### What Is a Foundry Toolbox?
+
+A Foundry Toolbox is a server-managed collection of pre-built tools (e.g., Bing web search, document retrieval, code evaluation) that the Foundry service executes on your behalf. The Foundry service handles tool invocation — your code never sees the tool call.
+
+### Example — Foundry Agent with Server-Side Toolbox
+
+```csharp
+using Azure.AI.Projects;
+using Azure.Identity;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Foundry;
+
+// Create a Foundry-backed agent. Fondry Toolbox tools are configured in the
+// Azure AI Foundry portal and attached at the model/deployment level.
+AIAgent agent = new AIProjectClient(
+        new Uri("https://ai-foundry-<resource>.services.ai.azure.com/api/projects/ai-project-<project>"),
+        new DefaultAzureCredential())
+    .AsAIAgent(
+        model: "gpt-5.4-mini",
+        instructions: "You are a helpful research assistant. Use available tools.",
+        name: "FoundryToolboxAgent");
+
+// Foundry-managed tools (e.g., Bing search) are invoked server-side automatically
+Console.WriteLine(await agent.RunAsync("Search for the latest news on AI agent frameworks."));
+```
+
+> **Important:** Server-side Foundry Toolbox tools are executed by the Foundry service. They do NOT appear as `FunctionCallContent` / `FunctionResultContent` in the agent response. Client-side compaction strategies (`CompactionProvider`) have **no effect** on server-side tool execution — the Foundry service manages its own context.
+
+> **Compatibility:** This feature requires `Microsoft.Agents.AI.Foundry 1.3.0` and an Azure AI Foundry project with a configured Toolbox. Local `ChatClientAgent` instances (OpenAI, Azure OpenAI direct) do not support Foundry Toolboxes.
+
+---
+
 ## 18. Session Serialization & Replay
 
 ### Serialize for Persistence
@@ -1489,35 +1916,91 @@ Console.WriteLine(response.Text);  // "Your name is Alice."
 
 ---
 
-## 19. Breaking Changes Summary
+## 19. API Patterns Summary
 
-### From RC1 / Early Previews → 1.1.0
+> The tables below summarize the correct 1.3.0 API patterns. Each row links to the detailed section above. Use these as a quick cross-reference, not a migration diff.
 
-| Area | Old (RC1/RC3) | New (1.1.0) | Action |
-|------|---------------|-------------|--------|
-| **Agent Options** | Instructions/tools set directly on agent options | Nested inside `ChatOptions` property | Move to `ChatClientAgentOptions.ChatOptions` |
-| **Response Type** | Various response types | `AgentResponse` / `AgentResponseUpdate` | Update all response processing |
-| **Session** | Varied session management | `AgentSession` via `CreateSessionAsync()` | Use `AgentSession` consistently |
-| **Executor Pattern** | `ReflectingExecutor` | `[MessageHandler]` + `partial class : Executor` | Migrate all executors |
-| **Agent Creation** | Manual `ChatClientAgent` construction | `.AsAIAgent()` extensions | Adopt `.AsAIAgent()` where possible |
-| **Workflows Package** | `Microsoft.Agents.AI.Workflows.Generators` | Same name, version 1.1.0 | Update package version |
-| **MEAI Version** | Various | Requires `≥ 10.4.0` | Bump `Microsoft.Extensions.AI` |
-| **Context Providers** | Not available (or experimental) | Full `AIContextProvider` pipeline | Migrate manual memory → `AIContextProvider` |
-| **Chat History** | Manual `List<ChatMessage>` | `ChatHistoryProvider` pipeline | Adopt built-in or custom provider |
-| **Compaction** | Not available | `CompactionStrategy` + `CompactionProvider` (experimental) | Add compaction for long conversations |
-| **Serialization** | Varies | `SerializeSessionAsync` returns `ValueTask<JsonElement>` | Use async `JsonElement`, not `string` |
-| **Middleware** | Limited | Full `.AsBuilder().Use(...)` | Migrate interceptors to middleware |
+### Core Agent Patterns
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **Agent creation** | `.AsAIAgent(name:, instructions:, tools:)` extension on SDK clients | [§3](#3-creating-agents--the-asaiagent-pattern) |
+| **Agent creation (explicit)** | `new ChatClientAgent(chatClient, new ChatClientAgentOptions { ChatOptions = new() { Instructions = "...", Tools = [...] } })` | [§3](#3-creating-agents--the-asaiagent-pattern) |
+| **Agent options** | `ChatClientAgentOptions` with nested `ChatOptions` for instructions and tools | [§3](#3-creating-agents--the-asaiagent-pattern) |
+| **Running agents** | `agent.RunAsync(input, session?, options?, ct)` → `AgentResponse` | [§4](#4-running-agents--runasync--runstreamingasync) |
+| **Streaming** | `agent.RunStreamingAsync(input, session?, options?, ct)` → `IAsyncEnumerable<AgentResponseUpdate>` | [§4](#4-running-agents--runasync--runstreamingasync) |
+| **Function tools** | `AIFunctionFactory.Create(method)` + pass in `tools:` or `ChatOptions.Tools` | [§5](#5-function-tools) |
+| **Agent-as-tool** | `specialistAgent.AsAIFunction()` → pass as tool to orchestrator | [§6](#6-agent-as-a-tool-composition) |
+| **Sessions** | `await agent.CreateSessionAsync()` → `AgentSession` | [§7](#7-sessions--multi-turn-conversations) |
+| **Session persistence** | `await agent.SerializeSessionAsync(session)` → `JsonElement` | [§18](#18-session-serialization--replay) |
+| **Session restore** | `await agent.DeserializeSessionAsync(jsonElement)` → `AgentSession` | [§18](#18-session-serialization--replay) |
+
+### Memory & Context Patterns
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **Context providers** | Subclass `AIContextProvider`, override `ProvideAIContextAsync` + `StoreAIContextAsync` | [§8](#8-context-providers--agent-memory-aicontextprovider) |
+| **Provider state** | `ProviderSessionState<T>` — never store session state in instance fields | [§8](#8-context-providers--agent-memory-aicontextprovider) |
+| **Chat history** | `ChatHistoryProvider` or built-in `InMemoryChatHistoryProvider` | [§9](#9-chat-history-management-chathistoryprovider) |
+| **Compaction** | `CompactionProvider` + `PipelineCompactionStrategy` (experimental, `#pragma warning disable MAAI001`) | [§17.5](#175-compaction-strategies-experimental) |
+
+### Middleware & Pipeline Patterns
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **Agent middleware** | `agent.AsBuilder().Use(runFunc:, runStreamingFunc:).Build()` | [§11](#11-middleware) |
+| **Function middleware** | `agent.AsBuilder().Use(functionMiddleware).Build()` | [§11](#11-middleware) |
+| **IChatClient middleware** | `chatClient.AsBuilder().Use(getResponseFunc:, getStreamingResponseFunc:).Build()` | [§11](#11-middleware) |
+| **Observability** | `.AsBuilder().UseOpenTelemetry(sourceName:).Build()` on both `IChatClient` and `AIAgent` | [§17.8](#178-observability--opentelemetry) |
+
+### Workflow Patterns
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **Executors** | `partial class : Executor` + `[MessageHandler]` (source-generated) | [§13](#13-source-generated-executors-messagehandler) |
+| **Agent in workflow** | `agent.BindAsExecutor(emitEvents: true)` | [§14](#14-agents-in-workflows) |
+| **Workflow execution** | `InProcessExecution.RunStreamingAsync(workflow, input)` → `StreamingRun` | [§15](#15-workflow-execution--events) |
+
+### Output & Safety Patterns
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **Structured output** | `agent.RunAsync<T>(input)` → `AgentResponse<T>` | [§17.6](#176-structured-output) |
+| **Tool approval** | `new ApprovalRequiredAIFunction(wrappedFunction)` | [§17.7](#177-tool-approval--human-in-the-loop) |
+| **Multimodal** | `DataContent` / `UriContent` in `ChatMessage` content list | [§17.9](#179-multimodal--images) |
+
+### A2A Protocol Patterns
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **A2A client type** | `IA2AClient` interface via `GetService(typeof(IA2AClient))` | [§17.10](#1710-a2a-agent--remote-protocol-proxies) |
+| **A2A client creation** | `A2AClientFactory.Create()` | [§17.10](#1710-a2a-agent--remote-protocol-proxies) |
+| **A2A hosting DI** | `services.AddA2AServer(agent, new A2AServerRegistrationOptions { ... })` | [§17.10](#1710-a2a-agent--remote-protocol-proxies) |
+| **A2A endpoint mapping** | `app.MapA2AHttpJson(path)` or `app.MapA2AJsonRpc(path)` | [§17.10](#1710-a2a-agent--remote-protocol-proxies) |
+| **A2A stream reconnection** | Automatic via continuation tokens — no manual handling | [§17.10](#1710-a2a-agent--remote-protocol-proxies) |
+
+### New in 1.3.0
+
+| Area | 1.3.0 Pattern | Section |
+|------|---------------|---------|
+| **Dynamic tool expansion** | `FunctionInvokingChatClient.CurrentContext.Options.Tools.Add(tool)` (per-turn only) | [§17.11](#1711-dynamic-tool-expansion-new-in-130) |
+| **Foundry Toolbox** | Server-side tools via `Microsoft.Agents.AI.Foundry` — no local function implementations | [§17.12](#1712-server-side-foundry-toolbox-new-in-130) |
 
 ### Package Version Requirements
 
-| Package | Minimum Version |
-|---------|-----------------|
-| `Microsoft.Agents.AI` | 1.1.0 |
-| `Microsoft.Agents.AI.OpenAI` | 1.1.0 |
-| `Microsoft.Agents.AI.Workflows` | 1.1.0 |
-| `Microsoft.Agents.AI.Workflows.Generators` | 1.1.0 |
-| `Microsoft.Extensions.AI` | 10.4.0 |
-| `Microsoft.Extensions.AI.OpenAI` | 10.4.0 |
+| Package | Version |
+|---------|---------|
+| `Microsoft.Agents.AI` | 1.3.0 |
+| `Microsoft.Agents.AI.Abstractions` | 1.3.0 (transitive) |
+| `Microsoft.Agents.AI.OpenAI` | 1.3.0 |
+| `Microsoft.Agents.AI.Workflows` | 1.3.0 |
+| `Microsoft.Agents.AI.Workflows.Generators` | 1.3.0 |
+| `Microsoft.Agents.AI.Foundry` | 1.3.0 |
+| `Microsoft.Agents.AI.A2A` | 1.3.0 (if using A2A) |
+| `Microsoft.Agents.AI.Hosting.A2A` | 1.3.0 (if using A2A hosting) |
+| `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` | 1.3.0 (if using A2A hosting) |
+| `Microsoft.Extensions.AI` | ≥ 10.5.0 |
+| `Microsoft.Extensions.AI.OpenAI` | ≥ 10.5.0 |
 
 ---
 
@@ -1526,32 +2009,45 @@ Console.WriteLine(response.Text);  // "Your name is Alice."
 Use this checklist when upgrading your project:
 
 ### Phase 1: Package Updates
-- [ ] Update all `Microsoft.Agents.AI*` packages to `1.1.0`
-- [ ] Update `Microsoft.Extensions.AI*` packages to `≥ 10.4.0`
+- [ ] Update all `Microsoft.Agents.AI*` packages to `1.3.0`
+- [ ] Update `Microsoft.Extensions.AI*` packages to `≥ 10.5.0`
 - [ ] Pin `System.Numerics.Tensors` to `≥ 10.0.4` if transitive conflicts arise
 - [ ] Run `dotnet restore --force && dotnet build`
 - [ ] Run full test suite
 
 ### Phase 2: Agent Creation
-- [ ] Replace manual `ChatClientAgent` construction with `.AsAIAgent()` where possible
-- [ ] Move `Instructions` and `Tools` inside `ChatClientAgentOptions.ChatOptions` where `ChatClientAgent` is used directly
-- [ ] Update all agent creation to use the `tools: [...]` parameter
+- [ ] Adopt `.AsAIAgent()` extensions where possible
+- [ ] Set `Instructions` and `Tools` inside `ChatClientAgentOptions.ChatOptions` where `ChatClientAgent` is used directly
+- [ ] Use the `tools: [...]` parameter for providing tools
+- [ ] Use `.AsAIAgent(name:, instructions:, tools:)` extensions on SDK clients
+
+### Phase 2.5: A2A Agent — SDK v1 (only if using A2A)
+- [ ] Update `Microsoft.Agents.AI.A2A` / `.Hosting.A2A` / `.Hosting.A2A.AspNetCore` to `1.3.0`
+- [ ] Remove `AIAgentExtensions` DI registration; replace with `services.AddA2AServer(agent, new A2AServerRegistrationOptions { AgentCard = ... })`
+- [ ] Replace `app.MapA2A(...)` with `app.MapA2AHttpJson(path)` or `app.MapA2AJsonRpc(path)` (or both)
+- [ ] Use `GetService(typeof(IA2AClient))` to resolve the A2A client (concrete `A2AClient` type is not resolvable)
+- [ ] Replace direct `new A2AClient(...)` construction with `A2AClientFactory.Create(...)` 
+- [ ] Update `A2AAgentCardExtensions` and `A2ACardResolverExtensions` calls to accept optional `A2AClientOptions` (for protocol binding preference)
+- [ ] Verify SSE stream reconnection works — it is now automatic via continuation tokens
+- [ ] Verify streaming agent responses from `A2AAgentHandler` work end-to-end
+- [ ] Update any sample path references from `samples/04-hosting/A2A/` → `samples/02-agents/A2A/`
 
 ### Phase 3: Sessions
-- [ ] Replace any custom session management with `AgentSession`
-- [ ] Use `await agent.CreateSessionAsync()` for session creation
+- [ ] Use `AgentSession` via `await agent.CreateSessionAsync()`
 - [ ] Pass sessions to `RunAsync(input, session)` for multi-turn
 - [ ] Implement `SerializeSessionAsync`/`DeserializeSessionAsync` where persistence is needed
 
 ### Phase 4: Memory & Context
-- [ ] Replace manual `List<ChatMessage>` conversation tracking with `ChatHistoryProvider`
-- [ ] Replace manual memory implementations with `AIContextProvider`
-- [ ] Use `ProviderSessionState<T>` for per-session provider state
-- [ ] Verify that long-term memory survives session resets (as designed)
+- [ ] Use `ChatHistoryProvider` (or `InMemoryChatHistoryProvider`) for conversation history
+- [ ] Use `AIContextProvider` for memory, RAG, and dynamic context injection
+- [ ] Implement `ProvideAIContextAsync` (before-LLM) and `StoreAIContextAsync` (after-LLM) — do NOT store session-specific data in instance fields
+- [ ] Use `ProviderSessionState<T>` for all per-session provider state (both `AIContextProvider` and `ChatHistoryProvider`)
+- [ ] If using `InvokingCoreAsync`/`InvokedCoreAsync` overrides, stamp messages with `WithAgentRequestMessageSource` and filter by `GetAgentRequestMessageSourceType()` to avoid feedback loops
+- [ ] Verify that long-term memory survives session resets (as designed — `AIContextProvider` persists, `ChatHistoryProvider` resets)
 
 ### Phase 5: Middleware
-- [ ] Migrate any request/response interceptors to agent middleware (`.AsBuilder().Use(...)`)
-- [ ] Migrate any function call interceptors to function calling middleware
+- [ ] Use agent middleware (`.AsBuilder().Use(...)`) for cross-cutting concerns
+- [ ] Use function calling middleware for tool call interception
 - [ ] Provide both streaming and non-streaming middleware callbacks
 
 ### Phase 5.5: Compaction (Experimental)
@@ -1561,11 +2057,12 @@ Use this checklist when upgrading your project:
 - [ ] Consider using a smaller model for `SummarizationCompactionStrategy`
 
 ### Phase 6: Workflows
-- [ ] Replace `ReflectingExecutor` with `[MessageHandler]` + `partial class : Executor`
-- [ ] Add `Microsoft.Agents.AI.Workflows.Generators 1.1.0` package reference
+- [ ] Use `[MessageHandler]` + `partial class : Executor` (source-generated) for executors
+- [ ] Add `Microsoft.Agents.AI.Workflows.Generators 1.3.0` package reference
 - [ ] Ensure all executor classes are `partial` and `sealed`
+- [ ] Executor `[MessageHandler]` methods: void / `ValueTask` (fire-and-forget), `ValueTask<T>` (auto-send result), or use `context.SendMessageAsync`/`context.YieldOutputAsync` explicitly
 - [ ] Use `.BindAsExecutor(emitEvents: true)` for agents in workflows
-- [ ] Update event processing for `AgentResponseEvent` (new in 1.1.0)
+- [ ] Update event processing for `AgentResponseEvent`
 
 ### Phase 7: Response Processing
 - [ ] Update response handling to use `AgentResponse.Text` and `.Messages`
@@ -1585,9 +2082,19 @@ Use this checklist when upgrading your project:
 
 ### Phase 7.7: Observability
 - [ ] Add `UseOpenTelemetry()` to chat client builder
-- [ ] Add `WithOpenTelemetry()` to agent
+- [ ] Wrap agent with `agent.AsBuilder().UseOpenTelemetry(sourceName, cfg).Build()`
 - [ ] Configure OpenTelemetry exporters (OTLP, Azure Monitor, or Aspire Dashboard)
 - [ ] Only enable `EnableSensitiveData` in non-production environments
+
+### Phase 7.8: Dynamic Tool Expansion (optional, new in 1.3.0)
+- [ ] Evaluate whether progressive tool loading would reduce per-request token overhead
+- [ ] If yes, add a `RequestTools` gatekeeper function using `FunctionInvokingChatClient.CurrentContext.Options.Tools`
+- [ ] Remember: `CurrentContext` tool additions are **per-turn only** — implement `DynamicToolContextProvider` (`AIContextProvider`) to persist loaded tools across session turns
+
+### Phase 7.9: Server-Side Foundry Toolbox (optional, new in 1.3.0)
+- [ ] If using Azure AI Foundry toolboxes, update to `Microsoft.Agents.AI.Foundry 1.3.0`
+- [ ] Configure toolboxes in the Azure AI Foundry portal; agent code requires no local tool function implementations
+- [ ] Note that client-side `CompactionProvider` has no effect on server-side Foundry Toolbox tool execution
 
 ### Phase 8: Verification
 - [ ] Full build: `dotnet build`
@@ -1603,7 +2110,7 @@ Use this checklist when upgrading your project:
 
 ```csharp
 // ═══════════════════════════════════════════════════════
-// MAF 1.1.0 — Patterns at a Glance
+// MAF 1.3.0 — Patterns at a Glance
 // ═══════════════════════════════════════════════════════
 
 // --- Create an agent ---
@@ -1651,11 +2158,19 @@ Console.WriteLine(typed.Result.Property);
 var safe = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(DangerousTool));
 
 // --- Observability ---
-var traced = agent.WithOpenTelemetry(sourceName: "MyApp");
+var traced = agent.AsBuilder().UseOpenTelemetry(sourceName: "MyApp").Build();
 
 // --- Serialize session ---
 JsonElement state = await agent.SerializeSessionAsync(session);
 AgentSession restored = await agent.DeserializeSessionAsync(state);
+
+// --- A2A remote agent ---
+// Server DI: services.AddA2AServer(agent, options); app.MapA2AHttpJson(path);
+// Client:  IA2AClient client = (IA2AClient)a2aAgent.GetService(typeof(IA2AClient));
+
+// --- Dynamic tool expansion ---
+// Use FunctionInvokingChatClient.CurrentContext.Options.Tools.Add(tool)
+// inside a RequestTools gatekeeper function.
 ```
 
 ---
@@ -1663,14 +2178,16 @@ AgentSession restored = await agent.DeserializeSessionAsync(state);
 ## Further Reading
 
 - [Official MAF Documentation](https://learn.microsoft.com/en-us/agent-framework/)
-- [Agents](https://learn.microsoft.com/en-us/agent-framework/agents/) — creation, options, SDK extensions
+- [MAF 1.3.0 Release Notes](https://github.com/microsoft/agent-framework/releases/tag/dotnet-1.3.0)
+- [Changelog 1.2.0 → 1.3.0](https://github.com/microsoft/agent-framework/compare/dotnet-1.2.0...dotnet-1.3.0)
+- [Agents overview](https://learn.microsoft.com/en-us/agent-framework/agents/) — creation, options, SDK extensions
 - [Running Agents](https://learn.microsoft.com/en-us/agent-framework/agents/running-agents) — RunAsync, streaming, response types
 - [Agent Pipeline](https://learn.microsoft.com/en-us/agent-framework/agents/agent-pipeline) — layered architecture, execution flow
 - [Tools / Function Tools](https://learn.microsoft.com/en-us/agent-framework/agents/tools/) — tool types, function tools
 - [Tool Approval](https://learn.microsoft.com/en-us/agent-framework/agents/tools/tool-approval) — human-in-the-loop function approvals
 - [Sessions](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/session) — sessions, StateBag, serialization
 - [Context Providers](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/context-providers) — AIContextProvider, ProviderSessionState
-- [Chat History Storage](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/storage) — ChatHistoryProvider, InMemoryChatHistoryProvider
+- [Chat History Storage](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/storage) — ChatHistoryProvider, InMemoryChatHistoryProvider, service-managed storage
 - [Compaction](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/compaction) — compaction strategies (experimental)
 - [Middleware](https://learn.microsoft.com/en-us/agent-framework/agents/middleware/) — agent, streaming, function calling, IChatClient
 - [Structured Output](https://learn.microsoft.com/en-us/agent-framework/agents/structured-output) — RunAsync\<T\>, ResponseFormat, JSON schemas
@@ -1678,27 +2195,30 @@ AgentSession restored = await agent.DeserializeSessionAsync(state);
 - [Observability](https://learn.microsoft.com/en-us/agent-framework/agents/observability) — OpenTelemetry, traces, metrics, logs
 - [Background Responses](https://learn.microsoft.com/en-us/agent-framework/agents/background-responses) — long-running operations, continuation tokens
 - [Workflows](https://learn.microsoft.com/en-us/agent-framework/workflows/workflows) — multi-agent orchestration
-- [Executors](https://learn.microsoft.com/en-us/agent-framework/workflows/executors) — MessageHandler, partial classes
+- [Executors](https://learn.microsoft.com/en-us/agent-framework/workflows/executors) — MessageHandler, partial classes, IResettableExecutor
+- [Integrations](https://learn.microsoft.com/en-us/agent-framework/integrations/) — A2A, AG-UI, Azure Functions, M365, pre-built context providers
 - [Your First Agent Tutorial](https://learn.microsoft.com/en-us/agent-framework/get-started/your-first-agent)
 - [MAF GitHub Repository](https://github.com/microsoft/agent-framework)
 - [.NET Samples](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples)
+- [Agent_Step20_DynamicFunctionTools sample](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/Agents/Agent_Step20_DynamicFunctionTools) — new in 1.3.0
+- [A2A Samples](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/A2A) — updated for A2A SDK v1 in 1.3.0
 - [MAF Discord Community](https://discord.gg/b5zjErwbQM)
 
 ---
 
 ## Misalignments — Document vs. Code Reality
 
-> **Last audited:** April 2026 against `MAFVnext/dotnet/src/` source code and official samples.
+> **Last audited:** April 2026 against `MAFVnext/dotnet/src/` source code, official samples, and MAF 1.3.0 release.
 
 The following items represent known discrepancies between this guide (or official documentation) and the actual MAFVnext code. These are documented here for transparency and to assist future corrections.
 
-### 1. `SerializeSessionAsync` is Async, Not Sync
+### 1. `SerializeSessionAsync` (Async) vs `SerializeSession` (Sync) — Still Unresolved
 
-| Item | This Guide (Corrected) | Official Docs (learn.microsoft.com) | MAFVnext Code |
-|------|------------------------|--------------------------------------|---------------|
-| Method name | `SerializeSessionAsync` | `SerializeSession` (sync in examples) | `SerializeSessionAsync` returning `ValueTask<JsonElement>` |
+| Item | This Guide (Corrected) | Official Sessions Docs | Official Storage Docs | MAFVnext Code |
+|------|------------------------|------------------------|----------------------|---------------|
+| Method | `await agent.SerializeSessionAsync(session)` | `agent.SerializeSession(session)` (sync) | `agent.SerializeSession(session)` (sync) | `SerializeSessionAsync` returning `ValueTask<JsonElement>` |
 
-The [official Sessions page](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/session?pivots=programming-language-csharp) shows `agent.SerializeSession(session)` as a synchronous call. The actual `AIAgent` base class defines `SerializeSessionAsync(AgentSession, JsonSerializerOptions?, CancellationToken)` returning `ValueTask<JsonElement>`. All MAFVnext samples use the async form with `await`. **This guide uses the correct async form.**
+The [official Sessions page](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/session?pivots=programming-language-csharp) and [Storage page](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/storage) both show `agent.SerializeSession(session)` as a synchronous call without `await`. The actual `AIAgent` base class defines `SerializeSessionAsync(AgentSession, JsonSerializerOptions?, CancellationToken)` returning `ValueTask<JsonElement>`. All MAFVnext samples use the async form with `await`. There may be a sync overload, but **this guide uses the correct async form** which works in all confirmed environments.
 
 ### 2. `FunctionApprovalRequestContent` vs `ToolApprovalRequestContent`
 
@@ -1712,7 +2232,7 @@ var agent = new ChatClientAgent(chatClient, instructions: "You are a helpful ass
 ```
 The MAFVnext code confirms this signature exists as a simple constructor with optional named parameters (`instructions`, `name`, `description`, `tools`, `loggerFactory`, `services`). This is **aligned**.
 
-### 4. Anthropic SDK Example — Swapped Parameters
+### 4. Anthropic SDK Example — Swapped Parameters (Official Docs Bug)
 
 The [official Agents page](https://learn.microsoft.com/en-us/agent-framework/agents/?pivots=programming-language-csharp#using-the-anthropic-sdk) shows:
 ```csharp
@@ -1720,32 +2240,36 @@ agent = client.AsAIAgent(model: deploymentName, instructions: "Joker", name: "Yo
 ```
 This appears to have `instructions` and `name` swapped — `"Joker"` should be the name and `"You are good at telling jokes."` should be the instructions. **This guide does not replicate this apparent documentation bug.**
 
-### 5. Missing from Official Docs: `UseProvidedChatClientAsIs`
+### 5. Missing from Official Docs: `ChatClientAgentOptions` — Additional Properties
 
-The `ChatClientAgentOptions.UseProvidedChatClientAsIs` property (which disables default `FunctionInvokingChatClient` wrapping) is present in MAFVnext code but is not documented on the official site at the time of writing.
+The following `ChatClientAgentOptions` properties (verified via `dotnet-inspect` against `Microsoft.Agents.AI 1.3.0`) are not documented on the official site:
+- `UseProvidedChatClientAsIs` — disables default `FunctionInvokingChatClient` wrapping
+- `RequirePerServiceCallChatHistoryPersistence` — enables per-service-call chat history persistence (useful for checkpointing intermediate tool calls during long function-calling loops, demonstrated in sample `Agent_Step19_InFunctionLoopCheckpointing`)
+- `ClearOnChatHistoryProviderConflict` — clears `ChatHistoryProvider` if the AI service manages its own chat history
+- `ThrowOnChatHistoryProviderConflict` — throws if the AI service manages its own chat history but a `ChatHistoryProvider` is configured
+- `WarnOnChatHistoryProviderConflict` — logs a warning if the AI service manages its own chat history but a `ChatHistoryProvider` is configured
 
-### 6. Missing from Official Docs: `RequirePerServiceCallChatHistoryPersistence`
-
-The `ChatClientAgentOptions.RequirePerServiceCallChatHistoryPersistence` option enables per-service-call chat history persistence (useful for checkpointing intermediate tool calls). This is demonstrated in MAFVnext samples (`Agent_Step19_InFunctionLoopCheckpointing`) but not yet covered in official documentation.
-
-### 7. Missing from Official Docs: Declarative Agents (YAML)
+### 6. Missing from Official Docs: Declarative Agents (YAML)
 
 MAFVnext includes a `ChatClientPromptAgentFactory` that creates agents from YAML definitions (sample `Agent_Step16_Declarative`). This is not yet documented on the official docs site.
 
-### 8. Missing from Official Docs: `MessageAIContextProvider`
+### 7. Missing from Official Docs: `MessageAIContextProvider`
 
-The [Agent Pipeline page](https://learn.microsoft.com/en-us/agent-framework/agents/agent-pipeline?pivots=programming-language-csharp) mentions `MessageAIContextProvider` as agent middleware for injecting messages, but has no dedicated documentation page. MAFVnext samples use it as a simpler alternative to `AIContextProvider` when you only need to inject system messages.
+The [Agent Pipeline page](https://learn.microsoft.com/en-us/agent-framework/agents/agent-pipeline?pivots=programming-language-csharp) mentions `MessageAIContextProvider` as agent middleware for injecting messages, but has no dedicated documentation page. MAFVnext samples use it as a simpler alternative to `AIContextProvider` when you only need to inject system messages without per-invocation state logic.
 
-### 9. `AgentResponse` Additional Properties Not in Official Docs
+### 8. `AgentResponse` Additional Properties Not in Official Docs
 
-The MAFVnext `AgentResponse` class includes properties not mentioned in official documentation:
-- `ContinuationToken` — for background response polling
-- `FinishReason` — `ChatFinishReason` (stop, length, content_filter, tool_calls)
-- `Usage` — token count details
-- `CreatedAt` — response timestamp
-- `AdditionalProperties` — provider-specific metadata
+The `AgentResponse` class (verified via `dotnet-inspect` against `Microsoft.Agents.AI.Abstractions 1.3.0`) includes properties not mentioned in official documentation:
+- `AgentId` — identifier of the agent that generated this response
+- `ResponseId` — unique identifier for this specific response
+- `ContinuationToken` — for background response polling (`ResponseContinuationToken?`)
+- `FinishReason` — `ChatFinishReason?` (stop, length, content_filter, tool_calls)
+- `Usage` — token count details (`UsageDetails?`)
+- `CreatedAt` — response timestamp (`DateTimeOffset?`)
+- `RawRepresentation` — raw run response from underlying implementation (`object?`)
+- `AdditionalProperties` — provider-specific metadata (`AdditionalPropertiesDictionary?`)
 
-### 10. Workflow Patterns — Richer Than Documented
+### 9. Workflow Patterns — Richer Than Documented
 
 MAFVnext samples demonstrate workflow patterns not covered in official docs:
 - **Fan-out/Fan-in** (`.AddFanOut()` / `.AddFanIn()`)
@@ -1753,3 +2277,12 @@ MAFVnext samples demonstrate workflow patterns not covered in official docs:
 - **Shared state** (`context.QueueStateUpdateAsync()` / `context.ReadStateAsync<T>()`)
 - **Group chat** (`AgentWorkflowBuilder.CreateGroupChatBuilderWith()`)
 - **Workflow-as-agent** composition pattern
+- **Resettable executors** (`IResettableExecutor`) — required for stateful executors shared across workflow runs
+
+### 10. A2A `GetService(typeof(A2AClient))` Returns Null
+
+`A2AAgent.GetService(typeof(A2AClient))` returns `null`. The client is exposed only as `IA2AClient`. Callers resolving the concrete type will get null. Use `GetService(typeof(IA2AClient))` instead. See PR [#5423](https://github.com/microsoft/agent-framework/pull/5423).
+
+### 11. Dynamic Tool Expansion via `CurrentContext` — Per-Turn Only
+
+The `FunctionInvokingChatClient.CurrentContext` approach for dynamic tool expansion only persists tools for the **current function-calling loop turn**. Tools added this way are NOT retained in subsequent `RunAsync` calls. This is expected behavior — `CurrentContext` is designed to be transient. For cross-turn persistence, combine with `AIContextProvider` session state as shown in section 17.11.

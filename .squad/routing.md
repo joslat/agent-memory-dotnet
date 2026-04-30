@@ -20,6 +20,7 @@ How to decide who handles what.
 | Test infrastructure | Holden | Docker Compose for tests, golden datasets, seeders |
 | Documentation | Joi | README, architecture docs, samples, ADR writing |
 | Developer experience | Joi | Getting-started guides, API docs, examples |
+| Editorial review, document quality gate | Pris | Doc clarity, structure, completeness, specialist-accuracy gating |
 | Scope & priorities | Deckard | What to build next, trade-offs, decisions |
 | Session logging | Scribe | Automatic — never needs routing |
 

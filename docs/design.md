@@ -154,7 +154,7 @@ graph TD
 | `ReasoningTrace` | Top-level record of an agent reasoning task | `TraceId`, `SessionId`, `Task`, `Outcome?`, `Success?`, `StartedAtUtc`, `CompletedAtUtc?`, `TaskEmbedding?`, `Metadata` |
 | `ReasoningStep` | One step in a reasoning chain | `StepId`, `TraceId`, `StepNumber`, `Thought?`, `Action?`, `Observation?`, `Embedding?`, `Metadata` |
 | `ToolCall` | A tool invocation within a step | `ToolCallId`, `StepId`, `ToolName`, `Arguments`, `Result?`, `Status`, `DurationMs?`, `Error?`, `Metadata` |
-| `ToolCallStatus` (enum) | Tool call lifecycle | `Pending`, `Success`, `Error`, `Cancelled` |
+| `ToolCallStatus` (enum) | Tool call lifecycle | `Pending`, `Success`, `Error`, `Cancelled`, `Failure`, `Timeout` |
 
 **Repository Interfaces:**
 
@@ -333,7 +333,7 @@ All service interfaces are defined in `Neo4j.AgentMemory.Abstractions.Services`.
 | 8 | `IFactExtractor` | Fact extraction from messages | `ExtractFactsAsync` |
 | 9 | `IPreferenceExtractor` | Preference extraction from messages | `ExtractPreferencesAsync` |
 | 10 | `IRelationshipExtractor` | Relationship extraction from messages | `ExtractRelationshipsAsync` |
-| 11 | `IEmbeddingProvider` | Vector embedding generation | `GenerateEmbeddingAsync`, `GenerateEmbeddingsAsync`, `EmbeddingDimensions` |
+| 11 | `IEmbeddingOrchestrator` | Embedding generation coordination | `GenerateAsync`, `GenerateBatchAsync` |
 | 12 | `IEntityResolver` | Entity deduplication | `ResolveAsync` |
 | 13 | `IGraphRagContextSource` | GraphRAG integration point | `GetContextAsync` |
 | 14 | `IClock` | Testable time abstraction | `UtcNow` |

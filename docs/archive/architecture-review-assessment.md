@@ -19,7 +19,7 @@ An 11-package .NET solution delivering:
 - **Entity resolution:** Exact → Fuzzy → Semantic matching chain with configurable merge thresholds
 - **GraphRAG retrieval:** 4 modes (Vector, Fulltext, Hybrid, Graph) — internalized from neo4j-maf-provider
 - **Context assembly:** Multi-tier recall with token budget enforcement and 5 blending modes
-- **MCP Server:** 28 tools, 6 resources, 3 prompts for external client access
+- **MCP Server:** 21 tools, 6 resources, 3 prompts for external client access
 - **MAF adapter:** Thin translation layer for Microsoft Agent Framework integration
 - **Observability:** OpenTelemetry decorator pattern for tracing and metrics
 - **Enrichment:** Geocoding (Nominatim) and entity enrichment (Wikimedia, Diffbot)
@@ -253,7 +253,7 @@ Neo4j.AgentMemory.McpServer (standalone NuGet, references Abstractions)
 
 **Observability** — OpenTelemetry decorator wrappers for `IMemoryService` and `IGraphRagContextSource`. Activity source, counters, histograms. Must be registered last in DI.
 
-**McpServer** — Model Context Protocol server. 28 tools (core memory, entities, facts, preferences, conversations, reasoning, observations, graph queries), 6 resources (status, lists, schema), 3 prompts (conversation, reasoning, review). Static method pattern with `[McpServerTool]` attributes.
+**McpServer** — Model Context Protocol server. 21 tools (core memory, entities, facts, preferences, conversations, reasoning, observations, graph queries), 6 resources (status, lists, schema), 3 prompts (conversation, reasoning, review). Static method pattern with `[McpServerTool]` attributes.
 
 **SemanticKernel** — SK adapter. `Neo4jMemoryPlugin` exposes memory operations as SK kernel functions (recall, store_message, extract, search entities/facts/preferences). `Neo4jTextSearch` implements SK's `ITextSearch<TRecord>` for RAG integration. `KernelMemoryExtensions` provides `AddNeo4jMemoryPlugin()` and `AddNeo4jTextSearch()` DI helpers. ~277 LOC.
 
@@ -460,7 +460,7 @@ We adapted **3 retriever types** and supporting utilities:
 | **Hybrid search** | ✅ V + FT | ✅ V + FT + Graph | ❌ None |
 | **Context assembly** | Basic formatting | ✅ Multi-tier blending, token budget | ✅ Multi-tier blending |
 | **MAF integration** | ✅ AIContextProvider | ✅ AIContextProvider + traces | N/A (Python) |
-| **MCP server** | ❌ None | ✅ 28 tools, 6 resources, 3 prompts | ✅ 16 tools (FastMCP) |
+| **MCP server** | ❌ None | ✅ 21 tools, 6 resources, 3 prompts | ✅ 16 tools (FastMCP) |
 | **Observability** | ❌ None | ✅ OpenTelemetry | ❌ None |
 | **Enrichment** | ❌ None | ✅ Geocoding + Wikipedia | ✅ Wikipedia + Diffbot |
 | **Framework coupling** | MAF-only | Framework-agnostic | Framework-agnostic |
@@ -573,7 +573,7 @@ That single install gives you **everything** — all 9 assemblies in one package
 - **Entity resolution** so "Bob", "Robert", and "Bob Smith" are the same person
 - **Graph-powered relationships** — not just similarity search, but RELATED_TO, MENTIONS, ABOUT
 - **MEAI-native** — any `IChatClient` or `IEmbeddingGenerator` provider works
-- **MCP server** — 28 tools, 6 resources, 3 prompts for external client access
+- **MCP server** — 21 tools, 6 resources, 3 prompts for external client access
 - **Observability** — OpenTelemetry tracing and metrics out of the box
 - **Enrichment** — Geocoding, Wikipedia, Diffbot entity augmentation
 - **Zero-config startup** with sensible defaults
@@ -599,7 +599,7 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | Multi-tier memory | ❌ | Partial | ✅ Short/Long/Reasoning |
 | Extraction pipeline | ❌ | Basic | ✅ Full (LLM + Azure NLP) |
 | .NET-native | ❌ | ❌ | ✅ MEAI + DI + Options |
-| MCP server | ❌ | ❌ | ✅ 28 tools |
+| MCP server | ❌ | ❌ | ✅ 21 tools |
 | Observability | ❌ | ❌ | ✅ OpenTelemetry |
 
 ### The "Killer" Features
@@ -626,7 +626,7 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | DI support | Manual | `IServiceCollection` extensions | Python DI |
 | Testing | Minimal | **1,438 unit + SK tests** | Unit + integration |
 | Observability | None | OpenTelemetry (opt-in) | None |
-| MCP support | None | 28 tools, 6 resources, 3 prompts | 16 tools (FastMCP) |
+| MCP support | None | 21 tools, 6 resources, 3 prompts | 16 tools (FastMCP) |
 
 ### Feature Parity with Python Reference
 
@@ -646,7 +646,7 @@ var context = await memory.RecallAsync(new RecallRequest { Query = "what does th
 | Metadata filtering | ✅ | ✅ (5 operators) | 100% |
 | Session strategies | ✅ (3) | ✅ (3) | 100% |
 | Azure NLP extraction | ❌ | ✅ | .NET extends |
-| MCP server | ✅ (16 tools, FastMCP) | ✅ (28 tools, 6 resources, 3 prompts) | .NET extends |
+| MCP server | ✅ (16 tools, FastMCP) | ✅ (21 tools, 6 resources, 3 prompts) | .NET extends |
 | Observability | ❌ | ✅ | .NET extends |
 | Entity enrichment | ✅ (Wikipedia + Diffbot) | ✅ (Wikimedia, Diffbot, Geocoding) | 100% |
 | **Overall** | — | — | **~99% + extensions** |

@@ -1,5 +1,8 @@
 # Neo4j Agent Memory for .NET — Full Implementation Plan
 
+> **⚠️ Historical Document — All Phases Complete**  
+> All 6 implementation phases plus the gap closure sprint (Waves A–C) are complete. This plan is kept for historical context. For current architecture, see `docs/architecture.md`. For current status, see `docs/implementation-status.md`.
+
 > **Governing specification:** [Agent-Memory-for-DotNet-Specification.md](Agent-Memory-for-DotNet-Specification.md)  
 > This implementation plan is derived from and governed by the specification above. If any ambiguity exists between this plan and the specification, the specification takes precedence.
 

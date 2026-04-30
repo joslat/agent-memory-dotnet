@@ -144,11 +144,27 @@ A doc is updated in a sprint to "fix" a number, but the grep used to verify was 
 
 Docs written during Phase 0–1 (spec, plan, analysis) are excellent context for the team. After Phase 6 completes, they become frozen artifacts. No one updates them because there's no sprint tasking it.
 
-**Mitigation:** After final sprint, schedule a "doc close-out" task that adds an `[ARCHIVED — Implementation Complete]` banner to every planning doc.
+**Mitigation:** After final sprint, move planning docs to `docs/archive/` and add a `README.md` explaining what each doc was. Add a historical banner (`> ⚠️ Historical Document — All Phases Complete`) at the top of root-level planning files that cannot be moved (e.g., the implementation plan).
 
 ### "Cascade Staleness" Pattern
 
 One doc's stale number propagates into other docs when those docs reference or copy it. Fix the root doc, then propagate the fix.
+
+### "Narrative Count Drift" Pattern
+
+Counts embedded in narrative prose (test totals, tool counts, package counts) drift with every sprint. The docs were last updated during a sprint; the code kept moving.
+
+**Mitigation:** Replace narrative counts with durable wording wherever the number is volatile ("extensively tested", "all src packages"). Reserve hard counts for:
+- Historical records (per-phase completion tables) — these are facts about the past, not claims about the present
+- CHANGELOG / release notes — versioned, intentionally precise
+
+### Docs Structure Rule
+
+| Directory | Contents | Update frequency |
+|-----------|----------|-----------------|
+| `docs/` root | Active architecture, design, status, schema | After any relevant sprint |
+| `docs/archive/` | Completed planning docs, superseded analyses | Never — read-only history |
+| `docs/reference/` | External/upstream reference material | Only when external source changes |
 
 ---
 

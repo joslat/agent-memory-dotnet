@@ -21,7 +21,7 @@
 - **Phase 6:** MCP Server with 21 tools (6 core + 15 extended), 6 resources, 3 prompts, ModelContextProtocol SDK 1.2.0, stdio transport, IGraphQueryService interface + Neo4j implementation, sample McpHost app, Claude Desktop config, DI: AddAgentMemoryMcpTools(), 398 tests at Phase 6 completion
 - **Gap Closure Sprint (Waves A–C):** Native `datetime()` storage across all 7 repositories (G1), Schema node indexes (G2), Tool.description on Tool node (G3), ISessionIdGenerator with 3 strategies (G4), MetadataFilterBuilder with 5 operators (G5), MCP camelCase Cypher fix (G7), ReasoningTrace count in memory stats (G8), memory://preferences resource (G10), memory://context/{session_id} resource (G11). **1058 unit tests passing, 0 failures.**
 
-**All Phases Complete.** The project is a full-featured .NET Neo4j Memory Provider with 10 packages.
+**All Phases Complete.** The project is a full-featured .NET Neo4j Memory Provider with 10 packages plus a convenience meta-package.
 
 ---
 
@@ -103,9 +103,9 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 | # | Epic | Description | Status | Commit | Notes |
 |---|---|---|---|---|---|
-| 24 | GraphRAG Adapter Package | Neo4j.AgentMemory.GraphRagAdapter project | ✅ Done | Phase 4 | Neo4j.AgentFramework.GraphRAG delegation |
+| 24 | GraphRAG Adapter Package | GraphRAG retrieval capability (planned as separate package, internalized into Neo4j package) | ✅ Done | Phase 4 | Built into Neo4j.AgentMemory.Neo4j — see architecture.md §3.4.2 |
 | 25 | IGraphRagContextSource | Neo4jGraphRagContextSource with 4 search modes | ✅ Done | Phase 4 | Vector, Fulltext, Hybrid, Graph |
-| 26 | GraphRagAdapterOptions | IndexName, SearchMode, FulltextIndexName, TopK, FilterStopWords | ✅ Done | Phase 4 | Full configuration surface |
+| 26 | GraphRagOptions | IndexName, SearchMode, FulltextIndexName, TopK, FilterStopWords | ✅ Done | Phase 4 | Full configuration surface |
 | 27 | Observability Package | Neo4j.AgentMemory.Observability project | ✅ Done | Phase 4 | OpenTelemetry.Api 1.12.0 |
 | 28 | OTel Decorators | InstrumentedMemoryService + InstrumentedGraphRagContextSource | ✅ Done | Phase 4 | Decorator pattern, no Scrutor |
 | 29 | MemoryActivitySource | ActivitySource "Neo4j.AgentMemory" for distributed tracing | ✅ Done | Phase 4 | All memory + GraphRAG spans |
@@ -157,7 +157,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 **Delivered:**
 - **Domain records (26 files):** Conversation, Message, SessionInfo, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall, MemoryContext, MemoryContextSection, RecallRequest, RecallResult, ExtractedEntity, ExtractedFact, ExtractedPreference, ExtractedRelationship, ExtractionRequest, ExtractionResult, GraphRagContextItem, GraphRagContextRequest, GraphRagContextResult
 - **Enums (6):** ToolCallStatus, ExtractionTypes, GraphRagSearchMode, RetrievalBlendMode, SessionStrategy, TruncationStrategy
-- **Service interfaces (15):** IMemoryService, IShortTermMemoryService, ILongTermMemoryService, IReasoningMemoryService, IMemoryContextAssembler, IMemoryExtractionPipeline, IEntityExtractor, IFactExtractor, IPreferenceExtractor, IRelationshipExtractor, IEmbeddingProvider, IEntityResolver, IGraphRagContextSource, IClock, IIdGenerator
+- **Service interfaces (Phase 1 initial set):** IMemoryService, IShortTermMemoryService, ILongTermMemoryService, IReasoningMemoryService, IMemoryContextAssembler, IMemoryExtractionPipeline, IEntityExtractor, IFactExtractor, IPreferenceExtractor, IRelationshipExtractor, IEntityResolver, IGraphRagContextSource, IClock, IIdGenerator *(Note: `IEmbeddingProvider` was later replaced by `IEmbeddingOrchestrator` wrapping MEAI's `IEmbeddingGenerator<string, Embedding<float>>`)*
 - **Repository interfaces (10):** IConversationRepository, IMessageRepository, IEntityRepository, IFactRepository, IPreferenceRepository, IRelationshipRepository, IReasoningTraceRepository, IReasoningStepRepository, IToolCallRepository, ISchemaRepository
 - **Configuration options (8):** MemoryOptions, ShortTermMemoryOptions, LongTermMemoryOptions, ReasoningMemoryOptions, RecallOptions, ContextBudget, plus enums above
 - **Key decision:** Zero external dependencies — .NET 9 BCL only (Decision D6.4)
@@ -177,7 +177,7 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 **Delivered:**
 - `SystemClock : IClock` — real UTC clock implementation
 - `GuidIdGenerator : IIdGenerator` — GUID-based ID generation
-- `StubEmbeddingProvider : IEmbeddingProvider` — deterministic hash-based vectors (1536 dimensions)
+- `StubEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>` — deterministic hash-based vectors (1536 dimensions)
 - `StubExtractionPipeline : IMemoryExtractionPipeline` — returns empty ExtractionResult
 - `StubEntityExtractor`, `StubFactExtractor`, `StubPreferenceExtractor`, `StubRelationshipExtractor` — return empty lists
 - `StubEntityResolver` — creates new entities without deduplication
@@ -233,20 +233,22 @@ The implementation plan is governed by the **[Agent-Memory-for-DotNet-Specificat
 
 ## 5. Document Inventory
 
-| Path | Purpose | Last Updated | Aligned with Spec? |
-|---|---|---|---|
-| `Agent-Memory-for-DotNet-Specification.md` | Canonical specification — source of truth | 2026-04-13 | **N/A** (this IS the spec) |
-| `Agent-memory-for-dotnet-implementation-plan.md` | Execution guide — phased build order, deliverables | 2026-04-13 | ✅ Yes (updated for Phase 1–3 completion) |
-| `docs/architecture.md` | Architecture overview — packages, graph model, boundaries, test strategy | 2026-04-13 | ✅ Yes |
-| `docs/design.md` | Software design — domain model, context assembly, extraction pipeline, service catalog | 2026-04-13 | ✅ Yes |
-| `docs/neo4j-maf-provider-analysis.md` | Reuse strategy for existing Neo4j GraphRAG provider | 2026-04-13 | ✅ Yes |
-| `docs/python-agent-memory-analysis.md` | Reference analysis mapping Python agent-memory to .NET | 2026-04-13 | ✅ Yes |
-| `docs/implementation-status.md` | **This document** — status tracker | 2026-04-13 | ✅ Yes |
-| `.squad/decisions.md` | Team decisions log (all decisions merged, deduped) | 2026-04-13 | ✅ Yes |
+| Path | Purpose | Notes |
+|---|---|---|
+| `Agent-Memory-for-DotNet-Specification.md` | Canonical specification — source of truth | Authoritative |
+| `Agent-memory-for-dotnet-implementation-plan.md` | Execution guide — phased build order, deliverables | Historical (all phases complete) |
+| `docs/architecture.md` | Architecture overview — packages, graph model, boundaries, test strategy | Active |
+| `docs/design.md` | Software design — domain model, context assembly, extraction pipeline, service catalog | Active |
+| `docs/schema.md` | Neo4j schema reference — constraints, indexes, node/relationship properties | Active |
+| `docs/parity-assessment.md` | Python feature parity assessment (July 2026) | Active |
+| `docs/implementation-status.md` | **This document** — status tracker | Active |
+| `docs/archive/` | Completed planning and historical analysis docs | Read-only history |
+| `docs/reference/` | External reference material (upstream APIs, research) | Read-only reference |
+| `.squad/decisions.md` | Team decisions log | Active |
 
 ### 5.1 Document Alignment
 
-All documents are current as of 2026-04-17 (post gap closure sprint). Phase 1–6 completion and gap closure sprint results have been reflected across all documentation.
+Phase 1–6 completion and gap closure sprint results are reflected in architecture.md, design.md, and implementation-status.md. The `docs/archive/` folder holds completed planning docs; `docs/reference/` holds upstream reference material.
 
 ---
 

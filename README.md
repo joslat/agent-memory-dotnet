@@ -22,7 +22,7 @@ It is designed to support:
 - **Neo4j-backed persistent memory** with vector, fulltext, and hybrid search
 - **Graph-native retrieval** with relationship traversal and entity resolution
 - **GraphRAG interoperability** for blended retrieval and knowledge graph enrichment
-- **MCP Server** for external clients and tools (28 tools, 6 resources, 3 prompts)
+- **MCP Server** for external clients and tools (21 tools, 6 resources, 3 prompts)
 
 ## Why this exists
 
@@ -101,7 +101,7 @@ Internalized retrieval layer providing:
 - graph-enriched context retrieval with custom traversal patterns
 
 ### 6. MCP layer
-A .NET MCP server exposing 28 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
+A .NET MCP server exposing 21 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
 
 ### 7. Observability layer
 OpenTelemetry decorators for:
@@ -110,7 +110,7 @@ OpenTelemetry decorators for:
 - metrics emission for query latency, cache hits, and error rates
 - structured logging with operation context
 
-## Planned capabilities
+## Capabilities
 
 ### Short-term memory
 - session-scoped conversation history with participant tracking
@@ -158,7 +158,7 @@ The first implementation focus is:
 
 1. **Native .NET Neo4j memory core**
 2. **Microsoft Agent Framework adapter**
-3. **GraphRAG adapter using the existing .NET provider**
+3. **GraphRAG retrieval built into `Neo4j.AgentMemory.Neo4j`** (internalized from separate adapter pattern)
 4. **Tests and validation harness**
 5. **MCP server for external client access**
 
@@ -183,26 +183,25 @@ Instead, the .NET version will prioritize:
 
 ## Project status
 
-All 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, Semantic Kernel adapter, GraphRAG blended retrieval adapter, OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 28 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
+All 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, Semantic Kernel adapter, GraphRAG blended retrieval (built into the Neo4j package), OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 21 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
 
-The solution ships **11 packages**:
+The solution ships these packages:
 
 | Package | Phase | Purpose |
 |---------|-------|---------|
 | `Neo4j.AgentMemory.Abstractions` | 1 | Domain models, service/repository interfaces, configuration options — zero external dependencies |
 | `Neo4j.AgentMemory.Core` | 1 | Memory services, extraction pipeline, context assembly, stubs |
-| `Neo4j.AgentMemory.Neo4j` | 1 | Neo4j repository implementations, Cypher queries, schema bootstrap |
+| `Neo4j.AgentMemory.Neo4j` | 1 | Neo4j repository implementations, Cypher queries, schema bootstrap, GraphRAG retrieval |
 | `Neo4j.AgentMemory.Extraction.Llm` | 2 | LLM-driven entity/fact/preference/relationship extractors (Microsoft.Extensions.AI) |
 | `Neo4j.AgentMemory.Extraction.AzureLanguage` | 5 | Azure Text Analytics extractors — NER, key phrases, PII |
 | `Neo4j.AgentMemory.AgentFramework` | 3 | Microsoft Agent Framework adapter — context provider, chat store, memory tools, trace recorder |
 | `Neo4j.AgentMemory.SemanticKernel` | 6 | Semantic Kernel adapter — memory plugin with native SK integration |
-| `Neo4j.AgentMemory.GraphRagAdapter` | 4 | GraphRAG adapter — `IGraphRagContextSource` via Neo4j vector/fulltext/hybrid/graph retrieval |
 | `Neo4j.AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
-| `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory + GraphRAG operations |
-| `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 28 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
+| `Neo4j.AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory operations |
+| `Neo4j.AgentMemory.McpServer` | 6 | MCP Server — 21 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
 | `Neo4j.AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
 
-**2,040+ tests passing (2,009 unit + 31 SK integration), 0 failures.** (98.5%+ functional parity with Python reference)
+Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation.
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 
@@ -210,12 +209,12 @@ The goal is to produce a robust, testable, production-oriented .NET implementati
 
 Contributions, design feedback, and implementation ideas are welcome.
 
-Contribution guidelines, coding standards, and package structure will be added as the repository is initialized.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and contribution guidelines.
 
 ## Getting Started
 
 ### Prerequisites
-- .NET 8 SDK or later
+- .NET 9 SDK or later
 - Neo4j 5.x (local, cloud, or containerized)
 - For Semantic Kernel integration: Semantic Kernel v1.x
 - For Azure Language integration: Azure Text Analytics service
@@ -227,28 +226,28 @@ Contribution guidelines, coding standards, and package structure will be added a
    dotnet add package Neo4j.AgentMemory
    ```
 
-2. **Initialize Neo4j schema**:
-   ```csharp
-   var schemaBootstrapper = new Neo4jSchemaBootstrapper(driver);
-   await schemaBootstrapper.BootstrapAsync();
-   ```
-
-3. **Configure memory services**:
+2. **Configure memory services**:
    ```csharp
    var provider = new ServiceCollection()
        .AddNeo4jAgentMemory(options => {
-           options.ConnectionUri = "neo4j+ssc://your-neo4j-instance";
-           options.AuthToken = AuthTokens.Basic("neo4j", "password");
+           options.Uri      = "bolt://localhost:7687";
+           options.Username = "neo4j";
+           options.Password = "password";
        })
-       .AddSemanticKernel()  // or .AddAgentFramework()
        .BuildServiceProvider();
+   ```
+
+3. **Initialize Neo4j schema**:
+   ```csharp
+   var bootstrapper = provider.GetRequiredService<ISchemaBootstrapper>();
+   await bootstrapper.BootstrapAsync();
    ```
 
 4. **Use in your agent**:
    ```csharp
-   var memory = provider.GetRequiredService<IAgentMemory>();
-   await memory.StoreMessageAsync(new Message { ... });
-   var context = await memory.AssembleContextAsync(sessionId, tokenBudget: 2000);
+   var memory = provider.GetRequiredService<IMemoryService>();
+   await memory.AddMessageAsync(sessionId, conversationId, "user", "Hello!");
+   var recall = await memory.RecallAsync(new RecallRequest { SessionId = sessionId, Query = "Hello" });
    ```
 
 For detailed examples, see the `samples/` directory.
@@ -264,6 +263,6 @@ Please refer to those repositories for the original Python implementation and th
 
 ## License
 
-License to be defined for this repository.
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 If code or substantial derived work is incorporated from upstream repositories, their respective license terms and notice requirements must be followed.
