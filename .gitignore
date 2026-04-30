@@ -425,3 +425,6 @@ FodyWeavers.xsd
 .squad-workstream
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/.scratch/
+
+# Neo4j reference repos (local-only, not part of this project)
+/Neo4j/

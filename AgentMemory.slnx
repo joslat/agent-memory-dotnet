@@ -1,10 +1,4 @@
 <Solution>
-  <Folder Name="/Neo4j/" />
-  <Folder Name="/Neo4j/neo4j-maf-provider/" />
-  <Folder Name="/Neo4j/neo4j-maf-provider/dotnet/" />
-  <Folder Name="/Neo4j/neo4j-maf-provider/dotnet/src/">
-    <Project Path="Neo4j/neo4j-maf-provider/dotnet/src/Neo4j.AgentFramework.GraphRAG/Neo4j.AgentFramework.GraphRAG.csproj" />
-  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj" />
