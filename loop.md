@@ -1,7 +1,7 @@
 ---
 configured: true
 interval: 5
-timeout: 60
+timeout: 25
 description: "Drive docs/nextsteps.md tracking table — one task end-to-end per cycle"
 ---
 
@@ -52,6 +52,24 @@ This loop runs autonomously. **No human is at the terminal.** That changes how y
 - `.squad/decisions.md`, `.squad/team.md`, `.squad/routing.md` — team state.
 - Current git branch and working-tree state (you must be clean before claiming work).
 
+## Environment preflight — run FIRST, every cycle
+
+Before claiming any work, probe the environment with short, hard-timeouts. **If a probe hangs, treat it as failed and continue** — never let a probe block the cycle.
+
+- **Docker probe.** Run `docker info` wrapped in a 10-second hard timeout (`Start-Job { docker info } | Wait-Job -Timeout 10` in PowerShell, or equivalent). If exit code ≠ 0 OR the command times out → set `DOCKER_AVAILABLE=false` for this cycle. Do **not** retry. Do **not** start Docker Desktop. Just record it.
+- **gh CLI probe.** `gh auth status` with a 5-second timeout. If it fails, exit `BLOCKED: gh CLI not authenticated` immediately — the cycle cannot create or merge PRs without it.
+
+Log the preflight result in the cycle's first scribe entry: `preflight: docker=<ok|unavailable>, gh=<ok>`.
+
+## Test execution policy — Docker-aware
+
+**Default behaviour: skip integration tests.** They require Docker (Testcontainers spinning Neo4j) and they hang silently if the Docker pipe is unresponsive — the most common cause of a stuck cycle.
+
+- **Always run** the unit suites: `dotnet test --filter "FullyQualifiedName!~Integration"` (or whichever explicit filter excludes the `*.Tests.Integration` projects).
+- **Run integration tests only if all of these are true:** `DOCKER_AVAILABLE=true` AND the plan's section 5 (verification protocol) explicitly names integration tests as required AND the diff actually touches code under `src/AgentMemory.Neo4j/` or other I/O-bound paths the integration suite covers.
+- **If integration tests are required but `DOCKER_AVAILABLE=false`:** exit `BLOCKED: integration tests required by plan but Docker unavailable` after committing whatever WIP exists. Do **not** try to run them anyway.
+- **Wrap every `dotnet test` invocation with a hard timeout** (`Start-Job` + `Wait-Job -Timeout 600` for 10 minutes max per invocation). If the timeout fires, kill the job, treat it as test failure, log `TEST_TIMEOUT` in the cycle notes.
+
 ## The two columns that drive the loop
 
 - **`State`** — the claim and completion lock. One of:
@@ -74,11 +92,12 @@ This loop runs autonomously. **No human is at the terminal.** That changes how y
 
 **The numbered steps below are PHASES of a single cycle. You execute every applicable phase in sequence without exiting between them.** Sub-agents may report "phase complete" or even "round complete" — ignore their framing, treat their return as a function call returning, and immediately invoke the next phase. The cycle ends only at a termination condition (DONE / BLOCKED / WIP-TIMEOUT).
 
-1. **Verify a clean working tree on `main`.** If there are uncommitted changes or you're already on a feature branch from a previous cycle (and step 3 below didn't pick that task to resume), abort with a `BLOCKED:` note in `.squad/decisions.md` and exit. Never discard or stash anything.
-2. **Pull `main`.**
-3. **Pick the cycle's task** using the order above.
-4. **Claim phase (new task only) — then keep going in the same cycle.** Edit only the picked row's `State` cell from empty to `S`. Commit on `main` with message `loop: claim <task name>` and push. Check out a new branch `loop/<slug>`. **Do not set `% Done` to anything yet — it stays empty until you exit at 50/90/100.** **Do not exit here.** Immediately proceed to step 5. (Resuming an `S` task: skip claim; check out the existing `loop/<slug>` branch and pull, then proceed to whichever phase matches the row's `% Done`: empty/50% → step 5 or 6, 90% → step 11.)
-5. **Plan phase — mandatory, every task, every size.** Write the implementation plan to `docs/plans/<slug>-plan.md` using **Claude Opus 4.7** (the highest-tier model available — pick it explicitly, do not let the agent default to a smaller model). **When the plan sub-agent returns, do NOT exit — proceed immediately to step 6.**
+1. **Verify a clean working tree on `main`.** If there are uncommitted changes or you're already on a feature branch from a previous cycle (and step 4 below didn't pick that task to resume), abort with a `BLOCKED:` note in `.squad/decisions.md` and exit. Never discard or stash anything.
+2. **Run the environment preflight** (Docker + gh probes from the "Environment preflight" section above). Record the result. Continue regardless of Docker availability — it only changes which tests are run later.
+3. **Pull `main`.**
+4. **Pick the cycle's task** using the order above.
+5. **Claim phase (new task only) — then keep going in the same cycle.** Edit only the picked row's `State` cell from empty to `S`. Commit on `main` with message `loop: claim <task name>` and push. Check out a new branch `loop/<slug>`. **Do not set `% Done` to anything yet — it stays empty until you exit at 50/90/100.** **Do not exit here.** Immediately proceed to step 6. (Resuming an `S` task: skip claim; check out the existing `loop/<slug>` branch and pull, then proceed to whichever phase matches the row's `% Done`: empty/50% → step 6 or 7, 90% → step 12.)
+6. **Plan phase — mandatory, every task, every size.** Write the implementation plan to `docs/plans/<slug>-plan.md` using **Claude Opus 4.7** (the highest-tier model available — pick it explicitly, do not let the agent default to a smaller model). **When the plan sub-agent returns, do NOT exit — proceed immediately to step 7.**
 
    **The plan is an executable runbook, not a design sketch.** Its purpose: a smaller, cheaper model (Claude Sonnet 4.6, GPT-5.5, etc.) executes the plan literally, top to bottom, without making design decisions. The Opus-tier reasoning happens here, once; the implementer just follows instructions. If the implementer would have to *choose* between two options, the plan failed — go back and pick the option, with rationale, in the plan.
 
@@ -94,16 +113,16 @@ This loop runs autonomously. **No human is at the terminal.** That changes how y
 
    **Sizing rule:** the plan length matches the work. A one-line bug fix gets a 15-line plan with all eight sections present but each terse. A package-wide rename gets a multi-page plan with file-by-file checklists. There is no minimum padding and no maximum length — what matters is that the smallest-tier model could execute it without ever guessing.
 
-   **Update the row's `Plan File` column** with the filename. **Commit the plan on the feature branch** before any implementation work begins. **Then, in the same cycle, proceed to step 6.**
-6. **Implement phase — execute the plan literally.** The implementer can be a smaller model (Sonnet 4.6, GPT-5.5) because the plan from step 5 already locked in every decision. Walk the numbered steps in order, do not skip ahead, do not improvise scope. If a step in the plan turns out to be wrong (a file path doesn't exist, a method signature has changed since the plan was written), **stop and update the plan first** — add a "Revision 2" section at the bottom of the plan file with the correction and rationale, commit the plan revision, then continue. Never silently deviate from the plan; revisions are the audit trail. Route specialist work through the squad agent (Backend, Frontend, Tester, Solution Architect for design questions). Stay strictly in scope — a cycle implementing task #N does not touch task #N+1. Commit incrementally on the feature branch with descriptive messages tied to plan steps (e.g. `feat: step 3 - add IFooFilter abstraction (plan §3)`). **When the implement sub-agent returns, do NOT exit — proceed immediately to step 7.**
-7. **Test phase.** Run the full relevant test suite (`dotnet test` and any extras from the plan). If failures: fix them. If you cannot get green within the budget, **do not push a broken PR**: commit WIP, set `% Done = 50%`, and exit per the WIP-TIMEOUT rule. **On green, proceed immediately to step 8.**
-8. **Self-review phase — second pair of eyes, mandatory.** Once tests are green, the implementer first satisfies **gate G1** (implementation matches the plan) by writing the four-bullet plan-fidelity check into a comment on the branch or directly in the PR body. Then route the diff to a **different squad team member than the implementer** (e.g. Backend implemented → Solution Architect or Tester reviews) using **Claude Opus 4.7**. The reviewer reads the **plan first**, then the diff against the plan, and applies **gates G2 (functional fit) and G3 (test depth)** explicitly — each gate's criteria must be affirmed in the review body. Reviewer outputs an explicit verdict: **APPROVE** or **REQUEST_CHANGES** with a numbered list of issues, each tied to the failing gate and a specific plan step or file/line. **When the reviewer sub-agent returns, do NOT exit — proceed immediately to step 9.**
-9. **Iterate on review feedback (max one re-review).**
-   - If verdict is **APPROVE** → proceed to step 10.
+   **Update the row's `Plan File` column** with the filename. **Commit the plan on the feature branch** before any implementation work begins. **Then, in the same cycle, proceed to step 7.**
+7. **Implement phase — execute the plan literally.** The implementer can be a smaller model (Sonnet 4.6, GPT-5.5) because the plan from step 6 already locked in every decision. Walk the numbered steps in order, do not skip ahead, do not improvise scope. If a step in the plan turns out to be wrong (a file path doesn't exist, a method signature has changed since the plan was written), **stop and update the plan first** — add a "Revision 2" section at the bottom of the plan file with the correction and rationale, commit the plan revision, then continue. Never silently deviate from the plan; revisions are the audit trail. Route specialist work through the squad agent (Backend, Frontend, Tester, Solution Architect for design questions). Stay strictly in scope — a cycle implementing task #N does not touch task #N+1. Commit incrementally on the feature branch with descriptive messages tied to plan steps (e.g. `feat: step 3 - add IFooFilter abstraction (plan §3)`). **When the implement sub-agent returns, do NOT exit — proceed immediately to step 8.**
+8. **Test phase — follow the Docker-aware Test execution policy above.** Always run the unit-only filter first. Wrap every invocation in a 10-minute hard timeout. Only run integration tests when the plan explicitly requires them AND `DOCKER_AVAILABLE=true`. If failures: fix them. If you cannot get green within the budget, **do not push a broken PR**: commit WIP, set `% Done = 50%`, and exit per the WIP-TIMEOUT rule. **On green, proceed immediately to step 9.**
+9. **Self-review phase — second pair of eyes, mandatory.** Once tests are green, the implementer first satisfies **gate G1** (implementation matches the plan) by writing the four-bullet plan-fidelity check into a comment on the branch or directly in the PR body. Then route the diff to a **different squad team member than the implementer** (e.g. Backend implemented → Solution Architect or Tester reviews) using **Claude Opus 4.7**. The reviewer reads the **plan first**, then the diff against the plan, and applies **gates G2 (functional fit) and G3 (test depth)** explicitly — each gate's criteria must be affirmed in the review body. Reviewer outputs an explicit verdict: **APPROVE** or **REQUEST_CHANGES** with a numbered list of issues, each tied to the failing gate and a specific plan step or file/line. **When the reviewer sub-agent returns, do NOT exit — proceed immediately to step 10.**
+10. **Iterate on review feedback (max one re-review).**
+   - If verdict is **APPROVE** → proceed to step 11.
    - If verdict is **REQUEST_CHANGES** → fix every listed issue, re-run tests, request a second review (same reviewer, same model). If the second review is **APPROVE**, proceed. If still **REQUEST_CHANGES** after the second pass, **stop iterating** — leave the PR open with both reviews as comments, append a `BLOCKED: review still flagging issues after 2 review attempts` line to `.squad/decisions.md`, set `% Done = 90%`, and exit. Do not iterate a third time.
-10. **PR phase.** Open the PR titled `<task name>`, body must reference the plan file (`Plan: docs/plans/<slug>-plan.md`) and include the full self-review summary (verdict + iteration history). Push the feature branch and confirm the PR is visible. Set the row to `% Done = 90%` on the feature branch. **Do not exit — proceed immediately to step 11.**
-11. **CI phase.** Wait for CI to complete on the PR. Poll `gh pr checks <pr>` until checks resolve, or 10 minutes elapse — whichever comes first. If CI is still pending after 10 minutes, exit `BLOCKED: CI not complete after 10 min`; the next cycle will resume. If CI fails, treat the failure list like a `REQUEST_CHANGES`: fix once, push, re-poll. If CI is **still red after one fix attempt**, exit with `BLOCKED: CI red after fix attempt`. Do not merge, do not iterate further. **On green, proceed immediately to step 12.**
-12. **Merge phase.** Only if all of the following are true:
+11. **PR phase.** Open the PR titled `<task name>`, body must reference the plan file (`Plan: docs/plans/<slug>-plan.md`) and include the full self-review summary (verdict + iteration history). Push the feature branch and confirm the PR is visible. Set the row to `% Done = 90%` on the feature branch. **Do not exit — proceed immediately to step 12.**
+12. **CI phase.** Wait for CI to complete on the PR. Poll `gh pr checks <pr>` until checks resolve, or 10 minutes elapse — whichever comes first. If CI is still pending after 10 minutes, exit `BLOCKED: CI not complete after 10 min`; the next cycle will resume. If CI fails, treat the failure list like a `REQUEST_CHANGES`: fix once, push, re-poll. If CI is **still red after one fix attempt**, exit with `BLOCKED: CI red after fix attempt`. Do not merge, do not iterate further. **On green, proceed immediately to step 13.**
+13. **Merge phase.** Only if all of the following are true:
     - Self-review final verdict is `APPROVE`.
     - All CI checks are green (not pending, not yellow).
     - **Gate G4 (PR quality) passes** — walk the G4 checklist explicitly before merging; if any item fails, fix and push, do not merge.
@@ -112,14 +131,14 @@ This loop runs autonomously. **No human is at the terminal.** That changes how y
     ```
     gh pr merge <pr> --squash --delete-branch
     ```
-    Squash merge keeps `main` history flat and deletes the feature branch automatically. **Proceed immediately to step 13.**
-13. **Post-merge verification phase — gate G5.** After `gh pr merge` returns success:
+    Squash merge keeps `main` history flat and deletes the feature branch automatically. **Proceed immediately to step 14.**
+14. **Post-merge verification phase — gate G5.** After `gh pr merge` returns success:
     - `git checkout main && git pull` — confirm the merge commit is on the tip.
     - `dotnet build` on `main` — must succeed. If it fails, revert immediately (`gh pr revert <pr> --merge-method squash`) and exit `BLOCKED: post-merge build failed, revert pushed`.
     - Confirm the feature branch was deleted on the remote.
     Only when G5 passes, update the tracking-table row to set `State = F`, `% Done = 100%`, and `Reviewed = ✅ <ReviewerName>`. Commit with message `loop: <task name> merged (✅ <ReviewerName>)` and push.
-14. **Append a one-line entry to `.squad/decisions.md`** summarizing the cycle (task, branch, PR URL, merge SHA, reviewer, test status).
-15. **Exit DONE.**
+15. **Append a one-line entry to `.squad/decisions.md`** summarizing the cycle (task, branch, PR URL, merge SHA, reviewer, test status).
+16. **Exit DONE.**
 
 ## Guardrails — depth-of-validation gates
 
