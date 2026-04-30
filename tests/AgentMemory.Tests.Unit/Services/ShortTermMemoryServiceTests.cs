@@ -14,6 +14,7 @@ public sealed class ShortTermMemoryServiceTests
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;
+    private readonly IReasoningTraceRepository _reasoningTraceRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -23,6 +24,7 @@ public sealed class ShortTermMemoryServiceTests
     {
         _conversationRepo = Substitute.For<IConversationRepository>();
         _messageRepo = Substitute.For<IMessageRepository>();
+        _reasoningTraceRepo = Substitute.For<IReasoningTraceRepository>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
@@ -47,7 +49,7 @@ public sealed class ShortTermMemoryServiceTests
     }
 
     private ShortTermMemoryService CreateSut(IOptions<ShortTermMemoryOptions>? options = null) =>
-        new(_conversationRepo, _messageRepo, _embeddingOrchestrator, _clock, _idGenerator,
+        new(_conversationRepo, _messageRepo, _reasoningTraceRepo, _embeddingOrchestrator, _clock, _idGenerator,
             options ?? Options.Create(new ShortTermMemoryOptions()),
             NullLogger<ShortTermMemoryService>.Instance);
 
@@ -202,24 +204,26 @@ public sealed class ShortTermMemoryServiceTests
     }
 
     [Fact]
-    public async Task ClearSessionAsync_DeletesMessagesAndConversations()
+    public async Task ClearSessionAsync_DeletesMessages_Conversations_AndReasoningTraces()
     {
-        var conversations = new[] { CreateConversation("conv-1", "session-1") };
-        _conversationRepo
-            .GetBySessionAsync("session-1", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Conversation>>(conversations));
         _messageRepo
             .DeleteBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         _conversationRepo
-            .DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .DeleteBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        _reasoningTraceRepo
+            .DeleteBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         var sut = CreateSut();
 
         await sut.ClearSessionAsync("session-1");
 
         await _messageRepo.Received(1).DeleteBySessionAsync("session-1", Arg.Any<CancellationToken>());
-        await _conversationRepo.Received(1).DeleteAsync("conv-1", Arg.Any<CancellationToken>());
+        await _conversationRepo.Received(1).DeleteBySessionAsync("session-1", Arg.Any<CancellationToken>());
+        await _reasoningTraceRepo.Received(1).DeleteBySessionAsync("session-1", Arg.Any<CancellationToken>());
+        await _conversationRepo.DidNotReceive().GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _conversationRepo.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     private static Message CreateMessage(string id, bool withEmbedding = false) => new()

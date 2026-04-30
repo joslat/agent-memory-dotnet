@@ -151,6 +151,15 @@ Conducted comprehensive architecture re-evaluation with team alignment on strate
 
 ## Learnings
 
+### 2026-04-30 — Loop Round 4: DELETE_SESSION_DATA Gap Review
+
+- Reviewed and approved DELETE_SESSION_DATA Gap implementation on branch `loop/delete-session-gap`
+- PR opened: https://github.com/joslat/agent-memory-dotnet/pull/1 — batch session delete + ReasoningTrace cleanup
+- Architecture compliant: new `DeleteBySessionAsync` methods in Abstractions, implementations in Neo4j, Core uses injection only
+- `ClearSessionAsync` no longer has N+1 loop; uses single batch Cypher per entity type; now correctly deletes ReasoningTrace + ReasoningStep nodes
+- All 2057 targeted tests green (1 pre-existing flaky test in BackgroundEnrichmentQueue is unrelated to this change)
+- Branch advanced from 60% → 90%; task at PR review stage
+
 ### 2025-01-28 — Phase 1 Onboarding Analysis
 
 **Key Architecture Decisions Identified:**

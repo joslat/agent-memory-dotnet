@@ -149,6 +149,16 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
+    public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting reasoning traces for session {SessionId}", sessionId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(ReasoningQueries.DeleteBySession, new { sessionId });
+        }, cancellationToken);
+    }
+
     private static ReasoningTrace MapToTrace(INode node, float[]? taskEmbedding) =>
         new()
         {

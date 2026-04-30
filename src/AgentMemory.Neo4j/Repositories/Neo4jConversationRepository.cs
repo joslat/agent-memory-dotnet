@@ -76,6 +76,16 @@ public sealed class Neo4jConversationRepository : IConversationRepository
         }, cancellationToken);
     }
 
+    public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Deleting all conversations for session {SessionId}", sessionId);
+
+        await _tx.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(ConversationQueries.DeleteBySession, new { sessionId });
+        }, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default)
     {
         _logger.LogDebug("Listing sessions, limit={Limit}", limit);

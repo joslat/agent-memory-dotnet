@@ -34,4 +34,9 @@ public interface IReasoningTraceRepository
     /// Creates both HAS_TRACE (Conversation→Trace) and IN_SESSION (Trace→Conversation) relationships.
     /// </summary>
     Task CreateConversationTraceRelationshipsAsync(string conversationId, string traceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes all ReasoningTrace and child ReasoningStep nodes for a session.
+    /// </summary>
+    Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
 }
