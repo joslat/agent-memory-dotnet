@@ -2,6 +2,196 @@
 
 ## Active Decisions
 
+
+### 2026-05-08T09:26:42.925+02:00: User directive
+**By:** Jose Luis Latorre Millas (via Copilot)
+**What:** Do not use `claude-opus-4.7` or `gpt-5.5` at all; avoid both models for squad work.
+**Why:** User request — captured for team memory
+
+
+---
+
+### 2026-04-30: Round 4 — DELETE_SESSION_DATA Gap review
+
+**By:** Deckard (Lead)
+**What:** Reviewed implementation of ClearSessionAsync fix. Tests passing (2057). PR opened. Architecture compliant — new methods in Abstractions, implementations in Neo4j, Core uses injection only.
+**PR:** https://github.com/joslat/agent-memory-dotnet/pull/1
+**Status:** Approved — advancing to 90%
+
+
+---
+
+### 2026-04-30: PR #1 merged — DELETE_SESSION_DATA Gap
+
+**By:** Deckard (Lead, top-tier review with claude-opus-4.7)
+**PR:** https://github.com/joslat/agent-memory-dotnet/pull/1
+**Issues found:** One apparent test failure (`BackgroundEnrichmentQueueTests.EnqueueAsync_ProviderThrows_OtherProvidersStillCalled`) that reproduced equally on `main` — confirmed pre-existing flaky test (NSubstitute ordering sensitivity in full suite run; passes in isolation). Not a regression from this PR.
+**Fixes applied:** None required — all checklist items passed on first inspection.
+**Final test count:** 2058 total (2057 passing; 1 pre-existing flaky). All 11 PR-specific tests (DeleteBySessionAsync ×4, ClearSessionAsync ×1, CypherQueryInventory ×1, CypherCatalog ×1, structural query tests ×4) passed green.
+**Architecture verdict:** Clean — boundaries maintained, DI correct, no layer violations. `IReasoningTraceRepository` correctly registered in `AgentMemory.Neo4j` DI extension. `ShortTermMemoryService` in Core references only Abstractions interfaces. Cypher queries use correct node labels (`Conversation`, `ReasoningTrace`, `ReasoningStep`), relationship type (`HAS_STEP`), and `$sessionId` parameter. N+1 loop fully eliminated.
+**Decision:** Approved and merged to main.
+
+
+---
+
+# Deckard Priority Assessment
+
+**Date:** 2026-05-08T09:26:42.925+02:00
+**Requested by:** Jose Luis Latorre Millas
+
+## Decision
+
+1. **Priority source of truth**
+   - Treat `.squad/identity/now.md` as the current operational priority source because it is newer than `docs/nextsteps.md`.
+   - `docs/nextsteps.md` remains useful for rationale and sequencing history, but it is no longer authoritative where it conflicts with `now.md`.
+
+2. **Model operating set**
+   - Exclude `claude-opus-4.7` and `gpt-5.5` from squad recommendations and spawning guidance.
+   - Preferred operating set:
+     - Default / analysis / implementation: `claude-sonnet-4.6`
+     - Heavy code generation: `gpt-5.3-codex`
+     - Mechanical or low-complexity work: `claude-haiku-4.5`
+     - Secondary fallbacks: `claude-sonnet-4.5`, `gpt-5.4`, `gpt-4.1`, `gpt-5.4-mini`, `gpt-5-mini`, `gpt-5.2`, `gpt-5.2-codex`
+
+3. **Recommended execution order**
+   - **First:** NuGet release preparation, plus immediate reconciliation of `now.md` and `docs/nextsteps.md`
+   - **Second:** Streaming extraction
+   - **Third:** Local embedding adapter
+   - **Fourth:** Additional framework integrations, with AutoGen.NET first
+   - **Parallel governance action:** explicitly either finish or de-scope the lingering Aspire demo work so it stops creating priority ambiguity
+
+## Rationale
+
+- The repository appears feature-complete for v1-level library scope: 11 packages, strong package boundaries, and unit suites passing in this environment.
+- The highest-value remaining work is what converts completed engineering into adoption: release readiness and installability.
+- Streaming extraction is the clearest remaining product capability gap.
+- Local embeddings come next because they unlock air-gapped and cost-sensitive deployment scenarios.
+- Additional integrations expand reach, but they should follow the higher-value platform gaps above.
+
+
+---
+
+# Package Rename Review — 2026-04-30
+**Reviewer:** Deckard (Lead Architect)
+**Branch:** rename/agentmemory-package-ids
+**Commit:** acef3efb58de48e24893107fa7c5bf4b65c0fbcc
+
+## Verdict: APPROVED
+
+---
+
+## Summary
+
+Roy's rename of all eleven source packages from `Neo4j.AgentMemory.*` to `AgentMemory.*` is architecturally correct, mechanically complete, and build-verified. All eight review gates passed with two minor observations that do not block merge. The branch contains exactly one commit; it is safe to merge to main.
+
+---
+
+## Findings by Area
+
+### 1. Rename Reasoning — PASS
+
+The top-level prefix `AgentMemory.*` is correct: the library is a product, not a Neo4j first-party SDK. `AgentMemory.Neo4j` survives as the adapter qualifier, which is the right pattern (product first, technology qualifier second). This is consistent throughout all eleven packages, the test projects, and the sample projects. No adapter package carries an ambiguous name.
+
+### 2. CHANGELOG Entry — PASS
+
+The `[Unreleased]` block accurately records the rename with context: what changed, why (NuGet IDs are permanent, pre-publish window), and scope (453 .cs files, 17 .csproj files, 1 .slnx). The only occurrence of `Neo4j.AgentMemory` in any `.md` file outside `.squad/` is in the CHANGELOG itself, correctly used as the "renamed from" value. That is expected and appropriate.
+
+### 3. .csproj File Correctness — PASS with one minor observation
+
+- `AgentMemory.Core.csproj`: ProjectReferences point to correct new paths. No explicit `<PackageId>` — defaults to project name `AgentMemory.Core`. Correct.
+- `AgentMemory.Neo4j.csproj`: Same pattern. PackageId implicit from project name. Correct.
+- `AgentMemory.csproj` (meta-package): ProjectReferences updated correctly. **Minor:** `<Description>` still reads "Convenience meta-package for Neo4j Agent Memory" and `<Authors>Neo4j</Authors>` — stale branding text in the description field. The package ID itself is correct (`AgentMemory`). This is a cosmetic issue for NuGet Release Prep, not a blocker for the rename.
+
+None of the packages have an explicit `<PackageId>` element; all rely on MSBuild's project-name default. This is technically correct pre-v1 but should be made explicit during NuGet Release Prep (#4) to prevent any accidental drift.
+
+### 4. README and Key Docs — PASS
+
+`README.md` uses `AgentMemory.*` package names throughout all install snippets, package tables, and usage examples. No `dotnet add package Neo4j.AgentMemory.*` references found. Docs are clean.
+
+### 5. .squad/ Internal Docs — PASS
+
+`git diff main...HEAD -- ".squad"` returns 0 lines. Operational docs (charters, decisions, histories) were correctly left unmodified by Roy. These are internal artifacts, not part of the public package surface, and the decision not to rewrite them is correct.
+
+### 6. Namespace / File Path Alignment — PASS
+
+Spot-checked files across four packages:
+- `AgentMemory.Abstractions`: `CompressedContext.cs`, `DeduplicationStats.cs`, `DuplicatePair.cs` — all declare `namespace AgentMemory.Abstractions.Domain;`
+- `AgentMemory.McpServer`: `McpServerOptions.cs`, `ServiceCollectionExtensions.cs` — declare `namespace AgentMemory.McpServer;`
+
+Path segments and namespace declarations are aligned. No legacy `Neo4j.AgentMemory.*` namespace declarations observed.
+
+### 7. NuGet Package Metadata Consistency — PASS
+
+- `AgentMemory.McpServer.csproj`: `<RootNamespace>AgentMemory.McpServer</RootNamespace>` — correct.
+- `AgentMemory.Abstractions.csproj`: `<RootNamespace>AgentMemory.Abstractions</RootNamespace>`, `<AssemblyName>AgentMemory.Abstractions</AssemblyName>` — correct.
+
+No old `Neo4j.AgentMemory.*` values found in any metadata field across either package.
+
+### 8. Git Log — PASS
+
+```
+acef3ef (HEAD -> rename/agentmemory-package-ids) chore: rename all packages from Neo4j.AgentMemory.* to AgentMemory.*
+```
+
+Exactly one commit on the branch. The commit message is clear and follows the project's conventional commit style. No extraneous commits, no merge noise.
+
+---
+
+## Issues Requiring Remediation Before Merge
+
+### Blockers
+None.
+
+### Minor
+1. **Meta-package `<Description>` is stale.** `AgentMemory.csproj` still reads `"Convenience meta-package for Neo4j Agent Memory."` The description will appear verbatim on NuGet.org. Recommend updating to `"Convenience meta-package for Agent Memory for .NET. References all essential assemblies so consumers only need a single package reference."` This can be done as part of NuGet Release Prep (#4) or in a follow-up commit on this branch before merge — either is acceptable.
+
+### Cosmetic
+2. **`nextsteps.md` "What is not done yet" paragraph** still lists "package rename (AgentMemory.* root namespace)" as pending. Stale after this merge. Updating as part of this review.
+
+3. **No explicit `<PackageId>` in any .csproj.** Relying on project-name default is correct but fragile if a project is ever renamed or moved. This is NuGet Release Prep scope, not rename scope.
+
+---
+
+## Recommendation
+
+APPROVE FOR MERGE.
+
+The rename is complete, correct, and verified. The two minor observations above (stale description text, no explicit PackageId) are pre-existing patterns that belong to NuGet Release Prep (#4), not to this branch. The cosmetic issue in nextsteps.md is addressed by this review commit.
+
+
+---
+
+# Holden — Aspire Demo test gate
+
+**Date:** 2026-05-01T00:49:46.110+02:00
+**Author:** Holden
+**Scope:** Aspire Demo sample-only branch review gate
+
+## Decision
+
+The current failure in `AgentMemory.Tests.Unit.Enrichment.BackgroundEnrichmentQueueTests.EnqueueAsync_ProviderThrows_OtherProvidersStillCalled` should be treated as **pre-existing and unrelated to the Aspire Demo branch**.
+
+## Evidence
+
+- Diff from `origin/loop/aspire-demo` (`f6e2cf2`) to `HEAD` changes only `samples/`, `docs/plans/`, and squad tracking artifacts; no `src/` or `tests/` files in the failing area changed.
+- The failing test and `BackgroundEnrichmentQueue` implementation both predate this branch.
+- The failure pattern is a race inside the test: it waits for the provider mock to complete, then immediately asserts `repo.UpsertAsync`, even though persistence happens afterward on the background worker.
+- Re-running the single failing test passed repeatedly, consistent with flakiness rather than a deterministic Aspire regression.
+
+## Review Gate Guidance
+
+For Aspire Demo review/merge gating, use a **sample-scoped verification set**:
+
+1. Build the sample solution/projects under `samples\AspireDemo\`
+2. Run any sample-specific smoke validation for the deterministic demo flow
+3. Treat the unrelated background-enrichment unit test as **informational noise**, not a blocker for Task 3
+
+If a broader repository test run is executed, this specific test should be called out as a known unrelated flaky test until someone fixes the synchronization in the test itself.
+
+
+---
+
+
 ### D-WAVE1: IEmbeddingOrchestrator + ExtractorBase<T> (Roy, 2026-07-18)
 
 **Status:** Implemented ✅  
