@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 
 namespace AgentMemory.AgentFramework;
 
@@ -40,6 +42,9 @@ public static class ServiceCollectionExtensions
         // P2-6: Register AgentTraceRecorder and MemoryToolFactory so consumers don't need to add them manually.
         // Both are Scoped: they depend on scoped Core services and are not safe as singletons.
         services.TryAddScoped<AgentTraceRecorder>();
+        // MemoryToolFactory delegates to the Core query facade; register it here so the factory resolves
+        // even when only AddAgentMemoryFramework was called (TryAdd respects an existing Core registration).
+        services.TryAddScoped<IMemoryQueryFacade, MemoryQueryFacade>();
         services.TryAddScoped<Tools.MemoryToolFactory>();
 
         // MAF 1.1.0 ChatHistoryProvider for plugging into ChatClientAgentOptions.ChatHistoryProvider.

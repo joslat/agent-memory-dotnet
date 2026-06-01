@@ -165,6 +165,24 @@ public sealed class Neo4jGraphRagContextSourceTests
         result.Items.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task GetContext_Cancelled_PropagatesInsteadOfReturningEmpty()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var retriever = Substitute.For<IRetriever>();
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var sut = CreateSut(retriever);
+
+        var act = () => sut.GetContextAsync(MakeRequest(), cts.Token);
+
+        // Cancellation must not be masked as an empty (successful) result.
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     // -------------------------------------------------------------------------
     // Query text forwarding
     // -------------------------------------------------------------------------

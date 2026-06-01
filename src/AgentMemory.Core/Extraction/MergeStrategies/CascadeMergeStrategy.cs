@@ -9,8 +9,10 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// </summary>
 public sealed class CascadeMergeStrategy<T> : IMergeStrategy<T> where T : class
 {
+    /// <inheritdoc/>
     public MergeStrategyType StrategyType => MergeStrategyType.Cascade;
 
+    /// <inheritdoc/>
     public IReadOnlyList<T> Merge(IReadOnlyList<IReadOnlyList<T>> extractorResults)
     {
         foreach (var resultList in extractorResults)

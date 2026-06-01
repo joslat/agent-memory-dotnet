@@ -30,7 +30,7 @@ public sealed class TemporalContextAssemblerTests
         _clock.UtcNow.Returns(_fixedTime);
 
         _embeddingOrchestrator
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(_generatedEmbedding));
 
         SetupEmptyServiceReturns();
@@ -132,7 +132,7 @@ public sealed class TemporalContextAssemblerTests
 
         await sut.AssembleContextAsOfAsync(request, asOf);
 
-        await _embeddingOrchestrator.Received(1).EmbedQueryAsync("What do I know?", Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1).EmbedAsync("What do I know?", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class TemporalContextAssemblerTests
 
         await sut.AssembleContextAsOfAsync(request, asOf);
 
-        await _embeddingOrchestrator.DidNotReceive().EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

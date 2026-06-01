@@ -15,12 +15,16 @@ internal sealed class AzureExtractionContext
     public async Task<IReadOnlyList<AzureRecognizedEntity>> GetOrRecognizeEntitiesAsync(
         string content, string? language, ITextAnalyticsClientWrapper client, CancellationToken ct)
     {
-        if (_entityCache.TryGetValue(content, out var cached))
+        // The same text analyzed under different languages yields different results, so the
+        // cache key must include the language to avoid cross-language collisions.
+        var cacheKey = $"{language ?? string.Empty}\n{content}";
+
+        if (_entityCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
         var result = await client.RecognizeEntitiesAsync(content, language, ct);
         var list = result.ToList();
-        _entityCache.TryAdd(content, list);
+        _entityCache.TryAdd(cacheKey, list);
         return list;
     }
 }

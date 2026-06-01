@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="..\AgentMemory.Core\AgentMemory.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.74.0" />

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,9 +13,6 @@ namespace AgentMemory.Extraction.Llm;
 /// </summary>
 public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
 {
-    private static readonly JsonSerializerOptions JsonOptions =
-        new() { PropertyNameCaseInsensitive = true };
-
     public const string DefaultSystemPrompt =
         """
         You are a preference extraction assistant. Identify user preferences, likes, dislikes,
@@ -35,8 +31,8 @@ public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>,
         - Return {"preferences": []} if nothing found
         """;
 
-    private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
+    private readonly LlmExtractionRunner _runner;
 
     public LlmPreferenceExtractor(
         IChatClient chatClient,
@@ -44,28 +40,25 @@ public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>,
         ILogger<LlmPreferenceExtractor> logger)
         : base(logger)
     {
-        _chatClient = chatClient;
         _options = options.Value;
+        _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
     protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken ct)
     {
         var conversationText = ConversationTextBuilder.Build(messages);
+        return await _runner.RunAsync(
+            _options.PreferenceExtractionPrompt ?? DefaultSystemPrompt,
+            "Extract preferences from this conversation:",
+            conversationText,
+            ProjectPreferences,
+            ct);
+    }
 
-        var chatMessages = new List<ChatMessage>
-        {
-            new(ChatRole.System, _options.PreferenceExtractionPrompt ?? DefaultSystemPrompt),
-            new(ChatRole.User, $"Extract preferences from this conversation:\n\n{conversationText}")
-        };
-
-        var chatOptions = BuildChatOptions();
-        var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, ct);
-        var json = response.Text;
-
-        var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
-        if (dto?.Preferences is null)
-            return Array.Empty<ExtractedPreference>();
+    private static IReadOnlyList<ExtractedPreference> ProjectPreferences(LlmExtractionResponse dto)
+    {
+        if (dto.Preferences is null) return Array.Empty<ExtractedPreference>();
 
         return dto.Preferences
             .Where(p => !string.IsNullOrWhiteSpace(p.Category)
@@ -78,13 +71,5 @@ public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>,
                 Confidence = p.Confidence
             })
             .ToList();
-    }
-
-    private ChatOptions BuildChatOptions()
-    {
-        var opts = new ChatOptions { Temperature = _options.Temperature };
-        if (!string.IsNullOrEmpty(_options.ModelId))
-            opts.ModelId = _options.ModelId;
-        return opts;
     }
 }

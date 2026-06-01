@@ -9,7 +9,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 
 [Collection("Neo4j Integration")]
 [Trait("Category", "Integration")]
-public class EntityRepositoryIntegrationTests
+public class EntityRepositoryIntegrationTests : IAsyncLifetime
 {
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jEntityRepository _repo;

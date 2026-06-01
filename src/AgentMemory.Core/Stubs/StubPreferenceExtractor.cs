@@ -11,8 +11,13 @@ public sealed class StubPreferenceExtractor : IPreferenceExtractor
 {
     private readonly ILogger<StubPreferenceExtractor> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StubPreferenceExtractor"/> class.
+    /// </summary>
+    /// <param name="logger">The logger used to record diagnostic information.</param>
     public StubPreferenceExtractor(ILogger<StubPreferenceExtractor> logger) => _logger = logger;
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<ExtractedPreference>> ExtractAsync(
         IReadOnlyList<Message> messages,
         CancellationToken cancellationToken = default)

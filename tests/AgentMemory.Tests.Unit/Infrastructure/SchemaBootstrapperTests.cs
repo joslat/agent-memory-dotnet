@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 using NSubstitute;
 
@@ -196,7 +197,7 @@ public class SchemaBootstrapperTests
     [InlineData(768)]
     public void BuildVectorIndexes_EmbeddingDimensionAppearsInAllIndexes(int dimensions)
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(dimensions);
+        var indexes = SchemaQueries.BuildVectorIndexes(dimensions);
 
         indexes.Should().HaveCount(6);
         indexes.Should().AllSatisfy(idx =>
@@ -206,7 +207,7 @@ public class SchemaBootstrapperTests
     [Fact]
     public void BuildVectorIndexes_AllIndexesUseCosineFunction()
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
+        var indexes = SchemaQueries.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
             idx.Should().Contain("'cosine'"));
@@ -215,7 +216,7 @@ public class SchemaBootstrapperTests
     [Fact]
     public void BuildVectorIndexes_AllIndexesTargetEmbeddingProperty()
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
+        var indexes = SchemaQueries.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
             idx.Should().MatchRegex(@"ON \(n\.(embedding|task_embedding)\)"));
@@ -224,7 +225,7 @@ public class SchemaBootstrapperTests
     [Fact]
     public void BuildVectorIndexes_AllIndexesAreIdempotent()
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
+        var indexes = SchemaQueries.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
             idx.Should().Contain("IF NOT EXISTS"));

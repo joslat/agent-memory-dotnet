@@ -1,4 +1,22 @@
 ## [Unreleased]
+### Changed (breaking)
+- **`IMemoryService` split into role interfaces** (`AgentMemory.Abstractions`). Its members are now
+  declared on three focused interfaces — `IMemoryRecall` (read), `IMemoryIngestion` (write), and
+  `IMemoryMaintenance` (upkeep) — and `IMemoryService` composes all three
+  (`IMemoryService : IMemoryRecall, IMemoryIngestion, IMemoryMaintenance`). Consumers of
+  `IMemoryService` are source-compatible (all members remain available); new code can depend on a
+  narrow role for ISP. DI binds all three roles to the same scoped instance. **Migration:** code that
+  referenced these members via reflection or re-declared `IMemoryService` members should account for
+  the members now originating on the base role interfaces.
+- **`IEmbeddingOrchestrator` slimmed to two primitives** (`AgentMemory.Abstractions`). The interface
+  now declares only `EmbedAsync(string)` and the new `EmbedBatchAsync(IReadOnlyList<string>)`. The
+  six domain-specific methods (`EmbedEntityAsync`, `EmbedFactAsync`, `EmbedPreferenceAsync`,
+  `EmbedMessageAsync`, `EmbedQueryAsync`, `EmbedTextAsync`) are preserved as **extension methods**
+  in `EmbeddingOrchestratorExtensions` (same namespace), so call sites that `using
+  AgentMemory.Abstractions.Services` are source-compatible. **Migration:** code that *implements* or
+  *mocks* `IEmbeddingOrchestrator` must now implement/mock `EmbedAsync`/`EmbedBatchAsync` instead of
+  the typed methods (the typed methods, being extensions, can no longer be overridden or substituted).
+
 ### Changed
 - Renamed all NuGet packages from `Neo4j.AgentMemory.*` to `AgentMemory.*` to remove
   implied Neo4j affiliation before first publish. NuGet IDs are permanent once published.

@@ -29,9 +29,15 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
     private int _activeCount;
     private bool _disposed;
 
+    /// <inheritdoc/>
     public int QueueDepth => _options.Enabled ? _channel.Reader.Count : 0;
+
+    /// <inheritdoc/>
     public bool IsProcessing => _activeCount > 0;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BackgroundEnrichmentQueue"/> class.
+    /// </summary>
     public BackgroundEnrichmentQueue(
         IEnumerable<IEnrichmentService> enrichmentServices,
         IEntityRepository entityRepository,
@@ -56,6 +62,7 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
             : Task.CompletedTask;
     }
 
+    /// <inheritdoc/>
     public Task EnqueueAsync(string entityId, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || _disposed) return Task.CompletedTask;
@@ -63,6 +70,7 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc/>
     public Task EnqueueBatchAsync(IEnumerable<string> entityIds, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || _disposed) return Task.CompletedTask;
@@ -157,6 +165,7 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
         }
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed) return;
@@ -166,6 +175,7 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
         _cts.Dispose();
     }
 
+    /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;

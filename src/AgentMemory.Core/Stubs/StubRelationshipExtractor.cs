@@ -11,8 +11,13 @@ public sealed class StubRelationshipExtractor : IRelationshipExtractor
 {
     private readonly ILogger<StubRelationshipExtractor> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StubRelationshipExtractor"/> class.
+    /// </summary>
+    /// <param name="logger">The logger used to record diagnostic information.</param>
     public StubRelationshipExtractor(ILogger<StubRelationshipExtractor> logger) => _logger = logger;
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<ExtractedRelationship>> ExtractAsync(
         IReadOnlyList<Message> messages,
         CancellationToken cancellationToken = default)

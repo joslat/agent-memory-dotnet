@@ -20,6 +20,9 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     private readonly LongTermMemoryOptions _options;
     private readonly ILogger<LongTermMemoryService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="LongTermMemoryService"/> class.
+    /// </summary>
     public LongTermMemoryService(
         IEntityRepository entityRepo,
         IFactRepository factRepo,
@@ -29,6 +32,14 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         IOptions<LongTermMemoryOptions> options,
         ILogger<LongTermMemoryService> logger)
     {
+        ArgumentNullException.ThrowIfNull(entityRepo);
+        ArgumentNullException.ThrowIfNull(factRepo);
+        ArgumentNullException.ThrowIfNull(prefRepo);
+        ArgumentNullException.ThrowIfNull(relRepo);
+        ArgumentNullException.ThrowIfNull(embeddingOrchestrator);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+
         _entityRepo = entityRepo;
         _factRepo = factRepo;
         _prefRepo = prefRepo;
@@ -38,21 +49,27 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         _logger = logger;
     }
 
-    public async Task<Entity> AddEntityAsync(
+    /// <inheritdoc/>
+    public Task<Entity> AddEntityAsync(
         Entity entity,
         CancellationToken cancellationToken = default)
     {
-        var finalEntity = entity;
-        if (_options.GenerateEntityEmbeddings && entity.Embedding is null)
-        {
-            var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
-            _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
-            var embedding = await _embeddingOrchestrator.EmbedTextAsync(text, cancellationToken);
-            finalEntity = entity with { Embedding = embedding };
-        }
-        return await _entityRepo.UpsertAsync(finalEntity, cancellationToken);
+        ArgumentNullException.ThrowIfNull(entity);
+        return EnsureEmbeddingThenUpsertAsync(
+            entity,
+            shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
+            embed: ct =>
+            {
+                var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
+                _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
+                return _embeddingOrchestrator.EmbedTextAsync(text, ct);
+            },
+            withEmbedding: (e, emb) => e with { Embedding = emb },
+            upsert: _entityRepo.UpsertAsync,
+            cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Entity>> GetEntitiesByNameAsync(
         string name,
         bool includeAliases = true,
@@ -61,6 +78,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return _entityRepo.GetByNameAsync(name, includeAliases, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Entity>> SearchEntitiesAsync(
         float[] queryEmbedding,
         int limit = 10,
@@ -71,20 +89,26 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return scored.Select(r => r.Entity).ToList();
     }
 
-    public async Task<Preference> AddPreferenceAsync(
+    /// <inheritdoc/>
+    public Task<Preference> AddPreferenceAsync(
         Preference preference,
         CancellationToken cancellationToken = default)
     {
-        var finalPreference = preference;
-        if (_options.GeneratePreferenceEmbeddings && preference.Embedding is null)
-        {
-            _logger.LogDebug("Generating embedding for preference {PreferenceId}", preference.PreferenceId);
-            var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(preference.PreferenceText, cancellationToken);
-            finalPreference = preference with { Embedding = embedding };
-        }
-        return await _prefRepo.UpsertAsync(finalPreference, cancellationToken);
+        ArgumentNullException.ThrowIfNull(preference);
+        return EnsureEmbeddingThenUpsertAsync(
+            preference,
+            shouldEmbed: _options.GeneratePreferenceEmbeddings && preference.Embedding is null,
+            embed: ct =>
+            {
+                _logger.LogDebug("Generating embedding for preference {PreferenceId}", preference.PreferenceId);
+                return _embeddingOrchestrator.EmbedPreferenceAsync(preference.PreferenceText, ct);
+            },
+            withEmbedding: (p, emb) => p with { Embedding = emb },
+            upsert: _prefRepo.UpsertAsync,
+            cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Preference>> GetPreferencesByCategoryAsync(
         string category,
         CancellationToken cancellationToken = default)
@@ -92,6 +116,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return _prefRepo.GetByCategoryAsync(category, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Preference>> SearchPreferencesAsync(
         float[] queryEmbedding,
         int limit = 10,
@@ -102,20 +127,47 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return scored.Select(r => r.Preference).ToList();
     }
 
-    public async Task<Fact> AddFactAsync(
+    /// <inheritdoc/>
+    public Task<Fact> AddFactAsync(
         Fact fact,
         CancellationToken cancellationToken = default)
     {
-        var finalFact = fact;
-        if (_options.GenerateFactEmbeddings && fact.Embedding is null)
-        {
-            _logger.LogDebug("Generating embedding for fact {FactId}", fact.FactId);
-            var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken);
-            finalFact = fact with { Embedding = embedding };
-        }
-        return await _factRepo.UpsertAsync(finalFact, cancellationToken);
+        ArgumentNullException.ThrowIfNull(fact);
+        return EnsureEmbeddingThenUpsertAsync(
+            fact,
+            shouldEmbed: _options.GenerateFactEmbeddings && fact.Embedding is null,
+            embed: ct =>
+            {
+                _logger.LogDebug("Generating embedding for fact {FactId}", fact.FactId);
+                return _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct);
+            },
+            withEmbedding: (f, emb) => f with { Embedding = emb },
+            upsert: _factRepo.UpsertAsync,
+            cancellationToken);
     }
 
+    /// <summary>
+    /// Shared helper implementing the "generate an embedding when missing, then upsert" pattern
+    /// used by <see cref="AddEntityAsync"/>, <see cref="AddPreferenceAsync"/> and <see cref="AddFactAsync"/>.
+    /// </summary>
+    private static async Task<T> EnsureEmbeddingThenUpsertAsync<T>(
+        T item,
+        bool shouldEmbed,
+        Func<CancellationToken, Task<float[]>> embed,
+        Func<T, float[], T> withEmbedding,
+        Func<T, CancellationToken, Task<T>> upsert,
+        CancellationToken cancellationToken)
+    {
+        var final = item;
+        if (shouldEmbed)
+        {
+            var embedding = await embed(cancellationToken);
+            final = withEmbedding(item, embedding);
+        }
+        return await upsert(final, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Fact>> GetFactsBySubjectAsync(
         string subject,
         CancellationToken cancellationToken = default)
@@ -123,6 +175,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return _factRepo.GetBySubjectAsync(subject, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
         float[] queryEmbedding,
         int limit = 10,
@@ -133,13 +186,16 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return scored.Select(r => r.Fact).ToList();
     }
 
+    /// <inheritdoc/>
     public Task<Relationship> AddRelationshipAsync(
         Relationship relationship,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(relationship);
         return _relRepo.UpsertAsync(relationship, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Relationship>> GetEntityRelationshipsAsync(
         string entityId,
         CancellationToken cancellationToken = default)
@@ -147,6 +203,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return _relRepo.GetByEntityAsync(entityId, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task DeletePreferenceAsync(
         string preferenceId,
         CancellationToken cancellationToken = default)
@@ -155,6 +212,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return _prefRepo.DeleteAsync(preferenceId, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Entity>> SearchEntitiesAsOfAsync(
         float[] queryEmbedding,
         DateTimeOffset asOf,
@@ -166,6 +224,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return scored.Select(r => r.Entity).ToList();
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
         float[] queryEmbedding,
         DateTimeOffset asOf,
@@ -177,6 +236,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         return scored.Select(r => r.Fact).ToList();
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Preference>> SearchPreferencesAsOfAsync(
         float[] queryEmbedding,
         DateTimeOffset asOf,

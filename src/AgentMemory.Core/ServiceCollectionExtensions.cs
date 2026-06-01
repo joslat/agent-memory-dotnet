@@ -48,6 +48,15 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IMemoryContextAssembler, MemoryContextAssembler>();
         services.TryAddScoped<IMemoryService, MemoryService>();
 
+        // Role interfaces (ISP): bind each to the same scoped IMemoryService instance so consumers
+        // can depend on a narrow contract (recall / ingestion / maintenance) without a second object.
+        services.TryAddScoped<IMemoryRecall>(sp => sp.GetRequiredService<IMemoryService>());
+        services.TryAddScoped<IMemoryIngestion>(sp => sp.GetRequiredService<IMemoryService>());
+        services.TryAddScoped<IMemoryMaintenance>(sp => sp.GetRequiredService<IMemoryService>());
+
+        // Render-ready query/command facade shared by framework adapters (MAF tools, SK plugin).
+        services.TryAddScoped<IMemoryQueryFacade, MemoryQueryFacade>();
+
         // Entity resolution — CompositeEntityResolver replaces StubEntityResolver.
         // Callers may override by registering their own IEntityResolver before calling this method.
         services.TryAddScoped<IEntityResolver, CompositeEntityResolver>();

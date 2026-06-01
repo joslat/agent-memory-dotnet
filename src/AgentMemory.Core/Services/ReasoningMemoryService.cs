@@ -18,6 +18,9 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<ReasoningMemoryService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ReasoningMemoryService"/> class.
+    /// </summary>
     public ReasoningMemoryService(
         IReasoningTraceRepository traceRepo,
         IReasoningStepRepository stepRepo,
@@ -34,6 +37,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<ReasoningTrace> StartTraceAsync(
         string sessionId,
         string task,
@@ -55,6 +59,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _traceRepo.AddAsync(trace, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ReasoningStep> AddStepAsync(
         string traceId,
         int stepNumber,
@@ -81,6 +86,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _stepRepo.AddAsync(step, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ToolCall> RecordToolCallAsync(
         string stepId,
         string toolName,
@@ -109,6 +115,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _toolCallRepo.AddAsync(toolCall, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ReasoningTrace> CompleteTraceAsync(
         string traceId,
         string? outcome = null,
@@ -132,6 +139,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _traceRepo.UpdateAsync(completed, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<(ReasoningTrace Trace, IReadOnlyList<ReasoningStep> Steps)> GetTraceWithStepsAsync(
         string traceId,
         CancellationToken cancellationToken = default)
@@ -151,6 +159,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return (trace, steps);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<ReasoningTrace>> ListTracesAsync(
         string sessionId,
         int limit = 10,
@@ -159,6 +168,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return _traceRepo.ListBySessionAsync(sessionId, limit, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsync(
         float[] taskEmbedding,
         bool? successFilter = null,

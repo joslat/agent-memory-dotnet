@@ -29,11 +29,11 @@ public sealed class PersistenceStageTests
     {
         _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
 
-        _orchestrator.EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[384]);
-        _orchestrator.EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[384]);
-        _orchestrator.EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[384]);
 
         _entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
@@ -74,7 +74,7 @@ public sealed class PersistenceStageTests
         var sut = CreateSut();
         var result = await sut.PersistAsync(extraction);
 
-        await _orchestrator.Received(1).EmbedEntityAsync("Alice", Arg.Any<CancellationToken>());
+        await _orchestrator.Received(1).EmbedAsync("Alice", Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
         result.EntityCount.Should().Be(1);
     }
@@ -103,7 +103,7 @@ public sealed class PersistenceStageTests
         var sut = CreateSut();
         await sut.PersistAsync(extraction);
 
-        await _orchestrator.DidNotReceive().EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _orchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class PersistenceStageTests
         var sut = CreateSut();
         var result = await sut.PersistAsync(extraction);
 
-        await _orchestrator.Received(1).EmbedFactAsync("Alice", "works_at", "Acme", Arg.Any<CancellationToken>());
+        await _orchestrator.Received(1).EmbedAsync("Alice works_at Acme", Arg.Any<CancellationToken>());
         await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
         result.FactCount.Should().Be(1);
     }
@@ -188,7 +188,7 @@ public sealed class PersistenceStageTests
         var sut = CreateSut();
         var result = await sut.PersistAsync(extraction);
 
-        await _orchestrator.Received(1).EmbedPreferenceAsync("dark mode", Arg.Any<CancellationToken>());
+        await _orchestrator.Received(1).EmbedAsync("dark mode", Arg.Any<CancellationToken>());
         await _prefRepo.Received(1).UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
         result.PreferenceCount.Should().Be(1);
     }
@@ -353,9 +353,9 @@ public sealed class PersistenceStageTests
         var sut = CreateSut();
         await sut.PersistAsync(EmptyResult());
 
-        await _orchestrator.DidNotReceive().EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _orchestrator.DidNotReceive().EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _orchestrator.DidNotReceive().EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _orchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _orchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _orchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     // ── Fact persistence fault tolerance ──

@@ -19,7 +19,7 @@ public sealed class DiffbotEnrichmentServiceTests
         var client = new HttpClient(handler) { Timeout = opts.Timeout };
         return new DiffbotEnrichmentService(
             client,
-            opts,
+            Microsoft.Extensions.Options.Options.Create(opts),
             NullLogger<DiffbotEnrichmentService>.Instance);
     }
 

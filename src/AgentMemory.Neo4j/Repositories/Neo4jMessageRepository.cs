@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
@@ -281,24 +282,4 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         if (!node.Properties.TryGetValue("embedding", out var ev) || ev is null) return null;
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
-
-    private static Dictionary<string, object?> BuildMessageParameters(Message m) => new()
-    {
-        ["id"]             = m.MessageId,
-        ["conversationId"] = m.ConversationId,
-        ["sessionId"]      = m.SessionId,
-        ["role"]           = m.Role,
-        ["content"]        = m.Content,
-        ["timestamp"]      = m.TimestampUtc.ToString("O"),
-        ["toolCallIds"]    = m.ToolCallIds?.ToList() ?? new List<string>(),
-        ["metadata"]       = SerializeMetadata(m.Metadata)
-    };
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

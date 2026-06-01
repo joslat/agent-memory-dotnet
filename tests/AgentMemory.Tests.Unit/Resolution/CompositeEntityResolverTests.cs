@@ -32,10 +32,10 @@ public sealed class CompositeEntityResolverTests
 
         // Default: zero vector (orthogonal to any unit vector, no semantic match above threshold)
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[4]));
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[4]));
 
         _entityRepo
@@ -88,7 +88,7 @@ public sealed class CompositeEntityResolverTests
         result.EntityId.Should().Be("e1");
         // Exact match short-circuits — embedding provider not called
         await _embeddingOrchestrator.DidNotReceive()
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public sealed class CompositeEntityResolverTests
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -260,10 +260,10 @@ public sealed class CompositeEntityResolverTests
 
         // Semantic matcher will compute cosine similarity = 1.0 (above AutoMergeThreshold)
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -284,11 +284,11 @@ public sealed class CompositeEntityResolverTests
         // "Alicia" is NOT in existing aliases → alias will be added → re-embedding triggered
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
-        // 1 call for semantic match query + 1 for re-embedding with combined name + aliases
+        // 1 call for the semantic-match query ("Alicia") + 1 for re-embedding the merged name+aliases.
         await _embeddingOrchestrator.Received(1)
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync("Alicia", Arg.Any<CancellationToken>());
         await _embeddingOrchestrator.Received(1)
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Is<string>(s => s.Contains("Alice") && s.Contains("Alicia")), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -309,7 +309,7 @@ public sealed class CompositeEntityResolverTests
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -330,11 +330,11 @@ public sealed class CompositeEntityResolverTests
         // "Alicia" IS already in aliases → no alias change → no re-embedding
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
-        // Only 1 call: for semantic match query
+        // Only the semantic-match query ("Alicia") is embedded; no combined re-embedding occurs.
         await _embeddingOrchestrator.Received(1)
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync("Alicia", Arg.Any<CancellationToken>());
         await _embeddingOrchestrator.DidNotReceive()
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Is<string>(s => s.Contains("Alice") && s.Contains("Alicia")), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -349,10 +349,10 @@ public sealed class CompositeEntityResolverTests
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -374,6 +374,6 @@ public sealed class CompositeEntityResolverTests
 
         // The re-embedding call uses combined text: "{name} {aliases}" = "Alice Alicia"
         await _embeddingOrchestrator.Received(1)
-            .EmbedTextAsync("Alice Alicia", Arg.Any<CancellationToken>());
+            .EmbedAsync("Alice Alicia", Arg.Any<CancellationToken>());
     }
 }

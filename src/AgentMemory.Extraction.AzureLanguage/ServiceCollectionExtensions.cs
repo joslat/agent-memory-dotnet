@@ -21,7 +21,13 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<AzureLanguageOptions> configure)
     {
-        services.AddOptions<AzureLanguageOptions>().Configure(configure);
+        services.AddOptions<AzureLanguageOptions>()
+            .Configure(configure)
+            .Validate(o => !string.IsNullOrWhiteSpace(o.Endpoint), "AzureLanguage Endpoint must be provided.")
+            .Validate(o => Uri.TryCreate(o.Endpoint, UriKind.Absolute, out _), "AzureLanguage Endpoint must be a valid absolute URI.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "AzureLanguage ApiKey must be provided.")
+            .Validate(o => o.MaxDocumentBatchSize > 0, "AzureLanguage MaxDocumentBatchSize must be positive.")
+            .ValidateOnStart();
 
         services.AddSingleton<TextAnalyticsClient>(sp =>
         {

@@ -495,11 +495,15 @@ public sealed class BackgroundEnrichmentQueueTests
                        });
 
         var repo = CreateRepo("e1");
+        var upsertTcs = new TaskCompletionSource();
+        repo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => { upsertTcs.TrySetResult(); return Task.FromResult(callInfo.Arg<Entity>()); });
         await using var sut = CreateSut(repo: repo, services: [failingProvider, workingProvider]);
 
         await sut.EnqueueAsync("e1");
 
         await successTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await upsertTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await workingProvider.Received(1).EnrichEntityAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await repo.Received(1).UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());

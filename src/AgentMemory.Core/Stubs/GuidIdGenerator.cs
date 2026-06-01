@@ -7,5 +7,6 @@ namespace AgentMemory.Core.Stubs;
 /// </summary>
 public sealed class GuidIdGenerator : IIdGenerator
 {
+    /// <inheritdoc/>
     public string GenerateId() => Guid.NewGuid().ToString("N");
 }

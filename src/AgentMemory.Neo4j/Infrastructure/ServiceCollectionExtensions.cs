@@ -16,7 +16,15 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<Neo4jOptions> configure)
     {
-        services.Configure(configure);
+        services.AddOptions<Neo4jOptions>()
+            .Configure(configure)
+            .Validate(o => !string.IsNullOrWhiteSpace(o.Uri), "Neo4j Uri must be provided.")
+            .Validate(o => Uri.TryCreate(o.Uri, UriKind.Absolute, out _), "Neo4j Uri must be a valid absolute URI.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.Username), "Neo4j Username must be provided.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.Database), "Neo4j Database must be provided.")
+            .Validate(o => o.MaxConnectionPoolSize > 0, "Neo4j MaxConnectionPoolSize must be positive.")
+            .Validate(o => o.EmbeddingDimensions > 0, "Neo4j EmbeddingDimensions must be positive.")
+            .ValidateOnStart();
 
         // Infrastructure
         services.TryAddSingleton<INeo4jDriverFactory, Neo4jDriverFactory>();
@@ -60,7 +68,19 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
-        services.AddOptions<GraphRagOptions>().Configure(configure);
+        services.AddOptions<GraphRagOptions>()
+            .Configure(configure)
+            .Validate(o => !string.IsNullOrWhiteSpace(o.IndexName), "GraphRag IndexName must be provided.")
+            .Validate(o => o.TopK > 0, "GraphRag TopK must be positive.")
+            .Validate(
+                o => o.SearchMode != AgentMemory.Abstractions.Domain.GraphRagSearchMode.Hybrid
+                     || !string.IsNullOrWhiteSpace(o.FulltextIndexName),
+                "GraphRag FulltextIndexName is required for Hybrid search mode.")
+            .Validate(
+                o => o.SearchMode != AgentMemory.Abstractions.Domain.GraphRagSearchMode.Graph
+                     || o.MaxTraversalHops is >= 1 and <= 5,
+                "GraphRag MaxTraversalHops must be between 1 and 5 for Graph search mode.")
+            .ValidateOnStart();
         services.TryAddScoped<IGraphRagContextSource, Neo4jGraphRagContextSource>();
         return services;
     }

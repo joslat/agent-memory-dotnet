@@ -13,6 +13,9 @@ public sealed class StubEntityResolver : IEntityResolver
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StubEntityResolver"/> class.
+    /// </summary>
     public StubEntityResolver(
         ILogger<StubEntityResolver> logger,
         IClock clock,
@@ -23,6 +26,7 @@ public sealed class StubEntityResolver : IEntityResolver
         _idGenerator = idGenerator;
     }
 
+    /// <inheritdoc/>
     public Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
@@ -48,6 +52,7 @@ public sealed class StubEntityResolver : IEntityResolver
         return Task.FromResult(entity);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Entity>> FindPotentialDuplicatesAsync(
         string name,
         string type,

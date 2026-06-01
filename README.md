@@ -226,14 +226,23 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and contribution guideli
    dotnet add package AgentMemory
    ```
 
-2. **Configure memory services**:
+2. **Configure memory services**. `AddNeo4jAgentMemory` takes a `MemoryOptions` delegate, a
+   `Neo4jOptions` delegate, and an optional `LlmExtractionOptions` delegate — Neo4j connection
+   settings live on the **second** delegate:
    ```csharp
    var provider = new ServiceCollection()
-       .AddNeo4jAgentMemory(options => {
-           options.Uri      = "bolt://localhost:7687";
-           options.Username = "neo4j";
-           options.Password = "password";
-       })
+       .AddNeo4jAgentMemory(
+           memory => { /* MemoryOptions, e.g. memory.EnableGraphRag = true; */ },
+           neo4j  => {
+               neo4j.Uri      = "bolt://localhost:7687";
+               neo4j.Username = "neo4j";
+               neo4j.Password = "password";
+           },
+           llm => { llm.ModelId = "gpt-4o-mini"; })   // optional
+       // Opt-in capabilities (chain as needed):
+       .WithObservability()                            // OpenTelemetry metrics + instrumentation
+       // .WithEnrichment()                            // Nominatim geocoding + Wikimedia/Diffbot
+       // .WithAzureLanguageExtraction(azure => { azure.Endpoint = "..."; azure.ApiKey = "..."; })
        .BuildServiceProvider();
    ```
 

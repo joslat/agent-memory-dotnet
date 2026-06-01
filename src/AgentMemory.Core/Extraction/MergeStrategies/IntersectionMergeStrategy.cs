@@ -12,14 +12,19 @@ public sealed class IntersectionMergeStrategy<T> : IMergeStrategy<T> where T : c
     private readonly Func<T, string> _keySelector;
     private readonly Func<T, double> _confidenceSelector;
 
+    /// <summary>Initializes a new instance of the <see cref="IntersectionMergeStrategy{T}"/> class.</summary>
+    /// <param name="keySelector">Selects the normalized key used to match items across extractors.</param>
+    /// <param name="confidenceSelector">Selects the confidence score used to pick the best item among duplicates.</param>
     public IntersectionMergeStrategy(Func<T, string> keySelector, Func<T, double> confidenceSelector)
     {
         _keySelector = keySelector;
         _confidenceSelector = confidenceSelector;
     }
 
+    /// <inheritdoc/>
     public MergeStrategyType StrategyType => MergeStrategyType.Intersection;
 
+    /// <inheritdoc/>
     public IReadOnlyList<T> Merge(IReadOnlyList<IReadOnlyList<T>> extractorResults)
     {
         if (extractorResults.Count == 0)

@@ -27,6 +27,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
         CancellationToken cancellationToken = default)

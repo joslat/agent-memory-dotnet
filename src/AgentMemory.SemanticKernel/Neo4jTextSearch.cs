@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.SemanticKernel.Data;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 
 #pragma warning disable SKEXP0001
 
@@ -30,7 +31,7 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         CancellationToken cancellationToken = default)
     {
         var result = await RecallAsync(query, cancellationToken).ConfigureAwait(false);
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         var items = string.IsNullOrEmpty(formatted)
             ? AsyncEnumerable.Empty<string>()
             : YieldSingle(formatted, cancellationToken);

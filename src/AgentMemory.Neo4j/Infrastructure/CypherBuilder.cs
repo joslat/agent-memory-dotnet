@@ -116,14 +116,21 @@ public sealed class CypherBuilder
         return new CypherBuilder(lines, _whereStarted);
     }
 
-    // ── Raw fragment escape hatch ──────────────────────────────────────────────
+    // ── Raw fragment escape hatch (internal: builder-generated fragments only) ──
 
     /// <summary>
-    /// Append a pre-formatted Cypher fragment verbatim (e.g., output from MetadataFilterBuilder).
-    /// Multi-line fragments are split and each non-empty line is appended as a separate clause.
-    /// Skipped when the fragment is null, whitespace, or <paramref name="when"/> is false.
+    /// Appends a pre-formatted, <b>already-parameterized</b> Cypher fragment verbatim — specifically the
+    /// <c>AND</c>-condition lines produced by <see cref="Queries.MetadataFilterBuilder.Build"/>, whose
+    /// values are always bound as <c>$param</c> placeholders. Multi-line fragments are split and each
+    /// non-empty line is appended as a separate clause. Skipped when the fragment is null, whitespace,
+    /// or <paramref name="when"/> is false.
     /// </summary>
-    public CypherBuilder AndRawFragment(string? fragment, bool when = true)
+    /// <remarks>
+    /// Deliberately <c>internal</c> rather than public: this is not a general raw-Cypher escape hatch.
+    /// Callers must never pass untrusted or hand-concatenated text here — use the typed clause methods
+    /// (<see cref="Where(string, bool)"/>, <see cref="And(string, bool)"/>) for those.
+    /// </remarks>
+    internal CypherBuilder AndRawFragment(string? fragment, bool when = true)
     {
         if (!when || string.IsNullOrWhiteSpace(fragment))
             return this;

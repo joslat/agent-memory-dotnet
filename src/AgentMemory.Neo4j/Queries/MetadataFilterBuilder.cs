@@ -41,7 +41,7 @@ public static class MetadataFilterBuilder
             foreach (var (op, value) in ops)
             {
                 var paramName = $"filter_{index++}";
-                var propRef = $"{nodeAlias}.`{key}`";
+                var propRef = $"{nodeAlias}.{EscapeIdentifier(key)}";
 
                 var clause = op switch
                 {
@@ -58,6 +58,24 @@ public static class MetadataFilterBuilder
         }
 
         return (string.Join(Environment.NewLine, clauses), parameters);
+    }
+
+    /// <summary>
+    /// Quotes a metadata property key as a backtick-delimited Cypher identifier, doubling any
+    /// embedded backticks so the key cannot break out of the identifier or inject Cypher.
+    /// </summary>
+    private static string EscapeIdentifier(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("Metadata filter key must be a non-empty identifier.", nameof(key));
+
+        // A null character cannot be represented inside a Neo4j identifier. Backslashes are
+        // rejected because Cypher may interpret Unicode escape sequences (e.g. "\u0060" → backtick)
+        // within an escaped identifier, which would let a crafted key break out of the quoting.
+        if (key.Contains('\0') || key.Contains('\\'))
+            throw new ArgumentException("Metadata filter key contains an invalid character.", nameof(key));
+
+        return $"`{key.Replace("`", "``")}`";
     }
 
     private static string BuildEq(string propRef, string paramName, object value, Dictionary<string, object> parameters)

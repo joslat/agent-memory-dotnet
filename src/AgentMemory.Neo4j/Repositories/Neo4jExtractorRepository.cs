@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
@@ -254,10 +255,4 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
             Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
     }
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json)
-              ?? new Dictionary<string, object>();
 }

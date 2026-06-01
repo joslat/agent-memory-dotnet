@@ -21,6 +21,9 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly MemoryOptions _options;
     private readonly ILogger<MemoryContextAssembler> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MemoryContextAssembler"/> class.
+    /// </summary>
     public MemoryContextAssembler(
         IShortTermMemoryService shortTerm,
         ILongTermMemoryService longTerm,
@@ -41,6 +44,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<MemoryContext> AssembleContextAsync(
         RecallRequest request,
         CancellationToken cancellationToken = default)
@@ -142,6 +146,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         return context;
     }
 
+    /// <inheritdoc/>
     public async Task<MemoryContext> AssembleContextAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
@@ -217,15 +222,17 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         }
     }
 
-    private (
-        IReadOnlyList<Message> recent,
-        IReadOnlyList<Message> relevant,
-        IReadOnlyList<Entity> entities,
-        IReadOnlyList<Preference> preferences,
-        IReadOnlyList<Fact> facts,
-        IReadOnlyList<ReasoningTrace> traces,
-        string? graphRag,
-        bool truncated) ApplyBudget(
+    private sealed record AssembledSections(
+        IReadOnlyList<Message> Recent,
+        IReadOnlyList<Message> Relevant,
+        IReadOnlyList<Entity> Entities,
+        IReadOnlyList<Preference> Preferences,
+        IReadOnlyList<Fact> Facts,
+        IReadOnlyList<ReasoningTrace> Traces,
+        string? GraphRag,
+        bool Truncated);
+
+    private AssembledSections ApplyBudget(
         ContextBudget budget,
         IReadOnlyList<Message> recent,
         IReadOnlyList<Message> relevant,
@@ -244,7 +251,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             + (graphRagContext?.Length ?? 0);
 
         if (totalChars <= maxChars)
-            return (recent, relevant, entities, preferences, facts, traces, graphRagContext, false);
+            return new AssembledSections(recent, relevant, entities, preferences, facts, traces, graphRagContext, false);
 
         return budget.TruncationStrategy switch
         {
@@ -256,23 +263,40 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                     .Build(),
 
             TruncationStrategy.OldestFirst =>
-                TruncateOldestFirst(maxChars, recent, relevant, entities, preferences, facts, traces, graphRagContext),
+                FitByVictim(maxChars, BudgetVictimStrategy.OldestFirst, recent, relevant, entities, preferences, facts, traces, graphRagContext),
 
             TruncationStrategy.LowestScoreFirst =>
-                TruncateLowestScoreFirst(maxChars, recent, relevant, entities, preferences, facts, traces, graphRagContext),
+                FitByVictim(maxChars, BudgetVictimStrategy.LowestScoreFirst, recent, relevant, entities, preferences, facts, traces, graphRagContext),
 
             TruncationStrategy.Proportional =>
                 TruncateProportional(maxChars, totalChars, recent, relevant, entities, preferences, facts, traces, graphRagContext),
 
-            _ => TruncateOldestFirst(maxChars, recent, relevant, entities, preferences, facts, traces, graphRagContext)
+            _ => FitByVictim(maxChars, BudgetVictimStrategy.OldestFirst, recent, relevant, entities, preferences, facts, traces, graphRagContext)
         };
     }
 
-    private static (
-        IReadOnlyList<Message>, IReadOnlyList<Message>, IReadOnlyList<Entity>,
-        IReadOnlyList<Preference>, IReadOnlyList<Fact>, IReadOnlyList<ReasoningTrace>,
-        string?, bool) TruncateOldestFirst(
+    private enum BudgetVictimStrategy
+    {
+        /// <summary>Remove the globally oldest item (by timestamp) across all sections first.</summary>
+        OldestFirst,
+
+        /// <summary>Remove the globally lowest-relevance item first, using each item's rank within its
+        /// repo-sorted (best-score-first) section as the score proxy — repositories return scored results
+        /// sorted by descending similarity, so trailing positions correspond to the lowest scores.</summary>
+        LowestScoreFirst
+    }
+
+    /// <summary>A removal candidate: identifies one item in one section plus the keys used to rank it.</summary>
+    private readonly record struct Victim(int Section, int Index, int Chars, DateTimeOffset Timestamp, double ScoreRank);
+
+    /// <summary>
+    /// Fit the assembled sections within <paramref name="maxChars"/> by repeatedly removing the single
+    /// "worst" item according to <paramref name="strategy"/> until within budget. GraphRAG (a single
+    /// opaque string) is dropped only once every section item has been removed.
+    /// </summary>
+    private static AssembledSections FitByVictim(
         int maxChars,
+        BudgetVictimStrategy strategy,
         IReadOnlyList<Message> recent,
         IReadOnlyList<Message> relevant,
         IReadOnlyList<Entity> entities,
@@ -281,43 +305,102 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<ReasoningTrace> traces,
         string? graphRag)
     {
-        // Order by newest first, keep items until we run out of budget
-        var sortedRecent = recent.OrderByDescending(m => m.TimestampUtc).ToList();
-        var sortedRelevant = relevant.OrderByDescending(m => m.TimestampUtc).ToList();
-        var sortedTraces = traces.OrderByDescending(t => t.StartedAtUtc).ToList();
-        var sortedEntities = entities.OrderByDescending(e => e.CreatedAtUtc).ToList();
-        var sortedPreferences = preferences.OrderByDescending(p => p.CreatedAtUtc).ToList();
-        var sortedFacts = facts.OrderByDescending(f => f.CreatedAtUtc).ToList();
+        var recentList = recent.ToList();
+        var relevantList = relevant.ToList();
+        var entityList = entities.ToList();
+        var prefList = preferences.ToList();
+        var factList = facts.ToList();
+        var traceList = traces.ToList();
 
-        return FitWithinBudget(maxChars,
-            sortedRecent, sortedRelevant, sortedEntities,
-            sortedPreferences, sortedFacts, sortedTraces, graphRag);
+        int totalChars = EstimateChars(recentList) + EstimateChars(relevantList)
+            + EstimateChars(entityList) + EstimateChars(prefList)
+            + EstimateChars(factList) + EstimateChars(traceList)
+            + (graphRag?.Length ?? 0);
+
+        while (totalChars > maxChars)
+        {
+            var victim = SelectVictim(strategy, recentList, relevantList, entityList, prefList, factList, traceList);
+            if (victim is null)
+            {
+                // No section items remain — drop the GraphRAG block last.
+                if (graphRag != null) { totalChars -= graphRag.Length; graphRag = null; continue; }
+                break;
+            }
+
+            totalChars -= victim.Value.Chars;
+            RemoveVictim(victim.Value, recentList, relevantList, entityList, prefList, factList, traceList);
+        }
+
+        return new AssembledSections(recentList, relevantList, entityList, prefList, factList, traceList, graphRag, true);
     }
 
-    private static (
-        IReadOnlyList<Message>, IReadOnlyList<Message>, IReadOnlyList<Entity>,
-        IReadOnlyList<Preference>, IReadOnlyList<Fact>, IReadOnlyList<ReasoningTrace>,
-        string?, bool) TruncateLowestScoreFirst(
-        int maxChars,
-        IReadOnlyList<Message> recent,
-        IReadOnlyList<Message> relevant,
-        IReadOnlyList<Entity> entities,
-        IReadOnlyList<Preference> preferences,
-        IReadOnlyList<Fact> facts,
-        IReadOnlyList<ReasoningTrace> traces,
-        string? graphRag)
+    private static Victim? SelectVictim(
+        BudgetVictimStrategy strategy,
+        List<Message> recent,
+        List<Message> relevant,
+        List<Entity> entities,
+        List<Preference> preferences,
+        List<Fact> facts,
+        List<ReasoningTrace> traces)
     {
-        // Items are assumed to be ordered best-score-first from the repo
-        // Trim from the end of each list iteratively
-        return FitWithinBudget(maxChars,
-            recent.ToList(), relevant.ToList(), entities.ToList(),
-            preferences.ToList(), facts.ToList(), traces.ToList(), graphRag);
+        Victim? worst = null;
+
+        void Consider(int section, int index, int count, int chars, DateTimeOffset timestamp)
+        {
+            // Sections arrive best-score-first; map position to a [0,1] relevance proxy
+            // (1.0 = best in section, 0.0 = worst). A singleton is treated as best-in-section.
+            double scoreRank = count <= 1 ? 1.0 : (double)(count - 1 - index) / (count - 1);
+            var candidate = new Victim(section, index, chars, timestamp, scoreRank);
+            if (worst is null || IsWorse(strategy, candidate, worst.Value))
+                worst = candidate;
+        }
+
+        for (int i = 0; i < recent.Count; i++) Consider(0, i, recent.Count, EstimateItemChars(recent[i]), recent[i].TimestampUtc);
+        for (int i = 0; i < relevant.Count; i++) Consider(1, i, relevant.Count, EstimateItemChars(relevant[i]), relevant[i].TimestampUtc);
+        for (int i = 0; i < entities.Count; i++) Consider(2, i, entities.Count, EstimateItemChars(entities[i]), entities[i].CreatedAtUtc);
+        for (int i = 0; i < preferences.Count; i++) Consider(3, i, preferences.Count, EstimateItemChars(preferences[i]), preferences[i].CreatedAtUtc);
+        for (int i = 0; i < facts.Count; i++) Consider(4, i, facts.Count, EstimateItemChars(facts[i]), facts[i].CreatedAtUtc);
+        for (int i = 0; i < traces.Count; i++) Consider(5, i, traces.Count, EstimateItemChars(traces[i]), traces[i].StartedAtUtc);
+
+        return worst;
     }
 
-    private static (
-        IReadOnlyList<Message>, IReadOnlyList<Message>, IReadOnlyList<Entity>,
-        IReadOnlyList<Preference>, IReadOnlyList<Fact>, IReadOnlyList<ReasoningTrace>,
-        string?, bool) TruncateProportional(
+    private static bool IsWorse(BudgetVictimStrategy strategy, Victim candidate, Victim current) => strategy switch
+    {
+        // Oldest timestamp loses first; ties broken by lowest relevance.
+        BudgetVictimStrategy.OldestFirst =>
+            candidate.Timestamp < current.Timestamp
+            || (candidate.Timestamp == current.Timestamp && candidate.ScoreRank < current.ScoreRank),
+
+        // Lowest relevance loses first; ties broken by oldest timestamp.
+        BudgetVictimStrategy.LowestScoreFirst =>
+            candidate.ScoreRank < current.ScoreRank
+            || (candidate.ScoreRank == current.ScoreRank && candidate.Timestamp < current.Timestamp),
+
+        _ => false
+    };
+
+    private static void RemoveVictim(
+        Victim victim,
+        List<Message> recent,
+        List<Message> relevant,
+        List<Entity> entities,
+        List<Preference> preferences,
+        List<Fact> facts,
+        List<ReasoningTrace> traces)
+    {
+        switch (victim.Section)
+        {
+            case 0: recent.RemoveAt(victim.Index); break;
+            case 1: relevant.RemoveAt(victim.Index); break;
+            case 2: entities.RemoveAt(victim.Index); break;
+            case 3: preferences.RemoveAt(victim.Index); break;
+            case 4: facts.RemoveAt(victim.Index); break;
+            case 5: traces.RemoveAt(victim.Index); break;
+        }
+    }
+
+    private static AssembledSections TruncateProportional(
         int maxChars,
         int totalChars,
         IReadOnlyList<Message> recent,
@@ -346,7 +429,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                 : graphRag;
         }
 
-        return (trimmedRecent, trimmedRelevant, trimmedEntities,
+        return new AssembledSections(trimmedRecent, trimmedRelevant, trimmedEntities,
             trimmedPreferences, trimmedFacts, trimmedTraces, trimmedGraphRag, true);
     }
 
@@ -364,43 +447,6 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             keepCount++;
         }
         return items.Take(keepCount).ToList();
-    }
-
-    private static (
-        IReadOnlyList<Message>, IReadOnlyList<Message>, IReadOnlyList<Entity>,
-        IReadOnlyList<Preference>, IReadOnlyList<Fact>, IReadOnlyList<ReasoningTrace>,
-        string?, bool) FitWithinBudget(
-        int maxChars,
-        List<Message> recent,
-        List<Message> relevant,
-        List<Entity> entities,
-        List<Preference> preferences,
-        List<Fact> facts,
-        List<ReasoningTrace> traces,
-        string? graphRag)
-    {
-        // Remove items from the end of each section in round-robin until within budget
-        int totalChars = EstimateChars(recent) + EstimateChars(relevant)
-            + EstimateChars(entities) + EstimateChars(preferences)
-            + EstimateChars(facts) + EstimateChars(traces)
-            + (graphRag?.Length ?? 0);
-
-        while (totalChars > maxChars)
-        {
-            bool removed = false;
-
-            if (facts.Count > 0) { totalChars -= EstimateItemChars(facts[^1]); facts.RemoveAt(facts.Count - 1); removed = true; }
-            else if (entities.Count > 0) { totalChars -= EstimateItemChars(entities[^1]); entities.RemoveAt(entities.Count - 1); removed = true; }
-            else if (relevant.Count > 0) { totalChars -= EstimateItemChars(relevant[^1]); relevant.RemoveAt(relevant.Count - 1); removed = true; }
-            else if (traces.Count > 0) { totalChars -= EstimateItemChars(traces[^1]); traces.RemoveAt(traces.Count - 1); removed = true; }
-            else if (preferences.Count > 0) { totalChars -= EstimateItemChars(preferences[^1]); preferences.RemoveAt(preferences.Count - 1); removed = true; }
-            else if (recent.Count > 0) { totalChars -= EstimateItemChars(recent[^1]); recent.RemoveAt(recent.Count - 1); removed = true; }
-            else if (graphRag != null) { graphRag = null; totalChars -= graphRag?.Length ?? 0; removed = true; }
-
-            if (!removed) break;
-        }
-
-        return (recent, relevant, entities, preferences, facts, traces, graphRag, true);
     }
 
     private static int EstimateChars<T>(IReadOnlyList<T> items) =>

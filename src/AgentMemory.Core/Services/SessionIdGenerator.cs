@@ -11,6 +11,10 @@ public sealed class SessionIdGenerator : ISessionIdGenerator
 {
     private readonly ShortTermMemoryOptions _options;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SessionIdGenerator"/> class.
+    /// </summary>
+    /// <param name="options">The short-term memory options used to determine the session strategy.</param>
     public SessionIdGenerator(IOptions<ShortTermMemoryOptions> options)
     {
         _options = options.Value;

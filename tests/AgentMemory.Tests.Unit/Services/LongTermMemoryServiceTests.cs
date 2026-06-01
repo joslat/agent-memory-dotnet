@@ -27,13 +27,13 @@ public sealed class LongTermMemoryServiceTests
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
 
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
         _embeddingOrchestrator
-            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
         _embeddingOrchestrator
-            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
 
         _entityRepo
@@ -70,7 +70,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .DidNotReceive()
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

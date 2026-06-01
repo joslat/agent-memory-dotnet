@@ -5,8 +5,11 @@ using AgentMemory.Abstractions.Services;
 namespace AgentMemory.Core.Stubs;
 
 /// <summary>
-/// Phase 1 stub pipeline: orchestrates all four stub extractors and returns an empty but structurally
-/// correct ExtractionResult. Replace individual extractors in Phase 2 with AI-backed implementations.
+/// Default extraction pipeline: orchestrates the four registered extractors (entity, fact,
+/// preference, relationship) — honoring <see cref="ExtractionRequest.TypesToExtract"/> — and
+/// aggregates their output into a single <see cref="ExtractionResult"/>. With AI-backed extractors
+/// registered (the default) this performs full extraction; the legacy type name is retained for
+/// source compatibility.
 /// </summary>
 public sealed class StubExtractionPipeline : IMemoryExtractionPipeline
 {
@@ -16,6 +19,7 @@ public sealed class StubExtractionPipeline : IMemoryExtractionPipeline
     private readonly IRelationshipExtractor _relationshipExtractor;
     private readonly ILogger<StubExtractionPipeline> _logger;
 
+    /// <summary>Initializes a new instance of the <see cref="StubExtractionPipeline"/> class.</summary>
     public StubExtractionPipeline(
         IEntityExtractor entityExtractor,
         IFactExtractor factExtractor,
@@ -30,6 +34,7 @@ public sealed class StubExtractionPipeline : IMemoryExtractionPipeline
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
         CancellationToken cancellationToken = default)

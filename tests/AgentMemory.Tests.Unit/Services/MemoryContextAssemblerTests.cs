@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Services;
@@ -32,7 +33,7 @@ public sealed class MemoryContextAssemblerTests
         _clock.UtcNow.Returns(_fixedTime);
 
         _embeddingOrchestrator
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(_generatedEmbedding));
 
         // Default: all services return empty results
@@ -85,7 +86,7 @@ public sealed class MemoryContextAssemblerTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -99,7 +100,7 @@ public sealed class MemoryContextAssemblerTests
 
         await _embeddingOrchestrator
             .DidNotReceive()
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -236,6 +237,89 @@ public sealed class MemoryContextAssemblerTests
         result.RecentMessages.Items.Should().Contain(m => m.MessageId == "high-score");
     }
 
+    // ---- 3.2: distinct truncation strategies over IDENTICAL cross-section input ----
+    //
+    // Shared fixture: 3 items of 10 chars each (total 30) across two sections.
+    //   recent  = [R0 (newest, best-in-section), R1 (mid age, worst-in-section)]
+    //   facts   = [F0 (oldest, best-in-section)]
+    // A budget of 21 chars forces removal of exactly ONE item. Each strategy must
+    // pick a DIFFERENT victim, proving the strategies are no longer aliases.
+
+    private void SetupCrossSectionInput()
+    {
+        var r0 = CreateMessage("R0", "AAAAAAAAAA", _fixedTime);                 // newest, best score (index 0)
+        var r1 = CreateMessage("R1", "BBBBBBBBBB", _fixedTime.AddMinutes(-1));  // mid age, worst score (index 1)
+        _shortTerm
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(new[] { r0, r1 }));
+
+        var f0 = CreateFact("F0", "S", "P", "OOOO", _fixedTime.AddHours(-1));   // oldest, best score (index 0)
+        _longTerm
+            .SearchFactsAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>(new[] { f0 }));
+    }
+
+    private static IOptions<MemoryOptions> BudgetOptions(TruncationStrategy strategy) =>
+        Options.Create(new MemoryOptions
+        {
+            ContextBudget = new ContextBudget { MaxCharacters = 21, TruncationStrategy = strategy }
+        });
+
+    [Fact]
+    public async Task AssembleContextAsync_OldestFirst_RemovesGloballyOldestAcrossSections()
+    {
+        SetupCrossSectionInput();
+        var sut = CreateSut(options: BudgetOptions(TruncationStrategy.OldestFirst));
+
+        var result = await sut.AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+
+        // F0 is the globally oldest item, so it is dropped; both recent messages survive.
+        result.RelevantFacts.Items.Should().BeEmpty();
+        result.RecentMessages.Items.Should().Contain(m => m.MessageId == "R0");
+        result.RecentMessages.Items.Should().Contain(m => m.MessageId == "R1");
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_LowestScoreFirst_RemovesGloballyLowestRankedAcrossSections()
+    {
+        SetupCrossSectionInput();
+        var sut = CreateSut(options: BudgetOptions(TruncationStrategy.LowestScoreFirst));
+
+        var result = await sut.AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+
+        // R1 is the lowest-ranked item within its section, so it is dropped while F0 (best-in-section) survives.
+        // This is a DIFFERENT victim than OldestFirst chose (F0), proving the strategies diverge.
+        result.RecentMessages.Items.Should().Contain(m => m.MessageId == "R0");
+        result.RecentMessages.Items.Should().NotContain(m => m.MessageId == "R1");
+        result.RelevantFacts.Items.Should().Contain(f => f.FactId == "F0");
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_Proportional_TrimsEachSectionByRatio()
+    {
+        SetupCrossSectionInput();
+        var sut = CreateSut(options: BudgetOptions(TruncationStrategy.Proportional));
+
+        var result = await sut.AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+
+        // ratio = 21/30 = 0.7 → recent target ~14 chars keeps only R0; facts target ~7 chars keeps none.
+        // A third distinct outcome from OldestFirst and LowestScoreFirst.
+        result.RecentMessages.Items.Should().ContainSingle().Which.MessageId.Should().Be("R0");
+        result.RelevantFacts.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_Fail_ThrowsWhenOverBudget()
+    {
+        SetupCrossSectionInput();
+        var sut = CreateSut(options: BudgetOptions(TruncationStrategy.Fail));
+
+        var act = async () => await sut.AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+
+        (await act.Should().ThrowAsync<MemoryException>())
+            .Which.Code.Should().Be(MemoryErrorCodes.ContextBudgetExceeded);
+    }
+
     [Fact]
     public async Task AssembleContextAsync_ReportsEstimatedTokenCount()
     {
@@ -268,5 +352,15 @@ public sealed class MemoryContextAssemblerTests
         Role = "user",
         Content = content,
         TimestampUtc = timestamp
+    };
+
+    private static Fact CreateFact(string id, string subject, string predicate, string @object, DateTimeOffset createdAt) => new()
+    {
+        FactId = id,
+        Subject = subject,
+        Predicate = predicate,
+        Object = @object,
+        Confidence = 1.0,
+        CreatedAtUtc = createdAt
     };
 }

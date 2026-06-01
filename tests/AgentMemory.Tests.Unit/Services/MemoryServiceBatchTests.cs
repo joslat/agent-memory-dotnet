@@ -131,14 +131,14 @@ public sealed class MemoryServiceBatchTests
         // First page has items with hasNextPage=false; loop should not call again
         _entityRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PagedResult<Entity>(entities, hasNextPage: false));
-        _embeddingOrchestrator.EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.1f }));
 
         var sut = CreateSut();
         var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
 
         count.Should().Be(2);
-        await _embeddingOrchestrator.Received(2).EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(2).EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpdateEmbeddingAsync("e1", Arg.Any<float[]>(), Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpdateEmbeddingAsync("e2", Arg.Any<float[]>(), Arg.Any<CancellationToken>());
     }
@@ -153,14 +153,14 @@ public sealed class MemoryServiceBatchTests
         };
         _factRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PagedResult<Fact>(new List<Fact> { fact }, hasNextPage: false));
-        _embeddingOrchestrator.EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.5f }));
 
         var sut = CreateSut();
         await sut.GenerateEmbeddingsBatchAsync("Fact", batchSize: 100);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedFactAsync("Alice", "works_at", "Acme", Arg.Any<CancellationToken>());
+            .EmbedAsync("Alice works_at Acme", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -173,14 +173,14 @@ public sealed class MemoryServiceBatchTests
         };
         _prefRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PagedResult<Preference>(new List<Preference> { pref }, hasNextPage: false));
-        _embeddingOrchestrator.EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.3f }));
 
         var sut = CreateSut();
         await sut.GenerateEmbeddingsBatchAsync("Preference", batchSize: 100);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedPreferenceAsync("Prefers dark mode", Arg.Any<CancellationToken>());
+            .EmbedAsync("Prefers dark mode", Arg.Any<CancellationToken>());
     }
 
     [Fact]

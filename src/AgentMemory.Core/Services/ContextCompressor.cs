@@ -17,6 +17,11 @@ public sealed class ContextCompressor : IContextCompressor
     private readonly IChatClient _chatClient;
     private readonly ILogger<ContextCompressor> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ContextCompressor"/> class.
+    /// </summary>
+    /// <param name="chatClient">The chat client used to generate observation summaries and reflections.</param>
+    /// <param name="logger">The logger used to record compression diagnostics.</param>
     public ContextCompressor(
         IChatClient chatClient,
         ILogger<ContextCompressor> logger)

@@ -131,9 +131,9 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         try
         {
             var result = await _inner.ExtractAndPersistAsync(request, cancellationToken);
-            _metrics.EntitiesExtracted.Add(result.Entities.Count);
-            _metrics.FactsExtracted.Add(result.Facts.Count);
-            _metrics.PreferencesExtracted.Add(result.Preferences.Count);
+            // NOTE: entity/fact/preference counts are owned by the per-extractor decorators
+            // (InstrumentedEntityExtractor etc.), which are the single source of truth for these
+            // counters. Counting them here as well would double-count. We keep only span tags.
             activity?.SetTag("memory.extraction.entity_count", result.Entities.Count);
             activity?.SetTag("memory.extraction.fact_count", result.Facts.Count);
             activity?.SetTag("memory.extraction.preference_count", result.Preferences.Count);

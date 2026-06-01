@@ -25,8 +25,18 @@ public sealed class GraphRagOptions
 
     /// <summary>
     /// Optional Cypher clause appended after index search for graph enrichment.
+    /// Applies to <see cref="GraphRagSearchMode.Vector"/>, <see cref="GraphRagSearchMode.Fulltext"/>,
+    /// and <see cref="GraphRagSearchMode.Hybrid"/> modes. It is <b>not</b> used by
+    /// <see cref="GraphRagSearchMode.Graph"/>, which performs its traversal via a first-class
+    /// retriever (see <see cref="MaxTraversalHops"/>).
     /// </summary>
     public string? RetrievalQuery { get; set; }
+
+    /// <summary>
+    /// Maximum number of relationship hops traversed from each vector-seed node when
+    /// <see cref="SearchMode"/> is <see cref="GraphRagSearchMode.Graph"/>. Must be between 1 and 5.
+    /// </summary>
+    public int MaxTraversalHops { get; set; } = 2;
 
     /// <summary>
     /// Default maximum results. Overridden per-request by <see cref="GraphRagContextRequest.TopK"/>.

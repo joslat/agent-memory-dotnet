@@ -20,6 +20,9 @@ public sealed class MemoryDecayService : IMemoryDecayService
     private readonly MemoryDecayOptions _options;
     private readonly ILogger<MemoryDecayService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MemoryDecayService"/> class.
+    /// </summary>
     public MemoryDecayService(
         IEntityRepository entityRepo,
         IFactRepository factRepo,

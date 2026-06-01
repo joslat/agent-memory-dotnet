@@ -67,22 +67,10 @@ internal sealed class VectorRetriever : IRetriever
         var items = records.Select(r =>
             _retrievalQuery is not null
                 ? FormatCypherResult(r)
-                : FormatStandardResult(r)
+                : RetrieverRecordMapper.FromNodeScore(r)
         ).ToList();
 
         return new RetrieverResult(items);
-    }
-
-    private static RetrieverResultItem FormatStandardResult(IRecord record)
-    {
-        var node = record["node"].As<INode>();
-        var score = record["score"].As<double>();
-        var content = node.Properties.TryGetValue("text", out var text)
-            ? text?.ToString() ?? ""
-            : node.Properties.TryGetValue("content", out var c)
-                ? c?.ToString() ?? ""
-                : node.ToString()!;
-        return new RetrieverResultItem(content, new Dictionary<string, object?> { ["score"] = score });
     }
 
     internal static RetrieverResultItem FormatCypherResult(IRecord record)

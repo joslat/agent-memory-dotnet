@@ -75,13 +75,6 @@ internal sealed class FulltextRetriever : IRetriever
         if (record.Keys.Contains("text"))
             return VectorRetriever.FormatCypherResult(record);
 
-        var node = record["node"].As<INode>();
-        var score = record["score"].As<double>();
-        var content = node.Properties.TryGetValue("text", out var text)
-            ? text?.ToString() ?? ""
-            : node.Properties.TryGetValue("content", out var c)
-                ? c?.ToString() ?? ""
-                : node.ToString()!;
-        return new RetrieverResultItem(content, new Dictionary<string, object?> { ["score"] = score });
+        return RetrieverRecordMapper.FromNodeScore(record);
     }
 }

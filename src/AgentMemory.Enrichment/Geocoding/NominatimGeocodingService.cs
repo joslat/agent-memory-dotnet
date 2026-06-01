@@ -61,10 +61,19 @@ public sealed class NominatimGeocodingService : IGeocodingService
             var first = results[0];
             var address = first.Address;
 
+            if (!double.TryParse(first.Lat, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var latitude) ||
+                !double.TryParse(first.Lon, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var longitude))
+            {
+                _logger.LogWarning(
+                    "Nominatim returned malformed coordinates (lat='{Lat}', lon='{Lon}') for query '{Query}'",
+                    first.Lat, first.Lon, locationText);
+                return null;
+            }
+
             return new GeocodingResult
             {
-                Latitude = double.Parse(first.Lat, System.Globalization.CultureInfo.InvariantCulture),
-                Longitude = double.Parse(first.Lon, System.Globalization.CultureInfo.InvariantCulture),
+                Latitude = latitude,
+                Longitude = longitude,
                 FormattedAddress = first.DisplayName,
                 Country = address?.Country,
                 Region = address?.State,

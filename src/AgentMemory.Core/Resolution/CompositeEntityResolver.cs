@@ -22,6 +22,9 @@ public sealed class CompositeEntityResolver : IEntityResolver
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<CompositeEntityResolver> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CompositeEntityResolver"/> class.
+    /// </summary>
     public CompositeEntityResolver(
         IEntityRepository entityRepository,
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -38,6 +41,7 @@ public sealed class CompositeEntityResolver : IEntityResolver
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
@@ -124,6 +128,7 @@ public sealed class CompositeEntityResolver : IEntityResolver
             .ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Entity>> FindPotentialDuplicatesAsync(
         string name,
         string type,

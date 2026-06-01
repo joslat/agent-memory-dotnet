@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Tools;
+using AgentMemory.Core.Services;
 using NSubstitute;
 
 namespace AgentMemory.Tests.Unit.AgentFramework;
@@ -24,7 +25,7 @@ public sealed class MemoryToolFactoryTests
         _idGenerator = Substitute.For<IIdGenerator>();
 
         _embeddingOrchestrator
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[384]);
 
         _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
@@ -53,9 +54,15 @@ public sealed class MemoryToolFactoryTests
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
     }
 
-    private MemoryToolFactory CreateSut() => new(
-        _longTermService, _reasoningService, _embeddingOrchestrator, _clock, _idGenerator,
-        NullLogger<MemoryToolFactory>.Instance);
+    private MemoryToolFactory CreateSut()
+    {
+        // The factory is a thin adapter over the real Core facade; wire the facade with the mocked
+        // services so the existing Received(...) assertions still observe the underlying calls.
+        var facade = new MemoryQueryFacade(
+            _longTermService, _reasoningService, _embeddingOrchestrator, _clock, _idGenerator,
+            NullLogger<MemoryQueryFacade>.Instance);
+        return new MemoryToolFactory(facade);
+    }
 
     private MemoryTool GetTool(string name) =>
 #pragma warning disable CS0618
@@ -106,7 +113,7 @@ public sealed class MemoryToolFactoryTests
         await fn.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments(
             new Dictionary<string, object?> { ["query"] = "find Alice" }));
 
-        await _embeddingOrchestrator.Received(1).EmbedQueryAsync("find Alice", Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1).EmbedAsync("find Alice", Arg.Any<CancellationToken>());
         await _longTermService.Received(1).SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
     }
 
@@ -148,7 +155,7 @@ public sealed class MemoryToolFactoryTests
 
         response.Success.Should().BeTrue();
         await _embeddingOrchestrator.Received(1)
-            .EmbedQueryAsync("find Alice", Arg.Any<CancellationToken>());
+            .EmbedAsync("find Alice", Arg.Any<CancellationToken>());
         await _longTermService.Received(1)
             .SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
         await _longTermService.Received(1)
@@ -308,7 +315,7 @@ public sealed class MemoryToolFactoryTests
             await tool.ExecuteAsync(request, CancellationToken.None);
 
             await _embeddingOrchestrator.Received(1)
-                .EmbedQueryAsync("test query", Arg.Any<CancellationToken>());
+                .EmbedAsync("test query", Arg.Any<CancellationToken>());
         }
     }
 
@@ -321,14 +328,14 @@ public sealed class MemoryToolFactoryTests
         await tool.ExecuteAsync(request, CancellationToken.None);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedQueryAsync("food preferences", Arg.Any<CancellationToken>());
+            .EmbedAsync("food preferences", Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Tool_OnError_ReturnsFailureResponse()
     {
         _embeddingOrchestrator
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<float[]>(
                 new InvalidOperationException("embedding service unavailable")));
 

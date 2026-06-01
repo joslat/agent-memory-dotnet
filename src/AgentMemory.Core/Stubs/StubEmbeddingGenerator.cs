@@ -12,15 +12,22 @@ public sealed class StubEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
     private readonly ILogger<StubEmbeddingGenerator> _logger;
     private readonly int _dimensions;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StubEmbeddingGenerator"/> class.
+    /// </summary>
+    /// <param name="logger">The logger used to warn when the stub generator is invoked.</param>
+    /// <param name="dimensions">The dimensionality of the generated embedding vectors.</param>
     public StubEmbeddingGenerator(ILogger<StubEmbeddingGenerator> logger, int dimensions = 1536)
     {
         _logger = logger;
         _dimensions = dimensions;
     }
 
+    /// <inheritdoc/>
     public EmbeddingGeneratorMetadata Metadata =>
         new("stub");
 
+    /// <inheritdoc/>
     public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
         IEnumerable<string> values,
         EmbeddingGenerationOptions? options = null,
@@ -35,9 +42,11 @@ public sealed class StubEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
         return Task.FromResult(embeddings);
     }
 
+    /// <inheritdoc/>
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceType.IsInstanceOfType(this) ? this : null;
 
+    /// <inheritdoc/>
     public void Dispose() { }
 
     private float[] GenerateVector(string text)

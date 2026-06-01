@@ -8,11 +8,11 @@ namespace AgentMemory.Abstractions.Services;
 public interface IEnrichmentService
 {
     /// <summary>
-    /// Enriches the given entity and returns the result, or <c>null</c> if enrichment data
-    /// is unavailable or an error occurs.
-    /// </summary>
-    /// <summary>
     /// Enriches a named entity with structured data from an external knowledge source.
     /// </summary>
+    /// <param name="entityName">The entity name to look up.</param>
+    /// <param name="entityType">The entity's type (e.g. PERSON, ORGANIZATION), used to disambiguate.</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The enrichment result, or <c>null</c> if data is unavailable or an error occurs.</returns>
     Task<EnrichmentResult?> EnrichEntityAsync(string entityName, string entityType, CancellationToken ct = default);
 }

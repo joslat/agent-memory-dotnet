@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.SemanticKernel;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.SemanticKernel;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -22,14 +23,14 @@ public sealed class Neo4jMemoryPluginTests
     public void FormatRecallResult_EmptyContext_ReturnsEmptyString()
     {
         var result = EmptyRecall("s1");
-        Neo4jMemoryPlugin.FormatRecallResult(result).Should().BeEmpty();
+        MemoryContextFormatter.FormatRecallResult(result).Should().BeEmpty();
     }
 
     [Fact]
     public void FormatRecallResult_WithRecentMessages_IncludesMessages()
     {
         var result = RecallWithMessages("s1");
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("[user]: Hello world");
         formatted.Should().Contain("Recent Messages");
     }
@@ -50,7 +51,7 @@ public sealed class Neo4jMemoryPluginTests
             },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("Known Entities").And.Contain("Neo4j (Organization)").And.Contain("Graph database company");
     }
 
@@ -70,7 +71,7 @@ public sealed class Neo4jMemoryPluginTests
             },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("Known Facts").And.Contain("Neo4j is a graph database");
     }
 
@@ -90,7 +91,7 @@ public sealed class Neo4jMemoryPluginTests
             },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("User Preferences").And.Contain("[style] Prefers dark mode");
     }
 
@@ -102,7 +103,7 @@ public sealed class Neo4jMemoryPluginTests
             Context = new MemoryContext { SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow, GraphRagContext = "GraphRAG summary here" },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("Graph Context").And.Contain("GraphRAG summary here");
     }
 

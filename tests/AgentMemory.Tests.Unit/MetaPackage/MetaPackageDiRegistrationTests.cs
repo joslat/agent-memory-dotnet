@@ -3,8 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Extraction.AzureLanguage;
 using AgentMemory.Extraction.Llm;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Observability;
 
 namespace AgentMemory.Tests.Unit.MetaPackage;
 
@@ -31,6 +33,26 @@ public sealed class MetaPackageDiRegistrationTests
     {
         var services = BuildServices();
         services.Should().Contain(d => d.ServiceType == typeof(IMemoryService));
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_RegistersMemoryRoleInterfaces()
+    {
+        var services = BuildServices();
+
+        // The ISP role interfaces (3.10) are registered alongside the composed IMemoryService.
+        services.Should().Contain(d => d.ServiceType == typeof(IMemoryRecall));
+        services.Should().Contain(d => d.ServiceType == typeof(IMemoryIngestion));
+        services.Should().Contain(d => d.ServiceType == typeof(IMemoryMaintenance));
+    }
+
+    [Fact]
+    public void IMemoryService_ComposesAllThreeRoleInterfaces()
+    {
+        // The facade transition-shim must expose every role so existing consumers stay source-compatible.
+        typeof(IMemoryRecall).IsAssignableFrom(typeof(IMemoryService)).Should().BeTrue();
+        typeof(IMemoryIngestion).IsAssignableFrom(typeof(IMemoryService)).Should().BeTrue();
+        typeof(IMemoryMaintenance).IsAssignableFrom(typeof(IMemoryService)).Should().BeTrue();
     }
 
     [Fact]
@@ -121,6 +143,47 @@ public sealed class MetaPackageDiRegistrationTests
     {
         var services = new ServiceCollection();
         var act = () => services.AddNeo4jAgentMemory(_ => { }, null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    // ── 3.13: opt-in capability methods ────────────────────────────────────────
+
+    [Fact]
+    public void WithObservability_RegistersMetricsAndIsChainable()
+    {
+        var services = BuildServices();
+
+        var returned = services.WithObservability();
+
+        returned.Should().BeSameAs(services);
+        services.Should().Contain(d => d.ServiceType == typeof(MemoryMetrics));
+    }
+
+    [Fact]
+    public void WithEnrichment_RegistersEnrichmentServices()
+    {
+        var services = BuildServices().WithEnrichment();
+
+        services.Should().Contain(d => d.ServiceType == typeof(IGeocodingService));
+        services.Should().Contain(d => d.ServiceType == typeof(IEnrichmentService));
+    }
+
+    [Fact]
+    public void WithAzureLanguageExtraction_RegistersAzureOptions()
+    {
+        var services = BuildServices()
+            .WithAzureLanguageExtraction(o => { o.Endpoint = "https://example.cognitiveservices.azure.com"; o.ApiKey = "k"; });
+        var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<AzureLanguageOptions>>();
+        options.Value.Endpoint.Should().Be("https://example.cognitiveservices.azure.com");
+    }
+
+    [Fact]
+    public void WithAzureLanguageExtraction_NullConfigure_ThrowsArgumentNull()
+    {
+        var services = BuildServices();
+        var act = () => services.WithAzureLanguageExtraction(null!);
         act.Should().Throw<ArgumentNullException>();
     }
 }

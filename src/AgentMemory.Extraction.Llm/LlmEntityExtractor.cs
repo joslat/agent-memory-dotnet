@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,9 +13,6 @@ namespace AgentMemory.Extraction.Llm;
 /// </summary>
 public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntityExtractor
 {
-    private static readonly JsonSerializerOptions JsonOptions =
-        new() { PropertyNameCaseInsensitive = true };
-
     public const string DefaultSystemPrompt =
         """
         You are an entity extraction assistant. Extract named entities from the conversation.
@@ -40,8 +36,8 @@ public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntity
         - Return {"entities": []} if nothing found
         """;
 
-    private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
+    private readonly LlmExtractionRunner _runner;
 
     public LlmEntityExtractor(
         IChatClient chatClient,
@@ -49,28 +45,25 @@ public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntity
         ILogger<LlmEntityExtractor> logger)
         : base(logger)
     {
-        _chatClient = chatClient;
         _options = options.Value;
+        _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
     protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken ct)
     {
         var conversationText = ConversationTextBuilder.Build(messages);
+        return await _runner.RunAsync(
+            _options.EntityExtractionPrompt ?? DefaultSystemPrompt,
+            "Extract entities from this conversation:",
+            conversationText,
+            ProjectEntities,
+            ct);
+    }
 
-        var chatMessages = new List<ChatMessage>
-        {
-            new(ChatRole.System, _options.EntityExtractionPrompt ?? DefaultSystemPrompt),
-            new(ChatRole.User, $"Extract entities from this conversation:\n\n{conversationText}")
-        };
-
-        var chatOptions = BuildChatOptions();
-        var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, ct);
-        var json = response.Text;
-
-        var dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json ?? "", JsonOptions);
-        if (dto?.Entities is null)
-            return Array.Empty<ExtractedEntity>();
+    private static IReadOnlyList<ExtractedEntity> ProjectEntities(LlmExtractionResponse dto)
+    {
+        if (dto.Entities is null) return Array.Empty<ExtractedEntity>();
 
         return dto.Entities
             .Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.Type))
@@ -84,14 +77,6 @@ public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntity
                 Aliases = e.Aliases ?? new List<string>()
             })
             .ToList();
-    }
-
-    private ChatOptions BuildChatOptions()
-    {
-        var opts = new ChatOptions { Temperature = _options.Temperature };
-        if (!string.IsNullOrEmpty(_options.ModelId))
-            opts.ModelId = _options.ModelId;
-        return opts;
     }
 
     private static string NormalizeEntityType(string type) => type.ToUpperInvariant() switch

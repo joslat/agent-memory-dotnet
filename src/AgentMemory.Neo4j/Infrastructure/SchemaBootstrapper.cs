@@ -58,12 +58,6 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
         _logger.LogInformation("Schema bootstrap complete.");
     }
 
-    /// <summary>
-    /// Delegates to <see cref="SchemaQueries.BuildVectorIndexes"/> for backward compatibility.
-    /// </summary>
-    public static string[] BuildVectorIndexes(int dimensions) =>
-        SchemaQueries.BuildVectorIndexes(dimensions);
-
     private async Task RunStatementAsync(string cypher, CancellationToken cancellationToken)
     {
         try

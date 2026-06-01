@@ -11,6 +11,10 @@
     <ProjectReference Include="..\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
+    <!-- Optional capabilities, wired via the opt-in WithObservability/WithEnrichment/WithAzureLanguageExtraction methods. -->
+    <ProjectReference Include="..\AgentMemory.Observability\AgentMemory.Observability.csproj" />
+    <ProjectReference Include="..\AgentMemory.Enrichment\AgentMemory.Enrichment.csproj" />
+    <ProjectReference Include="..\AgentMemory.Extraction.AzureLanguage\AgentMemory.Extraction.AzureLanguage.csproj" />
   </ItemGroup>
 
   <ItemGroup>

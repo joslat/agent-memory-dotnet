@@ -6,6 +6,8 @@ using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
+
 namespace AgentMemory.Neo4j.Repositories;
 
 public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
@@ -194,12 +196,4 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         ["completedAt"] = (object?)(trace.CompletedAtUtc?.ToString("O")),
         ["metadata"]    = SerializeMetadata(trace.Metadata)
     };
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

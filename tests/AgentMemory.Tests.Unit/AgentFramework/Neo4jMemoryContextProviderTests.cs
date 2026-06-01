@@ -51,7 +51,7 @@ public sealed class Neo4jMemoryContextProviderTests
     public async Task BuildContextAsync_UsesEmbeddingOrchestrator_EmbedQueryAsync()
     {
         var messages = new List<ChatMessage> { new(ChatRole.User, "Tell me about Neo4j.") };
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.5f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(EmptyRecall("s1"));
@@ -59,7 +59,7 @@ public sealed class Neo4jMemoryContextProviderTests
         await _sut.BuildContextAsync(messages, "s1", "c1", CancellationToken.None);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r => r.QueryEmbedding != null && r.QueryEmbedding.Length == 1),
             Arg.Any<CancellationToken>());
@@ -69,7 +69,7 @@ public sealed class Neo4jMemoryContextProviderTests
     public async Task BuildContextAsync_WithUserMessage_CallsRecallAsync()
     {
         var messages = new List<ChatMessage> { new(ChatRole.User, "What is Neo4j?") };
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f, 0.2f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(EmptyRecall("s1"));
@@ -99,7 +99,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 RecentMessages = new MemoryContextSection<Message> { Items = [storedMsg] }
             }
         };
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(recallResult);
@@ -114,7 +114,7 @@ public sealed class Neo4jMemoryContextProviderTests
     [Fact]
     public async Task BuildContextAsync_EmbeddingFails_StillCallsRecall()
     {
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Embedding service unavailable"));
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(EmptyRecall("s1"));
@@ -131,7 +131,7 @@ public sealed class Neo4jMemoryContextProviderTests
     [Fact]
     public async Task BuildContextAsync_RecallFails_ReturnsEmptyContext()
     {
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("DB down"));

@@ -12,14 +12,21 @@ public sealed class ConfidenceMergeStrategy<T> : IMergeStrategy<T> where T : cla
     private readonly Func<T, string> _keySelector;
     private readonly Func<T, double> _confidenceSelector;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ConfidenceMergeStrategy{T}"/> class.
+    /// </summary>
+    /// <param name="keySelector">Selects the deduplication key for an item.</param>
+    /// <param name="confidenceSelector">Selects the confidence score used to pick the winner among duplicates.</param>
     public ConfidenceMergeStrategy(Func<T, string> keySelector, Func<T, double> confidenceSelector)
     {
         _keySelector = keySelector;
         _confidenceSelector = confidenceSelector;
     }
 
+    /// <inheritdoc/>
     public MergeStrategyType StrategyType => MergeStrategyType.Confidence;
 
+    /// <inheritdoc/>
     public IReadOnlyList<T> Merge(IReadOnlyList<IReadOnlyList<T>> extractorResults)
     {
         var best = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);

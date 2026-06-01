@@ -66,9 +66,16 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
             var items = result.Items.Select(MapItem).ToList();
             return new GraphRagContextResult { Items = items };
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Honor cancellation — do not mask it as an empty result.
+            throw;
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "GraphRAG retrieval failed for session {SessionId}", request.SessionId);
+            // Resilient path: GraphRAG is best-effort context. Log at Warning with full context
+            // so the failure is observable (and not indistinguishable from a genuine empty result).
+            _logger.LogWarning(ex, "GraphRAG retrieval failed for session {SessionId}; returning empty context", request.SessionId);
             return new GraphRagContextResult { Items = Array.Empty<GraphRagContextItem>() };
         }
     }
@@ -97,7 +104,11 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
         };
     }
 
-    private static IRetriever CreateRetriever(
+    /// <summary>
+    /// Pure selection: maps the configured <see cref="GraphRagSearchMode"/> to its retriever.
+    /// All mode-specific query/traversal behavior lives inside the retrievers themselves.
+    /// </summary>
+    internal static IRetriever CreateRetriever(
         IDriver driver,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         GraphRagOptions options)
@@ -124,13 +135,11 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
                 options.RetrievalQuery,
                 options.FilterStopWords),
 
-            // Graph mode uses vector search with a custom graph traversal query
-            GraphRagSearchMode.Graph => new VectorRetriever(
+            GraphRagSearchMode.Graph => new GraphRetriever(
                 driver,
                 options.IndexName,
                 embeddingGenerator,
-                options.RetrievalQuery
-                    ?? "WITH node, score MATCH (node)-[:RELATED_TO*1..2]-(related) RETURN node.text + ' -> ' + related.text AS text, score"),
+                options.MaxTraversalHops),
 
             _ => throw new ArgumentOutOfRangeException(nameof(options.SearchMode),
                      $"Unsupported search mode: {options.SearchMode}")

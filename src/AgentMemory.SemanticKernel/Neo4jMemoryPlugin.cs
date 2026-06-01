@@ -1,8 +1,10 @@
 using System.ComponentModel;
-using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 
 namespace AgentMemory.SemanticKernel;
 
@@ -13,11 +15,14 @@ namespace AgentMemory.SemanticKernel;
 public sealed class Neo4jMemoryPlugin
 {
     private readonly IMemoryService _memoryService;
+    private readonly ILogger<Neo4jMemoryPlugin> _logger;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jMemoryPlugin"/>.</summary>
-    public Neo4jMemoryPlugin(IMemoryService memoryService)
+    public Neo4jMemoryPlugin(IMemoryService memoryService, ILogger<Neo4jMemoryPlugin>? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(memoryService);
         _memoryService = memoryService;
+        _logger = logger ?? NullLogger<Neo4jMemoryPlugin>.Instance;
     }
 
     /// <summary>Recalls relevant memory context for the given query and session.</summary>
@@ -35,11 +40,16 @@ public sealed class Neo4jMemoryPlugin
         {
             result = await _memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "recall failed for session {SessionId}; returning empty context", sessionId);
             return string.Empty;
         }
-        return FormatRecallResult(result);
+        return MemoryContextFormatter.FormatRecallResult(result);
     }
 
     /// <summary>Adds a single message to short-term memory.</summary>
@@ -84,67 +94,5 @@ public sealed class Neo4jMemoryPlugin
         CancellationToken cancellationToken = default)
     {
         await _memoryService.ClearSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
-    }
-
-    // ── Formatting ─────────────────────────────────────────────────────────────
-
-    internal static string FormatRecallResult(RecallResult result)
-    {
-        if (result.TotalItemsRetrieved == 0)
-            return string.Empty;
-
-        var ctx = result.Context;
-        var sb = new StringBuilder();
-        sb.AppendLine("## Memory Context");
-        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages);
-        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages);
-        AppendEntities(sb, ctx.RelevantEntities);
-        AppendFacts(sb, ctx.RelevantFacts);
-        AppendPreferences(sb, ctx.RelevantPreferences);
-        if (!string.IsNullOrWhiteSpace(ctx.GraphRagContext))
-        {
-            sb.AppendLine("### Graph Context");
-            sb.AppendLine(ctx.GraphRagContext);
-        }
-        return sb.ToString().TrimEnd();
-    }
-
-    private static void AppendMessages(StringBuilder sb, string heading, MemoryContextSection<Message> section)
-    {
-        if (section.Items.Count == 0) return;
-        sb.AppendLine(heading);
-        foreach (var msg in section.Items)
-            sb.AppendLine($"[{msg.Role}]: {msg.Content}");
-        sb.AppendLine();
-    }
-
-    private static void AppendEntities(StringBuilder sb, MemoryContextSection<Entity> section)
-    {
-        if (section.Items.Count == 0) return;
-        sb.AppendLine("### Known Entities");
-        foreach (var entity in section.Items)
-        {
-            var desc = string.IsNullOrWhiteSpace(entity.Description) ? string.Empty : $" — {entity.Description}";
-            sb.AppendLine($"- {entity.Name} ({entity.Type}){desc}");
-        }
-        sb.AppendLine();
-    }
-
-    private static void AppendFacts(StringBuilder sb, MemoryContextSection<Fact> section)
-    {
-        if (section.Items.Count == 0) return;
-        sb.AppendLine("### Known Facts");
-        foreach (var fact in section.Items)
-            sb.AppendLine($"- {fact.Subject} {fact.Predicate} {fact.Object}");
-        sb.AppendLine();
-    }
-
-    private static void AppendPreferences(StringBuilder sb, MemoryContextSection<Preference> section)
-    {
-        if (section.Items.Count == 0) return;
-        sb.AppendLine("### User Preferences");
-        foreach (var pref in section.Items)
-            sb.AppendLine($"- [{pref.Category}] {pref.PreferenceText}");
-        sb.AppendLine();
     }
 }
