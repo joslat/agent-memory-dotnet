@@ -80,6 +80,25 @@ public sealed class LlmExtractionRunnerTests
         LlmExtractionRunner.ExtractJson(null).Should().BeNull();
     }
 
+    [Fact]
+    public void ExtractJson_StopsAtMatchingClose_IgnoringTrailingProseWithBraces()
+    {
+        // A trailing '}' in prose must not extend the captured payload (the old LastIndexOf bug).
+        var raw = ValidEntityJson + "\nThanks! Let me know if that helps :}";
+        LlmExtractionRunner.ExtractJson(raw).Should().Be(ValidEntityJson);
+    }
+
+    [Fact]
+    public void ExtractJson_IgnoresBracesInsideStringValues()
+    {
+        const string json = """{"entities":[{"name":"f(x) = {y}","type":"OBJECT","confidence":0.9}]}""";
+        var extracted = LlmExtractionRunner.ExtractJson("noise " + json + " more noise");
+        extracted.Should().Be(json);
+        // And it round-trips through the parser.
+        LlmExtractionRunner.TryParse(extracted, out var dto).Should().BeTrue();
+        dto!.Entities.Should().ContainSingle().Which.Name.Should().Be("f(x) = {y}");
+    }
+
     // ---- TryParse ----
 
     [Fact]

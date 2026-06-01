@@ -103,25 +103,32 @@ internal sealed class LlmExtractionRunner
     }
 
     /// <summary>
-    /// Extracts a JSON payload from a raw model response: strips a leading/trailing markdown code
-    /// fence, then returns the substring spanning the first JSON container (object preferred, else
-    /// array) to its matching closing brace/bracket. Returns null when no container is present.
+    /// Extracts a JSON payload from a raw model response: strips a surrounding markdown code fence,
+    /// then returns the substring spanning the first JSON container (object preferred, else array)
+    /// to its <em>matching</em> close — found by a depth scan that ignores braces/brackets inside
+    /// string literals, so trailing prose or a brace inside a string value cannot over-capture.
+    /// Returns null when no balanced container is present.
     /// </summary>
     internal static string? ExtractJson(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         var text = raw.Trim();
 
-        // Strip a surrounding ``` / ```json code fence if present.
+        // Strip a leading ``` / ```json fence and its matching closing fence. The closing fence is
+        // only recognized on a line boundary (or at the very end) so a ``` embedded inside JSON
+        // string content is never mistaken for it. (JSON strings cannot contain a literal newline,
+        // so "\n```" cannot occur inside a value.)
         if (text.StartsWith("```", StringComparison.Ordinal))
         {
             int firstNewline = text.IndexOf('\n');
             if (firstNewline >= 0)
                 text = text[(firstNewline + 1)..];
 
-            int closingFence = text.LastIndexOf("```", StringComparison.Ordinal);
+            int closingFence = text.LastIndexOf("\n```", StringComparison.Ordinal);
             if (closingFence >= 0)
                 text = text[..closingFence];
+            else if (text.EndsWith("```", StringComparison.Ordinal))
+                text = text[..^3];
 
             text = text.Trim();
         }
@@ -133,11 +140,46 @@ internal sealed class LlmExtractionRunner
         int start = objStart >= 0 ? objStart : arrStart;
         if (start < 0) return null;
 
-        char open = text[start];
-        char close = open == '{' ? '}' : ']';
-        int end = text.LastIndexOf(close);
-        if (end <= start) return null;
+        int end = FindMatchingClose(text, start);
+        return end > start ? text[start..(end + 1)] : null;
+    }
 
-        return text[start..(end + 1)];
+    /// <summary>
+    /// Returns the index of the brace/bracket that closes the container opening at
+    /// <paramref name="start"/>, tracking nesting depth while ignoring delimiters inside JSON string
+    /// literals (honoring backslash escapes). Returns -1 if the container is never balanced.
+    /// </summary>
+    private static int FindMatchingClose(string text, int start)
+    {
+        int depth = 0;
+        bool inString = false;
+        bool escaped = false;
+
+        for (int i = start; i < text.Length; i++)
+        {
+            char c = text[i];
+
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+
+            switch (c)
+            {
+                case '"': inString = true; break;
+                case '{':
+                case '[': depth++; break;
+                case '}':
+                case ']':
+                    depth--;
+                    if (depth == 0) return i;
+                    break;
+            }
+        }
+
+        return -1;
     }
 }

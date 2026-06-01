@@ -76,6 +76,14 @@ public sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
         try
         {
             var generated = await _generator.GenerateAsync(nonBlankTexts, cancellationToken: ct).ConfigureAwait(false);
+            if (generated.Count != nonBlankTexts.Count)
+            {
+                // Contract expects one vector per input; a mismatch means the generator misbehaved.
+                // Surface it (the unmatched trailing slots stay empty) rather than failing silently.
+                _logger.LogWarning(
+                    "Batch embedding generator returned {Returned} vectors for {Requested} inputs; unmatched slots left empty.",
+                    generated.Count, nonBlankTexts.Count);
+            }
             for (int j = 0; j < nonBlankIndices.Count && j < generated.Count; j++)
                 results[nonBlankIndices[j]] = generated[j].Vector.ToArray();
         }

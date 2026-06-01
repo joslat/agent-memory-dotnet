@@ -65,6 +65,11 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
             return await _memoryService.RecallAsync(
                 new RecallRequest { SessionId = _sessionId, Query = query }, ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Honor cancellation — do not mask it as an empty result.
+            throw;
+        }
         catch
         {
             return new RecallResult

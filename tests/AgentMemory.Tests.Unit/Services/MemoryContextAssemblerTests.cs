@@ -342,7 +342,71 @@ public sealed class MemoryContextAssemblerTests
         (totalChars / 4).Should().BeGreaterThan(0);
     }
 
+    // ---- 3.2 review fixes: GraphRAG truncation + temporal budget enforcement ----
+
+    [Fact]
+    public async Task AssembleContextAsync_DropsGraphRagWhenOverBudgetAndSectionsEmpty()
+    {
+        // All sections empty; only a large GraphRAG block, which must be dropped under a tiny budget.
+        _graphRag
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new GraphRagContextResult
+            {
+                Items = new[] { new GraphRagContextItem { Text = new string('X', 100), Score = 0.9 } }
+            }));
+        var options = Options.Create(new MemoryOptions
+        {
+            EnableGraphRag = true,
+            ContextBudget = new ContextBudget { MaxCharacters = 10, TruncationStrategy = TruncationStrategy.OldestFirst }
+        });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+
+        var result = await sut.AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+
+        result.GraphRagContext.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsOfAsync_EnforcesContextBudget()
+    {
+        var e1 = CreateEntity("e1", "AA", _fixedTime);                 // ~12 chars each (Name 2 + 10)
+        var e2 = CreateEntity("e2", "BB", _fixedTime.AddMinutes(-1));
+        _shortTerm
+            .GetRecentMessagesAsOfAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
+        _longTerm
+            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(new[] { e1, e2 }));
+        _longTerm
+            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
+        _longTerm
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
+
+        var options = Options.Create(new MemoryOptions
+        {
+            ContextBudget = new ContextBudget { MaxCharacters = 15, TruncationStrategy = TruncationStrategy.OldestFirst }
+        });
+        var sut = CreateSut(options: options);
+
+        var result = await sut.AssembleContextAsOfAsync(
+            CreateRequest(queryEmbedding: new float[1536]), _fixedTime);
+
+        // Two ~12-char entities exceed the 15-char budget; temporal recall now truncates to one.
+        result.RelevantEntities.Items.Should().HaveCount(1);
+    }
+
     // ---- Helpers ----
+
+    private static Entity CreateEntity(string id, string name, DateTimeOffset createdAt) => new()
+    {
+        EntityId = id,
+        Name = name,
+        Type = "Person",
+        Confidence = 1.0,
+        CreatedAtUtc = createdAt
+    };
 
     private static Message CreateMessage(string id, string content, DateTimeOffset timestamp) => new()
     {

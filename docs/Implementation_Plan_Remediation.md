@@ -74,6 +74,21 @@ The work is sequenced **Stabilize → Fix → Implement → Document**, because:
 
 ---
 
+## Post-implementation review (2026-06-01)
+
+A multi-agent adversarial review (review → per-finding verification) was run over the full change set. Confirmed findings were fixed:
+
+- **`MemoryContextAssembler`** — `EstimateItemChars` now floors Message/Preference at 1 char so budget truncation always makes forward progress (empty-content items can no longer churn the victim loop); **`AssembleContextAsOfAsync` now enforces the context budget** (parity with the live recall path) — covered by new tests, plus a GraphRAG-drop-under-budget test.
+- **`LlmExtractionRunner.ExtractJson`** — replaced trailing `LastIndexOf` with a string-aware balanced-depth scan (matching close), and line-boundary fence detection; trailing prose / braces inside string values can no longer over-capture. +2 tests.
+- **`Neo4jTextSearch`** — its bare `catch` no longer masks `OperationCanceledException` (honors cancellation, consistent with §7.1).
+- **`EmbeddingOrchestrator.EmbedBatchAsync`** — logs a warning when the generator returns fewer vectors than inputs (graceful, observable; alignment preserved). +1 test.
+- **Neo4j repositories** — removed 9 now-unused `using System.Text.Json;` left over from the 3.6 mapper extraction.
+- **`design.md §5`** — added the temporal `…AsOfAsync` and `DeletePreferenceAsync` methods to the short/long-term service rows.
+
+Build clean (0 warnings); **2127 unit + 31 SK** tests green. (Out-of-scope items noted but not changed: the pre-existing `AddAzureLanguageExtraction` `AddScoped` semantics — LLM/Azure extractors are documented alternatives, not stacked.)
+
+---
+
 ## Phase 0 — Stabilize (prerequisite)
 
 ### 0.1 Green baseline

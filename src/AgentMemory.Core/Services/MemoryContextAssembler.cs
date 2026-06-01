@@ -179,6 +179,21 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var preferences = await preferencesTask;
         var facts = await factsTask;
 
+        // Enforce the same context budget as the live recall path so temporal recall cannot blow
+        // past the configured token/char limit. (Relevant messages and traces are not part of the
+        // temporal snapshot, so they pass through as empty.)
+        var budget = _options.ContextBudget;
+        if (budget.MaxTokens.HasValue || budget.MaxCharacters.HasValue)
+        {
+            var fitted = ApplyBudget(
+                budget, recentMessages, Array.Empty<Message>(), entities, preferences, facts,
+                Array.Empty<ReasoningTrace>(), graphRagContext: null);
+            recentMessages = fitted.Recent;
+            entities = fitted.Entities;
+            preferences = fitted.Preferences;
+            facts = fitted.Facts;
+        }
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
@@ -454,10 +469,13 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
 
     private static int EstimateItemChars<T>(T item) => item switch
     {
-        Message m => m.Content.Length,
+        // Every item costs at least 1 char so that budget truncation always makes forward progress —
+        // an empty-content message/preference must still reduce the running total when removed,
+        // otherwise the victim loop could churn through zero-cost items without nearing the budget.
+        Message m => Math.Max(1, m.Content.Length),
         Entity e => (e.Name?.Length ?? 0) + (e.Description?.Length ?? 0) + 10,
         Fact f => f.Subject.Length + f.Predicate.Length + f.Object.Length + 4,
-        Preference p => p.PreferenceText.Length,
+        Preference p => Math.Max(1, p.PreferenceText.Length),
         ReasoningTrace t => t.Task.Length + (t.Outcome?.Length ?? 0) + 10,
         _ => 50
     };

@@ -252,4 +252,24 @@ public sealed class EmbeddingOrchestratorTests
         var act = async () => await sut.EmbedBatchAsync(null!);
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
+
+    [Fact]
+    public async Task EmbedBatchAsync_GeneratorReturnsFewerVectors_DegradesGracefullyWithAlignment()
+    {
+        // A misbehaving generator that returns only ONE vector regardless of input count.
+        var generator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        generator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(
+                new[] { new Embedding<float>(new float[8]) })));
+        var sut = new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance);
+
+        var result = await sut.EmbedBatchAsync(new[] { "alpha", "beta", "gamma" });
+
+        // Contract preserved: one slot per input; matched slot filled, unmatched slots empty; no throw.
+        result.Should().HaveCount(3);
+        result[0].Should().NotBeEmpty();
+        result[1].Should().BeEmpty();
+        result[2].Should().BeEmpty();
+    }
 }
