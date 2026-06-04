@@ -69,12 +69,84 @@ public sealed class MemoryContextAssemblerTests
             options ?? Options.Create(new MemoryOptions()),
             NullLogger<MemoryContextAssembler>.Instance);
 
-    private static RecallRequest CreateRequest(float[]? queryEmbedding = null) => new()
+    private static RecallRequest CreateRequest(float[]? queryEmbedding = null, RetrievalBlendMode? blendMode = null) => new()
     {
         SessionId = "session-1",
         Query = "What do I know about the project?",
-        QueryEmbedding = queryEmbedding
+        QueryEmbedding = queryEmbedding,
+        Options = blendMode is null
+            ? RecallOptions.Default
+            : new RecallOptions { BlendMode = blendMode.Value }
     };
+
+    private void SetupGraphRagReturns(string text)
+        => _graphRag
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new GraphRagContextResult
+            {
+                Items = new[] { new GraphRagContextItem { Text = text, Score = 0.9 } }
+            }));
+
+    [Fact]
+    public async Task AssembleContextAsync_MemoryOnly_SkipsGraphRagEvenWhenEnabled()
+    {
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+
+        var result = await sut.AssembleContextAsync(
+            CreateRequest(queryEmbedding: new float[1536], blendMode: RetrievalBlendMode.MemoryOnly));
+
+        await _graphRag.DidNotReceive()
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
+        await _shortTerm.Received(1)
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.GraphRagContext.Should().BeNull();
+        result.BlendMode.Should().Be(RetrievalBlendMode.MemoryOnly);
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_GraphRagOnly_SkipsMemoryLayersAndEmbedding()
+    {
+        SetupGraphRagReturns("graph-only context");
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+
+        // No provided embedding — GraphRagOnly must not trigger embedding generation.
+        var result = await sut.AssembleContextAsync(
+            CreateRequest(queryEmbedding: null, blendMode: RetrievalBlendMode.GraphRagOnly));
+
+        await _embeddingOrchestrator.DidNotReceive()
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _shortTerm.DidNotReceive()
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _longTerm.DidNotReceive()
+            .SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await _graphRag.Received(1)
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
+
+        result.RecentMessages.Items.Should().BeEmpty();
+        result.RelevantEntities.Items.Should().BeEmpty();
+        result.GraphRagContext.Should().Contain("graph-only context");
+        result.BlendMode.Should().Be(RetrievalBlendMode.GraphRagOnly);
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_GraphRagThenMemory_RetrievesBothSources()
+    {
+        SetupGraphRagReturns("graph context");
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+
+        var result = await sut.AssembleContextAsync(
+            CreateRequest(queryEmbedding: new float[1536], blendMode: RetrievalBlendMode.GraphRagThenMemory));
+
+        await _shortTerm.Received(1)
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _graphRag.Received(1)
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
+        result.GraphRagContext.Should().Contain("graph context");
+        result.BlendMode.Should().Be(RetrievalBlendMode.GraphRagThenMemory);
+    }
 
     [Fact]
     public async Task AssembleContextAsync_GeneratesEmbeddingWhenNotProvided()

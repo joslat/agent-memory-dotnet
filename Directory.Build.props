@@ -6,8 +6,10 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
-  <!-- TreatWarningsAsErrors only for src projects, not tests -->
-  <PropertyGroup Condition="!$(MSBuildProjectDirectory.Contains('\tests\'))">
+  <!-- TreatWarningsAsErrors only for src projects, not tests. Match on the project name
+       (which contains ".Tests") rather than a path fragment so the condition is correct on
+       both Windows ('\tests\') and Linux/macOS ('/tests/') — e.g. under CI. -->
+  <PropertyGroup Condition="!$(MSBuildProjectName.Contains('.Tests'))">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 </Project>

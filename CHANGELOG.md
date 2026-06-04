@@ -22,6 +22,23 @@
   implied Neo4j affiliation before first publish. NuGet IDs are permanent once published.
   C# namespaces updated accordingly across all 11 source packages, 3 test projects,
   and 3 sample projects (453 .cs files, 17 .csproj files, 1 .slnx solution file).
+- **Retrieval blend modes are now enforced.** `RecallOptions.BlendMode` previously had no effect —
+  every mode behaved like `Blended`. `MemoryContextAssembler` now honors it: `MemoryOnly` suppresses
+  GraphRAG, `GraphRagOnly` suppresses the memory layers (and the query-embedding call), and
+  `GraphRagOnly`/`GraphRagThenMemory` render GraphRAG context ahead of memory in both
+  `MemoryContextFormatter` and the MAF context mapper. `MemoryContext` gains a `BlendMode` property
+  (defaults to `Blended`, so existing output ordering is unchanged).
+
+### Fixed
+- **`Fact.Category` is now persisted and read back.** It was defined on the domain model and indexed
+  (`fact_category`) but omitted from the upsert queries and mapping, so it was silently dropped on
+  write and always returned `null`. `FactQueries.Upsert`/`UpsertBatch`, the repository parameters, and
+  `MapToFact` now round-trip it (mirroring `Preference.Category`).
+- **CI now builds and tests.** `.github/workflows/squad-ci.yml` was a placeholder that ran no
+  commands; it now restores, builds, and runs unit + SemanticKernel tests plus the Testcontainers
+  integration suite. Fixed `Directory.Build.props` so the src-only `TreatWarningsAsErrors` condition
+  evaluates correctly on non-Windows CI runners, and tagged `Neo4jConnectivityTests` with
+  `[Trait("Category", "Integration")]` so it no longer leaks into the unit-test filter.
 
 # Changelog
 

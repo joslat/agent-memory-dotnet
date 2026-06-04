@@ -4,6 +4,7 @@ using Neo4j.Driver;
 namespace AgentMemory.Tests.Integration;
 
 [Collection("Neo4j")]
+[Trait("Category", "Integration")]
 public class Neo4jConnectivityTests
 {
     private readonly Neo4jTestFixture _fixture;

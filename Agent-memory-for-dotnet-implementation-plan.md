@@ -1,7 +1,7 @@
 # Neo4j Agent Memory for .NET — Full Implementation Plan
 
 > **⚠️ Historical Document — All Phases Complete**  
-> All 6 implementation phases plus the gap closure sprint (Waves A–C) are complete. This plan is kept for historical context. For current architecture, see `docs/architecture.md`. For current status, see `docs/implementation-status.md`.
+> All 6 implementation phases plus the gap closure sprint (Waves A–C) are complete. This plan is kept for historical context. For current architecture, see `docs/architecture.md`. For current status, see `docs/archive/implementation-status.md`.
 
 > **Governing specification:** [Agent-Memory-for-DotNet-Specification.md](Agent-Memory-for-DotNet-Specification.md)  
 > This implementation plan is derived from and governed by the specification above. If any ambiguity exists between this plan and the specification, the specification takes precedence.
@@ -443,19 +443,35 @@ Extractor
 ## 9.2 Relationship types
 
 ```text
+# Short-term memory
 HAS_MESSAGE
+FIRST_MESSAGE
 NEXT_MESSAGE
+
+# Long-term memory
+EXTRACTED_FROM
 MENTIONS
+SAME_AS
 RELATED_TO
-HAS_PREFERENCE
-HAS_FACT
+ABOUT
+
+# Reasoning
 HAS_STEP
-USED_TOOL
+USES_TOOL
+INSTANCE_OF
+
+# Cross-memory
+HAS_TRACE
 INITIATED_BY
 TRIGGERED_BY
-EXTRACTED_FROM
+
+# Provenance
 EXTRACTED_BY
-SAME_AS
+
+# .NET extensions
+HAS_FACT
+HAS_PREFERENCE
+IN_SESSION
 ```
 
 ## 9.3 Constraints and indexes
@@ -484,7 +500,7 @@ All vector indexes use cosine similarity with configurable dimensions (default: 
 | `preference_embedding_idx` | `Preference` | `embedding` | ✅ Implemented |
 | `fact_embedding_idx` | `Fact` | `embedding` | ✅ Implemented |
 | `reasoning_step_embedding_idx` | `ReasoningStep` | `embedding` | ✅ Implemented |
-| `task_embedding_idx` | `ReasoningTrace` | `taskEmbedding` | ⏳ To add to SchemaBootstrapper |
+| `task_embedding_idx` | `ReasoningTrace` | `task_embedding` | ✅ Implemented |
 
 ### Required fulltext indexes (3)
 - `message_content` — `Message` on `[content]`
@@ -921,9 +937,9 @@ Freeze architecture and non-goals.
 
 ---
 
-## Phase 1 — Core memory engine 🔧
+## Phase 1 — Core memory engine ✅
 
-> **Status: IN PROGRESS** (~50% complete) — Foundation work done (Epics 1–3, 8, 9). Repository and service implementations pending (Epics 4–7).
+> **Status: COMPLETE** — Short-term, long-term, and reasoning memory plus context assembly are implemented, DI-wired, and covered by unit + integration tests.
 
 ### Objective
 Implement the framework-agnostic memory core and Neo4j persistence.
@@ -932,10 +948,10 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 - ✅ abstractions package (15 service interfaces, 10 repository interfaces, ~29 domain records, 6 enums)
 - ✅ core package (9 stub implementations, system clock, GUID generator)
 - ✅ Neo4j persistence package (driver factory, session factory, tx runner, schema bootstrapper, migration runner)
-- ✅ schema bootstrapper (9 constraints, 3 fulltext indexes, 5 vector indexes, 9 property indexes)
-- ⏳ short-term memory (repositories and service pending)
-- ⏳ long-term memory (repositories and service pending)
-- ⏳ reasoning memory (repositories and service pending)
+- ✅ schema bootstrapper (9 constraints, 3 fulltext indexes, 6 vector indexes, 9 property indexes)
+- ✅ short-term memory (`ShortTermMemoryService` + conversation/message repositories)
+- ✅ long-term memory (`LongTermMemoryService` + entity/preference/fact/relationship repositories)
+- ✅ reasoning memory (`ReasoningMemoryService` + trace/step/tool-call repositories)
 
 ### Tasks
 
@@ -951,14 +967,14 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 - ✅ schema installer
 - ✅ migration runner
 
-#### 3. Short-term memory ⏳
+#### 3. Short-term memory ✅
 - create conversation
 - add message
 - list conversation
 - semantic message search
 - recent context formatting
 
-#### 4. Long-term memory ⏳
+#### 4. Long-term memory ✅
 - add/update entity
 - add preference
 - add fact
@@ -966,14 +982,14 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 - search entities/preferences/facts
 - dedup hooks
 
-#### 5. Reasoning memory ⏳
+#### 5. Reasoning memory ✅
 - start trace
 - add step
 - record tool call
 - complete trace
 - find similar traces
 
-#### 6. Context assembly ⏳
+#### 6. Context assembly ✅
 - implement `MemoryContextAssembler`
 - implement token/size budgets
 - implement configurable section inclusion
@@ -988,7 +1004,7 @@ Implement the framework-agnostic memory core and Neo4j persistence.
 # Build (verified: 0 errors, 0 warnings)
 dotnet build
 
-# Unit tests (34 tests passing)
+# Unit tests (2,100+ tests passing)
 dotnet test tests/AgentMemory.Tests.Unit
 
 # Integration tests (require Docker + Testcontainers — auto-provisions Neo4j)
@@ -1015,7 +1031,9 @@ dotnet test
 
 ---
 
-## Phase 2 — LLM extraction pipeline
+## Phase 2 — LLM extraction pipeline ✅
+
+> **Status: COMPLETE** — LLM extraction pipeline, orchestration, and the 4-strategy entity resolver are implemented and tested.
 
 ### Objective
 Implement a .NET-native structured extraction pipeline.
@@ -1045,7 +1063,9 @@ Implement a .NET-native structured extraction pipeline.
 
 ---
 
-## Phase 3 — MAF adapter
+## Phase 3 — MAF adapter ✅
+
+> **Status: COMPLETE** — MAF context provider, chat message store, memory facade, tool factory, and trace recorder are implemented and tested.
 
 ### Objective
 Integrate the memory system with Microsoft Agent Framework.
@@ -1075,7 +1095,9 @@ Integrate the memory system with Microsoft Agent Framework.
 
 ---
 
-## Phase 4 — GraphRAG interoperability + observability
+## Phase 4 — GraphRAG interoperability + observability ✅
+
+> **Status: COMPLETE** — `IGraphRagContextSource`, blend-mode policy, and the `AgentMemory.Observability` OpenTelemetry layer are implemented and tested.
 
 ### Objective
 Add the required GraphRAG adapter and baseline operational telemetry.
@@ -1102,7 +1124,9 @@ Add the required GraphRAG adapter and baseline operational telemetry.
 
 ---
 
-## Phase 5 — Advanced extraction and enrichment
+## Phase 5 — Advanced extraction and enrichment ✅
+
+> **Status: COMPLETE** — Azure Language extractors, geocoding, and Wikimedia/Diffbot enrichment with cache/queue/rate-limit decorators are implemented (ONNX adapter and Google geocoder intentionally deferred).
 
 ### Objective
 Add optional advanced backends and enrichment features.
@@ -1129,7 +1153,9 @@ Add optional advanced backends and enrichment features.
 
 ---
 
-## Phase 6 — MCP server
+## Phase 6 — MCP server ✅
+
+> **Status: COMPLETE** — The MCP server (core + extended memory tools, stdio host, sample client config) is implemented and builds clean.
 
 ### Objective
 Expose memory functionality to external MCP clients.

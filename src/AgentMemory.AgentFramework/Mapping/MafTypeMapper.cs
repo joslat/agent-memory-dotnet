@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.AgentFramework.Mapping;
@@ -50,6 +51,12 @@ internal static class MafTypeMapper
         if (!string.IsNullOrWhiteSpace(options.ContextPrefix))
             messages.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
 
+        // Blend policy (plan §12.5): GraphRagOnly / GraphRagThenMemory surface the graph context
+        // ahead of memory-derived context; all other modes append it last (see below).
+        bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
+        if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
+            messages.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
+
         // P2-7: Deduplicate across RecentMessages and RelevantMessages — a message may appear in both
         // when it is both recent and semantically relevant. DistinctBy preserves insertion order
         // (recent-first) while dropping subsequent duplicates.
@@ -90,7 +97,7 @@ internal static class MafTypeMapper
             messages.Add(new ChatMessage(ChatRole.System, $"Similar past tasks: {traceText}"));
         }
 
-        if (!string.IsNullOrEmpty(context.GraphRagContext))
+        if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
             messages.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
 
         return messages.Take(options.MaxContextMessages).ToList();

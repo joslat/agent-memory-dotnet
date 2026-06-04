@@ -83,6 +83,73 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpsertAsync_PersistsAndReadsBackCategory()
+    {
+        var fact = new Fact
+        {
+            FactId = $"fact-{Guid.NewGuid():N}",
+            Subject = "Dana",
+            Predicate = "specializes_in",
+            Object = "graph databases",
+            Category = "professional",
+            Confidence = 0.9,
+            CreatedAtUtc = new DateTimeOffset(2025, 2, 2, 0, 0, 0, TimeSpan.Zero)
+        };
+        await _repo.UpsertAsync(fact);
+
+        var result = await _repo.GetByIdAsync(fact.FactId);
+
+        result.Should().NotBeNull();
+        result!.Category.Should().Be("professional");
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_PersistsAndReadsBackCategory()
+    {
+        var subject = $"Subject-{Guid.NewGuid():N}";
+        var facts = new[]
+        {
+            new Fact
+            {
+                FactId = $"fact-{Guid.NewGuid():N}",
+                Subject = subject,
+                Predicate = "born_in",
+                Object = "Madrid",
+                Category = "personal",
+                Confidence = 0.8,
+                CreatedAtUtc = DateTimeOffset.UtcNow
+            }
+        };
+        await _repo.UpsertBatchAsync(facts);
+
+        var results = await _repo.GetBySubjectAsync(subject);
+
+        results.Should().ContainSingle()
+            .Which.Category.Should().Be("personal");
+    }
+
+    [Fact]
+    public async Task UpsertAsync_NullCategory_RoundTripsAsNull()
+    {
+        var fact = new Fact
+        {
+            FactId = $"fact-{Guid.NewGuid():N}",
+            Subject = "Erin",
+            Predicate = "drinks",
+            Object = "tea",
+            Category = null,
+            Confidence = 0.7,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        await _repo.UpsertAsync(fact);
+
+        var result = await _repo.GetByIdAsync(fact.FactId);
+
+        result.Should().NotBeNull();
+        result!.Category.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetBySubjectAsync_ReturnsFactsForSubject()
     {
         var subject = $"Subject-{Guid.NewGuid():N}";

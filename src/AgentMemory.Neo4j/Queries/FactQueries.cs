@@ -14,6 +14,7 @@ public static class FactQueries
             MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})
             ON CREATE SET
                 f.id                 = $id,
+                f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
@@ -22,6 +23,7 @@ public static class FactQueries
                 f.metadata           = $metadata
             ON MATCH SET
                 f.id                 = $id,
+                f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
@@ -40,6 +42,7 @@ public static class FactQueries
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
+                f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
@@ -50,6 +53,7 @@ public static class FactQueries
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
+                f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,

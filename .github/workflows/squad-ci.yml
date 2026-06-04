@@ -1,5 +1,7 @@
 name: Squad CI
-# dotnet project — configure build/test commands below
+# .NET 9 solution (AgentMemory.slnx) — build + test gate.
+# Unit + SemanticKernel tests run on every PR/push. Integration tests provision Neo4j via
+# Testcontainers (neo4j:5.26); GitHub-hosted ubuntu runners ship with Docker, so they run here too.
 
 on:
   pull_request:
@@ -11,18 +13,47 @@ on:
 permissions:
   contents: read
 
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
 jobs:
-  test:
+  build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and test
-        run: |
-          # TODO: Add your dotnet build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-ci.yml"
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore AgentMemory.slnx
+
+      - name: Build
+        run: dotnet build AgentMemory.slnx -c Release --no-restore
+
+      - name: Unit + SemanticKernel tests
+        run: >
+          dotnet test AgentMemory.slnx -c Release --no-build
+          --filter "Category!=Integration"
+          --logger "trx;LogFileName=unit.trx"
+          --results-directory TestResults
+
+      # Testcontainers spins up neo4j:5.26 automatically — no manual service container needed.
+      - name: Integration tests
+        run: >
+          dotnet test tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj
+          -c Release --no-build
+          --filter "Category=Integration"
+          --logger "trx;LogFileName=integration.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: ignore

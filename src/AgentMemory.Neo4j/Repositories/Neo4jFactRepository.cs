@@ -31,6 +31,7 @@ public sealed class Neo4jFactRepository : IFactRepository
                 ["subject"]          = fact.Subject,
                 ["predicate"]        = fact.Predicate,
                 ["object"]           = fact.Object,
+                ["category"]         = fact.Category,
                 ["confidence"]       = fact.Confidence,
                 ["validFrom"]        = (object?)(fact.ValidFrom?.ToString("O")),
                 ["validUntil"]       = (object?)(fact.ValidUntil?.ToString("O")),
@@ -75,6 +76,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             ["subject"]           = f.Subject,
             ["predicate"]         = f.Predicate,
             ["object"]            = f.Object,
+            ["category"]          = f.Category,
             ["confidence"]        = f.Confidence,
             ["valid_from"]        = (object?)(f.ValidFrom?.ToString("O")),
             ["valid_until"]       = (object?)(f.ValidUntil?.ToString("O")),
@@ -217,6 +219,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             Subject          = node["subject"].As<string>(),
             Predicate        = node["predicate"].As<string>(),
             Object           = node["object"].As<string>(),
+            Category         = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
             Confidence       = node["confidence"].As<double>(),
             ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)

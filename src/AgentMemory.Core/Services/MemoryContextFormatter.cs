@@ -1,5 +1,6 @@
 using System.Text;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Core.Services;
 
@@ -21,17 +22,26 @@ public static class MemoryContextFormatter
         var ctx = result.Context;
         var sb = new StringBuilder();
         sb.AppendLine("## Memory Context");
+
+        // Blend policy (plan §12.5): GraphRagOnly / GraphRagThenMemory render the graph block first;
+        // all other modes keep it after the memory-derived sections.
+        bool graphFirst = ctx.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
+
+        if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages);
         AppendEntities(sb, ctx.RelevantEntities);
         AppendFacts(sb, ctx.RelevantFacts);
         AppendPreferences(sb, ctx.RelevantPreferences);
-        if (!string.IsNullOrWhiteSpace(ctx.GraphRagContext))
-        {
-            sb.AppendLine("### Graph Context");
-            sb.AppendLine(ctx.GraphRagContext);
-        }
+        if (!graphFirst) AppendGraphRag(sb, ctx.GraphRagContext);
         return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendGraphRag(StringBuilder sb, string? graphRagContext)
+    {
+        if (string.IsNullOrWhiteSpace(graphRagContext)) return;
+        sb.AppendLine("### Graph Context");
+        sb.AppendLine(graphRagContext);
     }
 
     private static void AppendMessages(StringBuilder sb, string heading, MemoryContextSection<Message> section)

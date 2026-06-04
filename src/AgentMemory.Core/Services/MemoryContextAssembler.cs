@@ -53,52 +53,75 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
 
         var recallOpts = request.Options;
         var minScore = recallOpts.MinSimilarityScore;
+        var blendMode = recallOpts.BlendMode;
 
-        // Generate embedding if not provided
-        var queryEmbedding = request.QueryEmbedding;
-        if (queryEmbedding is null)
+        // Blend policy (spec §5.5 / plan §12.5): decide which sources contribute to the context.
+        //   MemoryOnly   → memory layers only; GraphRAG suppressed even when enabled.
+        //   GraphRagOnly → GraphRAG only; memory layers (and query embedding) skipped.
+        //   others       → both sources (Blended / MemoryThenGraphRag / GraphRagThenMemory).
+        bool includeMemory = blendMode != RetrievalBlendMode.GraphRagOnly;
+        bool graphRagAvailable = _graphRag != null && _options.EnableGraphRag;
+        bool includeGraphRag = blendMode != RetrievalBlendMode.MemoryOnly && graphRagAvailable;
+
+        if (blendMode == RetrievalBlendMode.GraphRagOnly && !graphRagAvailable)
         {
-            queryEmbedding = await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
+            _logger.LogWarning(
+                "GraphRagOnly blend mode requested for session {SessionId} but GraphRAG is unavailable " +
+                "(source not registered or EnableGraphRag=false); returning empty context.",
+                request.SessionId);
         }
 
-        // Launch all retrieval tasks in parallel
-        var recentTask = _shortTerm.GetRecentMessagesAsync(
-            request.SessionId, recallOpts.MaxRecentMessages, cancellationToken);
+        // Start GraphRAG retrieval first so it overlaps memory retrieval when both are requested.
+        Task<GraphRagContextResult?>? graphRagTask = includeGraphRag
+            ? FetchGraphRagAsync(request, recallOpts, cancellationToken)
+            : null;
 
-        var relevantTask = _shortTerm.SearchMessagesAsync(
-            request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken);
+        IReadOnlyList<Message> recentMessages = Array.Empty<Message>();
+        IReadOnlyList<Message> relevantMessages = Array.Empty<Message>();
+        IReadOnlyList<Entity> entities = Array.Empty<Entity>();
+        IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
+        IReadOnlyList<Fact> facts = Array.Empty<Fact>();
+        IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
 
-        var entitiesTask = _longTerm.SearchEntitiesAsync(
-            queryEmbedding, recallOpts.MaxEntities, minScore, cancellationToken);
-
-        var preferencesTask = _longTerm.SearchPreferencesAsync(
-            queryEmbedding, recallOpts.MaxPreferences, minScore, cancellationToken);
-
-        var factsTask = _longTerm.SearchFactsAsync(
-            queryEmbedding, recallOpts.MaxFacts, minScore, cancellationToken);
-
-        var tracesTask = _reasoning.SearchSimilarTracesAsync(
-            queryEmbedding, null, recallOpts.MaxTraces, minScore, cancellationToken);
-
-        Task<GraphRagContextResult?>? graphRagTask = null;
-        if (_graphRag != null && _options.EnableGraphRag)
+        if (includeMemory)
         {
-            graphRagTask = FetchGraphRagAsync(request, recallOpts, cancellationToken);
-        }
+            // Generate embedding if not provided (only needed for memory-layer semantic search).
+            var queryEmbedding = request.QueryEmbedding
+                ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
 
-        await Task.WhenAll(
-            recentTask, relevantTask, entitiesTask,
-            preferencesTask, factsTask, tracesTask);
+            // Launch all memory retrieval tasks in parallel.
+            var recentTask = _shortTerm.GetRecentMessagesAsync(
+                request.SessionId, recallOpts.MaxRecentMessages, cancellationToken);
+
+            var relevantTask = _shortTerm.SearchMessagesAsync(
+                request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken);
+
+            var entitiesTask = _longTerm.SearchEntitiesAsync(
+                queryEmbedding, recallOpts.MaxEntities, minScore, cancellationToken);
+
+            var preferencesTask = _longTerm.SearchPreferencesAsync(
+                queryEmbedding, recallOpts.MaxPreferences, minScore, cancellationToken);
+
+            var factsTask = _longTerm.SearchFactsAsync(
+                queryEmbedding, recallOpts.MaxFacts, minScore, cancellationToken);
+
+            var tracesTask = _reasoning.SearchSimilarTracesAsync(
+                queryEmbedding, null, recallOpts.MaxTraces, minScore, cancellationToken);
+
+            await Task.WhenAll(
+                recentTask, relevantTask, entitiesTask,
+                preferencesTask, factsTask, tracesTask);
+
+            recentMessages = await recentTask;
+            relevantMessages = await relevantTask;
+            entities = await entitiesTask;
+            preferences = await preferencesTask;
+            facts = await factsTask;
+            traces = await tracesTask;
+        }
 
         if (graphRagTask != null)
             await graphRagTask;
-
-        var recentMessages = await recentTask;
-        var relevantMessages = await relevantTask;
-        var entities = await entitiesTask;
-        var preferences = await preferencesTask;
-        var facts = await factsTask;
-        var traces = await tracesTask;
 
         string? graphRagContext = null;
         if (graphRagTask != null)
@@ -136,7 +159,8 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
-            GraphRagContext = graphRagContext
+            GraphRagContext = graphRagContext,
+            BlendMode = blendMode
         };
 
         _logger.LogDebug(

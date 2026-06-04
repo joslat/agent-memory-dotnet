@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.AI;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Mapping;
@@ -202,6 +203,55 @@ public sealed class MafTypeMapperTests
         var result = MafTypeMapper.ToContextMessages(context, new ContextFormatOptions { IncludeEntities = false });
 
         result.Any(m => m.Text != null && m.Text.Contains("Alice")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ToContextMessages_GraphRagThenMemory_PlacesGraphContextBeforeMessages()
+    {
+        var msg = new Message
+        {
+            MessageId = "1", SessionId = "s1", ConversationId = "c1",
+            Role = "user", Content = "conversation-text", TimestampUtc = DateTimeOffset.UtcNow
+        };
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = [msg] },
+            GraphRagContext = "graph-text",
+            BlendMode = RetrievalBlendMode.GraphRagThenMemory
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context).ToList();
+
+        var graphIdx = result.FindIndex(m => m.Text == "graph-text");
+        var msgIdx = result.FindIndex(m => m.Text == "conversation-text");
+        graphIdx.Should().BeGreaterThanOrEqualTo(0);
+        msgIdx.Should().BeGreaterThan(graphIdx);
+    }
+
+    [Fact]
+    public void ToContextMessages_Blended_PlacesGraphContextAfterMessages()
+    {
+        var msg = new Message
+        {
+            MessageId = "1", SessionId = "s1", ConversationId = "c1",
+            Role = "user", Content = "conversation-text", TimestampUtc = DateTimeOffset.UtcNow
+        };
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = [msg] },
+            GraphRagContext = "graph-text",
+            BlendMode = RetrievalBlendMode.Blended
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context).ToList();
+
+        var graphIdx = result.FindIndex(m => m.Text == "graph-text");
+        var msgIdx = result.FindIndex(m => m.Text == "conversation-text");
+        graphIdx.Should().BeGreaterThan(msgIdx);
     }
 
     [Fact]

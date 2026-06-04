@@ -180,4 +180,31 @@ public sealed class Neo4jFactRepositoryTests
         calls.Should().ContainSingle();
         calls[0].Cypher.Should().Contain("UNWIND");
     }
+
+    [Fact]
+    public async Task UpsertBatchAsync_WritesCategory_InCypherAndItems()
+    {
+        var (repo, calls) = CreateFactBatchWriteCapture();
+        var facts = new List<Fact>
+        {
+            new()
+            {
+                FactId = "f1", Subject = "Alice", Predicate = "works_at", Object = "Neo4j",
+                Category = "professional", Confidence = 0.9, SourceMessageIds = Array.Empty<string>(),
+                CreatedAtUtc = DateTimeOffset.UtcNow
+            }
+        };
+
+        await repo.UpsertBatchAsync(facts);
+
+        // The UNWIND query must set the category property...
+        calls[0].Cypher.Should().Contain("f.category");
+
+        // ...and the per-item parameter map must carry the value.
+        var parameters = calls[0].Parameters!;
+        var items = (IEnumerable<object>)parameters.GetType().GetProperty("items")!.GetValue(parameters)!;
+        var first = (IDictionary<string, object?>)items.Cast<object>().First();
+        first.Should().ContainKey("category");
+        first["category"].Should().Be("professional");
+    }
 }
