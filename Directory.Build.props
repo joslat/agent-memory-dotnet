@@ -17,7 +17,7 @@
        (test projects contain ".Tests", samples contain ".Sample") so it is correct cross-platform
        and never leaks into non-published projects. Per-package Description/PackageTags live in each
        .csproj. NuGet package IDs default to the (already de-Neo4j-renamed) project names. -->
-  <PropertyGroup Condition="!$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
     <Version>0.1.0-preview.1</Version>
     <Authors>Jose Luis Latorre Millas</Authors>
     <Company>Jose Luis Latorre Millas</Company>
@@ -34,7 +34,7 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
-  <ItemGroup Condition="!$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
+  <ItemGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 </Project>
