@@ -37,7 +37,7 @@ jobs:
       - name: Unit + SemanticKernel tests
         run: >
           dotnet test AgentMemory.slnx -c Release --no-build
-          --filter "Category!=Integration"
+          --filter "Category!=Integration&Category!=Performance"
           --logger "trx;LogFileName=unit.trx"
           --results-directory TestResults
 
@@ -48,6 +48,15 @@ jobs:
           -c Release --no-build
           --filter "Category=Integration"
           --logger "trx;LogFileName=integration.trx"
+          --results-directory TestResults
+
+      # Spec §6.6 smoke tests (multi-message persistence, recall latency, depth scaling).
+      # Thresholds are generous so they are robust on shared runners; also Testcontainers-backed.
+      - name: Performance smoke tests
+        run: >
+          dotnet test tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=performance.trx"
           --results-directory TestResults
 
       - name: Upload test results
