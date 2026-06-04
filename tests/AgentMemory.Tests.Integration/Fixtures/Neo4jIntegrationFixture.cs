@@ -23,6 +23,10 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
 
     public INeo4jTransactionRunner TransactionRunner { get; private set; } = null!;
 
+    /// <summary>The raw driver, for tests that construct services needing <see cref="IDriver"/> directly
+    /// (e.g. the GraphRAG retrievers).</summary>
+    public IDriver Driver => _driver!;
+
     public async Task InitializeAsync()
     {
         _container = new Neo4jBuilder("neo4j:5.26")
