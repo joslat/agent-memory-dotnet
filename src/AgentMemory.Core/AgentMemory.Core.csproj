@@ -17,6 +17,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>Framework-agnostic core for AgentMemory for .NET — memory orchestration, context assembly, extraction-pipeline coordination, and entity resolution (no Neo4j driver dependency).</Description>
+    <PackageTags>agent-memory;ai;llm;memory;core</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

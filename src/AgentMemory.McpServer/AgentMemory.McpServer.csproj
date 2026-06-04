@@ -2,7 +2,8 @@
 
   <PropertyGroup>
     <RootNamespace>AgentMemory.McpServer</RootNamespace>
-    <Description>MCP Server for Neo4j Agent Memory — exposes memory tools via Model Context Protocol</Description>
+    <Description>MCP server for AgentMemory for .NET — exposes agent-memory tools to MCP clients via the Model Context Protocol.</Description>
+    <PackageTags>agent-memory;mcp;model-context-protocol;ai;memory;neo4j</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

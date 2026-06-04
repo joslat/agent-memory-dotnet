@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Convenience meta-package for Neo4j Agent Memory. References all essential assemblies so consumers only need a single package reference.</Description>
-    <Authors>Neo4j</Authors>
+    <Description>Convenience meta-package for AgentMemory for .NET, a Neo4j-backed agent-memory library for AI agents. References all essential assemblies so consumers need only a single package reference.</Description>
     <PackageTags>neo4j;agent-memory;ai;llm;memory;graphrag</PackageTags>
   </PropertyGroup>
 

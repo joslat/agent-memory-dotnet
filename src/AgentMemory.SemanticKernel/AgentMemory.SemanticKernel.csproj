@@ -3,8 +3,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Description>Semantic Kernel adapter for Neo4j Agent Memory.</Description>
-    <Authors>Neo4j</Authors>
+    <Description>Semantic Kernel adapter for AgentMemory for .NET, a Neo4j-backed agent-memory library.</Description>
     <PackageTags>neo4j;agent-memory;semantic-kernel;ai;rag</PackageTags>
   </PropertyGroup>
   <ItemGroup>

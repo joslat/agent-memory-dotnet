@@ -13,6 +13,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Description>LLM-based structured extraction backend for AgentMemory for .NET — extracts entities, relationships, facts, and preferences from conversations.</Description>
+    <PackageTags>agent-memory;extraction;llm;ai;memory;neo4j</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />

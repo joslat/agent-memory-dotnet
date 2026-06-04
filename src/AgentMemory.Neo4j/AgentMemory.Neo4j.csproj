@@ -17,6 +17,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Description>Neo4j persistence and retrieval for AgentMemory for .NET — repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
+    <PackageTags>agent-memory;neo4j;graphrag;memory;ai</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,12 +1,19 @@
 name: Squad Release
-# dotnet project — configure build, test, and release commands below
+# Tag-gated NuGet release for the AgentMemory.* packages.
+# Trigger by pushing a SemVer tag, e.g.  git tag v0.1.0-preview.1 && git push origin v0.1.0-preview.1
+# The package version is taken from the tag (the 'v' prefix is stripped), overriding the default
+# Version in Directory.Build.props. Requires repo secret NUGET_API_KEY for the push to nuget.org.
 
 on:
   push:
-    branches: [main]
+    tags: ['v*']
 
 permissions:
-  contents: write
+  contents: write   # create the GitHub release
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 jobs:
   release:
@@ -16,19 +23,48 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build and test
-        run: |
-          # TODO: Add your dotnet build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-release.yml"
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
 
-      - name: Create release
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore AgentMemory.slnx
+
+      - name: Build
+        run: dotnet build AgentMemory.slnx -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Unit + SemanticKernel tests
+        run: >
+          dotnet test AgentMemory.slnx -c Release --no-build
+          --filter "Category!=Integration&Category!=Performance"
+
+      - name: Pack
+        run: |
+          for proj in src/*/*.csproj; do
+            dotnet pack "$proj" -c Release --no-build \
+              -p:Version=${{ steps.version.outputs.version }} \
+              -o artifacts
+          done
+
+      - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # TODO: Add your release commands here (e.g., git tag, gh release create)
-          echo "No release commands configured — update squad-release.yml"
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          artifacts/*.nupkg
