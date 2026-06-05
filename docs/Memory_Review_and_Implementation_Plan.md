@@ -332,7 +332,7 @@ Full table in the roadmap. Sorted high→skip:
 | Feature | Source | Our status | Port-worthiness |
 |---|---|---|---|
 | Fact/Preference **dedup-on-create** (≥0.95 cosine → bump confidence) | PR #97 (2026-04-23) | ✅ **DONE** (2026-06-06) — `LongTermMemoryOptions.DeduplicateOnCreate` (default on, 0.95); `AddFact/AddPreferenceAsync` reinforce a same-subject+predicate / same-category, same-owner near-duplicate instead of creating a node; `FindDuplicate`+`MarkDeduplicated` queries/repo methods; 4 unit + 4 integration tests | done |
-| **Consolidation / hygiene** (dedupe/summarize/detect-superseded/archive; dry-run; `:ConsolidationRun`) | PR #113 v0.2.0 (2026-05-04) | partial | **high** |
+| **Consolidation / hygiene** (dedupe/summarize/detect-superseded/archive; dry-run; `:ConsolidationRun`) | PR #113 v0.2.0 (2026-05-04) | ✅ **DONE** (2026-06-06) — `IConsolidationService` (dry-run default; `:ConsolidationRun` audit). Mutating: archive-expired-conversations, remove-duplicate-preferences. Detection: duplicate-entity + long-trace counts (apply deferred: entity-merge needs edge redirection, trace-summarize needs an LLM). Schema: `conversation_archived_idx` + `consolidation_run_id` constraint + migration 0004. 3 unit + 2 integration tests | done (core) |
 | Adopt existing Neo4j graph as memory | PR #113 | missing | medium |
 | Vector-index dimension validation at connect | PR #119 v0.3.0 (2026-05-16) | missing | medium |
 | `:TOUCHED` reasoning-audit edges | PR #113 | partial | medium |

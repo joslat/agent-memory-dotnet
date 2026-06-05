@@ -29,7 +29,7 @@ public sealed class CypherQuerySnapshotTests
 
     private static readonly HashSet<string> KnownNodeLabels = new(StringComparer.Ordinal)
     {
-        "Conversation", "Entity", "Extractor", "Fact", "Message",
+        "ConsolidationRun", "Conversation", "Entity", "Extractor", "Fact", "Message",
         "Migration", "Preference", "ReasoningStep", "ReasoningTrace",
         "Schema", "Tool", "ToolCall"
     };
@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 133; // 131 +2 dedup MarkDeduplicated consts (Fact, Preference)
+    private const int ExpectedQueryCount = 142; // 133 +7 ConsolidationQueries consts +2 SchemaQueries (consolidation_run_id, conversation_archived_idx)
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

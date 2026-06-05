@@ -64,6 +64,9 @@ public static class ServiceCollectionExtensions
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();
 
+        // Memory-hygiene / consolidation (PR #113) — dry-run by default.
+        services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();
+
         return services;
     }
 

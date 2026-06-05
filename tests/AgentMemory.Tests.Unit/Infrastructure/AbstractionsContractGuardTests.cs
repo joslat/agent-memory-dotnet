@@ -16,7 +16,7 @@ public sealed class AbstractionsContractGuardTests
     private static readonly Assembly Abstractions = typeof(IMemoryService).Assembly;
 
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
-    private const int DocumentedServiceInterfaces = 33; // +IMemoryStoreContext/+IWritableMemoryStoreContext (R1b), +IMemoryOwnerContext/+IWritableMemoryOwnerContext (IC8)
+    private const int DocumentedServiceInterfaces = 34; // R1b store + IC8 owner contexts, +IConsolidationService (PR#113)
     private const int DocumentedRepositoryInterfaces = 11;
     private const int DocumentedDomainRecords = 45;
     private const int DocumentedEnums = 9;

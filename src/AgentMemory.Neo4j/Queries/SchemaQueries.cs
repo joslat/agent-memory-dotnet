@@ -38,6 +38,9 @@ public static class SchemaQueries
     /// <summary>Unique constraint on Extractor.name.</summary>
     public const string ExtractorNameConstraint = "CREATE CONSTRAINT extractor_name IF NOT EXISTS FOR (ex:Extractor) REQUIRE ex.name IS UNIQUE";
 
+    /// <summary>Unique constraint on ConsolidationRun.id (memory-hygiene audit, PR #113).</summary>
+    public const string ConsolidationRunIdConstraint = "CREATE CONSTRAINT consolidation_run_id IF NOT EXISTS FOR (r:ConsolidationRun) REQUIRE r.id IS UNIQUE";
+
     /// <summary>All uniqueness constraints in bootstrap order.</summary>
     public static readonly string[] Constraints =
     [
@@ -50,7 +53,8 @@ public static class SchemaQueries
         ReasoningStepIdConstraint,
         ToolCallIdConstraint,
         ToolNameConstraint,
-        ExtractorNameConstraint
+        ExtractorNameConstraint,
+        ConsolidationRunIdConstraint
     ];
 
     // ── Fulltext Indexes ────────────────────────────────────────
@@ -138,6 +142,9 @@ public static class SchemaQueries
     /// <summary>Relationship-property index on the RELATED_TO edge's owner_id (multi-user scope).</summary>
     public const string RelationshipOwnerIndex = "CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)";
 
+    /// <summary>Index on Conversation.archived (memory-hygiene / consolidation, PR #113).</summary>
+    public const string ConversationArchivedIndex = "CREATE INDEX conversation_archived_idx IF NOT EXISTS FOR (c:Conversation) ON (c.archived)";
+
     /// <summary>All property indexes in bootstrap order.</summary>
     public static readonly string[] PropertyIndexes =
     [
@@ -160,7 +167,8 @@ public static class SchemaQueries
         EntityOwnerIndex,
         PreferenceOwnerIndex,
         TraceOwnerIndex,
-        RelationshipOwnerIndex
+        RelationshipOwnerIndex,
+        ConversationArchivedIndex
     ];
 
     // ── Vector Indexes (parameterized by dimensions) ────────────
