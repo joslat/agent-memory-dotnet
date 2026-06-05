@@ -287,4 +287,61 @@ Release prep is ~80% (packaging metadata + tag-gated `squad-release.yml` exist; 
 
 ---
 
+## Part II — Post-R1 review: remaining isolation work, critical defects & upstream ports (2026-06-05)
+
+After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 refuted; full file-level detail in [`Remaining_Work_Roadmap.md`](Remaining_Work_Roadmap.md)) found that **owner scoping is correct on the vector-recall path but bypassed on several secondary paths**, plus two correctness defects in the R1b store tier. The user direction (2026-06-05) is to **close all isolation leaks** (folds R2 in) and to **document the upstream ports here**.
+
+### II.1 Isolation completeness scorecard
+
+| Path | Status |
+|---|---|
+| Vector recall — Fact / Entity / Preference | ✅ Done (reference pattern: `FactQueries.SearchByVector`) |
+| Non-vector reads — Fact (`GetBySubject`, `FindByTriple`) | ❌ Open |
+| Non-vector reads — Entity (`GetByName*`, `GetByType`, spatial) | ❌ Open |
+| Non-vector reads — Preference (`GetByCategory`) | ❌ Open |
+| Background embedding backfill (`GetPageWithoutEmbedding*`) | ❌ Open |
+| GraphRAG retrieval (all 4 retrievers) | ❌ Open — `request.UserId` ignored |
+| ReasoningTrace — write / vector-search / session-delete | ❌ Open |
+| Relationships — write / read | ❌ Open |
+| Temporal (`AsOf`) recall | 🟡 Partial — scope not threaded |
+| Store tier (per-application DB) | 🟡 routing works; 2 defects (DI singleton, empty-id collision — collision fixed) |
+
+### II.2 Isolation-completion tracking table (workstream "IC")
+
+| ID | Scope | Status | Where |
+|---|---|---|---|
+| IC1 | ReasoningTrace owner end-to-end (persist+read `OwnerId`; owner filter in `SearchByTaskVector` w/ over-fetch; `MemoryScope` on `SearchSimilarTracesAsync`; assembler threads scope; scope `DeleteBySession`) | ⬜ Todo | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
+| IC2 | Relationship owner end-to-end (persist+read `OwnerId`; owner-aware reads; `relationship_owner_idx`; migration 0003) | ⬜ Todo | `RelationshipQueries.cs`, `Neo4jRelationshipRepository.cs`, `SchemaQueries.cs` |
+| IC3 | Non-vector long-term reads scoped (`MemoryScope` param + owner WHERE on Fact `GetBySubject`/`FindByTriple`, Entity `GetByName*`/`GetByType`/spatial, Preference `GetByCategory`) | ⬜ Todo | `{Fact,Entity,Preference}Queries.cs` + repos + `ILongTermMemoryService` |
+| IC4 | GraphRAG owner scoping (`userId`/scope on `IRetriever.SearchAsync` + 4 retrievers; pass `request.UserId` in `Neo4jGraphRagContextSource`) | ⬜ Todo | `Retrieval/IRetriever.cs`, `Retrieval/Internal/*Retriever.cs`, `Neo4jGraphRagContextSource.cs` |
+| IC5 | Background embedding backfill + temporal `AsOf` recall scoped | ⬜ Todo | `MemoryService.cs`, `MemoryContextAssembler.cs`, `ILongTermMemoryService` AsOf |
+| IC6 | DI captive-singleton fix — `IMemoryStoreContext` per-scope routing without capturing into the singleton session factory (AsyncLocal accessor or per-call resolution) | ⬜ Todo | `ServiceCollectionExtensions.cs`, `Neo4jSessionFactory.cs`, MAF providers |
+| IC7 | Integration + unit tests for IC1–IC6; README/`nextsteps.md` honesty pass | ⬜ Todo | `tests/...`, `README.md`, `docs/nextsteps.md` |
+
+### II.3 Critical defects (R1b store tier)
+
+- **DI captive-singleton** (`IMemoryStoreContext` Singleton, mutated per scope via MAF `ApplyStoreContext`) → concurrent multi-tenant requests can route to the wrong store. → IC6.
+- **`StoreDatabaseNaming` empty-id collision** (all-punctuation/emoji ids collapsed onto `mem-`) → **FIXED 2026-06-05** (deterministic hash fallback + tests).
+
+### II.4 Upstream ports worth doing (neo4j-labs/agent-memory, last ~2 months, through v0.4.0)
+
+Full table in the roadmap. Sorted high→skip:
+
+| Feature | Source | Our status | Port-worthiness |
+|---|---|---|---|
+| Fact/Preference **dedup-on-create** (≥0.95 cosine → bump confidence) | PR #97 (2026-04-23) | missing | **high** |
+| **Consolidation / hygiene** (dedupe/summarize/detect-superseded/archive; dry-run; `:ConsolidationRun`) | PR #113 v0.2.0 (2026-05-04) | partial | **high** |
+| Adopt existing Neo4j graph as memory | PR #113 | missing | medium |
+| Vector-index dimension validation at connect | PR #119 v0.3.0 (2026-05-16) | missing | medium |
+| `:TOUCHED` reasoning-audit edges | PR #113 | partial | medium |
+| `:User` node + UserMemory CRUD | PR #113 | partial (we use `owner_id`+`IMemoryStoreContext`) | medium |
+| Entity feedback / edit-history / `bulk_add_messages` | v0.4.0 (2026-05-21) | partial | medium |
+| Buffered/fire-and-forget writes; `schema_aligned_extract` repair; session reflections | PR #113/#119 | partial | low–medium |
+| Pluggable LLM/embeddings; multi-tenancy flag; no-LLM; declarative schema; read-only Cypher accessor | various | **have** (Microsoft.Extensions.AI + `IMemoryStoreContext`) | **skip** |
+| NAMS hosted REST backend; TypeScript client; `.env` fix | v0.4.0 PRs | n/a | **skip** |
+
+> Sequencing: do the **upstream ports after** IC1–IC7 so dedup/consolidation Cypher inherit `owner_id` scoping from day one.
+
+---
+
 *This document supersedes the multi-user/isolation aspects of earlier plans and complements `docs/Implementation_Plan_Remediation.md` (closed), `docs/architecture.md`, and `docs/schema.md`.*
