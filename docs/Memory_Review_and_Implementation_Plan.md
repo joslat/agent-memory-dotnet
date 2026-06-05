@@ -305,7 +305,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | ReasoningTrace — session-delete | ❌ Open — needs owner-aware `ClearSessionAsync` (cross-cutting) |
 | Relationships — write / read | ✅ Done (IC2) — `owner_id` on the RELATED_TO edge (persisted by PersistenceStage, read-back), scoped reads, `rel_owner_idx` + migration 0003, verified |
 | Temporal (`AsOf`) recall | 🟡 Partial — scope not threaded |
-| Store tier (per-application DB) | 🟡 routing works; 2 defects (DI singleton, empty-id collision — collision fixed) |
+| Store tier (per-application DB) | ✅ routing works; both defects fixed (IC6 AsyncLocal store context; empty-id collision hash) |
 
 ### II.2 Isolation-completion tracking table (workstream "IC")
 
@@ -317,7 +317,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | IC8 | `IMemoryQueryFacade` explicit memory-tool surface (MAF `MemoryToolFactory` / SK plugin recall-preferences/search-knowledge/find-similar-tasks) does not carry user identity → thread `userId`/`MemoryScope` through the facade + adapters | ⬜ Todo | `IMemoryQueryFacade.cs`, `MemoryQueryFacade.cs`, `MemoryToolFactory.cs`, SK plugin |
 | IC4 | GraphRAG owner scoping — ✅ **Done**: `ownerId` on `IRetriever.SearchAsync`; Vector/Fulltext/Hybrid/Graph retrievers apply the owner/shared WHERE (over-fetch on the vector + graph-seed paths; graph traversal filters seed AND related); `Neo4jGraphRagContextSource` passes `request.UserId`. Unit forwarding tests + 2 Neo4j isolation integration tests green | ✅ Done | `Retrieval/IRetriever.cs`, `Retrieval/Internal/{RetrieverScope,Vector,Fulltext,Hybrid,Graph}*.cs`, `Neo4jGraphRagContextSource.cs` |
 | IC5 | Background embedding backfill + temporal `AsOf` recall scoped | ⬜ Todo | `MemoryService.cs`, `MemoryContextAssembler.cs`, `ILongTermMemoryService` AsOf |
-| IC6 | DI captive-singleton fix — `IMemoryStoreContext` per-scope routing without capturing into the singleton session factory (AsyncLocal accessor or per-call resolution) | ⬜ Todo | `ServiceCollectionExtensions.cs`, `Neo4jSessionFactory.cs`, MAF providers |
+| IC6 | DI captive-singleton fix — ✅ **Done**: `DefaultMemoryStoreContext.ApplicationId` is now `AsyncLocal`-backed, so the process-wide singleton is per-request-flow safe (concurrent agent runs can't corrupt each other's store routing). 3 unit tests incl. a concurrency-isolation test | ✅ Done | `MemoryStoreOptions.cs`, `ServiceCollectionExtensions.cs` |
 | IC7 | Integration + unit tests for IC1–IC6; README/`nextsteps.md` honesty pass | ⬜ Todo | `tests/...`, `README.md`, `docs/nextsteps.md` |
 
 ### II.3 Critical defects (R1b store tier)

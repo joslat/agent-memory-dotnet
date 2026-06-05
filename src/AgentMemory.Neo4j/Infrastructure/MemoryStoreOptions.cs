@@ -53,12 +53,20 @@ public sealed class MemoryStoreOptions
 }
 
 /// <summary>
-/// Default mutable <see cref="IMemoryStoreContext"/> — a simple per-scope holder. Register as scoped
-/// and set <see cref="ApplicationId"/> per request (e.g. from a MAF StateBag value). Defaults to null
-/// (the default store).
+/// Default mutable <see cref="IMemoryStoreContext"/>. <see cref="ApplicationId"/> is backed by an
+/// <see cref="AsyncLocal{T}"/> so this can be safely registered as a process-wide singleton: each
+/// async flow (request / agent run) sees its own value, set e.g. by the MAF provider for that scope.
+/// Concurrent requests therefore cannot corrupt each other's store routing (R1b). Setting it flows to
+/// every awaited call downstream on the same logical async context — including the session factory.
 /// </summary>
 public sealed class DefaultMemoryStoreContext : IWritableMemoryStoreContext
 {
+    private readonly AsyncLocal<string?> _applicationId = new();
+
     /// <inheritdoc />
-    public string? ApplicationId { get; set; }
+    public string? ApplicationId
+    {
+        get => _applicationId.Value;
+        set => _applicationId.Value = value;
+    }
 }

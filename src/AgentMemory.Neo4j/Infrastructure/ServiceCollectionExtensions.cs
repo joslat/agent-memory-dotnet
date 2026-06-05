@@ -36,8 +36,8 @@ public static class ServiceCollectionExtensions
 
         // Application / memory-store isolation tier (R1b). Additive: the SharedDatabase default with a
         // null ApplicationId routes to Neo4jOptions.Database, exactly reproducing single-store behavior.
-        // Registered as singletons (one store per host); re-register IMemoryStoreContext + the session
-        // factory as scoped to route per request/scope.
+        // IMemoryStoreContext is a singleton whose ApplicationId is AsyncLocal-backed, so it is safe to
+        // set per request/agent-run flow (IC6) — concurrent requests cannot corrupt each other's routing.
         services.AddOptions<MemoryStoreOptions>().Configure(o => configureStore?.Invoke(o));
         services.TryAddSingleton<DefaultMemoryStoreContext>();
         services.TryAddSingleton<IMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());
