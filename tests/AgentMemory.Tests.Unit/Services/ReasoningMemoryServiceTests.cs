@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Services;
@@ -193,7 +194,7 @@ public sealed class ReasoningMemoryServiceTests
         _traceRepo
             .SearchByTaskVectorAsync(
                 Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(ReasoningTrace, double)>>(new[] { (trace, 0.92) }));
         var sut = CreateSut();
 

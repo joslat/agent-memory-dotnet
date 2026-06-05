@@ -45,10 +45,11 @@ public sealed class AgentTraceRecorder
     public async Task<ReasoningTrace> StartTraceAsync(
         string task,
         string sessionId,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
         var trace = await _reasoningService.StartTraceAsync(
-            sessionId, task, cancellationToken: cancellationToken).ConfigureAwait(false);
+            sessionId, task, ownerId: ownerId, cancellationToken: cancellationToken).ConfigureAwait(false);
         _stepCounts[trace.TraceId] = 0;
         return trace;
     }

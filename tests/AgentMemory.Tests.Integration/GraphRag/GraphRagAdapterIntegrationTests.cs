@@ -214,7 +214,7 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
 
         var reasoning = Substitute.For<IReasoningMemoryService>();
-        reasoning.SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+        reasoning.SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
 
         var embedding = Substitute.For<IEmbeddingOrchestrator>();

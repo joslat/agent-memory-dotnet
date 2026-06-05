@@ -7,11 +7,12 @@ public static class ReasoningQueries
 {
     // ── ReasoningTrace ──────────────────────────────────────────
 
-    /// <summary>Create a new ReasoningTrace node.</summary>
+    /// <summary>Create a new ReasoningTrace node. <c>owner_id</c> (R1; null = shared/global) is set once.</summary>
     public const string AddTrace = @"
             CREATE (t:ReasoningTrace {
                 id:           $id,
                 session_id:   $sessionId,
+                owner_id:     $ownerId,
                 task:         $task,
                 outcome:      $outcome,
                 success:      $success,
@@ -55,20 +56,29 @@ public static class ReasoningQueries
         DETACH DELETE t, s";
 
     /// <summary>
-    /// Vector similarity search over ReasoningTrace task embeddings (without success filter).
+    /// Vector similarity search over ReasoningTrace task embeddings, with an optional success filter
+    /// and an optional owner/shared filter (R1). When scoped, over-fetches <paramref name="topK"/>
+    /// candidates then LIMITs to <c>$limit</c> after filtering, so the owner filter is never starved
+    /// by higher-scoring foreign rows (the vector index cannot pre-filter on a property).
     /// </summary>
-    public static string SearchByTaskVector(bool hasSuccessFilter)
+    public static string SearchByTaskVector(bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK)
     {
-        var whereClause = hasSuccessFilter
-            ? "WHERE score >= $minScore AND node.success = $successFilter"
-            : "WHERE score >= $minScore";
+        var conditions = new List<string> { "score >= $minScore" };
+        if (hasSuccessFilter) conditions.Add("node.success = $successFilter");
+        if (hasOwnerFilter)
+            conditions.Add(includeShared
+                ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)"
+                : "node.owner_id = $ownerId");
+
+        var whereClause = "WHERE " + string.Join(" AND ", conditions);
 
         return $@"
-            CALL db.index.vector.queryNodes('task_embedding_idx', $limit, $embedding)
+            CALL db.index.vector.queryNodes('task_embedding_idx', {topK}, $embedding)
             YIELD node, score
             {whereClause}
             RETURN node, score
-            ORDER BY score DESC";
+            ORDER BY score DESC
+            LIMIT $limit";
     }
 
     /// <summary>Create an INITIATED_BY relationship between a ReasoningTrace and a Message.</summary>

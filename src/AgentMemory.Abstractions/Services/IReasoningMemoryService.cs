@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Services;
 
@@ -8,13 +9,15 @@ namespace AgentMemory.Abstractions.Services;
 public interface IReasoningMemoryService
 {
     /// <summary>
-    /// Starts a new reasoning trace.
+    /// Starts a new reasoning trace. <paramref name="ownerId"/> scopes the trace to a user (R1;
+    /// null = shared/global).
     /// </summary>
     Task<ReasoningTrace> StartTraceAsync(
         string sessionId,
         string task,
         float[]? taskEmbedding = null,
         IReadOnlyDictionary<string, object>? metadata = null,
+        string? ownerId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -76,5 +79,6 @@ public interface IReasoningMemoryService
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

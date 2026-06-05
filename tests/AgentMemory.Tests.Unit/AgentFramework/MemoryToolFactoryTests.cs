@@ -51,7 +51,7 @@ public sealed class MemoryToolFactoryTests
             .AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _reasoningService
-            .SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
     }
 
@@ -288,7 +288,7 @@ public sealed class MemoryToolFactoryTests
             StartedAtUtc = DateTimeOffset.UtcNow, Success = true, Outcome = "Done"
         };
         _reasoningService
-            .SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(new[] { trace }));
 
         var tool = GetTool("find_similar_tasks");
@@ -298,7 +298,7 @@ public sealed class MemoryToolFactoryTests
 
         response.Success.Should().BeTrue();
         await _reasoningService.Received(1)
-            .SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            .SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

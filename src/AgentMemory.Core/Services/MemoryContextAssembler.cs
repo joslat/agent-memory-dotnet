@@ -121,7 +121,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                 : Empty<Fact>();
 
             var tracesTask = hasEmbedding
-                ? _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, cancellationToken)
+                ? _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
                 : Empty<ReasoningTrace>();
 
             await Task.WhenAll(

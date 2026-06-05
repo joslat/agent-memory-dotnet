@@ -29,7 +29,7 @@ public sealed class AgentTraceRecorderTests
             .StartTraceAsync(
                 Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult(new ReasoningTrace
             {
                 TraceId = "trace-1",
@@ -97,7 +97,7 @@ public sealed class AgentTraceRecorderTests
         await _reasoningService.Received(1).StartTraceAsync(
             "session-1", "summarize document",
             Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public sealed class AgentTraceRecorderTests
             .StartTraceAsync(
                 Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;

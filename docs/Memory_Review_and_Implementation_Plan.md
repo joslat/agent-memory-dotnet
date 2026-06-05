@@ -301,7 +301,8 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | Non-vector reads — Preference (`GetByCategory`) | ❌ Open |
 | Background embedding backfill (`GetPageWithoutEmbedding*`) | ❌ Open |
 | GraphRAG retrieval (all 4 retrievers) | ❌ Open — `request.UserId` ignored |
-| ReasoningTrace — write / vector-search / session-delete | ❌ Open |
+| ReasoningTrace — write / vector-search | ✅ Done (IC1) — owner persisted + over-fetch owner filter, verified |
+| ReasoningTrace — session-delete | ❌ Open — needs owner-aware `ClearSessionAsync` (cross-cutting) |
 | Relationships — write / read | ❌ Open |
 | Temporal (`AsOf`) recall | 🟡 Partial — scope not threaded |
 | Store tier (per-application DB) | 🟡 routing works; 2 defects (DI singleton, empty-id collision — collision fixed) |
@@ -310,7 +311,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 
 | ID | Scope | Status | Where |
 |---|---|---|---|
-| IC1 | ReasoningTrace owner end-to-end (persist+read `OwnerId`; owner filter in `SearchByTaskVector` w/ over-fetch; `MemoryScope` on `SearchSimilarTracesAsync`; assembler threads scope; scope `DeleteBySession`) | ⬜ Todo | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
+| IC1 | ReasoningTrace owner end-to-end — ✅ **write+recall done** (`owner_id` persisted on `AddTrace` + read-back; `StartTraceAsync`/`AgentTraceRecorder` stamp owner; over-fetch owner filter in `SearchByTaskVector`; `MemoryScope` threaded through `SearchSimilarTracesAsync` + assembler; 4 integration tests green). ⚠️ `DeleteBySession` owner-scoping **carved out** → needs owner-aware `ClearSessionAsync` (cross-cutting; messages/conversations aren't owner-modeled) — see IC-delete | 🟢 write+recall done | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
 | IC2 | Relationship owner end-to-end (persist+read `OwnerId`; owner-aware reads; `relationship_owner_idx`; migration 0003) | ⬜ Todo | `RelationshipQueries.cs`, `Neo4jRelationshipRepository.cs`, `SchemaQueries.cs` |
 | IC3 | Non-vector long-term reads scoped (`MemoryScope` param + owner WHERE on Fact `GetBySubject`/`FindByTriple`, Entity `GetByName*`/`GetByType`/spatial, Preference `GetByCategory`) | ⬜ Todo | `{Fact,Entity,Preference}Queries.cs` + repos + `ILongTermMemoryService` |
 | IC4 | GraphRAG owner scoping (`userId`/scope on `IRetriever.SearchAsync` + 4 retrievers; pass `request.UserId` in `Neo4jGraphRagContextSource`) | ⬜ Todo | `Retrieval/IRetriever.cs`, `Retrieval/Internal/*Retriever.cs`, `Neo4jGraphRagContextSource.cs` |

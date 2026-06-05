@@ -43,12 +43,14 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         string task,
         float[]? taskEmbedding = null,
         IReadOnlyDictionary<string, object>? metadata = null,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
         var trace = new ReasoningTrace
         {
             TraceId = _idGenerator.GenerateId(),
             SessionId = sessionId,
+            OwnerId = ownerId,
             Task = task,
             TaskEmbedding = taskEmbedding,
             StartedAtUtc = _clock.UtcNow,
@@ -174,10 +176,11 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         var scored = await _traceRepo.SearchByTaskVectorAsync(
-            taskEmbedding, successFilter, limit, minScore, cancellationToken);
+            taskEmbedding, successFilter, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Trace).ToList();
     }
 }
