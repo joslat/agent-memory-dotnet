@@ -301,7 +301,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | Non-vector reads — Preference `GetByCategory` | ✅ Done (IC3) |
 | GraphRAG retrieval (all 4 retrievers) | ✅ Done (IC4) — `request.UserId` → owner/shared filter (over-fetch on vector/graph; seed+related filtered), verified |
 | ReasoningTrace — write / vector-search | ✅ Done (IC1) — owner persisted + over-fetch owner filter, verified |
-| ReasoningTrace — session-delete | ❌ Open — needs owner-aware `ClearSessionAsync` (cross-cutting) |
+| ReasoningTrace — session-delete | ✅ Resolved as design decision (IC-delete) — `ClearSession` is **session-scoped by design** and deletes only short-term messages/conversations + traces (all keyed by `session_id`); it never touches owner-scoped long-term knowledge. Messages/conversations have no `owner_id` (session_id is their boundary), so owner-scoping only the trace delete would be inconsistent. `session_id` is the short-term isolation boundary; protecting it from cross-user access is the consumer's authorization concern (or use globally-unique session ids / the R1b per-application store for multi-tenant single-DB). |
 | Relationships — write / read | ✅ Done (IC2) — `owner_id` on the RELATED_TO edge (persisted by PersistenceStage, read-back), scoped reads, `rel_owner_idx` + migration 0003, verified |
 | Temporal (`AsOf`) recall | ✅ Done (IC5) — entity/fact/preference AsOf vector search now over-fetch + owner-filter; assembler threads scope into the AsOf path |
 | Background embedding backfill | ⬜ Intentionally global — `GetPageWithoutEmbedding*` is an admin maintenance job that embeds all nodes regardless of owner (not a recall path); scoping it per-owner would defeat batch backfill. Documented, low risk (timing side-channel only) |
@@ -311,7 +311,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 
 | ID | Scope | Status | Where |
 |---|---|---|---|
-| IC1 | ReasoningTrace owner end-to-end — ✅ **write+recall done** (`owner_id` persisted on `AddTrace` + read-back; `StartTraceAsync`/`AgentTraceRecorder` stamp owner; over-fetch owner filter in `SearchByTaskVector`; `MemoryScope` threaded through `SearchSimilarTracesAsync` + assembler; 4 integration tests green). ⚠️ `DeleteBySession` owner-scoping **carved out** → needs owner-aware `ClearSessionAsync` (cross-cutting; messages/conversations aren't owner-modeled) — see IC-delete | 🟢 write+recall done | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
+| IC1 | ReasoningTrace owner end-to-end — ✅ **write+recall done** (`owner_id` persisted on `AddTrace` + read-back; `StartTraceAsync`/`AgentTraceRecorder` stamp owner; over-fetch owner filter in `SearchByTaskVector`; `MemoryScope` threaded through `SearchSimilarTracesAsync` + assembler; 4 integration tests green). `DeleteBySession` owner-scoping resolved as a design decision (see the session-delete scorecard row: `ClearSession` is session-scoped and never deletes owner-scoped long-term knowledge). | ✅ Done | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
 | IC2 | Relationship owner end-to-end — ✅ **Done**: `owner_id` on the RELATED_TO edge (Upsert sets it once; `PersistenceStage` stamps from `ExtractionRequest.UserId`; read-back); scoped `GetByEntity`/`GetBySource`/`GetByTarget` (consts→methods); `rel_owner_idx` relationship-property index + migration `0003_relationship_owner_scope.cypher`; 3 integration tests green | ✅ Done | `RelationshipQueries.cs`, `Neo4jRelationshipRepository.cs`, `PersistenceStage.cs`, `SchemaQueries.cs`, `ILongTermMemoryService.cs` |
 | IC3 | Non-vector long-term reads scoped — ✅ **Done** for the user-facing leaks: `MemoryScope` threaded through Fact `GetBySubject`, Entity `GetByName`, Preference `GetByCategory` (query consts→methods + repos + `ILongTermMemoryService` + MCP `EntityTools.MemoryGetEntity` `userId`); 4 integration tests green. Not exposed/deferred: `FindByTriple` (internal dedup), spatial (repo-only), `GetByType` (entity-resolver — see open question on shared entities) | ✅ Done (user-facing) | `{Fact,Entity,Preference}Queries.cs`, repos, `ILongTermMemoryService`, `EntityTools.cs` |
 | IC8 | `IMemoryQueryFacade` explicit memory-tool surface owner-scoping — ✅ **Done**: new ambient **`IMemoryOwnerContext`** (`AsyncLocal` `UserId`, singleton, IC6-style); `MemoryQueryFacade` reads it to scope `SearchMemory`/`RecallPreferences`/`SearchKnowledge`/`FindSimilarTasks` and stamp `OwnerId` on `Remember*`. **Host must set `IWritableMemoryOwnerContext.UserId` for the agent run** — the LLM-invokable `AIFunction` tools can't carry a trusted user id, and an `AsyncLocal` set inside the MAF provider would not reach framework-invoked tools (sibling flow). 3 unit tests. (SK plugin/MCP call services directly, already `userId`-aware — not facade consumers.) | ✅ Done (host sets ambient owner) | `IMemoryOwnerContext.cs`, `DefaultMemoryOwnerContext.cs`, `MemoryQueryFacade.cs`, Core DI |
@@ -343,6 +343,18 @@ Full table in the roadmap. Sorted high→skip:
 | NAMS hosted REST backend; TypeScript client; `.env` fix | v0.4.0 PRs | n/a | **skip** |
 
 > Sequencing: do the **upstream ports after** IC1–IC7 so dedup/consolidation Cypher inherit `owner_id` scoping from day one.
+
+### II.5 Status — multi-user isolation workstream COMPLETE (2026-06-05)
+
+All isolation **code-fixes are done and verified** (IC1–IC8; full unit + Neo4j integration suites green). Every recall/lookup path is owner-scoped: vector recall, non-vector lookups, GraphRAG (all 4 retrievers), reasoning traces, relationships, temporal `AsOf`, and the explicit facade tools (via the ambient owner context). The two R1b store-tier defects are fixed.
+
+**Remaining items are documented design decisions, not open leaks:**
+- **Session-delete** — `ClearSession` is session-scoped by design and never deletes owner-scoped long-term knowledge (II.1 row).
+- **Entity-resolution sharing** — entities are often legitimately shared (public companies, places); whether extraction-time resolution should be owner-partitioned is an open product decision, not a leak (entities carry `owner_id` and recall is scoped).
+- **Index-naming nits** (`fact_category`, `reasoning_step_timestamp` lack the `_idx` suffix) — cosmetic; renaming is a breaking drop+recreate migration, so deferred.
+- **Background embedding backfill** — intentionally global admin maintenance.
+
+**Next (optional, feature work — not isolation):** the high-value upstream ports in II.4 (fact/preference dedup-on-create; consolidation/hygiene), then NuGet release (R3).
 
 ---
 
