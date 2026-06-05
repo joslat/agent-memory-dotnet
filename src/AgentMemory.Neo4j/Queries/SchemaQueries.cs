@@ -177,6 +177,22 @@ public static class SchemaQueries
         ]
         : throw new ArgumentOutOfRangeException(nameof(dimensions), dimensions, "Embedding dimensions must be a positive integer.");
 
+    /// <summary>
+    /// The full ordered set of schema statements (constraints → fulltext → vector → property indexes)
+    /// for a given embedding dimensionality. Used to bootstrap a freshly provisioned per-application
+    /// database (R1b). Not a query constant, so it is excluded from the Cypher snapshot inventory.
+    /// </summary>
+    public static IReadOnlyList<string> BootstrapStatements(int dimensions)
+    {
+        var statements = new List<string>(
+            Constraints.Length + FulltextIndexes.Length + PropertyIndexes.Length + 6);
+        statements.AddRange(Constraints);
+        statements.AddRange(FulltextIndexes);
+        statements.AddRange(BuildVectorIndexes(dimensions));
+        statements.AddRange(PropertyIndexes);
+        return statements;
+    }
+
     // ── Migration ───────────────────────────────────────────────
 
     /// <summary>Unique constraint on Migration.version for tracking applied migrations.</summary>

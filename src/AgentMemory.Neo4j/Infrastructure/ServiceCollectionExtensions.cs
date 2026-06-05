@@ -14,7 +14,8 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddNeo4jAgentMemory(
         this IServiceCollection services,
-        Action<Neo4jOptions> configure)
+        Action<Neo4jOptions> configure,
+        Action<MemoryStoreOptions>? configureStore = null)
     {
         services.AddOptions<Neo4jOptions>()
             .Configure(configure)
@@ -32,6 +33,15 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<INeo4jTransactionRunner, Neo4jTransactionRunner>();
         services.TryAddTransient<ISchemaBootstrapper, SchemaBootstrapper>();
         services.TryAddTransient<IMigrationRunner, MigrationRunner>();
+
+        // Application / memory-store isolation tier (R1b). Additive: the SharedDatabase default with a
+        // null ApplicationId routes to Neo4jOptions.Database, exactly reproducing single-store behavior.
+        // Registered as singletons (one store per host); re-register IMemoryStoreContext + the session
+        // factory as scoped to route per request/scope.
+        services.AddOptions<MemoryStoreOptions>().Configure(o => configureStore?.Invoke(o));
+        services.TryAddSingleton<DefaultMemoryStoreContext>();
+        services.TryAddSingleton<IMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());
+        services.TryAddSingleton<IMemoryStoreProvisioner, Neo4jMemoryStoreProvisioner>();
 
         // Short-term memory repositories
         services.TryAddTransient<IConversationRepository, Neo4jConversationRepository>();

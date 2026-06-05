@@ -92,6 +92,37 @@ public sealed class MetaPackageDiRegistrationTests
     }
 
     [Fact]
+    public void AddNeo4jAgentMemory_RegistersStoreIsolationServices()
+    {
+        var services = BuildServices();
+
+        // R1b: application/memory-store isolation tier.
+        services.Should().Contain(d => d.ServiceType == typeof(IMemoryStoreContext));
+        services.Should().Contain(d => d.ServiceType == typeof(IMemoryStoreProvisioner));
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_DefaultStoreOptions_AreSharedDatabaseAndInheritDefaultDb()
+    {
+        var services = BuildServices();
+        var provider = services.BuildServiceProvider();
+
+        var opts = provider.GetRequiredService<IOptions<MemoryStoreOptions>>();
+        opts.Value.Strategy.Should().Be(MemoryStorageStrategy.SharedDatabase);
+        opts.Value.DefaultDatabase.Should().BeEmpty(); // empty ⇒ inherit Neo4jOptions.Database
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_SessionFactoryResolvesWithStoreDependencies()
+    {
+        var services = BuildServices(configureNeo4j: o => o.Uri = "bolt://test:7687");
+        var provider = services.BuildServiceProvider();
+
+        // Verifies the store-aware ctor (IOptions<MemoryStoreOptions> + IMemoryStoreContext) is satisfiable.
+        provider.GetRequiredService<INeo4jSessionFactory>().Should().BeOfType<Neo4jSessionFactory>();
+    }
+
+    [Fact]
     public void AddNeo4jAgentMemory_RegistersLlmExtractors()
     {
         var services = BuildServices();

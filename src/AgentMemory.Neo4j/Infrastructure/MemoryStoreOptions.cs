@@ -31,14 +31,19 @@ public sealed class MemoryStoreOptions
     /// <summary>Storage isolation strategy. Defaults to <see cref="MemoryStorageStrategy.SharedDatabase"/>.</summary>
     public MemoryStorageStrategy Strategy { get; set; } = MemoryStorageStrategy.SharedDatabase;
 
-    /// <summary>The Neo4j database used when <c>ApplicationId</c> is null (the default store).</summary>
-    public string DefaultDatabase { get; set; } = "neo4j";
+    /// <summary>
+    /// The Neo4j database used when <c>ApplicationId</c> is null (the default store). Blank (the
+    /// default) means "inherit <see cref="Neo4jOptions.Database"/>", so the SharedDatabase path is
+    /// byte-for-byte identical to the pre-R1b single-store behavior whatever database is configured.
+    /// </summary>
+    public string DefaultDatabase { get; set; } = "";
 
     /// <summary>
     /// Database-name prefix for <see cref="MemoryStorageStrategy.DatabasePerApplication"/>:
-    /// <c>db = DatabasePrefix + sanitize(ApplicationId)</c>.
+    /// <c>db = DatabasePrefix + sanitize(ApplicationId)</c>. Uses a dash (not underscore) because
+    /// Neo4j database names disallow underscores.
     /// </summary>
-    public string DatabasePrefix { get; set; } = "mem_";
+    public string DatabasePrefix { get; set; } = "mem-";
 
     /// <summary>
     /// When true (and strategy is <see cref="MemoryStorageStrategy.DatabasePerApplication"/>), the

@@ -111,8 +111,11 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
         }
 
         public IAsyncSession OpenSession(AccessMode accessMode = AccessMode.Write) =>
+            OpenSession(_database, accessMode);
+
+        public IAsyncSession OpenSession(string database, AccessMode accessMode = AccessMode.Write) =>
             _driver.AsyncSession(c => c
-                .WithDatabase(_database)
+                .WithDatabase(database)
                 .WithDefaultAccessMode(accessMode));
     }
 }
