@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 131; // 134 −3 temporal AsOf search consts→methods (IC5: SearchEntities/Facts/PreferencesAsOf)
+    private const int ExpectedQueryCount = 133; // 131 +2 dedup MarkDeduplicated consts (Fact, Preference)
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

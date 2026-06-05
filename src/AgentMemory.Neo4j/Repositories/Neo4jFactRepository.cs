@@ -205,6 +205,46 @@ public sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken);
     }
 
+    // Small candidate set for dedup lookups: a near-duplicate by subject+predicate is rare, so a
+    // modest over-fetch is enough to find the best match above the (high) similarity threshold.
+    private const int DedupOverFetch = 10;
+
+    public async Task<Fact?> FindDuplicateAsync(
+        string subject, string predicate, float[] embedding, string? ownerId, double threshold,
+        CancellationToken cancellationToken = default)
+    {
+        var cypher = FactQueries.FindDuplicate(DedupOverFetch);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"]  = embedding.ToList(),
+            ["threshold"]  = threshold,
+            ["subject"]    = subject,
+            ["predicate"]  = predicate,
+            ["ownerKey"]   = ownerId ?? OwnerKeyShared,
+        };
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["node"].As<INode>();
+            return MapToFact(node, ReadEmbedding(node));
+        }, cancellationToken);
+    }
+
+    public async Task<Fact> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Reinforcing fact {FactId} via dedup (confidence={Confidence}).", factId, confidence);
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(FactQueries.MarkDeduplicated, new { id = factId, confidence });
+            var record = await cursor.SingleAsync();
+            var node = record["f"].As<INode>();
+            return MapToFact(node, ReadEmbedding(node));
+        }, cancellationToken);
+    }
+
     public async Task CreateExtractedFromRelationshipAsync(string factId, string messageId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Creating EXTRACTED_FROM: Fact {FactId} -> Message {MessageId}", factId, messageId);

@@ -82,6 +82,27 @@ public static class FactQueries
         return $"MATCH (f:Fact) WHERE f.subject = $subject{owner} RETURN f";
     }
 
+    // ── Dedup-on-create ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Finds the most-similar existing fact with the same subject+predicate within the same owner
+    /// (matched by <c>owner_key</c>) whose cosine score ≥ <c>$threshold</c> — used to reinforce instead
+    /// of creating a near-duplicate node. Over-fetches <paramref name="topK"/> candidates, returns top 1.
+    /// </summary>
+    public static string FindDuplicate(int topK) => $@"
+            CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
+            YIELD node, score
+            WHERE score >= $threshold
+              AND toLower(node.subject) = toLower($subject)
+              AND toLower(node.predicate) = toLower($predicate)
+              AND node.owner_key = $ownerKey
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT 1";
+
+    /// <summary>Reinforce an existing fact reached by dedup: bump its confidence.</summary>
+    public const string MarkDeduplicated = "MATCH (f:Fact {id: $id}) SET f.confidence = $confidence RETURN f";
+
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
     /// <summary>

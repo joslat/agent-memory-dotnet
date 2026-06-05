@@ -256,6 +256,65 @@ public sealed class LongTermMemoryServiceTests
             .GetByEntityAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
+    // ---- Dedup-on-create (PR#97) ----
+
+    [Fact]
+    public async Task AddFactAsync_WhenDuplicateFound_ReinforcesInsteadOfCreating()
+    {
+        var existing = CreateFact("f-existing"); // confidence 0.9
+        _factRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(existing));
+        _factRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(existing with { Confidence = ci.ArgAt<double>(1) }));
+
+        var sut = CreateSut();
+        var result = await sut.AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.Received(1).MarkDeduplicatedAsync("f-existing", Arg.Is<double>(c => c > 0.9), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        result.FactId.Should().Be("f-existing");
+    }
+
+    [Fact]
+    public async Task AddFactAsync_WhenNoDuplicate_Upserts()
+    {
+        _factRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(null));
+
+        await CreateSut().AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddFactAsync_DeduplicateDisabled_SkipsDuplicateLookup()
+    {
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { DeduplicateOnCreate = false }));
+
+        await sut.AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.DidNotReceive().FindDuplicateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_WhenDuplicateFound_ReinforcesInsteadOfCreating()
+    {
+        var existing = CreatePreference("p-existing");
+        _prefRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Preference?>(existing));
+        _prefRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(existing with { Confidence = ci.ArgAt<double>(1) }));
+
+        var result = await CreateSut().AddPreferenceAsync(CreatePreference("p-new"));
+
+        await _prefRepo.Received(1).MarkDeduplicatedAsync("p-existing", Arg.Is<double>(c => c > 0.9), Arg.Any<CancellationToken>());
+        await _prefRepo.DidNotReceive().UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
+        result.PreferenceId.Should().Be("p-existing");
+    }
+
     // ---- Helpers ----
 
     private static Entity CreateEntity(string id, bool withEmbedding = false) => new()

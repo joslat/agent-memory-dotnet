@@ -331,7 +331,7 @@ Full table in the roadmap. Sorted high→skip:
 
 | Feature | Source | Our status | Port-worthiness |
 |---|---|---|---|
-| Fact/Preference **dedup-on-create** (≥0.95 cosine → bump confidence) | PR #97 (2026-04-23) | missing | **high** |
+| Fact/Preference **dedup-on-create** (≥0.95 cosine → bump confidence) | PR #97 (2026-04-23) | ✅ **DONE** (2026-06-06) — `LongTermMemoryOptions.DeduplicateOnCreate` (default on, 0.95); `AddFact/AddPreferenceAsync` reinforce a same-subject+predicate / same-category, same-owner near-duplicate instead of creating a node; `FindDuplicate`+`MarkDeduplicated` queries/repo methods; 4 unit + 4 integration tests | done |
 | **Consolidation / hygiene** (dedupe/summarize/detect-superseded/archive; dry-run; `:ConsolidationRun`) | PR #113 v0.2.0 (2026-05-04) | partial | **high** |
 | Adopt existing Neo4j graph as memory | PR #113 | missing | medium |
 | Vector-index dimension validation at connect | PR #119 v0.3.0 (2026-05-16) | missing | medium |

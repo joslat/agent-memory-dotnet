@@ -19,4 +19,21 @@ public sealed record LongTermMemoryOptions
 
     /// <summary>Whether to enable entity resolution and deduplication.</summary>
     public bool EnableEntityResolution { get; init; } = true;
+
+    /// <summary>
+    /// When true, <c>AddFactAsync</c>/<c>AddPreferenceAsync</c> reinforce an existing near-duplicate
+    /// (same subject+predicate / same category, within the same owner, with cosine ≥
+    /// <see cref="DeduplicationSimilarityThreshold"/>) instead of creating a new node — preventing node
+    /// bloat from re-asserting the same knowledge across sessions. Requires embeddings to be enabled.
+    /// </summary>
+    public bool DeduplicateOnCreate { get; init; } = true;
+
+    /// <summary>Cosine-similarity threshold above which a candidate is treated as a duplicate (default 0.95).</summary>
+    public double DeduplicationSimilarityThreshold { get; init; } = 0.95;
+
+    /// <summary>
+    /// Confidence increment applied (capped at 1.0) when an existing item is reinforced by a duplicate
+    /// add — a light reinforcement signal. Default 0.05.
+    /// </summary>
+    public double DeduplicationConfidenceBump { get; init; } = 0.05;
 }

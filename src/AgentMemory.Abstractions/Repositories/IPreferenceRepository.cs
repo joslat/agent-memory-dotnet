@@ -11,6 +11,18 @@ public interface IPreferenceRepository
     /// <summary>Adds or updates a preference.</summary>
     Task<Preference> UpsertAsync(Preference preference, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Finds the most-similar existing preference in <paramref name="category"/> within the same owner
+    /// (<paramref name="ownerId"/>; null = shared) whose cosine score ≥ <paramref name="threshold"/>,
+    /// or null. Used for dedup-on-create.
+    /// </summary>
+    Task<Preference?> FindDuplicateAsync(
+        string category, float[] embedding, string? ownerId, double threshold,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reinforces an existing preference reached by dedup: sets its confidence and returns it.</summary>
+    Task<Preference> MarkDeduplicatedAsync(string preferenceId, double confidence, CancellationToken cancellationToken = default);
+
     /// <summary>Gets a preference by identifier.</summary>
     Task<Preference?> GetByIdAsync(string preferenceId, CancellationToken cancellationToken = default);
 

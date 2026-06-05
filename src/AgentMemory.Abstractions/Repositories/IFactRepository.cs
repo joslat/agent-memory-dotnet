@@ -11,6 +11,18 @@ public interface IFactRepository
     /// <summary>Adds or updates a fact.</summary>
     Task<Fact> UpsertAsync(Fact fact, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Finds the most-similar existing fact with the same subject+predicate within the same owner
+    /// (<paramref name="ownerId"/>; null = shared) whose cosine score ≥ <paramref name="threshold"/>,
+    /// or null. Used for dedup-on-create.
+    /// </summary>
+    Task<Fact?> FindDuplicateAsync(
+        string subject, string predicate, float[] embedding, string? ownerId, double threshold,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reinforces an existing fact reached by dedup: sets its confidence and returns it.</summary>
+    Task<Fact> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default);
+
     /// <summary>Gets a fact by identifier.</summary>
     Task<Fact?> GetByIdAsync(string factId, CancellationToken cancellationToken = default);
 

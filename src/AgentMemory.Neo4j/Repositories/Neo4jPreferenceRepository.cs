@@ -136,6 +136,44 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
+    private const int DedupOverFetch = 10;
+
+    public async Task<Preference?> FindDuplicateAsync(
+        string category, float[] embedding, string? ownerId, double threshold,
+        CancellationToken cancellationToken = default)
+    {
+        bool ownerIsShared = string.IsNullOrEmpty(ownerId);
+        var cypher = PreferenceQueries.FindDuplicate(DedupOverFetch, ownerIsShared);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = embedding.ToList(),
+            ["threshold"] = threshold,
+            ["category"]  = category,
+        };
+        if (!ownerIsShared) parameters["ownerId"] = ownerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["node"].As<INode>();
+            return MapToPreference(node, ReadEmbedding(node));
+        }, cancellationToken);
+    }
+
+    public async Task<Preference> MarkDeduplicatedAsync(string preferenceId, double confidence, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Reinforcing preference {Id} via dedup (confidence={Confidence}).", preferenceId, confidence);
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(PreferenceQueries.MarkDeduplicated, new { id = preferenceId, confidence });
+            var record = await cursor.SingleAsync();
+            var node = record["p"].As<INode>();
+            return MapToPreference(node, ReadEmbedding(node));
+        }, cancellationToken);
+    }
+
     public async Task DeleteAsync(string preferenceId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Deleting preference {Id}", preferenceId);

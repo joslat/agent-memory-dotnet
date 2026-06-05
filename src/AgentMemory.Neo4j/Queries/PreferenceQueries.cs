@@ -64,6 +64,30 @@ public static class PreferenceQueries
             .Limit("$limit")
             .Build();
 
+    // ── Dedup-on-create ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Finds the most-similar existing preference in the same category within the same owner whose
+    /// cosine score ≥ <c>$threshold</c> — used to reinforce instead of creating a near-duplicate node.
+    /// Over-fetches <paramref name="topK"/> candidates, returns top 1.
+    /// </summary>
+    public static string FindDuplicate(int topK, bool ownerIsShared)
+    {
+        var ownerClause = ownerIsShared ? "node.owner_id IS NULL" : "node.owner_id = $ownerId";
+        return $@"
+            CALL db.index.vector.queryNodes('preference_embedding_idx', {topK}, $embedding)
+            YIELD node, score
+            WHERE score >= $threshold
+              AND node.category = $category
+              AND {ownerClause}
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT 1";
+    }
+
+    /// <summary>Reinforce an existing preference reached by dedup: bump its confidence.</summary>
+    public const string MarkDeduplicated = "MATCH (p:Preference {id: $id}) SET p.confidence = $confidence RETURN p";
+
     /// <summary>Delete a Preference and all its relationships.</summary>
     public const string Delete = "MATCH (p:Preference {id: $id}) DETACH DELETE p";
 
