@@ -28,8 +28,19 @@
   `GraphRagOnly`/`GraphRagThenMemory` render GraphRAG context ahead of memory in both
   `MemoryContextFormatter` and the MAF context mapper. `MemoryContext` gains a `BlendMode` property
   (defaults to `Blended`, so existing output ordering is unchanged).
+- **Upgraded to Microsoft Agent Framework (MAF) 1.9.0** (from 1.1.0) and `Microsoft.Extensions.AI.Abstractions`
+  10.5.1 (from 10.4.1, the floor MAF 1.9.0 requires). The migration was source-compatible — no adapter
+  code changes — see `docs/plans/maf-1.9.0-migration.md`.
 
 ### Fixed
+- **Memory-only DI now works.** Two `AddAgentMemoryCore` registrations failed at runtime for consumers
+  that don't add the GraphRAG adapter: `MemoryContextAssembler` required `IGraphRagContextSource`
+  (now resolved optionally via `GetService`), and `IMemoryExtractionPipeline` was registered by type
+  despite an internal constructor (now registered via a factory). Both surfaced when building the real
+  MAF agent sample.
+- **`ReasoningStep.TimestampUtc` / `ToolCall.TimestampUtc` are now read back.** Both nodes are created
+  with a server `timestamp` that was previously write-only from .NET; the domain records gained the
+  property and the Neo4j mappers now populate it.
 - **`Fact.Category` is now persisted and read back.** It was defined on the domain model and indexed
   (`fact_category`) but omitted from the upsert queries and mapping, so it was silently dropped on
   write and always returned `null`. `FactQueries.Upsert`/`UpsertBatch`, the repository parameters, and

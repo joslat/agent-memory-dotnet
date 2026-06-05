@@ -7,8 +7,8 @@
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.1.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.9.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.5.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
