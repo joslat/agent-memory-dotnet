@@ -119,6 +119,22 @@ public static class SchemaQueries
     /// <summary>Point index on Entity.location.</summary>
     public const string EntityLocationIndex = "CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.location)";
 
+    // ── Owner-scope property indexes (R1, multi-user isolation) ──
+    // owner_id is nullable; NULL = shared/global. These indexes accelerate the owner filter
+    // applied during scoped vector recall (see {Fact,Entity,Preference}Queries.SearchByVector).
+
+    /// <summary>Index on Fact.owner_id (multi-user scope).</summary>
+    public const string FactOwnerIndex = "CREATE INDEX fact_owner_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_id)";
+
+    /// <summary>Index on Entity.owner_id (multi-user scope).</summary>
+    public const string EntityOwnerIndex = "CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)";
+
+    /// <summary>Index on Preference.owner_id (multi-user scope).</summary>
+    public const string PreferenceOwnerIndex = "CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)";
+
+    /// <summary>Index on ReasoningTrace.owner_id (multi-user scope; trace owner-write lands in R2).</summary>
+    public const string TraceOwnerIndex = "CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)";
+
     /// <summary>All property indexes in bootstrap order.</summary>
     public static readonly string[] PropertyIndexes =
     [
@@ -136,7 +152,11 @@ public static class SchemaQueries
         ToolCallStatusIndex,
         SchemaNameIndex,
         SchemaVersionIndex,
-        EntityLocationIndex
+        EntityLocationIndex,
+        FactOwnerIndex,
+        EntityOwnerIndex,
+        PreferenceOwnerIndex,
+        TraceOwnerIndex
     ];
 
     // ── Vector Indexes (parameterized by dimensions) ────────────

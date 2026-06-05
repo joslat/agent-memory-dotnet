@@ -25,4 +25,10 @@
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
   </ItemGroup>
 
+  <!-- Cypher migration scripts must ship next to the assembly so MigrationRunner can
+       discover them under AppContext.BaseDirectory/Schema/Migrations at runtime. -->
+  <ItemGroup>
+    <Content Include="Schema\Migrations\*.cypher" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
