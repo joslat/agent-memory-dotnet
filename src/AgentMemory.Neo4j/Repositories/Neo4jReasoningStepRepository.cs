@@ -91,6 +91,9 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
             Action      = node.Properties.TryGetValue("action", out var act) ? act.As<string>() : null,
             Observation = node.Properties.TryGetValue("observation", out var obs) ? obs.As<string>() : null,
             Embedding   = embedding,
+            TimestampUtc = node.Properties.TryGetValue("timestamp", out var ts)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ts)
+                                : null,
             Metadata    = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

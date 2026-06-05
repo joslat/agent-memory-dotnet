@@ -93,6 +93,9 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
                                 ? dm.As<long?>()
                                 : null,
             Error         = node.Properties.TryGetValue("error", out var err) ? err.As<string>() : null,
+            TimestampUtc  = node.Properties.TryGetValue("timestamp", out var ts)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ts)
+                                : null,
             Metadata      = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
