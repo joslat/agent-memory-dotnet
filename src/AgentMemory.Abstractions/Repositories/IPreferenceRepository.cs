@@ -55,5 +55,6 @@ public interface IPreferenceRepository
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

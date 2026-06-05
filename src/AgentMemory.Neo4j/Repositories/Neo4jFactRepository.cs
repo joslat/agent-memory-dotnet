@@ -336,19 +336,27 @@ public sealed class Neo4jFactRepository : IFactRepository
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Temporal vector search facts as of {AsOf}, limit={Limit}", asOf, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        _logger.LogDebug("Temporal vector search facts as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
+
+        var cypher = TemporalQueries.SearchFactsAsOf(hasOwner, includeShared, topK);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"]     = limit,
+            ["minScore"]  = minScore,
+            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(TemporalQueries.SearchFactsAsOf, new
-            {
-                embedding = queryEmbedding.ToList(),
-                limit,
-                minScore,
-                asOf = asOf.UtcDateTime.ToString("O")
-            });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

@@ -197,6 +197,10 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var recallOpts = request.Options;
         var minScore = recallOpts.MinSimilarityScore;
 
+        // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path.
+        var scope = recallOpts.Scope
+            ?? (string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId));
+
         var queryEmbedding = request.QueryEmbedding
             ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
 
@@ -204,13 +208,13 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             request.SessionId, asOf, recallOpts.MaxRecentMessages, cancellationToken);
 
         var entitiesTask = _longTerm.SearchEntitiesAsOfAsync(
-            queryEmbedding, asOf, recallOpts.MaxEntities, minScore, cancellationToken);
+            queryEmbedding, asOf, recallOpts.MaxEntities, minScore, scope, cancellationToken);
 
         var preferencesTask = _longTerm.SearchPreferencesAsOfAsync(
-            queryEmbedding, asOf, recallOpts.MaxPreferences, minScore, cancellationToken);
+            queryEmbedding, asOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken);
 
         var factsTask = _longTerm.SearchFactsAsOfAsync(
-            queryEmbedding, asOf, recallOpts.MaxFacts, minScore, cancellationToken);
+            queryEmbedding, asOf, recallOpts.MaxFacts, minScore, scope, cancellationToken);
 
         await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask);
 

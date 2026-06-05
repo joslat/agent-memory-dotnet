@@ -42,13 +42,13 @@ public sealed class TemporalContextAssemblerTests
             .GetRecentMessagesAsOfAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
         _longTerm
-            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
         _longTerm
-            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
         _longTerm
-            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
     }
 
@@ -94,7 +94,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchEntitiesAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchFactsAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchPreferencesAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -172,7 +172,7 @@ public sealed class TemporalContextAssemblerTests
         };
 
         _longTerm
-            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(entities));
 
         var sut = CreateSut();
