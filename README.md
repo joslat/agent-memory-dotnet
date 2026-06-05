@@ -181,9 +181,21 @@ Instead, the .NET version will prioritize:
 - .NET-native extensibility
 - clear interfaces for future extraction backends
 
+## Multi-user & multi-store isolation
+
+Long-term knowledge is **owner-scoped** so one user cannot recall another user's stored memories — while keeping an optional **shared/global** tier. The model is additive and backward-compatible: a `null` owner means shared (today's behavior), so existing deployments are unaffected.
+
+- **`owner_id` (nullable) on every long-term node and edge** — `Fact`, `Entity`, `Preference`, `Relationship` (RELATED_TO), and `ReasoningTrace`. `NULL` = shared/global; a concrete id = private to that user. `Fact` additionally MERGEs on an `owner_key` sentinel so the same triple from two users never collapses.
+- **`MemoryScope { OwnerId, IncludeShared }`** drives reads. Recall returns `owner_id == me OR (IncludeShared AND owner_id IS NULL)`. Because Neo4j vector indexes can't pre-filter a property, scoped vector/graph recall **over-fetches then filters then limits**, so the owner's matches are never starved by foreign rows.
+- **Scoped everywhere a leak could occur:** vector recall (facts/entities/preferences), non-vector lookups (by subject/name/category), GraphRAG retrieval (vector/fulltext/hybrid/graph), reasoning-trace search, relationship reads, and temporal (`AsOf`) recall — each verified with Neo4j integration tests.
+- **Identity flows from the agent surface:** the MAF providers read `user_id` (and `application_id`) from the `AgentSession` state bag (`session.WithMemoryIdentity(userId: …)`); MCP and Semantic Kernel tools accept an optional `userId`. Owner indexes (`fact/entity/preference/trace/rel_owner_idx`) back the filters; non-backfilling migrations (`0002`, `0003`) bring existing databases to parity losslessly.
+- **Optional store tier (R1b):** an `ApplicationId` above the owner routes to its own Neo4j database (`MemoryStorageStrategy.DatabasePerApplication`, requires Enterprise/AuraDB) or stays on the shared database (default, Community-compatible). `IMemoryStoreContext` is `AsyncLocal`-backed, so per-request routing is concurrency-safe.
+
+> Status: the owner-scope core and all leak-path closures are implemented and integration-tested (see `docs/Memory_Review_and_Implementation_Plan.md`). Deliberately deferred/limited items (entity-resolution sharing semantics, the explicit `IMemoryQueryFacade` tool surface, session-clear owner-scoping) are tracked there.
+
 ## Project status
 
-All 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, Semantic Kernel adapter, GraphRAG blended retrieval (built into the Neo4j package), OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 21 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
+R1/R1b multi-user isolation (above) plus 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, Semantic Kernel adapter, GraphRAG blended retrieval (built into the Neo4j package), OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 21 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
 
 The solution ships these packages:
 
