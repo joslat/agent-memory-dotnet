@@ -33,7 +33,8 @@ a memory **context provider** (injects memory before each run, persists after) p
 
 | Sample | Demonstrates |
 | --- | --- |
-| **RealAgent** | The flagship pattern (= official `04_memory` / `AgentWithMemory`): a real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |
+| **AgentWithMemory** | The flagship — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall** (a brand-new session still remembers — the official session-scoped sample cannot). |
+| **RealAgent** | A real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |
 | **MemoryToolsAgent** | The memory tools (`MemoryToolFactory.CreateAIFunctions()`, the `create_memory_tools` equivalent): registered on an agent and invoked directly against Neo4j. |
 | **ChatHistoryProvider** | `Neo4jChatHistoryProvider` wired via `ChatClientAgentOptions.ChatHistoryProvider` — per-session conversation history (distinct from long-term memory). |
 | **BlendedAgent** | Blended persistent memory + GraphRAG retrieval, with OpenTelemetry. |
