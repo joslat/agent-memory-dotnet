@@ -104,4 +104,44 @@ public sealed class StoreDatabaseNamingTests
     {
         StoreDatabaseNaming.Sanitize(input).Should().Be(expected);
     }
+
+    // ── Edge cases: ids that sanitize to nothing must not collide (rank #6 fix) ──
+
+    [Theory]
+    [InlineData("!@#$")]
+    [InlineData(";;;;")]
+    [InlineData("🎉")]
+    [InlineData("...")]
+    [InlineData("---")]
+    public void Resolve_PerApplication_IdThatSanitizesToEmpty_ProducesValidName(string appId)
+    {
+        var opts = new MemoryStoreOptions
+        {
+            Strategy = MemoryStorageStrategy.DatabasePerApplication,
+            DatabasePrefix = "mem-"
+        };
+
+        var name = StoreDatabaseNaming.Resolve(opts, "neo4j", appId);
+
+        name.Should().MatchRegex("^[a-z][a-z0-9.-]{2,62}$");
+        name.Should().NotBe("mem-", "an empty-sanitizing id must not collapse onto the bare prefix");
+    }
+
+    [Fact]
+    public void Resolve_PerApplication_DistinctEmptySanitizingIds_DoNotCollide()
+    {
+        var opts = new MemoryStoreOptions
+        {
+            Strategy = MemoryStorageStrategy.DatabasePerApplication,
+            DatabasePrefix = "mem-"
+        };
+
+        var a = StoreDatabaseNaming.Resolve(opts, "neo4j", "!@#");
+        var b = StoreDatabaseNaming.Resolve(opts, "neo4j", ";;;;");
+        var c = StoreDatabaseNaming.Resolve(opts, "neo4j", "🎉");
+
+        new[] { a, b, c }.Distinct().Should().HaveCount(3, "distinct ids must map to distinct databases");
+        // deterministic
+        a.Should().Be(StoreDatabaseNaming.Resolve(opts, "neo4j", "!@#"));
+    }
 }

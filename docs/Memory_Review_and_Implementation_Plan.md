@@ -2,6 +2,8 @@
 
 > **Author:** Architecture review (Claude) · **Date:** 2026-06-05 · **Branch:** `remediation/analysis-review-hardening`
 > **Scope:** A through-and-through review of AgentMemory-for-.NET — what is done, what is pending, and where the gaps are — with a deep dive and concrete implementation plan for the headline topic: **multi-user / multi-session memory isolation** (user-scoped memory, with an *optional* shared/global scope).
+>
+> **Update 2026-06-05 — R1 core landed (I1–I9, owner-scoped vector recall + per-application store tier, verified by integration tests), BUT isolation is not yet complete.** A follow-up multi-agent review found that several *secondary* paths still bypass owner scoping (GraphRAG retrieval, all of ReasoningTrace, non-vector lookups by subject/triple/name/type/category/location, background embedding backfill) and two correctness defects in the R1b store tier. See **[`Remaining_Work_Roadmap.md`](Remaining_Work_Roadmap.md)** for the prioritized, file-level list (it supersedes the "complete" framing below for those paths). Upstream comparison + the proposed upstream fix live in [`schema-parity-assessment.md`](schema-parity-assessment.md) and [`neo4j-pr-howto.md`](neo4j-pr-howto.md) (filed upstream as neo4j-labs/agent-memory#137).
 
 ---
 

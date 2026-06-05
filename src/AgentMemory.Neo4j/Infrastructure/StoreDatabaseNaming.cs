@@ -37,7 +37,15 @@ internal static class StoreDatabaseNaming
             return defaultDb;
         }
 
-        return Normalize(options.DatabasePrefix + Sanitize(applicationId), applicationId);
+        var sanitized = Sanitize(applicationId);
+
+        // An id that sanitizes to nothing (all-punctuation, emoji, etc.) must NOT collapse onto the
+        // bare prefix — otherwise every such id would map to the same database and silently share a
+        // store. Fall back to a deterministic hash of the original so distinct ids stay distinct.
+        if (sanitized.Length == 0)
+            sanitized = "h" + ShortHash(applicationId, 12);
+
+        return Normalize(options.DatabasePrefix + sanitized, applicationId);
     }
 
     /// <summary>
