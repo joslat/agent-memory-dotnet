@@ -1,0 +1,59 @@
+using AgentMemory.Abstractions.Services;
+
+namespace AgentMemory.Neo4j.Infrastructure;
+
+/// <summary>
+/// How memory stores (applications) are physically isolated. See
+/// <c>docs/Memory_Review_and_Implementation_Plan.md</c> (R1b).
+/// </summary>
+public enum MemoryStorageStrategy
+{
+    /// <summary>
+    /// One Neo4j database; isolate users logically via <c>owner_id</c> (R1). Community-compatible.
+    /// This is the default and reproduces the library's original single-store behavior.
+    /// </summary>
+    SharedDatabase,
+
+    /// <summary>
+    /// Each <c>ApplicationId</c> routes to its own Neo4j database. Requires Neo4j Enterprise or AuraDB
+    /// (Community Edition supports only a single user database).
+    /// </summary>
+    DatabasePerApplication,
+}
+
+/// <summary>
+/// Options for the application / memory-store isolation tier (R1b). Additive: the defaults
+/// (<see cref="MemoryStorageStrategy.SharedDatabase"/> + <see cref="DefaultDatabase"/>) reproduce the
+/// pre-existing single-store behavior, so existing deployments are unaffected.
+/// </summary>
+public sealed class MemoryStoreOptions
+{
+    /// <summary>Storage isolation strategy. Defaults to <see cref="MemoryStorageStrategy.SharedDatabase"/>.</summary>
+    public MemoryStorageStrategy Strategy { get; set; } = MemoryStorageStrategy.SharedDatabase;
+
+    /// <summary>The Neo4j database used when <c>ApplicationId</c> is null (the default store).</summary>
+    public string DefaultDatabase { get; set; } = "neo4j";
+
+    /// <summary>
+    /// Database-name prefix for <see cref="MemoryStorageStrategy.DatabasePerApplication"/>:
+    /// <c>db = DatabasePrefix + sanitize(ApplicationId)</c>.
+    /// </summary>
+    public string DatabasePrefix { get; set; } = "mem_";
+
+    /// <summary>
+    /// When true (and strategy is <see cref="MemoryStorageStrategy.DatabasePerApplication"/>), the
+    /// store's database is created and its schema bootstrapped on first use.
+    /// </summary>
+    public bool AutoProvision { get; set; } = true;
+}
+
+/// <summary>
+/// Default mutable <see cref="IMemoryStoreContext"/> — a simple per-scope holder. Register as scoped
+/// and set <see cref="ApplicationId"/> per request (e.g. from a MAF StateBag value). Defaults to null
+/// (the default store).
+/// </summary>
+public sealed class DefaultMemoryStoreContext : IMemoryStoreContext
+{
+    /// <inheritdoc />
+    public string? ApplicationId { get; set; }
+}

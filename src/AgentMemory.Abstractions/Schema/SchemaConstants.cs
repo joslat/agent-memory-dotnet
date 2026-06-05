@@ -218,6 +218,13 @@ public static class SchemaConstants
         /// <summary>Category classification property.</summary>
         public const string Category = "category";
 
+        /// <summary>Owner/user scope property (null = shared/global). See MemoryScope.</summary>
+        public const string OwnerId = "owner_id";
+
+        /// <summary>Non-null owner merge key (coalesce(owner_id, '*')) used to keep shared vs owned
+        /// records distinct in MERGE patterns where a null property would otherwise collapse them.</summary>
+        public const string OwnerKey = "owner_key";
+
         // Preference
 
         /// <summary>Preference value property.</summary>

@@ -36,8 +36,8 @@ The design below introduces a nullable `owner_id` per record (**`NULL` = shared/
 
 | ID | Topic | Area | Priority | Status | Effort | Recommendation |
 |---|---|---|---|---|---|---|
-| R1 | Multi-user memory isolation (`owner_id` + `MemoryScope`, optional shared) | core / neo4j / abstractions / adapters | 🟥 HIGH | ❌ Not started (confirmed gap) | L | Implement before first NuGet publish; phased plan in §R1 |
-| R1b | Application / memory-store isolation (`ApplicationId` → Neo4j database; shared-db fallback) | core / neo4j / infra | 🟥 HIGH | ❌ Not started | L | `DatabasePerApplication` (Enterprise/Aura) + provisioner; `SharedDatabase`+`owner_id` on Community; §R1b |
+| R1 | Multi-user memory isolation (`owner_id` + `MemoryScope`, optional shared) | core / neo4j / abstractions / adapters | 🟥 HIGH | 🟡 In progress — ✅I1 abstractions (`MemoryScope`, `OwnerId` on 5 models, `RecallOptions.Scope`, `SchemaConstants.OwnerId/OwnerKey`) | L | Implement before first NuGet publish; phased plan in §R1 |
+| R1b | Application / memory-store isolation (`ApplicationId` → Neo4j database; shared-db fallback) | core / neo4j / infra | 🟥 HIGH | 🟡 In progress — ✅I2 scaffolding (`MemoryStorageStrategy`, `MemoryStoreOptions`, `IMemoryStoreContext`, `DefaultMemoryStoreContext`) | L | `DatabasePerApplication` (Enterprise/Aura) + provisioner; `SharedDatabase`+`owner_id` on Community; §R1b |
 | R2 | Reasoning-trace isolation | core / neo4j | 🟧 MED | ❌ Not started | M | Fold into the R1 workstream (same mechanism) |
 | R3 | NuGet release sequencing | packaging / ci | 🟥 HIGH | 🟡 ~80% (metadata + workflow done) | S | Hold publish until R1's API surface lands |
 | R4 | Streaming extraction DI wiring + doc fix | core | 🟧 MED | 🟡 Built, unregistered | S | Register `IStreamingExtractor`; thread `owner_id` when R1 lands |

@@ -46,6 +46,12 @@ public sealed record ReasoningTrace
     public DateTimeOffset? CompletedAtUtc { get; init; }
 
     /// <summary>
+    /// Optional owner/user id that scopes this trace. Null means shared/global. See
+    /// <c>MemoryScope</c> and docs/Memory_Review_and_Implementation_Plan.md (R1/R2).
+    /// </summary>
+    public string? OwnerId { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =
