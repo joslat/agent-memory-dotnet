@@ -37,6 +37,63 @@ public sealed class MemoryQueryFacadeTests
             NullLogger<MemoryQueryFacade>.Instance);
     }
 
+    private MemoryQueryFacade CreateSutWithOwner(string? userId)
+    {
+        _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
+        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _idGenerator.GenerateId().Returns("id-1");
+        _longTerm.SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+        _longTerm.SearchFactsAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
+        _longTerm.SearchPreferencesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
+        _longTerm.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
+
+        var ownerContext = Substitute.For<IMemoryOwnerContext>();
+        ownerContext.UserId.Returns(userId);
+        return new MemoryQueryFacade(_longTerm, _reasoning, _embeddings, _clock, _idGenerator,
+            NullLogger<MemoryQueryFacade>.Instance, ownerContext);
+    }
+
+    [Fact]
+    public async Task SearchMemoryAsync_WithOwnerContext_ScopesSearchByOwner()
+    {
+        var sut = CreateSutWithOwner("alice");
+
+        await sut.SearchMemoryAsync("anything");
+
+        await _longTerm.Received(1).SearchEntitiesAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"), Arg.Any<CancellationToken>());
+        await _longTerm.Received(1).SearchFactsAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SearchMemoryAsync_NoOwnerContext_PassesNullScope()
+    {
+        var sut = CreateSutWithOwner(null);
+
+        await sut.SearchMemoryAsync("anything");
+
+        await _longTerm.Received(1).SearchEntitiesAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Is<MemoryScope?>(s => s == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RememberFactAsync_WithOwnerContext_StampsOwner()
+    {
+        var sut = CreateSutWithOwner("alice");
+
+        await sut.RememberFactAsync("Alice", "likes", "tea");
+
+        await _longTerm.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task SearchMemoryAsync_EmptyQuery_ReturnsValidationFailure()
     {

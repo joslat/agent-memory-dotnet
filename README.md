@@ -191,7 +191,7 @@ Long-term knowledge is **owner-scoped** so one user cannot recall another user's
 - **Identity flows from the agent surface:** the MAF providers read `user_id` (and `application_id`) from the `AgentSession` state bag (`session.WithMemoryIdentity(userId: …)`); MCP and Semantic Kernel tools accept an optional `userId`. Owner indexes (`fact/entity/preference/trace/rel_owner_idx`) back the filters; non-backfilling migrations (`0002`, `0003`) bring existing databases to parity losslessly.
 - **Optional store tier (R1b):** an `ApplicationId` above the owner routes to its own Neo4j database (`MemoryStorageStrategy.DatabasePerApplication`, requires Enterprise/AuraDB) or stays on the shared database (default, Community-compatible). `IMemoryStoreContext` is `AsyncLocal`-backed, so per-request routing is concurrency-safe.
 
-> Status: the owner-scope core and all leak-path closures are implemented and integration-tested (see `docs/Memory_Review_and_Implementation_Plan.md`). Deliberately deferred/limited items (entity-resolution sharing semantics, the explicit `IMemoryQueryFacade` tool surface, session-clear owner-scoping) are tracked there.
+> The LLM-invokable memory tools (built from `IMemoryQueryFacade`) scope via an ambient `IMemoryOwnerContext` — set `IWritableMemoryOwnerContext.UserId` for the agent run (the tools can't accept a trusted user id from the model). Status: the owner-scope core and all leak-path closures are implemented and integration-tested (see `docs/Memory_Review_and_Implementation_Plan.md`). Deliberately deferred/limited items (entity-resolution sharing semantics; session-clear owner-scoping) are tracked there.
 
 ## Project status
 

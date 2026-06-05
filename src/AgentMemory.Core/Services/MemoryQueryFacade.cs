@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.Core.Services;
@@ -17,10 +18,13 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
+    private readonly IMemoryOwnerContext? _ownerContext;
     private readonly ILogger<MemoryQueryFacade> _logger;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MemoryQueryFacade"/> class.
+    /// Initializes a new instance of the <see cref="MemoryQueryFacade"/> class. The optional
+    /// <paramref name="ownerContext"/> supplies the ambient owner/user for the LLM-invokable tools
+    /// (the model cannot be trusted to pass a user id); null = unscoped/shared (IC8).
     /// </summary>
     public MemoryQueryFacade(
         ILongTermMemoryService longTerm,
@@ -28,15 +32,21 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
         IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IIdGenerator idGenerator,
-        ILogger<MemoryQueryFacade> logger)
+        ILogger<MemoryQueryFacade> logger,
+        IMemoryOwnerContext? ownerContext = null)
     {
         _longTerm = longTerm ?? throw new ArgumentNullException(nameof(longTerm));
         _reasoning = reasoning ?? throw new ArgumentNullException(nameof(reasoning));
         _embeddingOrchestrator = embeddingOrchestrator ?? throw new ArgumentNullException(nameof(embeddingOrchestrator));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
+        _ownerContext = ownerContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
+
+    /// <summary>Current ambient owner scope (null = unscoped/shared).</summary>
+    private MemoryScope? CurrentScope =>
+        string.IsNullOrEmpty(_ownerContext?.UserId) ? null : MemoryScope.For(_ownerContext!.UserId!);
 
     /// <inheritdoc/>
     public async Task<MemoryQueryResult> SearchMemoryAsync(string query, CancellationToken cancellationToken = default)
@@ -46,10 +56,11 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
 
         return await ExecuteAsync("search_memory", query, async () =>
         {
+            var scope = CurrentScope;
             var embedding = await _embeddingOrchestrator.EmbedQueryAsync(query, cancellationToken).ConfigureAwait(false);
-            var entities = await _longTerm.SearchEntitiesAsync(embedding, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var facts = await _longTerm.SearchFactsAsync(embedding, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var preferences = await _longTerm.SearchPreferencesAsync(embedding, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var entities = await _longTerm.SearchEntitiesAsync(embedding, scope: scope, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var facts = await _longTerm.SearchFactsAsync(embedding, scope: scope, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var preferences = await _longTerm.SearchPreferencesAsync(embedding, scope: scope, cancellationToken: cancellationToken).ConfigureAwait(false);
 
             var sb = new StringBuilder();
             if (entities.Count > 0)
@@ -87,6 +98,7 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
                 Category = resolvedCategory,
                 PreferenceText = preferenceText,
                 Confidence = 1.0,
+                OwnerId = _ownerContext?.UserId,
                 CreatedAtUtc = _clock.UtcNow,
             };
             await _longTerm.AddPreferenceAsync(preference, cancellationToken).ConfigureAwait(false);
@@ -110,6 +122,7 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
                 Predicate = predicate,
                 Object = @object,
                 Confidence = 1.0,
+                OwnerId = _ownerContext?.UserId,
                 CreatedAtUtc = _clock.UtcNow,
             };
             await _longTerm.AddFactAsync(fact, cancellationToken).ConfigureAwait(false);
@@ -126,17 +139,16 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
 
         return await ExecuteAsync("recall_preferences", query, async () =>
         {
+            var scope = CurrentScope;
             IReadOnlyList<Preference> preferences;
             if (!string.IsNullOrWhiteSpace(category))
             {
-                // NOTE: the IMemoryQueryFacade tool surface does not yet carry user identity; scoping
-                // these explicit memory tools by owner is tracked as a follow-up (IC8). Unscoped here.
-                preferences = await _longTerm.GetPreferencesByCategoryAsync(category, cancellationToken: cancellationToken).ConfigureAwait(false);
+                preferences = await _longTerm.GetPreferencesByCategoryAsync(category, scope, cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 var embedding = await _embeddingOrchestrator.EmbedQueryAsync(query!, cancellationToken).ConfigureAwait(false);
-                preferences = await _longTerm.SearchPreferencesAsync(embedding, cancellationToken: cancellationToken).ConfigureAwait(false);
+                preferences = await _longTerm.SearchPreferencesAsync(embedding, scope: scope, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
 
             if (preferences.Count == 0) return "No preferences found.";
@@ -155,7 +167,7 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
         return await ExecuteAsync("search_knowledge", query, async () =>
         {
             var embedding = await _embeddingOrchestrator.EmbedQueryAsync(query, cancellationToken).ConfigureAwait(false);
-            var entities = await _longTerm.SearchEntitiesAsync(embedding, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var entities = await _longTerm.SearchEntitiesAsync(embedding, scope: CurrentScope, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (entities.Count == 0) return "No entities found.";
             var sb = new StringBuilder();
             foreach (var e in entities) sb.AppendLine($"[{e.Type}] {e.Name}: {e.Description}");
@@ -172,7 +184,7 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
         return await ExecuteAsync("find_similar_tasks", taskDescription, async () =>
         {
             var embedding = await _embeddingOrchestrator.EmbedQueryAsync(taskDescription, cancellationToken).ConfigureAwait(false);
-            var traces = await _reasoning.SearchSimilarTracesAsync(embedding, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var traces = await _reasoning.SearchSimilarTracesAsync(embedding, scope: CurrentScope, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (traces.Count == 0) return "No similar tasks found.";
             var sb = new StringBuilder();
             foreach (var t in traces) sb.AppendLine($"[{(t.Success == true ? "✓" : "✗")}] {t.Task}: {t.Outcome}");

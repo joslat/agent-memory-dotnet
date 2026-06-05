@@ -43,6 +43,12 @@ public static class ServiceCollectionExtensions
 
         // Core services
         services.TryAddSingleton<ISessionIdGenerator, SessionIdGenerator>();
+
+        // Ambient owner context (IC8) — AsyncLocal-backed, safe as a singleton; set per request/agent
+        // flow by adapters so the LLM-invokable facade tools scope by owner without trusting the model.
+        services.TryAddSingleton<DefaultMemoryOwnerContext>();
+        services.TryAddSingleton<IMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
+        services.TryAddSingleton<IWritableMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
         services.TryAddScoped<IShortTermMemoryService, ShortTermMemoryService>();
         services.TryAddScoped<ILongTermMemoryService, LongTermMemoryService>();
         services.TryAddScoped<IReasoningMemoryService, ReasoningMemoryService>();
