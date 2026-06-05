@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
@@ -10,6 +11,11 @@ namespace AgentMemory.Neo4j.Repositories;
 
 public sealed class Neo4jFactRepository : IFactRepository
 {
+    // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
+    // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).
+    internal const int OwnerOverFetchFactor = 5;
+    internal const int OwnerOverFetchFloor = 50;
+
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jFactRepository> _logger;
 
@@ -154,18 +160,26 @@ public sealed class Neo4jFactRepository : IFactRepository
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Vector search facts, limit={Limit}", limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        _logger.LogDebug("Vector search facts, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
+
+        var cypher = FactQueries.SearchByVector(hasOwner, includeShared, topK);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.SearchByVector, new
-            {
-                embedding = queryEmbedding.ToList(),
-                limit,
-                minScore
-            });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

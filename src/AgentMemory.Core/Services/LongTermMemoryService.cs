@@ -83,9 +83,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, cancellationToken);
+        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Entity).ToList();
     }
 
@@ -121,9 +122,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, cancellationToken);
+        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Preference).ToList();
     }
 
@@ -180,9 +182,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, cancellationToken);
+        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Fact).ToList();
     }
 

@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Services;
 
@@ -29,6 +30,7 @@ public interface ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -52,6 +54,7 @@ public interface ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -75,6 +78,7 @@ public interface ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

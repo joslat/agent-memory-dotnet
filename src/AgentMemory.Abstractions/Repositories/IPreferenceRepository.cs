@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -21,6 +22,7 @@ public interface IPreferenceRepository
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Deletes a preference by identifier.</summary>

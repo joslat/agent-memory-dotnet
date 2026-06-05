@@ -117,7 +117,7 @@ public sealed class LongTermMemoryServiceTests
     {
         var entity = CreateEntity("e-1");
         _entityRepo
-            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Entity, double)>>(new[] { (entity, 0.9) }));
         var sut = CreateSut();
 
@@ -173,7 +173,7 @@ public sealed class LongTermMemoryServiceTests
     {
         var pref = CreatePreference("p-1");
         _prefRepo
-            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Preference, double)>>(new[] { (pref, 0.85) }));
         var sut = CreateSut();
 
@@ -218,7 +218,7 @@ public sealed class LongTermMemoryServiceTests
     {
         var fact = CreateFact("f-1");
         _factRepo
-            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Fact, double)>>(new[] { (fact, 0.88) }));
         var sut = CreateSut();
 

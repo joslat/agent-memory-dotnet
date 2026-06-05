@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 139;
+    private const int ExpectedQueryCount = 136; // -3: Fact/Entity/Preference SearchByVector consts → scoped methods (R1)
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

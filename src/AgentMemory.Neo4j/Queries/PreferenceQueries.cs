@@ -1,3 +1,5 @@
+using AgentMemory.Neo4j.Infrastructure;
+
 namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
@@ -41,13 +43,19 @@ public static class PreferenceQueries
     /// <summary>Get all Preferences by category.</summary>
     public const string GetByCategory = "MATCH (p:Preference {category: $category}) RETURN p";
 
-    /// <summary>Vector similarity search over Preference embeddings.</summary>
-    public const string SearchByVector = @"
-            CALL db.index.vector.queryNodes('preference_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
+    /// <summary>
+    /// Vector similarity search over Preference embeddings, with an optional owner/shared filter (R1).
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering.
+    /// </summary>
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        new CypherBuilder()
+            .WithVectorSearch("preference_embedding_idx", "$embedding", "node", topK)
+            .Where("score >= $minScore")
+            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
+            .Return("node, score")
+            .OrderBy("score DESC")
+            .Limit("$limit")
+            .Build();
 
     /// <summary>Delete a Preference and all its relationships.</summary>
     public const string Delete = "MATCH (p:Preference {id: $id}) DETACH DELETE p";

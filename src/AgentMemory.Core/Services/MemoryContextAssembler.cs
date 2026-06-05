@@ -55,6 +55,11 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var minScore = recallOpts.MinSimilarityScore;
         var blendMode = recallOpts.BlendMode;
 
+        // Owner/user scope for long-term recall (R1): an explicit RecallOptions.Scope wins; otherwise
+        // derive it from RecallRequest.UserId. Null ⇒ global recall (backward-compatible default).
+        var scope = recallOpts.Scope
+            ?? (string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId));
+
         // Blend policy (spec §5.5 / plan §12.5): decide which sources contribute to the context.
         //   MemoryOnly   → memory layers only; GraphRAG suppressed even when enabled.
         //   GraphRagOnly → GraphRAG only; memory layers (and query embedding) skipped.
@@ -104,15 +109,15 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                 : Empty<Message>();
 
             var entitiesTask = hasEmbedding
-                ? _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, cancellationToken)
+                ? _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
                 : Empty<Entity>();
 
             var preferencesTask = hasEmbedding
-                ? _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, cancellationToken)
+                ? _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
                 : Empty<Preference>();
 
             var factsTask = hasEmbedding
-                ? _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, cancellationToken)
+                ? _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken)
                 : Empty<Fact>();
 
             var tracesTask = hasEmbedding

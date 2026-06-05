@@ -61,13 +61,19 @@ public static class EntityQueries
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
-    /// <summary>Vector similarity search on entity embeddings.</summary>
-    public const string SearchByVector = @"
-            CALL db.index.vector.queryNodes('entity_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
+    /// <summary>
+    /// Vector similarity search on entity embeddings, with an optional owner/shared filter (R1).
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering.
+    /// </summary>
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        new CypherBuilder()
+            .WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK)
+            .Where("score >= $minScore")
+            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
+            .Return("node, score")
+            .OrderBy("score DESC")
+            .Limit("$limit")
+            .Build();
 
     // ── GetByTypeAsync ─────────────────────────────────────────────────
 
