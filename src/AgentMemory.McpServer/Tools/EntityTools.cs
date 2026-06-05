@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.McpServer.Tools;
@@ -16,9 +17,11 @@ public sealed class EntityTools
     public static async Task<string> MemoryGetEntity(
         ILongTermMemoryService longTermMemory,
         [Description("Name to search for (searches exact and alias matches)")] string name,
+        [Description("Owner/user identifier (optional). Null = only shared/global entities; set it to also see that user's private entities.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, cancellationToken);
+        var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
+        var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, scope, cancellationToken);
         return ToolJsonContext.Serialize(entities.Select(e => new
         {
             e.EntityId,

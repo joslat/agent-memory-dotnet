@@ -41,8 +41,14 @@ public static class PreferenceQueries
     /// <summary>Get a Preference by id.</summary>
     public const string GetById = "MATCH (p:Preference {id: $id}) RETURN p";
 
-    /// <summary>Get all Preferences by category.</summary>
-    public const string GetByCategory = "MATCH (p:Preference {category: $category}) RETURN p";
+    /// <summary>Get all Preferences by category, with an optional owner/shared filter (R1).</summary>
+    public static string GetByCategory(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (p.owner_id = $ownerId OR p.owner_id IS NULL)"
+                            : " AND p.owner_id = $ownerId";
+        return $"MATCH (p:Preference) WHERE p.category = $category{owner} RETURN p";
+    }
 
     /// <summary>
     /// Vector similarity search over Preference embeddings, with an optional owner/shared filter (R1).

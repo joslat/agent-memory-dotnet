@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 140; // +4: owner-scope property indexes (R1, I6)
+    private const int ExpectedQueryCount = 136; // 140 +4 owner indexes (I6) −4 scoped read consts→methods (IC3: GetBySubject, GetByCategory, GetByName{WithAliases,Only})
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

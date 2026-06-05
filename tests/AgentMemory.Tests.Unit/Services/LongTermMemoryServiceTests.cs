@@ -101,7 +101,7 @@ public sealed class LongTermMemoryServiceTests
     public async Task GetEntitiesByNameAsync_DelegatesToRepository()
     {
         _entityRepo
-            .GetByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .GetByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
         var sut = CreateSut();
 
@@ -109,7 +109,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _entityRepo
             .Received(1)
-            .GetByNameAsync("Alice", Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            .GetByNameAsync("Alice", Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public sealed class LongTermMemoryServiceTests
     public async Task GetPreferencesByCategoryAsync_DelegatesToRepository()
     {
         _prefRepo
-            .GetByCategoryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetByCategoryAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
         var sut = CreateSut();
 
@@ -165,7 +165,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _prefRepo
             .Received(1)
-            .GetByCategoryAsync("style", Arg.Any<CancellationToken>());
+            .GetByCategoryAsync("style", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public sealed class LongTermMemoryServiceTests
     public async Task GetFactsBySubjectAsync_DelegatesToRepository()
     {
         _factRepo
-            .GetBySubjectAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
         var sut = CreateSut();
 
@@ -210,7 +210,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _factRepo
             .Received(1)
-            .GetBySubjectAsync("Alice", Arg.Any<CancellationToken>());
+            .GetBySubjectAsync("Alice", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

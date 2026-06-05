@@ -129,7 +129,9 @@ public sealed class MemoryQueryFacade : IMemoryQueryFacade
             IReadOnlyList<Preference> preferences;
             if (!string.IsNullOrWhiteSpace(category))
             {
-                preferences = await _longTerm.GetPreferencesByCategoryAsync(category, cancellationToken).ConfigureAwait(false);
+                // NOTE: the IMemoryQueryFacade tool surface does not yet carry user identity; scoping
+                // these explicit memory tools by owner is tracked as a follow-up (IC8). Unscoped here.
+                preferences = await _longTerm.GetPreferencesByCategoryAsync(category, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             else
             {

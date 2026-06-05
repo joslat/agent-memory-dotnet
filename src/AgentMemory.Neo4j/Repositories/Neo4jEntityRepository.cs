@@ -99,15 +99,21 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> GetByNameAsync(string name, bool includeAliases = true, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Entity>> GetByNameAsync(
+        string name, bool includeAliases = true, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting entities by name '{Name}', includeAliases={IncludeAliases}", name, includeAliases);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting entities by name '{Name}', includeAliases={IncludeAliases}, owner={Owner}",
+            name, includeAliases, scope?.OwnerId);
 
-        var cypher = EntityQueries.GetByName(includeAliases);
+        var cypher = EntityQueries.GetByName(includeAliases, hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["name"] = name };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { name });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

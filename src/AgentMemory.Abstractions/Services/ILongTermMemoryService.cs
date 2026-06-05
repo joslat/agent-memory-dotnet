@@ -21,6 +21,7 @@ public interface ILongTermMemoryService
     Task<IReadOnlyList<Entity>> GetEntitiesByNameAsync(
         string name,
         bool includeAliases = true,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -45,6 +46,7 @@ public interface ILongTermMemoryService
     /// </summary>
     Task<IReadOnlyList<Preference>> GetPreferencesByCategoryAsync(
         string category,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -69,6 +71,7 @@ public interface ILongTermMemoryService
     /// </summary>
     Task<IReadOnlyList<Fact>> GetFactsBySubjectAsync(
         string subject,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

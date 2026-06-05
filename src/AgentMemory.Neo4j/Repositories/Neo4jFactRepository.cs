@@ -148,13 +148,20 @@ public sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Fact>> GetBySubjectAsync(
+        string subject, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting facts by subject '{Subject}'", subject);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting facts by subject '{Subject}', owner={Owner}", subject, scope?.OwnerId);
+
+        var cypher = FactQueries.GetBySubject(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["subject"] = subject };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.GetBySubject, new { subject });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

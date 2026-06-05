@@ -48,17 +48,20 @@ public static class EntityQueries
 
     // ── GetByNameAsync ─────────────────────────────────────────────────
 
-    /// <summary>Get entities matching name or aliases.</summary>
-    public const string GetByNameWithAliases =
-        "MATCH (e:Entity) WHERE e.name = $name OR $name IN e.aliases RETURN e";
-
-    /// <summary>Get entities matching exact name only.</summary>
-    public const string GetByNameOnly =
-        "MATCH (e:Entity {name: $name}) RETURN e";
-
-    /// <summary>Returns the appropriate GetByName query based on <paramref name="includeAliases"/>.</summary>
-    public static string GetByName(bool includeAliases) =>
-        includeAliases ? GetByNameWithAliases : GetByNameOnly;
+    /// <summary>
+    /// Builds the get-by-name query, optionally matching aliases, with an optional owner/shared
+    /// filter (R1). Null owner ⇒ unscoped (today's behavior).
+    /// </summary>
+    public static string GetByName(bool includeAliases, bool hasOwnerFilter, bool includeShared)
+    {
+        var nameMatch = includeAliases
+            ? "MATCH (e:Entity) WHERE (e.name = $name OR $name IN e.aliases)"
+            : "MATCH (e:Entity) WHERE e.name = $name";
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $"{nameMatch}{owner} RETURN e";
+    }
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 

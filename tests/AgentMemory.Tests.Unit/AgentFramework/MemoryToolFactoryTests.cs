@@ -42,7 +42,7 @@ public sealed class MemoryToolFactoryTests
             .SearchPreferencesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
         _longTermService
-            .GetPreferencesByCategoryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetPreferencesByCategoryAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
         _longTermService
             .AddPreferenceAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>())
@@ -216,7 +216,7 @@ public sealed class MemoryToolFactoryTests
             CreatedAtUtc = DateTimeOffset.UtcNow
         };
         _longTermService
-            .GetPreferencesByCategoryAsync("style", Arg.Any<CancellationToken>())
+            .GetPreferencesByCategoryAsync("style", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(new[] { pref }));
 
         var tool = GetTool("recall_preferences");
@@ -230,7 +230,7 @@ public sealed class MemoryToolFactoryTests
 
         response.Success.Should().BeTrue();
         await _longTermService.Received(1)
-            .GetPreferencesByCategoryAsync("style", Arg.Any<CancellationToken>());
+            .GetPreferencesByCategoryAsync("style", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

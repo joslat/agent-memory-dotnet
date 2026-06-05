@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer;
 using AgentMemory.McpServer.Tools;
@@ -29,12 +30,12 @@ public sealed class EntityToolsTests
     [Fact]
     public async Task MemoryGetEntity_CallsGetEntitiesByNameAsyncWithIncludeAliasesTrue()
     {
-        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
         await EntityTools.MemoryGetEntity(_longTermMemory, "Alice");
 
-        await _longTermMemory.Received(1).GetEntitiesByNameAsync("Alice", true, Arg.Any<CancellationToken>());
+        await _longTermMemory.Received(1).GetEntitiesByNameAsync("Alice", true, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -52,7 +53,7 @@ public sealed class EntityToolsTests
                 CreatedAtUtc = FixedTime
             }
         };
-        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(entities);
 
         var result = await EntityTools.MemoryGetEntity(_longTermMemory, "Alice");
@@ -68,7 +69,7 @@ public sealed class EntityToolsTests
     [Fact]
     public async Task MemoryGetEntity_ReturnsEmptyArrayWhenNoEntitiesFound()
     {
-        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
         var result = await EntityTools.MemoryGetEntity(_longTermMemory, "Nobody");

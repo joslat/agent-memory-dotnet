@@ -73,9 +73,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     public Task<IReadOnlyList<Entity>> GetEntitiesByNameAsync(
         string name,
         bool includeAliases = true,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _entityRepo.GetByNameAsync(name, includeAliases, cancellationToken);
+        return _entityRepo.GetByNameAsync(name, includeAliases, scope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -112,9 +113,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     /// <inheritdoc/>
     public Task<IReadOnlyList<Preference>> GetPreferencesByCategoryAsync(
         string category,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _prefRepo.GetByCategoryAsync(category, cancellationToken);
+        return _prefRepo.GetByCategoryAsync(category, scope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -172,9 +174,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     /// <inheritdoc/>
     public Task<IReadOnlyList<Fact>> GetFactsBySubjectAsync(
         string subject,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _factRepo.GetBySubjectAsync(subject, cancellationToken);
+        return _factRepo.GetBySubjectAsync(subject, scope, cancellationToken);
     }
 
     /// <inheritdoc/>

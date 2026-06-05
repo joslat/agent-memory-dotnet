@@ -15,7 +15,7 @@ public interface IFactRepository
     Task<Fact?> GetByIdAsync(string factId, CancellationToken cancellationToken = default);
 
     /// <summary>Gets facts by subject.</summary>
-    Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>Searches facts by vector similarity.</summary>
     Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(

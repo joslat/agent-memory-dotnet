@@ -15,7 +15,7 @@ public interface IPreferenceRepository
     Task<Preference?> GetByIdAsync(string preferenceId, CancellationToken cancellationToken = default);
 
     /// <summary>Gets preferences by category.</summary>
-    Task<IReadOnlyList<Preference>> GetByCategoryAsync(string category, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Preference>> GetByCategoryAsync(string category, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>Searches preferences by vector similarity.</summary>
     Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsync(

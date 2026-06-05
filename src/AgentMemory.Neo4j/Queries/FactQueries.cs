@@ -73,8 +73,14 @@ public static class FactQueries
 
     // ── GetBySubjectAsync ──────────────────────────────────────────────
 
-    /// <summary>Get all facts for a given subject.</summary>
-    public const string GetBySubject = "MATCH (f:Fact {subject: $subject}) RETURN f";
+    /// <summary>Get all facts for a given subject, with an optional owner/shared filter (R1).</summary>
+    public static string GetBySubject(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $"MATCH (f:Fact) WHERE f.subject = $subject{owner} RETURN f";
+    }
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 

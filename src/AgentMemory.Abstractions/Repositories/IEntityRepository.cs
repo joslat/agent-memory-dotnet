@@ -28,6 +28,7 @@ public interface IEntityRepository
     Task<IReadOnlyList<Entity>> GetByNameAsync(
         string name,
         bool includeAliases = true,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

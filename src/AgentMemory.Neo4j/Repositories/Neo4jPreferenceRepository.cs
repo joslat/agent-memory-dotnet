@@ -79,13 +79,20 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Preference>> GetByCategoryAsync(string category, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Preference>> GetByCategoryAsync(
+        string category, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting preferences by category '{Category}'", category);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting preferences by category '{Category}', owner={Owner}", category, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.GetByCategory(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["category"] = category };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.GetByCategory, new { category });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

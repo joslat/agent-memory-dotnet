@@ -296,9 +296,9 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | Path | Status |
 |---|---|
 | Vector recall — Fact / Entity / Preference | ✅ Done (reference pattern: `FactQueries.SearchByVector`) |
-| Non-vector reads — Fact (`GetBySubject`, `FindByTriple`) | ❌ Open |
-| Non-vector reads — Entity (`GetByName*`, `GetByType`, spatial) | ❌ Open |
-| Non-vector reads — Preference (`GetByCategory`) | ❌ Open |
+| Non-vector reads — Fact `GetBySubject` | ✅ Done (IC3); `FindByTriple` is internal-only (write-side dedup), not user-exposed |
+| Non-vector reads — Entity `GetByName` | ✅ Done (IC3); `GetByType` = entity-resolver write-side (open question: entities may be shared); spatial = repo-only API |
+| Non-vector reads — Preference `GetByCategory` | ✅ Done (IC3) |
 | Background embedding backfill (`GetPageWithoutEmbedding*`) | ❌ Open |
 | GraphRAG retrieval (all 4 retrievers) | ✅ Done (IC4) — `request.UserId` → owner/shared filter (over-fetch on vector/graph; seed+related filtered), verified |
 | ReasoningTrace — write / vector-search | ✅ Done (IC1) — owner persisted + over-fetch owner filter, verified |
@@ -313,7 +313,8 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 |---|---|---|---|
 | IC1 | ReasoningTrace owner end-to-end — ✅ **write+recall done** (`owner_id` persisted on `AddTrace` + read-back; `StartTraceAsync`/`AgentTraceRecorder` stamp owner; over-fetch owner filter in `SearchByTaskVector`; `MemoryScope` threaded through `SearchSimilarTracesAsync` + assembler; 4 integration tests green). ⚠️ `DeleteBySession` owner-scoping **carved out** → needs owner-aware `ClearSessionAsync` (cross-cutting; messages/conversations aren't owner-modeled) — see IC-delete | 🟢 write+recall done | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
 | IC2 | Relationship owner end-to-end (persist+read `OwnerId`; owner-aware reads; `relationship_owner_idx`; migration 0003) | ⬜ Todo | `RelationshipQueries.cs`, `Neo4jRelationshipRepository.cs`, `SchemaQueries.cs` |
-| IC3 | Non-vector long-term reads scoped (`MemoryScope` param + owner WHERE on Fact `GetBySubject`/`FindByTriple`, Entity `GetByName*`/`GetByType`/spatial, Preference `GetByCategory`) | ⬜ Todo | `{Fact,Entity,Preference}Queries.cs` + repos + `ILongTermMemoryService` |
+| IC3 | Non-vector long-term reads scoped — ✅ **Done** for the user-facing leaks: `MemoryScope` threaded through Fact `GetBySubject`, Entity `GetByName`, Preference `GetByCategory` (query consts→methods + repos + `ILongTermMemoryService` + MCP `EntityTools.MemoryGetEntity` `userId`); 4 integration tests green. Not exposed/deferred: `FindByTriple` (internal dedup), spatial (repo-only), `GetByType` (entity-resolver — see open question on shared entities) | ✅ Done (user-facing) | `{Fact,Entity,Preference}Queries.cs`, repos, `ILongTermMemoryService`, `EntityTools.cs` |
+| IC8 | `IMemoryQueryFacade` explicit memory-tool surface (MAF `MemoryToolFactory` / SK plugin recall-preferences/search-knowledge/find-similar-tasks) does not carry user identity → thread `userId`/`MemoryScope` through the facade + adapters | ⬜ Todo | `IMemoryQueryFacade.cs`, `MemoryQueryFacade.cs`, `MemoryToolFactory.cs`, SK plugin |
 | IC4 | GraphRAG owner scoping — ✅ **Done**: `ownerId` on `IRetriever.SearchAsync`; Vector/Fulltext/Hybrid/Graph retrievers apply the owner/shared WHERE (over-fetch on the vector + graph-seed paths; graph traversal filters seed AND related); `Neo4jGraphRagContextSource` passes `request.UserId`. Unit forwarding tests + 2 Neo4j isolation integration tests green | ✅ Done | `Retrieval/IRetriever.cs`, `Retrieval/Internal/{RetrieverScope,Vector,Fulltext,Hybrid,Graph}*.cs`, `Neo4jGraphRagContextSource.cs` |
 | IC5 | Background embedding backfill + temporal `AsOf` recall scoped | ⬜ Todo | `MemoryService.cs`, `MemoryContextAssembler.cs`, `ILongTermMemoryService` AsOf |
 | IC6 | DI captive-singleton fix — `IMemoryStoreContext` per-scope routing without capturing into the singleton session factory (AsyncLocal accessor or per-call resolution) | ⬜ Todo | `ServiceCollectionExtensions.cs`, `Neo4jSessionFactory.cs`, MAF providers |
