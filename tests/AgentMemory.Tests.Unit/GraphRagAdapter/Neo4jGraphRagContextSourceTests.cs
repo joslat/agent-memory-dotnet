@@ -33,6 +33,33 @@ public sealed class Neo4jGraphRagContextSourceTests
         string query = "test query", int topK = 3) =>
         new() { SessionId = "session-1", Query = query, TopK = topK };
 
+    [Fact]
+    public async Task GetContext_ForwardsRequestUserId_ToRetriever_ForOwnerScoping()
+    {
+        var retriever = Substitute.For<IRetriever>();
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new RetrieverResult([]));
+
+        var sut = CreateSut(retriever);
+        var request = new GraphRagContextRequest { SessionId = "s", Query = "q", TopK = 3, UserId = "alice" };
+        await sut.GetContextAsync(request);
+
+        await retriever.Received(1).SearchAsync(Arg.Any<string>(), Arg.Any<int>(), "alice", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetContext_NoUserId_PassesNullOwner_ToRetriever()
+    {
+        var retriever = Substitute.For<IRetriever>();
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new RetrieverResult([]));
+
+        var sut = CreateSut(retriever);
+        await sut.GetContextAsync(MakeRequest());
+
+        await retriever.Received(1).SearchAsync(Arg.Any<string>(), Arg.Any<int>(), null, Arg.Any<CancellationToken>());
+    }
+
     // -------------------------------------------------------------------------
     // Result mapping
     // -------------------------------------------------------------------------
@@ -41,7 +68,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_MapsContentToText()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([new RetrieverResultItem("hello world")]));
 
         var sut = CreateSut(retriever);
@@ -55,7 +82,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_MapsScoreFromMetadata()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([
                 new RetrieverResultItem("text", new Dictionary<string, object?> { ["score"] = 0.87 })
             ]));
@@ -70,7 +97,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_MapsAdditionalMetadata()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([
                 new RetrieverResultItem("text", new Dictionary<string, object?>
                 {
@@ -93,7 +120,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_NullMetadata_ScoreIsZero()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([new RetrieverResultItem("no meta", null)]));
 
         var sut = CreateSut(retriever);
@@ -111,20 +138,20 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_RespectsTopKFromRequest()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([]));
 
         var sut = CreateSut(retriever);
         await sut.GetContextAsync(MakeRequest(topK: 7));
 
-        await retriever.Received(1).SearchAsync(Arg.Any<string>(), 7, Arg.Any<CancellationToken>());
+        await retriever.Received(1).SearchAsync(Arg.Any<string>(), 7, Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task GetContext_UsesOptionsTopK_WhenRequestTopKIsZero()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([]));
 
         var options = new GraphRagOptions { IndexName = "idx", TopK = 10 };
@@ -132,7 +159,7 @@ public sealed class Neo4jGraphRagContextSourceTests
         var request = new GraphRagContextRequest { SessionId = "s", Query = "q", TopK = 0 };
         await sut.GetContextAsync(request);
 
-        await retriever.Received(1).SearchAsync(Arg.Any<string>(), 10, Arg.Any<CancellationToken>());
+        await retriever.Received(1).SearchAsync(Arg.Any<string>(), 10, Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // -------------------------------------------------------------------------
@@ -143,7 +170,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_EmptyResults_ReturnsEmptyItems()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([]));
 
         var sut = CreateSut(retriever);
@@ -156,7 +183,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_RetrieverThrows_ReturnsEmptyWithoutRethrow()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("neo4j offline"));
 
         var sut = CreateSut(retriever);
@@ -172,7 +199,7 @@ public sealed class Neo4jGraphRagContextSourceTests
         cts.Cancel();
 
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var sut = CreateSut(retriever);
@@ -192,7 +219,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     {
         const string query = "What is graph RAG?";
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([]));
 
         var sut = CreateSut(retriever);
@@ -203,7 +230,7 @@ public sealed class Neo4jGraphRagContextSourceTests
             TopK = 3
         });
 
-        await retriever.Received(1).SearchAsync(query, Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await retriever.Received(1).SearchAsync(query, Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // -------------------------------------------------------------------------
@@ -214,7 +241,7 @@ public sealed class Neo4jGraphRagContextSourceTests
     public async Task GetContext_MultipleItems_AllMapped()
     {
         var retriever = Substitute.For<IRetriever>();
-        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetrieverResult([
                 new RetrieverResultItem("item1", new Dictionary<string, object?> { ["score"] = 0.9 }),
                 new RetrieverResultItem("item2", new Dictionary<string, object?> { ["score"] = 0.7 }),

@@ -50,6 +50,41 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
 
     public Task DisposeAsync() => Task.CompletedTask;
 
+    // ── Owner isolation (R1 / IC4) ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task VectorMode_OwnerScoped_ReturnsOwnerAndShared_NotOtherUsers()
+    {
+        await SeedOwnedAsync(
+            ("a", "alice private knowledge", AxisX, "alice"),
+            ("b", "bob private knowledge", AxisX, "bob"),
+            ("s", "shared org knowledge", AxisX, null));
+
+        var source = CreateSource(GraphRagSearchMode.Vector, queryVector: AxisX);
+        var result = await source.GetContextAsync(
+            new GraphRagContextRequest { SessionId = "s1", Query = "knowledge", TopK = 10, UserId = "alice" });
+
+        var texts = result.Items.Select(i => i.Text).ToList();
+        texts.Should().Contain("alice private knowledge");
+        texts.Should().Contain("shared org knowledge");      // shared (owner_id null) visible
+        texts.Should().NotContain("bob private knowledge");  // other user's GraphRAG context never leaks
+    }
+
+    [Fact]
+    public async Task VectorMode_Unscoped_ReturnsEveryone()
+    {
+        await SeedOwnedAsync(
+            ("a", "alice private knowledge", AxisX, "alice"),
+            ("b", "bob private knowledge", AxisX, "bob"));
+
+        var source = CreateSource(GraphRagSearchMode.Vector, queryVector: AxisX);
+        var result = await source.GetContextAsync(Request("knowledge", topK: 10)); // no UserId
+
+        var texts = result.Items.Select(i => i.Text).ToList();
+        texts.Should().Contain("alice private knowledge");
+        texts.Should().Contain("bob private knowledge");
+    }
+
     // ── Retrieval mode selection + provider wiring ─────────────────────────────
 
     [Fact]
@@ -186,6 +221,17 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
             await session.RunAsync(
                 "CREATE (k:Knowledge {id: $id, text: $text, embedding: $embedding})",
                 new { id = n.Id, text = n.Text, embedding = n.Embedding.ToList() });
+        }
+    }
+
+    private async Task SeedOwnedAsync(params (string Id, string Text, float[] Embedding, string? OwnerId)[] nodes)
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        foreach (var n in nodes)
+        {
+            await session.RunAsync(
+                "CREATE (k:Knowledge {id: $id, text: $text, embedding: $embedding, owner_id: $ownerId})",
+                new { id = n.Id, text = n.Text, embedding = n.Embedding.ToList(), ownerId = n.OwnerId });
         }
     }
 

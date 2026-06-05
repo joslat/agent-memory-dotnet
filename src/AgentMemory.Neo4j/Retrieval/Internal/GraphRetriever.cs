@@ -42,20 +42,23 @@ internal sealed class GraphRetriever : IRetriever
     }
 
     public async Task<RetrieverResult> SearchAsync(
-        string queryText, int topK, CancellationToken cancellationToken = default)
+        string queryText, int topK, string? ownerId = null, CancellationToken cancellationToken = default)
     {
         var embedding = await _embeddingGenerator
             .GenerateVectorAsync(queryText, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        string cypher = BuildTraversalCypher(_maxTraversalHops);
+        bool scoped = RetrieverScope.IsScoped(ownerId);
+        string cypher = BuildTraversalCypher(_maxTraversalHops, scoped);
 
         var parameters = new Dictionary<string, object?>
         {
             ["index"] = _indexName,
             ["k"] = topK,
+            ["fetchK"] = RetrieverScope.FetchK(topK, scoped),
             ["embedding"] = embedding.ToArray()
         };
+        if (scoped) parameters["owner_id"] = ownerId;
 
         var (records, _, _) = await _driver.ExecutableQuery(cypher)
             .WithParameters(parameters)
@@ -73,13 +76,23 @@ internal sealed class GraphRetriever : IRetriever
     /// to a small constant range in the constructor and is never derived from caller-supplied text,
     /// so this interpolation cannot be an injection vector.
     /// </summary>
-    internal static string BuildTraversalCypher(int maxTraversalHops) => $$"""
-        CALL db.index.vector.queryNodes($index, $k, $embedding)
+    internal static string BuildTraversalCypher(int maxTraversalHops, bool scoped = false)
+    {
+        // Owner-scope (R1): filter the vector-seeded nodes AND the traversed neighbours to the owner
+        // (plus shared/global) so the graph walk cannot surface another user's connected nodes. Blank
+        // lines when unscoped, so the query is byte-for-byte today's behavior. Over-fetch via $fetchK.
+        var seedWhere = scoped ? "WHERE (seed.owner_id = $owner_id OR seed.owner_id IS NULL)" : string.Empty;
+        var relatedWhere = scoped ? "WHERE (related.owner_id = $owner_id OR related.owner_id IS NULL)" : string.Empty;
+
+        return $$"""
+        CALL db.index.vector.queryNodes($index, $fetchK, $embedding)
         YIELD node AS seed, score
+        {{seedWhere}}
         WITH seed, score
         ORDER BY score DESC
         LIMIT $k
         MATCH path = (seed)-[:RELATED_TO*1..{{maxTraversalHops}}]-(related)
+        {{relatedWhere}}
         WITH seed, related, score, length(path) AS hops
         RETURN
           coalesce(seed.text, seed.content, seed.name, '') AS seedText,
@@ -89,6 +102,7 @@ internal sealed class GraphRetriever : IRetriever
         ORDER BY score DESC, hops ASC
         LIMIT $k
         """;
+    }
 
     internal static RetrieverResultItem FormatGraphResult(IRecord record)
     {

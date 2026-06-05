@@ -300,7 +300,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | Non-vector reads — Entity (`GetByName*`, `GetByType`, spatial) | ❌ Open |
 | Non-vector reads — Preference (`GetByCategory`) | ❌ Open |
 | Background embedding backfill (`GetPageWithoutEmbedding*`) | ❌ Open |
-| GraphRAG retrieval (all 4 retrievers) | ❌ Open — `request.UserId` ignored |
+| GraphRAG retrieval (all 4 retrievers) | ✅ Done (IC4) — `request.UserId` → owner/shared filter (over-fetch on vector/graph; seed+related filtered), verified |
 | ReasoningTrace — write / vector-search | ✅ Done (IC1) — owner persisted + over-fetch owner filter, verified |
 | ReasoningTrace — session-delete | ❌ Open — needs owner-aware `ClearSessionAsync` (cross-cutting) |
 | Relationships — write / read | ❌ Open |
@@ -314,7 +314,7 @@ After R1 core landed (I1–I9), a multi-agent review (35 verified findings, 4 re
 | IC1 | ReasoningTrace owner end-to-end — ✅ **write+recall done** (`owner_id` persisted on `AddTrace` + read-back; `StartTraceAsync`/`AgentTraceRecorder` stamp owner; over-fetch owner filter in `SearchByTaskVector`; `MemoryScope` threaded through `SearchSimilarTracesAsync` + assembler; 4 integration tests green). ⚠️ `DeleteBySession` owner-scoping **carved out** → needs owner-aware `ClearSessionAsync` (cross-cutting; messages/conversations aren't owner-modeled) — see IC-delete | 🟢 write+recall done | `ReasoningQueries.cs`, `Neo4jReasoningTraceRepository.cs`, `ReasoningMemoryService.cs`, `MemoryContextAssembler.cs` |
 | IC2 | Relationship owner end-to-end (persist+read `OwnerId`; owner-aware reads; `relationship_owner_idx`; migration 0003) | ⬜ Todo | `RelationshipQueries.cs`, `Neo4jRelationshipRepository.cs`, `SchemaQueries.cs` |
 | IC3 | Non-vector long-term reads scoped (`MemoryScope` param + owner WHERE on Fact `GetBySubject`/`FindByTriple`, Entity `GetByName*`/`GetByType`/spatial, Preference `GetByCategory`) | ⬜ Todo | `{Fact,Entity,Preference}Queries.cs` + repos + `ILongTermMemoryService` |
-| IC4 | GraphRAG owner scoping (`userId`/scope on `IRetriever.SearchAsync` + 4 retrievers; pass `request.UserId` in `Neo4jGraphRagContextSource`) | ⬜ Todo | `Retrieval/IRetriever.cs`, `Retrieval/Internal/*Retriever.cs`, `Neo4jGraphRagContextSource.cs` |
+| IC4 | GraphRAG owner scoping — ✅ **Done**: `ownerId` on `IRetriever.SearchAsync`; Vector/Fulltext/Hybrid/Graph retrievers apply the owner/shared WHERE (over-fetch on the vector + graph-seed paths; graph traversal filters seed AND related); `Neo4jGraphRagContextSource` passes `request.UserId`. Unit forwarding tests + 2 Neo4j isolation integration tests green | ✅ Done | `Retrieval/IRetriever.cs`, `Retrieval/Internal/{RetrieverScope,Vector,Fulltext,Hybrid,Graph}*.cs`, `Neo4jGraphRagContextSource.cs` |
 | IC5 | Background embedding backfill + temporal `AsOf` recall scoped | ⬜ Todo | `MemoryService.cs`, `MemoryContextAssembler.cs`, `ILongTermMemoryService` AsOf |
 | IC6 | DI captive-singleton fix — `IMemoryStoreContext` per-scope routing without capturing into the singleton session factory (AsyncLocal accessor or per-call resolution) | ⬜ Todo | `ServiceCollectionExtensions.cs`, `Neo4jSessionFactory.cs`, MAF providers |
 | IC7 | Integration + unit tests for IC1–IC6; README/`nextsteps.md` honesty pass | ⬜ Todo | `tests/...`, `README.md`, `docs/nextsteps.md` |

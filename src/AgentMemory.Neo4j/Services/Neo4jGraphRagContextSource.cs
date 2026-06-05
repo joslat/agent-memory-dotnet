@@ -60,7 +60,8 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
         try
         {
             var topK = request.TopK > 0 ? request.TopK : _options.TopK;
-            var result = await _retriever.SearchAsync(request.Query, topK, cancellationToken)
+            // R1: scope GraphRAG retrieval to the requesting owner (plus shared/global).
+            var result = await _retriever.SearchAsync(request.Query, topK, request.UserId, cancellationToken)
                 .ConfigureAwait(false);
 
             var items = result.Items.Select(MapItem).ToList();

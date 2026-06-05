@@ -26,25 +26,32 @@ internal sealed class VectorRetriever : IRetriever
     }
 
     public async Task<RetrieverResult> SearchAsync(
-        string queryText, int topK, CancellationToken cancellationToken = default)
+        string queryText, int topK, string? ownerId = null, CancellationToken cancellationToken = default)
     {
         var embedding = await _embeddingGenerator
             .GenerateVectorAsync(queryText, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
+        bool scoped = RetrieverScope.IsScoped(ownerId);
+        string ownerWhere = RetrieverScope.OwnerWhere("node", scoped);
+
+        // Over-fetch ($fetchK) then owner-filter then LIMIT $k, so a scoped query is not starved by
+        // higher-scoring foreign rows. When unscoped, $fetchK == $k and ownerWhere is a blank line.
         string cypher = _retrievalQuery is not null
             ? $"""
-               CALL db.index.vector.queryNodes($index, $k, $embedding)
+               CALL db.index.vector.queryNodes($index, $fetchK, $embedding)
                YIELD node, score
+               {ownerWhere}
                WITH node, score
                ORDER BY score DESC
                LIMIT $k
                {_retrievalQuery}
                LIMIT $k
                """
-            : """
-              CALL db.index.vector.queryNodes($index, $k, $embedding)
+            : $"""
+              CALL db.index.vector.queryNodes($index, $fetchK, $embedding)
               YIELD node, score
+              {ownerWhere}
               WITH node, score
               ORDER BY score DESC
               LIMIT $k
@@ -55,8 +62,10 @@ internal sealed class VectorRetriever : IRetriever
         {
             ["index"] = _indexName,
             ["k"] = topK,
+            ["fetchK"] = RetrieverScope.FetchK(topK, scoped),
             ["embedding"] = embedding.ToArray()
         };
+        if (scoped) parameters["owner_id"] = ownerId;
 
         var (records, _, _) = await _driver.ExecutableQuery(cypher)
             .WithParameters(parameters)
