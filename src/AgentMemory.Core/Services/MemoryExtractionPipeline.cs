@@ -17,6 +17,8 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
     private readonly IPersistenceStage _persistenceStage;
     private readonly ILogger<MemoryExtractionPipeline> _logger;
 
+    // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
+    // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
     internal MemoryExtractionPipeline(
         IExtractionStage extractionStage,
         IPersistenceStage persistenceStage,

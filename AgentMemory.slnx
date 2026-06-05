@@ -4,6 +4,7 @@
     <Project Path="samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj" />
     <Project Path="samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.RealAgent/AgentMemory.Sample.RealAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj" />
   </Folder>
   <Folder Name="/src/">

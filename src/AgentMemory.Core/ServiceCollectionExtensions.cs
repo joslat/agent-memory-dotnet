@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -45,7 +46,18 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IShortTermMemoryService, ShortTermMemoryService>();
         services.TryAddScoped<ILongTermMemoryService, LongTermMemoryService>();
         services.TryAddScoped<IReasoningMemoryService, ReasoningMemoryService>();
-        services.TryAddScoped<IMemoryContextAssembler, MemoryContextAssembler>();
+        // GraphRAG is an optional source: resolve it with GetService so memory-only consumers
+        // (who never call AddGraphRagAdapter) don't fail to construct the assembler. When the
+        // GraphRAG adapter IS registered, that instance (incl. any observability decorator) is used.
+        services.TryAddScoped<IMemoryContextAssembler>(sp => new MemoryContextAssembler(
+            sp.GetRequiredService<IShortTermMemoryService>(),
+            sp.GetRequiredService<ILongTermMemoryService>(),
+            sp.GetRequiredService<IReasoningMemoryService>(),
+            sp.GetService<IGraphRagContextSource>(),
+            sp.GetRequiredService<IEmbeddingOrchestrator>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<IOptions<MemoryOptions>>(),
+            sp.GetRequiredService<ILogger<MemoryContextAssembler>>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
 
         // Role interfaces (ISP): bind each to the same scoped IMemoryService instance so consumers
@@ -69,8 +81,13 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
         services.TryAddScoped<IPersistenceStage, PersistenceStage>();
 
-        // Unified extraction pipeline — composes the two stages.
-        services.TryAddScoped<IMemoryExtractionPipeline, MemoryExtractionPipeline>();
+        // Unified extraction pipeline — composes the two stages. Registered via a factory because
+        // MemoryExtractionPipeline's constructor is internal (its stage parameters are internal types),
+        // which the default DI activator (public ctors only) cannot select.
+        services.TryAddScoped<IMemoryExtractionPipeline>(sp => new MemoryExtractionPipeline(
+            sp.GetRequiredService<IExtractionStage>(),
+            sp.GetRequiredService<IPersistenceStage>(),
+            sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>()));
 
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();
