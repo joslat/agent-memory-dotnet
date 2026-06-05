@@ -135,6 +135,9 @@ public static class SchemaQueries
     /// <summary>Index on ReasoningTrace.owner_id (multi-user scope; trace owner-write lands in R2).</summary>
     public const string TraceOwnerIndex = "CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)";
 
+    /// <summary>Relationship-property index on the RELATED_TO edge's owner_id (multi-user scope).</summary>
+    public const string RelationshipOwnerIndex = "CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)";
+
     /// <summary>All property indexes in bootstrap order.</summary>
     public static readonly string[] PropertyIndexes =
     [
@@ -156,7 +159,8 @@ public static class SchemaQueries
         FactOwnerIndex,
         EntityOwnerIndex,
         PreferenceOwnerIndex,
-        TraceOwnerIndex
+        TraceOwnerIndex,
+        RelationshipOwnerIndex
     ];
 
     // ── Vector Indexes (parameterized by dimensions) ────────────

@@ -218,6 +218,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Description = extracted.Description,
                     Confidence = extracted.Confidence,
                     Attributes = extracted.Attributes,
+                    OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow
                 };

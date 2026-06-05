@@ -204,9 +204,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     /// <inheritdoc/>
     public Task<IReadOnlyList<Relationship>> GetEntityRelationshipsAsync(
         string entityId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _relRepo.GetByEntityAsync(entityId, cancellationToken);
+        return _relRepo.GetByEntityAsync(entityId, scope, cancellationToken);
     }
 
     /// <inheritdoc/>

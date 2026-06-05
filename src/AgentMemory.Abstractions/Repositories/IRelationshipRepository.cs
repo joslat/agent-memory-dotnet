@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -26,6 +27,7 @@ public interface IRelationshipRepository
     /// </summary>
     Task<IReadOnlyList<Relationship>> GetByEntityAsync(
         string entityId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -33,6 +35,7 @@ public interface IRelationshipRepository
     /// </summary>
     Task<IReadOnlyList<Relationship>> GetBySourceEntityAsync(
         string sourceEntityId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -40,5 +43,6 @@ public interface IRelationshipRepository
     /// </summary>
     Task<IReadOnlyList<Relationship>> GetByTargetEntityAsync(
         string targetEntityId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

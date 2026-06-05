@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
@@ -32,6 +33,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
                 ["sourceEntityId"]   = relationship.SourceEntityId,
                 ["targetEntityId"]   = relationship.TargetEntityId,
                 ["relationType"]     = relationship.RelationshipType,
+                ["ownerId"]          = (object?)relationship.OwnerId,
                 ["confidence"]       = relationship.Confidence,
                 ["description"]      = (object?)relationship.Description,
                 ["validFrom"]        = (object?)(relationship.ValidFrom?.ToString("O")),
@@ -62,37 +64,58 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Relationship>> GetByEntityAsync(string entityId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Relationship>> GetByEntityAsync(
+        string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting relationships for entity {EntityId}", entityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting relationships for entity {EntityId}, owner={Owner}", entityId, scope?.OwnerId);
+
+        var cypher = RelationshipQueries.GetByEntity(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["entityId"] = entityId };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(RelationshipQueries.GetByEntity, new { entityId });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Relationship>> GetBySourceEntityAsync(string sourceEntityId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Relationship>> GetBySourceEntityAsync(
+        string sourceEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting outgoing relationships for entity {EntityId}", sourceEntityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting outgoing relationships for entity {EntityId}, owner={Owner}", sourceEntityId, scope?.OwnerId);
+
+        var cypher = RelationshipQueries.GetBySourceEntity(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["sourceEntityId"] = sourceEntityId };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(RelationshipQueries.GetBySourceEntity, new { sourceEntityId });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Relationship>> GetByTargetEntityAsync(string targetEntityId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Relationship>> GetByTargetEntityAsync(
+        string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting incoming relationships for entity {EntityId}", targetEntityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting incoming relationships for entity {EntityId}, owner={Owner}", targetEntityId, scope?.OwnerId);
+
+        var cypher = RelationshipQueries.GetByTargetEntity(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["targetEntityId"] = targetEntityId };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(RelationshipQueries.GetByTargetEntity, new { targetEntityId });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
         }, cancellationToken);
@@ -105,6 +128,7 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
             SourceEntityId   = r["source_entity_id"].As<string>(),
             TargetEntityId   = r["target_entity_id"].As<string>(),
             RelationshipType = r["relation_type"].As<string>(),
+            OwnerId          = r.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string?>() : null,
             Confidence       = r["confidence"].As<double>(),
             Description      = r.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
             ValidFrom        = r.Properties.TryGetValue("valid_from", out var vf)

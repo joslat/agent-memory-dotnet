@@ -245,7 +245,7 @@ public sealed class LongTermMemoryServiceTests
     public async Task GetEntityRelationshipsAsync_DelegatesToRepository()
     {
         _relRepo
-            .GetByEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetByEntityAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Relationship>>(Array.Empty<Relationship>()));
         var sut = CreateSut();
 
@@ -253,7 +253,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _relRepo
             .Received(1)
-            .GetByEntityAsync("e-1", Arg.Any<CancellationToken>());
+            .GetByEntityAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     // ---- Helpers ----

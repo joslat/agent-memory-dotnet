@@ -96,6 +96,7 @@ public interface ILongTermMemoryService
     /// </summary>
     Task<IReadOnlyList<Relationship>> GetEntityRelationshipsAsync(
         string entityId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

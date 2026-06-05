@@ -43,8 +43,8 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 10 constraints + 3 fulltext + 6 vector + 19 property = 38
-        executedStatements.Should().HaveCount(38);
+        // 10 constraints + 3 fulltext + 6 vector + 20 property = 39
+        executedStatements.Should().HaveCount(39);
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(19);
+        propertyIndexes.Should().HaveCount(20);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
         propertyIndexes.Should().Contain(s => s.Contains("message_role_idx"));
@@ -193,6 +193,7 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("entity_owner_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("preference_owner_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("trace_owner_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("rel_owner_idx"));
     }
 
     [Theory]
