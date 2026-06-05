@@ -17,6 +17,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly ContextFormatOptions _formatOptions;
     private readonly AgentFrameworkOptions _agentOptions;
+    private readonly IMemoryStoreContext? _storeContext;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
     public Neo4jMemoryContextProvider(
@@ -24,7 +25,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IEmbeddingOrchestrator embeddingOrchestrator,
         IOptions<ContextFormatOptions> formatOptions,
         IOptions<AgentFrameworkOptions> agentOptions,
-        ILogger<Neo4jMemoryContextProvider> logger)
+        ILogger<Neo4jMemoryContextProvider> logger,
+        IMemoryStoreContext? storeContext = null)
         // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
         // All three are passed as null: we supply our own ILogger via constructor injection,
         // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
@@ -34,6 +36,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _embeddingOrchestrator = embeddingOrchestrator ?? throw new ArgumentNullException(nameof(embeddingOrchestrator));
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
+        _storeContext = storeContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -45,8 +48,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken = default)
     {
         var messages = context.AIContext?.Messages ?? Enumerable.Empty<ChatMessage>();
-        var (sessionId, conversationId) = ExtractSessionIds(context);
-        return await BuildContextAsync(messages, sessionId, conversationId, cancellationToken)
+        var ids = ExtractIds(context.Session, context.Agent);
+        ApplyStoreContext(ids.applicationId);
+        return await BuildContextAsync(messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);
     }
 
@@ -57,7 +61,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IEnumerable<ChatMessage> messages,
         string sessionId,
         string conversationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? userId = null)
     {
         try
         {
@@ -85,6 +90,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             var recallRequest = new RecallRequest
             {
                 SessionId = sessionId,
+                UserId = userId,
                 Query = queryText,
                 QueryEmbedding = queryEmbedding
             };
@@ -131,9 +137,10 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         }
 
         var responseMessages = context.ResponseMessages ?? Enumerable.Empty<ChatMessage>();
-        var (sessionId, conversationId) = ExtractSessionIds(context);
+        var ids = ExtractIds(context.Session, context.Agent);
+        ApplyStoreContext(ids.applicationId);
 
-        await PerformStoreAsync(responseMessages, sessionId, conversationId, cancellationToken)
+        await PerformStoreAsync(responseMessages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);
     }
 
@@ -142,7 +149,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IEnumerable<ChatMessage> responseMessages,
         string sessionId,
         string conversationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? userId = null)
     {
         try
         {
@@ -169,7 +177,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                         new ExtractionRequest
                         {
                             Messages = storedMessages,
-                            SessionId = sessionId
+                            SessionId = sessionId,
+                            UserId = userId
                         }, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -186,18 +195,14 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         }
     }
 
-    private (string sessionId, string conversationId) ExtractSessionIds(InvokingContext context)
-        => ExtractIds(context.Session, context.Agent);
-
-    private (string sessionId, string conversationId) ExtractSessionIds(InvokedContext context)
-        => ExtractIds(context.Session, context.Agent);
-
-    private (string sessionId, string conversationId) ExtractIds(
+    private (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(
         AgentSession? session,
         AIAgent? agent)
     {
         string? sessionId = null;
         string? conversationId = null;
+        string? userId = null;
+        string? applicationId = null;
 
         try
         {
@@ -208,17 +213,32 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                     System.Text.Json.JsonSerializerOptions.Default);
                 bag.TryGetValue(_agentOptions.DefaultConversationIdKey, out conversationId,
                     System.Text.Json.JsonSerializerOptions.Default);
+                bag.TryGetValue(_agentOptions.DefaultUserIdKey, out userId,
+                    System.Text.Json.JsonSerializerOptions.Default);
+                bag.TryGetValue(_agentOptions.DefaultApplicationIdKey, out applicationId,
+                    System.Text.Json.JsonSerializerOptions.Default);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Could not extract session IDs from state bag.");
+            _logger.LogDebug(ex, "Could not extract identity from state bag.");
         }
 
         sessionId ??= agent?.Id ?? Guid.NewGuid().ToString("N");
         // P2-4: Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
         conversationId ??= sessionId;
 
-        return (sessionId, conversationId);
+        return (sessionId, conversationId,
+            string.IsNullOrWhiteSpace(userId) ? null : userId,
+            string.IsNullOrWhiteSpace(applicationId) ? null : applicationId);
+    }
+
+    // Routes the memory store for this scope when an application_id is supplied and a writable store
+    // context is registered (R1b). No-op otherwise. Mutating a singleton context is only safe for one
+    // application per host; register a scoped IMemoryStoreContext to route per request.
+    private void ApplyStoreContext(string? applicationId)
+    {
+        if (applicationId is not null && _storeContext is IWritableMemoryStoreContext writable)
+            writable.ApplicationId = applicationId;
     }
 }

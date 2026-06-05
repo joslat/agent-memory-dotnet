@@ -38,4 +38,20 @@ public sealed class AgentFrameworkOptions
     /// Defaults to <c>"conversation_id"</c> — the idiomatic StateBag key name.
     /// </summary>
     public string DefaultConversationIdKey { get; set; } = "conversation_id";
+
+    /// <summary>
+    /// The key used to look up the user/owner identifier in the MAF <c>StateBag</c> (R1, multi-user
+    /// isolation). Defaults to <c>"user_id"</c>. When present, it scopes recall to that owner's
+    /// memories (plus shared/global) and stamps it as the owner on newly extracted knowledge. Absent
+    /// ⇒ shared/global behavior, unchanged from before.
+    /// </summary>
+    public string DefaultUserIdKey { get; set; } = "user_id";
+
+    /// <summary>
+    /// The key used to look up the application / memory-store identifier in the MAF <c>StateBag</c>
+    /// (R1b, store isolation). Defaults to <c>"application_id"</c>. When present and a writable
+    /// <see cref="AgentMemory.Abstractions.Services.IMemoryStoreContext"/> is registered, it routes
+    /// the store for the scope. Absent ⇒ the default store.
+    /// </summary>
+    public string DefaultApplicationIdKey { get; set; } = "application_id";
 }

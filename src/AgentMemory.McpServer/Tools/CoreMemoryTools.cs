@@ -105,6 +105,7 @@ public sealed class CoreMemoryTools
         [Description("Type of entity: Person, Organization, Location, Event, or Object")] string type,
         [Description("Description of the entity (optional)")] string? description = null,
         [Description("Confidence score from 0.0 to 1.0 (optional, defaults to configured value)")] double? confidence = null,
+        [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var entity = new Entity
@@ -114,6 +115,7 @@ public sealed class CoreMemoryTools
             Type = type,
             Description = description,
             Confidence = confidence ?? options.Value.DefaultConfidence,
+            OwnerId = userId,
             CreatedAtUtc = clock.UtcNow
         };
 
@@ -139,6 +141,7 @@ public sealed class CoreMemoryTools
         [Description("The preference text describing what the user prefers")] string preferenceText,
         [Description("Context in which the preference applies (optional)")] string? context = null,
         [Description("Confidence score from 0.0 to 1.0 (optional)")] double? confidence = null,
+        [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var preference = new Preference
@@ -148,6 +151,7 @@ public sealed class CoreMemoryTools
             PreferenceText = preferenceText,
             Context = context,
             Confidence = confidence ?? options.Value.DefaultConfidence,
+            OwnerId = userId,
             CreatedAtUtc = clock.UtcNow
         };
 
@@ -173,6 +177,7 @@ public sealed class CoreMemoryTools
         [Description("Predicate or relationship (e.g., 'works_at', 'lives_in', 'knows')")] string predicate,
         [Description("Object or value of the fact (e.g., 'Microsoft', 'Seattle')")] string factObject,
         [Description("Confidence score from 0.0 to 1.0 (optional)")] double? confidence = null,
+        [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var fact = new Fact
@@ -182,6 +187,7 @@ public sealed class CoreMemoryTools
             Predicate = predicate,
             Object = factObject,
             Confidence = confidence ?? options.Value.DefaultConfidence,
+            OwnerId = userId,
             CreatedAtUtc = clock.UtcNow
         };
 

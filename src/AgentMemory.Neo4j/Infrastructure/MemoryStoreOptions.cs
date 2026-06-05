@@ -57,7 +57,7 @@ public sealed class MemoryStoreOptions
 /// and set <see cref="ApplicationId"/> per request (e.g. from a MAF StateBag value). Defaults to null
 /// (the default store).
 /// </summary>
-public sealed class DefaultMemoryStoreContext : IMemoryStoreContext
+public sealed class DefaultMemoryStoreContext : IWritableMemoryStoreContext
 {
     /// <inheritdoc />
     public string? ApplicationId { get; set; }

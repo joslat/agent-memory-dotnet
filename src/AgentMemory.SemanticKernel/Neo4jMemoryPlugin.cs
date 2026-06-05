@@ -32,9 +32,10 @@ public sealed class Neo4jMemoryPlugin
         [Description("The user query or topic to recall memories for")] string query,
         [Description("Session identifier")] string sessionId,
         [Description("Optional conversation identifier to narrow recall scope")] string? conversationId = null,
+        [Description("Optional owner/user identifier. Null recalls only shared/global knowledge; set it to also recall that user's private memories.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var request = new RecallRequest { SessionId = sessionId, Query = query };
+        var request = new RecallRequest { SessionId = sessionId, UserId = userId, Query = query };
         RecallResult result;
         try
         {
