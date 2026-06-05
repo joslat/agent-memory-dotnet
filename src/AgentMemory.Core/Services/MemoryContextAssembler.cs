@@ -89,24 +89,35 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             var queryEmbedding = request.QueryEmbedding
                 ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
 
-            // Launch all memory retrieval tasks in parallel.
+            // Vector searches require a non-empty embedding. A blank query (e.g. a history-only
+            // recall via the chat-history provider) yields an empty embedding — skip the semantic
+            // searches rather than issue zero-dimension vector queries (which the index rejects).
+            bool hasEmbedding = queryEmbedding is { Length: > 0 };
+            static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
+
+            // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding.
             var recentTask = _shortTerm.GetRecentMessagesAsync(
                 request.SessionId, recallOpts.MaxRecentMessages, cancellationToken);
 
-            var relevantTask = _shortTerm.SearchMessagesAsync(
-                request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken);
+            var relevantTask = hasEmbedding
+                ? _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken)
+                : Empty<Message>();
 
-            var entitiesTask = _longTerm.SearchEntitiesAsync(
-                queryEmbedding, recallOpts.MaxEntities, minScore, cancellationToken);
+            var entitiesTask = hasEmbedding
+                ? _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, cancellationToken)
+                : Empty<Entity>();
 
-            var preferencesTask = _longTerm.SearchPreferencesAsync(
-                queryEmbedding, recallOpts.MaxPreferences, minScore, cancellationToken);
+            var preferencesTask = hasEmbedding
+                ? _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, cancellationToken)
+                : Empty<Preference>();
 
-            var factsTask = _longTerm.SearchFactsAsync(
-                queryEmbedding, recallOpts.MaxFacts, minScore, cancellationToken);
+            var factsTask = hasEmbedding
+                ? _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, cancellationToken)
+                : Empty<Fact>();
 
-            var tracesTask = _reasoning.SearchSimilarTracesAsync(
-                queryEmbedding, null, recallOpts.MaxTraces, minScore, cancellationToken);
+            var tracesTask = hasEmbedding
+                ? _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, cancellationToken)
+                : Empty<ReasoningTrace>();
 
             await Task.WhenAll(
                 recentTask, relevantTask, entitiesTask,

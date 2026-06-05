@@ -427,7 +427,10 @@ UNWIND $items AS item
             RETURN f
 
 ## MessageQueries.Add
-MATCH (conv:Conversation {id: $conversationId})
+MERGE (conv:Conversation {id: $conversationId})
+            ON CREATE SET conv.session_id = $sessionId,
+                          conv.created_at = datetime($timestamp),
+                          conv.updated_at = datetime($timestamp)
             CREATE (m:Message {
                 id:              $id,
                 conversation_id: $conversationId,
@@ -443,7 +446,10 @@ MATCH (conv:Conversation {id: $conversationId})
 
 ## MessageQueries.AddBatch
 UNWIND $messages AS msg
-            MATCH (conv:Conversation {id: msg.conversation_id})
+            MERGE (conv:Conversation {id: msg.conversation_id})
+            ON CREATE SET conv.session_id = msg.session_id,
+                          conv.created_at = datetime(msg.timestamp),
+                          conv.updated_at = datetime(msg.timestamp)
             CREATE (m:Message {
                 id:              msg.id,
                 conversation_id: msg.conversation_id,
