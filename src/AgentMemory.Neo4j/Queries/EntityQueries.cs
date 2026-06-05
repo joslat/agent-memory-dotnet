@@ -15,6 +15,7 @@ public static class EntityQueries
     public const string Upsert = @"
             MERGE (e:Entity {id: $id})
             ON CREATE SET
+                e.owner_id           = $ownerId,
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -136,6 +137,7 @@ public static class EntityQueries
             UNWIND $items AS item
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
+                e.owner_id           = item.owner_id,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,

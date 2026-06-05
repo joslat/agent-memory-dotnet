@@ -42,7 +42,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         var staged = await _extractionStage.ExtractAsync(
             request.Messages, request.TypesToExtract, cancellationToken);
 
-        var persisted = await _persistenceStage.PersistAsync(staged, cancellationToken);
+        var persisted = await _persistenceStage.PersistAsync(staged, request.UserId, cancellationToken);
 
         sw.Stop();
         _logger.LogInformation(

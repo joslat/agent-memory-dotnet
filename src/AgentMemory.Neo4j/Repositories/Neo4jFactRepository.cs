@@ -16,6 +16,10 @@ public sealed class Neo4jFactRepository : IFactRepository
     internal const int OwnerOverFetchFactor = 5;
     internal const int OwnerOverFetchFloor = 50;
 
+    // Non-null sentinel for the shared/global owner, used only as the MERGE-pattern owner_key so that
+    // a shared fact (owner_id null) stays distinct from owned facts with the same S/P/O triple.
+    internal const string OwnerKeyShared = "*";
+
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jFactRepository> _logger;
 
@@ -37,6 +41,8 @@ public sealed class Neo4jFactRepository : IFactRepository
                 ["subject"]          = fact.Subject,
                 ["predicate"]        = fact.Predicate,
                 ["object"]           = fact.Object,
+                ["ownerId"]          = fact.OwnerId,
+                ["ownerKey"]         = fact.OwnerId ?? OwnerKeyShared,
                 ["category"]         = fact.Category,
                 ["confidence"]       = fact.Confidence,
                 ["validFrom"]        = (object?)(fact.ValidFrom?.ToString("O")),
@@ -82,6 +88,8 @@ public sealed class Neo4jFactRepository : IFactRepository
             ["subject"]           = f.Subject,
             ["predicate"]         = f.Predicate,
             ["object"]            = f.Object,
+            ["owner_id"]          = f.OwnerId,
+            ["owner_key"]         = f.OwnerId ?? OwnerKeyShared,
             ["category"]          = f.Category,
             ["confidence"]        = f.Confidence,
             ["valid_from"]        = (object?)(f.ValidFrom?.ToString("O")),
@@ -233,6 +241,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             Subject          = node["subject"].As<string>(),
             Predicate        = node["predicate"].As<string>(),
             Object           = node["object"].As<string>(),
+            OwnerId          = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
             Category         = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
             Confidence       = node["confidence"].As<double>(),
             ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf)

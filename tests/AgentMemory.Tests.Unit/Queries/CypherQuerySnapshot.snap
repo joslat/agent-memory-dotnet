@@ -221,6 +221,7 @@ MATCH (e:Entity {id: $id}) SET e.embedding = $embedding
 ## EntityQueries.Upsert
 MERGE (e:Entity {id: $id})
             ON CREATE SET
+                e.owner_id           = $ownerId,
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -250,6 +251,7 @@ MERGE (e:Entity {id: $id})
 UNWIND $items AS item
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
+                e.owner_id           = item.owner_id,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -365,9 +367,10 @@ MATCH (f:Fact) WHERE f.embedding IS NULL RETURN f LIMIT $limit
 MATCH (f:Fact {id: $id}) SET f.embedding = $embedding
 
 ## FactQueries.Upsert
-MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})
+MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object, owner_key: $ownerKey})
             ON CREATE SET
                 f.id                 = $id,
+                f.owner_id           = $ownerId,
                 f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
@@ -393,6 +396,8 @@ UNWIND $items AS item
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
+                f.owner_id           = item.owner_id,
+                f.owner_key          = item.owner_key,
                 f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
@@ -540,6 +545,7 @@ MATCH (p:Preference {id: $id}) SET p.embedding = $embedding
 ## PreferenceQueries.Upsert
 MERGE (p:Preference {id: $id})
             ON CREATE SET
+                p.owner_id           = $ownerId,
                 p.category           = $category,
                 p.preference         = $preferenceText,
                 p.context            = $context,

@@ -63,7 +63,7 @@ public sealed class MemoryExtractionPipelineTests
         var request = MakeRequest();
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -75,6 +75,7 @@ public sealed class MemoryExtractionPipelineTests
             Arg.Any<CancellationToken>());
         await _persistenceStage.Received(1).PersistAsync(
             Arg.Any<ExtractionStageResult>(),
+            Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
     }
 
@@ -86,7 +87,7 @@ public sealed class MemoryExtractionPipelineTests
 
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult(entities: entities, facts: facts));
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult(entities: 1, facts: 1));
 
         var sut = CreateSut();
@@ -102,7 +103,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult(entities: 2, facts: 3, prefs: 1, rels: 0));
 
         var sut = CreateSut();
@@ -120,7 +121,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -137,7 +138,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();

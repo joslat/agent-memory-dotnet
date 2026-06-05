@@ -32,6 +32,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             var parameters = new Dictionary<string, object?>
             {
                 ["id"]             = entity.EntityId,
+                ["ownerId"]        = entity.OwnerId,
                 ["name"]           = entity.Name,
                 ["canonicalName"]  = (object?)entity.CanonicalName,
                 ["type"]           = entity.Type,
@@ -242,6 +243,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         var items = entities.Select(e => new Dictionary<string, object?>
         {
             ["id"]                = e.EntityId,
+            ["owner_id"]          = e.OwnerId,
             ["name"]              = e.Name,
             ["canonical_name"]    = (object?)e.CanonicalName,
             ["type"]              = e.Type,
@@ -349,6 +351,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         return new Entity
         {
             EntityId       = node["id"].As<string>(),
+            OwnerId        = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
             Name           = node["name"].As<string>(),
             CanonicalName  = node.Properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
             Type           = node["type"].As<string>(),

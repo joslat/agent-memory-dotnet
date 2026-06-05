@@ -7,10 +7,12 @@ internal interface IPersistenceStage
 {
     /// <summary>
     /// Embeds entities, facts, and preferences, upserts them to their repositories,
-    /// and wires EXTRACTED_FROM provenance relationships.
+    /// and wires EXTRACTED_FROM provenance relationships. The optional <c>ownerId</c> is stamped on
+    /// every persisted entity/fact/preference (null = shared/global; see MemoryScope, R1).
     /// </summary>
     Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
+        string? ownerId = null,
         CancellationToken cancellationToken = default);
 }
 

@@ -11,6 +11,7 @@ public static class PreferenceQueries
     public const string Upsert = @"
             MERGE (p:Preference {id: $id})
             ON CREATE SET
+                p.owner_id           = $ownerId,
                 p.category           = $category,
                 p.preference         = $preferenceText,
                 p.context            = $context,

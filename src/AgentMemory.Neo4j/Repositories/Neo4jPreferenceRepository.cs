@@ -32,6 +32,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             var parameters = new Dictionary<string, object?>
             {
                 ["id"]               = preference.PreferenceId,
+                ["ownerId"]          = preference.OwnerId,
                 ["category"]         = preference.Category,
                 ["preferenceText"]   = preference.PreferenceText,
                 ["context"]          = (object?)preference.Context,
@@ -180,6 +181,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         new()
         {
             PreferenceId     = node["id"].As<string>(),
+            OwnerId          = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
             Category         = node["category"].As<string>(),
             PreferenceText   = node["preference"].As<string>(),
             Context          = node.Properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,

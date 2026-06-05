@@ -13,9 +13,10 @@ public static class FactQueries
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
     public const string Upsert = @"
-            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})
+            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object, owner_key: $ownerKey})
             ON CREATE SET
                 f.id                 = $id,
+                f.owner_id           = $ownerId,
                 f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
@@ -44,6 +45,8 @@ public static class FactQueries
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
+                f.owner_id           = item.owner_id,
+                f.owner_key          = item.owner_key,
                 f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
