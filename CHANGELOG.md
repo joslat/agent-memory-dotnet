@@ -32,7 +32,7 @@ NuGet package IDs are permanent once published.
 - **Short-term memory** — session-scoped conversation history with participant tracking, recent message recall, semantic vector search, batch add
 - **Long-term memory** — entities with canonical names, aliases, and dynamic labels; facts as SPO triples with confidence and validity periods; preferences by category; relationships between entities; all backed by vector and fulltext search
 - **Reasoning memory** — reasoning traces from agent chains, steps (thought/action/observation), tool call recording with status and outcomes, similar-trace retrieval
-- **Memory decay** — exponential decay scoring (`confidence × exp(−λ×days) + boost×access`) with configurable half-life and optional auto-prune
+- **Memory decay (scoring)** — exponential decay-score formula (`confidence × exp(−λ×days) + boost×access`) with configurable half-life, plus access-tracking and prune Cypher (`DecayQueries`). *Note: the server-side prune adapter is not yet wired (`MemoryDecayService.PruneExpiredMemoriesAsync` is a portable no-op; the Neo4j-backed, owner-scoped prune is the next adapter to land — see the implementation plan).*
 - **Temporal recall** — `RecallAsOfAsync` and point-in-time snapshot queries across all memory tiers using native Neo4j `datetime()` comparisons
 - **Context assembly** — multi-tier recall with configurable token budget, truncation strategies, and blending modes
 - **Metadata filtering** — `MetadataFilterBuilder` with `$eq`, `$ne`, `$contains`, `$in`, `$exists` operators

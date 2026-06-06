@@ -23,6 +23,15 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
 
     public INeo4jTransactionRunner TransactionRunner { get; private set; } = null!;
 
+    /// <summary>Bolt connection string for the running container (for tests that build their own provider).</summary>
+    public string ConnectionString => _container!.GetConnectionString();
+
+    /// <summary>Container username (for tests that build their own provider/driver).</summary>
+    public string User => ContainerUsername;
+
+    /// <summary>Container password (for tests that build their own provider/driver).</summary>
+    public string Password => ContainerPassword;
+
     /// <summary>The raw driver, for tests that construct services needing <see cref="IDriver"/> directly
     /// (e.g. the GraphRAG retrievers).</summary>
     public IDriver Driver => _driver!;

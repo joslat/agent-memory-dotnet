@@ -407,6 +407,8 @@ A 5-dimension adversarial review (find → independently verify) of the session'
 
 **Test-hardening follow-ups:** add live AsOf integration tests for Entity/Fact/Preference repos (only ReasoningTrace has one); add a CLI config-precedence test.
 
+**🔴 HIGH — wire the Neo4j decay adapter (real bug found by the coverage audit 2026-06-06).** `MemoryDecayService.PruneExpiredMemoriesAsync`/`CalculateRetentionScoreAsync`/`UpdateAccessTimestampAsync` are **portable no-ops** (return 0 / 0.0 / pass-through) — the `DecayQueries` Cypher (PruneEntities/Facts/Preferences, with the decay-score formula inline; UpdateAccessTimestamp; GetRetentionFields) exists but is **never executed by any service**. So decay "auto-prune" doesn't work, and the `agentmemory decay` CLI reports 0. Plan: add `Neo4jMemoryDecayService` running those queries via `INeo4jTransactionRunner`; **owner-scope the prune** (convert `Prune*` consts → owner-conditional methods — a global prune is dangerous in multi-tenant); fix the interface semantics (`PruneExpiredMemoriesAsync(string sessionId)` → `(MemoryScope? scope)` — long-term nodes have no `session_id`); `Replace` the Core placeholder in the Neo4j DI; live integration tests (stale-vs-fresh prune, score, access bump, cross-owner non-deletion); update the CLI `decay` to `--owner`. This is the recommended very-next implementation (queries are ready).
+
 ### II.7 Good → great roadmap (ambition list) — code-verified 2026-06-06
 
 §II.6 is gap-closure/cleanup. This section is the higher-ambition "what would make the library *great*" list, produced by a 10-candidate code-verification pass (each candidate checked against our code + upstream). Distinct from §II.6's low-urgency remnants.
