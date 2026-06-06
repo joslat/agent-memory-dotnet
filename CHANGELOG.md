@@ -145,6 +145,11 @@ NuGet package IDs are permanent once published.
 
 ### Fixed
 
+- **`DatabasePerApplication` provisioning now works.** `Neo4jMemoryStoreProvisioner` inlined the store
+  database name into `CREATE DATABASE … IF NOT EXISTS WAIT` unquoted. The default `DatabasePrefix` is
+  `mem-`, so every provisioned name contains a dash — which is a Cypher syntax error unquoted, breaking
+  store provisioning for all real `DatabasePerApplication` users. The name is now backtick-quoted.
+  (Caught by a new live Neo4j Enterprise integration test; previously only mock-tested.)
 - **Memory-only DI now works.** Two `AddAgentMemoryCore` registrations failed at runtime for consumers
   that don't add the GraphRAG adapter: `MemoryContextAssembler` required `IGraphRagContextSource`
   (now resolved optionally via `GetService`), and `IMemoryExtractionPipeline` was registered by type

@@ -74,11 +74,12 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
     {
         // CREATE DATABASE is an administrative command and must run against the system database.
         // WAIT blocks until the database is online, so the subsequent bootstrap can connect.
-        // The name is sanitized to Neo4j's legal charset (StoreDatabaseNaming), so inlining is safe.
+        // The name must be backtick-quoted: StoreDatabaseNaming yields legal-charset names, but the
+        // default 'mem-' prefix contains a dash, and unquoted dashes are a Cypher syntax error.
         await using var session = _sessionFactory.OpenSession(SystemDatabase, AccessMode.Write);
         try
         {
-            await session.ExecuteWriteAsync(tx => tx.RunAsync($"CREATE DATABASE {database} IF NOT EXISTS WAIT"));
+            await session.ExecuteWriteAsync(tx => tx.RunAsync($"CREATE DATABASE {QuoteName(database)} IF NOT EXISTS WAIT"));
         }
         catch (Neo4jException ex) when (IsMultiDatabaseUnsupported(ex))
         {
@@ -121,10 +122,15 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
             var cursor = await tx.RunAsync(SchemaQueries.ShowVectorIndexDimensions);
             var records = await cursor.ToListAsync();
             return VectorIndexDimensionValidator.MapRows(records);
-        });
+        }) ?? [];
 
         VectorIndexDimensionValidator.EnsureMatches(_embeddingDimensions, existing);
     }
+
+    // Backtick-quotes a Neo4j object name for use in an administrative Cypher command, doubling any
+    // embedded backticks. Required because database names can contain dashes/dots (e.g. the 'mem-'
+    // prefix) which are illegal unquoted.
+    private static string QuoteName(string name) => "`" + name.Replace("`", "``") + "`";
 
     private static bool IsMultiDatabaseUnsupported(Neo4jException ex)
     {

@@ -84,6 +84,47 @@ public sealed class Neo4jMemoryStoreProvisionerTests
     }
 
     [Fact]
+    public async Task EnsureStoreAsync_PerApplication_BacktickQuotesDatabaseNameInCreateCommand()
+    {
+        // Regression guard: an unquoted database name with a dash (the default 'mem-' prefix always
+        // produces one) is a CREATE DATABASE syntax error. The name must be backtick-quoted. This was
+        // caught by a live Enterprise integration test; this locks it without needing Enterprise.
+        var captured = new List<string>();
+        var systemSession = Substitute.For<IAsyncSession>();
+        systemSession
+            .ExecuteWriteAsync(
+                Arg.Any<Func<IAsyncQueryRunner, Task<IResultCursor>>>(),
+                Arg.Any<Action<TransactionConfigBuilder>>())
+            .Returns(async ci =>
+            {
+                var work = ci.Arg<Func<IAsyncQueryRunner, Task<IResultCursor>>>();
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner.RunAsync(Arg.Any<string>()).Returns(c =>
+                {
+                    captured.Add(c.Arg<string>());
+                    return Task.FromResult(Substitute.For<IResultCursor>());
+                });
+                return await work(runner);
+            });
+
+        var factory = Substitute.For<INeo4jSessionFactory>();
+        factory.OpenSession("system", Arg.Any<AccessMode>()).Returns(systemSession);
+        factory.OpenSession("mem-acme", Arg.Any<AccessMode>()).Returns(Substitute.For<IAsyncSession>());
+
+        var provisioner = Create(factory, new MemoryStoreOptions
+        {
+            Strategy = MemoryStorageStrategy.DatabasePerApplication,
+            DatabasePrefix = "mem-"
+        });
+
+        await provisioner.EnsureStoreAsync("Acme");
+
+        captured.Should().ContainSingle(s => s.Contains("CREATE DATABASE"))
+            .Which.Should().Contain("CREATE DATABASE `mem-acme`",
+                "the database name must be backtick-quoted (dashes are illegal unquoted)");
+    }
+
+    [Fact]
     public async Task EnsureStoreAsync_CommunityEdition_ThrowsActionableNotSupported()
     {
         var systemSession = Substitute.For<IAsyncSession>();

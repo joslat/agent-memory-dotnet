@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
 
   <!-- Cypher migration scripts must ship next to the assembly so MigrationRunner can
