@@ -29,6 +29,12 @@
 - **Streaming (chunked) extraction is now DI-registered** (`IStreamingExtractor`). Previously
   implemented but unregistered; wired up now that the owner-isolation surface (R1) has landed, so its
   output is owner-stamped when persisted via `PersistenceStage`.
+- **Vector-index dimension validation at bootstrap.** Schema bootstrap (and per-application store
+  provisioning) now verifies every existing Neo4j vector index was created with the configured
+  `Neo4jOptions.EmbeddingDimensions`, throwing `EmbeddingDimensionMismatchException` (which lists each
+  offending index) when they differ. Because `CREATE VECTOR INDEX ... IF NOT EXISTS` never alters an
+  existing index, switching embedding models previously produced an opaque query-time failure; this is
+  a fail-fast guard. Opt out via `Neo4jOptions.ValidateVectorIndexDimensions = false` (default `true`).
 
 ### Changed (breaking)
 - **`IMemoryService` split into role interfaces** (`AgentMemory.Abstractions`). Its members are now

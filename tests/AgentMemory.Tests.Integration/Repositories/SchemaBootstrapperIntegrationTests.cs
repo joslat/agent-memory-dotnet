@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -101,6 +102,43 @@ public class SchemaBootstrapperIntegrationTests : IAsyncLifetime
         // Running again should not throw — IF NOT EXISTS guards each statement
         var act = async () => await bootstrapper.BootstrapAsync();
         await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_WhenConfiguredDimensionsDifferFromExistingIndexes_Throws()
+    {
+        // The fixture bootstrapped vector indexes at TestEmbeddingDimensions. Re-bootstrapping with a
+        // different dimensionality is a no-op for CREATE ... IF NOT EXISTS (the indexes already exist),
+        // so the live SHOW VECTOR INDEXES validation must detect the stale dimensions and fail-fast.
+        var mismatchedDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions + 4;
+        var options = Options.Create(new Neo4jOptions
+        {
+            EmbeddingDimensions = mismatchedDimensions
+        });
+        var bootstrapper = new SchemaBootstrapper(
+            _fixture.TransactionRunner, options, NullLogger<SchemaBootstrapper>.Instance);
+
+        var ex = (await bootstrapper.Invoking(b => b.BootstrapAsync())
+            .Should().ThrowAsync<EmbeddingDimensionMismatchException>()).Which;
+
+        ex.ExpectedDimensions.Should().Be(mismatchedDimensions);
+        ex.Mismatches.Should().NotBeEmpty();
+        ex.Mismatches.Should().OnlyContain(
+            m => m.ActualDimensions == Neo4jIntegrationFixture.TestEmbeddingDimensions);
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_WhenValidationDisabled_DoesNotThrowOnDimensionMismatch()
+    {
+        var options = Options.Create(new Neo4jOptions
+        {
+            EmbeddingDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions + 4,
+            ValidateVectorIndexDimensions = false
+        });
+        var bootstrapper = new SchemaBootstrapper(
+            _fixture.TransactionRunner, options, NullLogger<SchemaBootstrapper>.Instance);
+
+        await bootstrapper.Invoking(b => b.BootstrapAsync()).Should().NotThrowAsync();
     }
 
     [Fact]

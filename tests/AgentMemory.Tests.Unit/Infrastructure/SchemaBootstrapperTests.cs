@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -12,11 +13,29 @@ public class SchemaBootstrapperTests
 {
     private static SchemaBootstrapper CreateBootstrapper(
         INeo4jTransactionRunner txRunner,
-        int embeddingDimensions = 1536)
+        int embeddingDimensions = 1536,
+        bool validateVectorIndexDimensions = true)
     {
-        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = embeddingDimensions });
+        var options = Options.Create(new Neo4jOptions
+        {
+            EmbeddingDimensions = embeddingDimensions,
+            ValidateVectorIndexDimensions = validateVectorIndexDimensions,
+        });
         return new SchemaBootstrapper(txRunner, options, NullLogger<SchemaBootstrapper>.Instance);
     }
+
+    private static void StubWriteRunner(INeo4jTransactionRunner txRunner)
+        => txRunner
+            .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+    private static void StubVectorIndexRead(
+        INeo4jTransactionRunner txRunner, params VectorIndexDimension[] indexes)
+        => txRunner
+            .ReadAsync(
+                Arg.Any<Func<IAsyncQueryRunner, Task<IReadOnlyList<VectorIndexDimension>>>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<VectorIndexDimension>>(indexes));
 
     [Fact]
     public async Task BootstrapAsync_ExecutesExpectedTotalNumberOfStatements()
@@ -244,6 +263,59 @@ public class SchemaBootstrapperTests
         var options = new Neo4jOptions();
 
         options.EmbeddingDimensions.Should().Be(1536);
+    }
+
+    [Fact]
+    public void Neo4jOptions_ValidateVectorIndexDimensions_DefaultsToTrue()
+        => new Neo4jOptions().ValidateVectorIndexDimensions.Should().BeTrue();
+
+    [Fact]
+    public async Task BootstrapAsync_WhenExistingVectorIndexDimensionsMatch_DoesNotThrow()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubWriteRunner(txRunner);
+        StubVectorIndexRead(txRunner,
+            new VectorIndexDimension("fact_embedding_idx", 1536),
+            new VectorIndexDimension("entity_embedding_idx", 1536));
+
+        var bootstrapper = CreateBootstrapper(txRunner, embeddingDimensions: 1536);
+
+        await bootstrapper.Invoking(b => b.BootstrapAsync()).Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_WhenExistingVectorIndexDimensionsMismatch_Throws()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubWriteRunner(txRunner);
+        StubVectorIndexRead(txRunner,
+            new VectorIndexDimension("fact_embedding_idx", 1536),
+            new VectorIndexDimension("entity_embedding_idx", 3072)); // stale after model switch
+
+        var bootstrapper = CreateBootstrapper(txRunner, embeddingDimensions: 1536);
+
+        var ex = (await bootstrapper.Invoking(b => b.BootstrapAsync())
+            .Should().ThrowAsync<EmbeddingDimensionMismatchException>()).Which;
+        ex.ExpectedDimensions.Should().Be(1536);
+        ex.Mismatches.Should().ContainSingle().Which.IndexName.Should().Be("entity_embedding_idx");
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_WhenValidationDisabled_SkipsTheReadAndDoesNotThrow()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubWriteRunner(txRunner);
+        // Even with a mismatch staged, validation is off, so it must not be consulted.
+        StubVectorIndexRead(txRunner, new VectorIndexDimension("fact_embedding_idx", 3072));
+
+        var bootstrapper = CreateBootstrapper(
+            txRunner, embeddingDimensions: 1536, validateVectorIndexDimensions: false);
+
+        await bootstrapper.Invoking(b => b.BootstrapAsync()).Should().NotThrowAsync();
+
+        await txRunner.DidNotReceive().ReadAsync(
+            Arg.Any<Func<IAsyncQueryRunner, Task<IReadOnlyList<VectorIndexDimension>>>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

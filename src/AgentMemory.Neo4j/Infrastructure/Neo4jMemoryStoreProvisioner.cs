@@ -18,6 +18,7 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
     private readonly INeo4jSessionFactory _sessionFactory;
     private readonly MemoryStoreOptions _storeOptions;
     private readonly int _embeddingDimensions;
+    private readonly bool _validateVectorIndexDimensions;
     private readonly ILogger<Neo4jMemoryStoreProvisioner> _logger;
 
     // Provisioned (database-name) set, so repeat requests for the same store skip the round-trip.
@@ -32,6 +33,7 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
         _sessionFactory = sessionFactory;
         _storeOptions = storeOptions.Value;
         _embeddingDimensions = neo4jOptions.Value.EmbeddingDimensions;
+        _validateVectorIndexDimensions = neo4jOptions.Value.ValidateVectorIndexDimensions;
         _logger = logger;
     }
 
@@ -99,6 +101,29 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
             cancellationToken.ThrowIfCancellationRequested();
             await session.ExecuteWriteAsync(tx => tx.RunAsync(statement));
         }
+
+        await ValidateVectorIndexDimensionsAsync(session, cancellationToken);
+    }
+
+    // Mirrors SchemaBootstrapper's guard for the shared database: a per-app database that already
+    // existed (re-provision after an embedder change) keeps its stale vector indexes, since
+    // CREATE ... IF NOT EXISTS is a no-op. Fail-fast with the offending indexes listed.
+    private async Task ValidateVectorIndexDimensionsAsync(
+        IAsyncSession session, CancellationToken cancellationToken)
+    {
+        if (!_validateVectorIndexDimensions)
+            return;
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var existing = await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(SchemaQueries.ShowVectorIndexDimensions);
+            var records = await cursor.ToListAsync();
+            return VectorIndexDimensionValidator.MapRows(records);
+        });
+
+        VectorIndexDimensionValidator.EnsureMatches(_embeddingDimensions, existing);
     }
 
     private static bool IsMultiDatabaseUnsupported(Neo4jException ex)

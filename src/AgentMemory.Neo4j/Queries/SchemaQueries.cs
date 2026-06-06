@@ -205,6 +205,17 @@ public static class SchemaQueries
         return statements;
     }
 
+    // ── Vector-index validation ─────────────────────────────────
+
+    /// <summary>
+    /// Lists every vector index with the dimensionality it was created with. Used at bootstrap to
+    /// fail-fast when an existing index's dimensions no longer match the configured embedder
+    /// (<c>CREATE VECTOR INDEX ... IF NOT EXISTS</c> never alters an existing index).
+    /// </summary>
+    public const string ShowVectorIndexDimensions =
+        "SHOW VECTOR INDEXES YIELD name, options " +
+        "RETURN name AS name, options['indexConfig']['vector.dimensions'] AS dimensions";
+
     // ── Migration ───────────────────────────────────────────────
 
     /// <summary>Unique constraint on Migration.version for tracking applied migrations.</summary>

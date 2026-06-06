@@ -15,4 +15,14 @@ public class Neo4jOptions
     /// Default is 1536 (OpenAI text-embedding-ada-002 / text-embedding-3-small).
     /// </summary>
     public int EmbeddingDimensions { get; set; } = 1536;
+
+    /// <summary>
+    /// When <see langword="true"/> (the default), schema bootstrap verifies that every existing vector
+    /// index was created with <see cref="EmbeddingDimensions"/> and throws
+    /// <see cref="AgentMemory.Abstractions.Exceptions.EmbeddingDimensionMismatchException"/> if any
+    /// differ. This is a fail-fast guard against switching embedding models without recreating the
+    /// indexes (which would otherwise surface as an opaque query-time error). Set to
+    /// <see langword="false"/> to skip the check (e.g. during an intentional, staged migration).
+    /// </summary>
+    public bool ValidateVectorIndexDimensions { get; set; } = true;
 }

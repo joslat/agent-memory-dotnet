@@ -30,6 +30,9 @@ public static class MemoryErrorCodes
     /// <summary>Schema bootstrap (constraints, indexes) failed on startup.</summary>
     public const string SchemaBootstrapFailed   = "MEMORY_SCHEMA_BOOTSTRAP_FAILED";
 
+    /// <summary>An existing vector index's dimensionality does not match the configured embedder.</summary>
+    public const string EmbeddingDimensionMismatch = "MEMORY_EMBEDDING_DIMENSION_MISMATCH";
+
     /// <summary>A Neo4j transaction was rolled back or could not be committed.</summary>
     public const string TransactionFailed       = "MEMORY_TRANSACTION_FAILED";
 
