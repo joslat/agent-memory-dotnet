@@ -36,4 +36,11 @@ public sealed record LongTermMemoryOptions
     /// add — a light reinforcement signal. Default 0.05.
     /// </summary>
     public double DeduplicationConfidenceBump { get; init; } = 0.05;
+
+    /// <summary>
+    /// Default magnitude by which entity feedback nudges confidence (positive reinforces, negative
+    /// penalizes); clamped to [0,1]. Used by <c>RecordEntityFeedbackAsync</c> when no explicit delta is
+    /// supplied. Default 0.1.
+    /// </summary>
+    public double FeedbackConfidenceDelta { get; init; } = 0.1;
 }

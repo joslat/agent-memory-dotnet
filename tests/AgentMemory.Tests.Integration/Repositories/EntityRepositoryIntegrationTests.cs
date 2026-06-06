@@ -84,6 +84,77 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         result.Should().BeNull();
     }
 
+    // ── ApplyConfidenceDeltaAsync (entity feedback) + UpdatedAtUtc read-back ──
+
+    private async Task<string> SeedEntityAsync(double confidence)
+    {
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Feedback Subject", Type = "Concept",
+            Confidence = confidence, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        return id;
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_IncreasesConfidence_AndStampsUpdatedAt()
+    {
+        var id = await SeedEntityAsync(0.5);
+
+        var updated = await _repo.ApplyConfidenceDeltaAsync(id, 0.2);
+
+        updated.Should().NotBeNull();
+        updated!.Confidence.Should().BeApproximately(0.7, 1e-9);
+        updated.UpdatedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ClampsToOne()
+    {
+        var id = await SeedEntityAsync(0.95);
+
+        var updated = await _repo.ApplyConfidenceDeltaAsync(id, 0.5);
+
+        updated!.Confidence.Should().Be(1.0);
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ClampsToZero()
+    {
+        var id = await SeedEntityAsync(0.1);
+
+        var updated = await _repo.ApplyConfidenceDeltaAsync(id, -0.5);
+
+        updated!.Confidence.Should().Be(0.0);
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ReturnsNull_WhenEntityMissing()
+    {
+        (await _repo.ApplyConfidenceDeltaAsync("entity-does-not-exist", 0.1)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Entity_UpdatedAtUtc_RoundTrips_AfterReUpsert()
+    {
+        // updated_at is set ON MATCH (last-modified semantics): null on first create, populated after an
+        // update. Verify it round-trips into the model once the entity is modified.
+        var id = await SeedEntityAsync(0.5);
+
+        var afterCreate = await _repo.GetByIdAsync(id);
+        afterCreate!.UpdatedAtUtc.Should().BeNull("a freshly created, never-updated entity has no update time");
+
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Feedback Subject (edited)", Type = "Concept",
+            Confidence = 0.6, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var afterUpdate = await _repo.GetByIdAsync(id);
+        afterUpdate!.UpdatedAtUtc.Should().NotBeNull("the second upsert hits ON MATCH and stamps updated_at");
+    }
+
     [Fact]
     public async Task GetByNameAsync_FindsEntityByExactName()
     {

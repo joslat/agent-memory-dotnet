@@ -23,6 +23,16 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Adjusts an entity's confidence by <paramref name="delta"/> (clamped to [0,1]) and stamps its
+    /// update time. Returns the updated entity, or null if no entity with that id exists. Backs the
+    /// entity-feedback (reinforce/penalize) surface.
+    /// </summary>
+    Task<Entity?> ApplyConfidenceDeltaAsync(
+        string entityId,
+        double delta,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets entities by name (exact or alias match).
     /// </summary>
     Task<IReadOnlyList<Entity>> GetByNameAsync(

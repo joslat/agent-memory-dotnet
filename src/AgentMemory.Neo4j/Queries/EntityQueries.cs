@@ -46,6 +46,21 @@ public static class EntityQueries
     /// <summary>Get a single entity by id.</summary>
     public const string GetById = "MATCH (e:Entity {id: $id}) RETURN e";
 
+    // ── ApplyConfidenceDeltaAsync (entity feedback) ────────────────────
+
+    /// <summary>
+    /// Nudges an entity's confidence by <c>$delta</c> (positive or negative), clamped to [0,1], and
+    /// stamps <c>updated_at</c>. Backs the entity-feedback surface (reinforce/penalize). Returns the node.
+    /// </summary>
+    public const string ApplyConfidenceDelta = @"
+            MATCH (e:Entity {id: $id})
+            SET e.confidence = CASE
+                    WHEN e.confidence + $delta > 1.0 THEN 1.0
+                    WHEN e.confidence + $delta < 0.0 THEN 0.0
+                    ELSE e.confidence + $delta END,
+                e.updated_at = datetime()
+            RETURN e";
+
     // ── GetByNameAsync ─────────────────────────────────────────────────
 
     /// <summary>

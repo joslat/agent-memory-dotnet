@@ -50,6 +50,25 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     }
 
     /// <inheritdoc/>
+    public Task<Entity?> RecordEntityFeedbackAsync(
+        string entityId,
+        bool positive,
+        double? delta = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(entityId))
+            throw new ArgumentException("Entity id must be provided.", nameof(entityId));
+
+        var magnitude = Math.Abs(delta ?? _options.FeedbackConfidenceDelta);
+        var signed = positive ? magnitude : -magnitude;
+
+        _logger.LogDebug(
+            "Recording {Kind} feedback ({Delta}) for entity {EntityId}",
+            positive ? "positive" : "negative", signed, entityId);
+        return _entityRepo.ApplyConfidenceDeltaAsync(entityId, signed, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public Task<Entity> AddEntityAsync(
         Entity entity,
         CancellationToken cancellationToken = default)

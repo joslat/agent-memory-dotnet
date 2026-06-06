@@ -16,6 +16,18 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records feedback on an entity by nudging its confidence: <paramref name="positive"/> reinforces,
+    /// otherwise it penalizes. The magnitude is <paramref name="delta"/> or, when null, the configured
+    /// <c>LongTermMemoryOptions.FeedbackConfidenceDelta</c>; the result is clamped to [0,1]. Returns the
+    /// updated entity, or null if no entity with that id exists.
+    /// </summary>
+    Task<Entity?> RecordEntityFeedbackAsync(
+        string entityId,
+        bool positive,
+        double? delta = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets entities by name.
     /// </summary>
     Task<IReadOnlyList<Entity>> GetEntitiesByNameAsync(

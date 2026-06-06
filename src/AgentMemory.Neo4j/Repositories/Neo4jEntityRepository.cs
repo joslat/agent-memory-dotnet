@@ -375,8 +375,26 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
             CreatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
+            UpdatedAtUtc   = node.Properties.TryGetValue("updated_at", out var ua) && ua is not null
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ua)
+                                : null,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
+    }
+
+    public async Task<Entity?> ApplyConfidenceDeltaAsync(
+        string entityId, double delta, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Applying confidence delta {Delta} to entity {Id}", delta, entityId);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.ApplyConfidenceDelta, new { id = entityId, delta });
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["e"].As<INode>();
+            return MapToEntity(node, ReadEmbedding(node));
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Entity>> SearchByLocationAsync(

@@ -102,6 +102,19 @@ NuGet package IDs are permanent once published.
   started at or before the as-of instant, and `MemoryContextAssembler.AssembleContextAsOfAsync` now
   includes reasoning traces (previously omitted) — completing temporal recall across all memory tiers.
 
+#### Entity auditability & feedback
+
+- **`memory_get_entity_provenance` MCP tool.** Surfaces the (already-implemented) `EntityProvenance` —
+  the source messages an entity was extracted from (with span/confidence) and the extractors that
+  produced it — for auditability.
+- **`Entity.UpdatedAtUtc` reads back.** Entity nodes already stamped `updated_at` on modification; the
+  domain model and `Neo4jEntityRepository` mapping now surface it (last-modified semantics — null until
+  first update), exposed on `memory_get_entity`.
+- **Entity feedback.** `ILongTermMemoryService.RecordEntityFeedbackAsync` (and the
+  `memory_record_entity_feedback` MCP tool) nudge an entity's confidence — positive reinforces, negative
+  penalizes — clamped to [0,1], with the magnitude configurable via
+  `LongTermMemoryOptions.FeedbackConfidenceDelta` (default 0.1).
+
 #### Search and retrieval
 
 - Vector similarity search across all memory layers (5 indexes + reasoning-step index)

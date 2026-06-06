@@ -3,16 +3,36 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.McpServer.Tools;
 
 /// <summary>
-/// Entity tools: get entity, create relationship.
+/// Entity tools: get entity, provenance, create relationship.
 /// </summary>
 [McpServerToolType]
 public sealed class EntityTools
 {
+    [McpServerTool(Name = "memory_get_entity_provenance"), Description("Get the provenance of an entity for auditability: the source messages it was extracted from (with span/confidence) and the extractors that produced it (with confidence and timing).")]
+    public static async Task<string> MemoryGetEntityProvenance(
+        IExtractorRepository extractorRepository,
+        [Description("Entity ID to fetch provenance for")] string entityId,
+        CancellationToken cancellationToken = default)
+    {
+        var provenance = await extractorRepository.GetProvenanceAsync(entityId, cancellationToken);
+        if (provenance is null)
+            return ToolJsonContext.Serialize(new { entityId, found = false });
+
+        return ToolJsonContext.Serialize(new
+        {
+            provenance.EntityId,
+            found = true,
+            sources = provenance.Sources,
+            extractors = provenance.Extractors
+        });
+    }
+
     [McpServerTool(Name = "memory_get_entity"), Description("Get entities by name or search for entities. Returns matching entities with their relationships.")]
     public static async Task<string> MemoryGetEntity(
         ILongTermMemoryService longTermMemory,
@@ -32,8 +52,30 @@ public sealed class EntityTools
             e.Description,
             e.Confidence,
             e.Aliases,
-            e.CreatedAtUtc
+            e.CreatedAtUtc,
+            e.UpdatedAtUtc
         }));
+    }
+
+    [McpServerTool(Name = "memory_record_entity_feedback"), Description("Record feedback on an entity by nudging its confidence: positive reinforces, negative penalizes (clamped to 0..1). Returns the updated entity, or found=false if it does not exist.")]
+    public static async Task<string> MemoryRecordEntityFeedback(
+        ILongTermMemoryService longTermMemory,
+        [Description("Entity ID to apply feedback to")] string entityId,
+        [Description("True to reinforce (increase confidence), false to penalize (decrease)")] bool positive,
+        [Description("Magnitude of the confidence nudge (optional; defaults to the configured feedback delta)")] double? delta = null,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await longTermMemory.RecordEntityFeedbackAsync(entityId, positive, delta, cancellationToken);
+        if (entity is null)
+            return ToolJsonContext.Serialize(new { entityId, found = false });
+
+        return ToolJsonContext.Serialize(new
+        {
+            entity.EntityId,
+            found = true,
+            entity.Confidence,
+            entity.UpdatedAtUtc
+        });
     }
 
     [McpServerTool(Name = "memory_create_relationship"), Description("Create a relationship between two entities in the knowledge graph.")]
