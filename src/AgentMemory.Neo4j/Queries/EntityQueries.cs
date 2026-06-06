@@ -50,16 +50,25 @@ public static class EntityQueries
 
     /// <summary>
     /// Nudges an entity's confidence by <c>$delta</c> (positive or negative), clamped to [0,1], and
-    /// stamps <c>updated_at</c>. Backs the entity-feedback surface (reinforce/penalize). Returns the node.
+    /// stamps <c>updated_at</c>. Backs the entity-feedback surface (reinforce/penalize). Honors an
+    /// optional owner/shared filter (R1) so feedback cannot mutate another owner's private entity;
+    /// null owner ⇒ unscoped. Returns the node (no row ⇒ not found or out of scope).
     /// </summary>
-    public const string ApplyConfidenceDelta = @"
-            MATCH (e:Entity {id: $id})
+    public static string ApplyConfidenceDelta(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $@"
+            MATCH (e:Entity {{id: $id}})
+            WHERE true{owner}
             SET e.confidence = CASE
                     WHEN e.confidence + $delta > 1.0 THEN 1.0
                     WHEN e.confidence + $delta < 0.0 THEN 0.0
                     ELSE e.confidence + $delta END,
                 e.updated_at = datetime()
             RETURN e";
+    }
 
     // ── GetByNameAsync ─────────────────────────────────────────────────
 

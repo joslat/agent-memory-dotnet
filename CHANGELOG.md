@@ -113,7 +113,8 @@ NuGet package IDs are permanent once published.
 - **Entity feedback.** `ILongTermMemoryService.RecordEntityFeedbackAsync` (and the
   `memory_record_entity_feedback` MCP tool) nudge an entity's confidence — positive reinforces, negative
   penalizes — clamped to [0,1], with the magnitude configurable via
-  `LongTermMemoryOptions.FeedbackConfidenceDelta` (default 0.1).
+  `LongTermMemoryOptions.FeedbackConfidenceDelta` (default 0.1). Owner-scoped (R1): with a `userId`/scope
+  it only affects the user's own or shared entities, never another user's private entity.
 
 #### Operational tooling
 

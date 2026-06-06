@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -133,6 +134,28 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
     public async Task ApplyConfidenceDeltaAsync_ReturnsNull_WhenEntityMissing()
     {
         (await _repo.ApplyConfidenceDeltaAsync("entity-does-not-exist", 0.1)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ForeignOwnerScope_DoesNotMutate_OtherOwnersEntity()
+    {
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Alice private", Type = "Concept",
+            Confidence = 0.5, OwnerId = "alice", CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        // Bob's scope must NOT match Alice's private entity (R1): no row, no mutation.
+        (await _repo.ApplyConfidenceDeltaAsync(id, 0.3, MemoryScope.For("bob"))).Should().BeNull();
+
+        // Alice's own scope can.
+        var aliceResult = await _repo.ApplyConfidenceDeltaAsync(id, 0.3, MemoryScope.For("alice"));
+        aliceResult.Should().NotBeNull();
+        aliceResult!.Confidence.Should().BeApproximately(0.8, 1e-9);
+
+        // Confidence reflects only Alice's +0.3 — Bob's attempt changed nothing.
+        (await _repo.GetByIdAsync(id))!.Confidence.Should().BeApproximately(0.8, 1e-9);
     }
 
     [Fact]

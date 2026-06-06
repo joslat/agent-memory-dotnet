@@ -100,37 +100,37 @@ public sealed class LongTermMemoryServiceTests
     [Fact]
     public async Task RecordEntityFeedbackAsync_Positive_AppliesConfiguredDelta()
     {
-        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Entity?>(CreateEntity("e-1")));
         var sut = CreateSut(Options.Create(new LongTermMemoryOptions { FeedbackConfidenceDelta = 0.1 }));
 
         await sut.RecordEntityFeedbackAsync("e-1", positive: true);
 
-        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", 0.1, Arg.Any<CancellationToken>());
+        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", 0.1, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task RecordEntityFeedbackAsync_Negative_AppliesNegativeDelta()
     {
-        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Entity?>(CreateEntity("e-1")));
         var sut = CreateSut(Options.Create(new LongTermMemoryOptions { FeedbackConfidenceDelta = 0.2 }));
 
         await sut.RecordEntityFeedbackAsync("e-1", positive: false);
 
-        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", -0.2, Arg.Any<CancellationToken>());
+        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", -0.2, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task RecordEntityFeedbackAsync_ExplicitDelta_IsSignedByDirection()
     {
-        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Entity?>(CreateEntity("e-1")));
         var sut = CreateSut();
 
         await sut.RecordEntityFeedbackAsync("e-1", positive: false, delta: 0.3);
 
-        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", -0.3, Arg.Any<CancellationToken>());
+        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", -0.3, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]

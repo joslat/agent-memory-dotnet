@@ -383,13 +383,20 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     }
 
     public async Task<Entity?> ApplyConfidenceDeltaAsync(
-        string entityId, double delta, CancellationToken cancellationToken = default)
+        string entityId, double delta, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Applying confidence delta {Delta} to entity {Id}", delta, entityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+
+        _logger.LogDebug("Applying confidence delta {Delta} to entity {Id}, owner={Owner}", delta, entityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.ApplyConfidenceDelta(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object> { ["id"] = entityId, ["delta"] = delta };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.ApplyConfidenceDelta, new { id = entityId, delta });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["e"].As<INode>();

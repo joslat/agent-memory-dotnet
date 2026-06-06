@@ -41,13 +41,14 @@ internal static class VectorIndexDimensionValidator
         var result = new List<VectorIndexDimension>();
         foreach (var record in records)
         {
-            // As<string>() is a static extension that tolerates a null value, so no ?. is needed.
+            // As<T>() is a static extension that tolerates a null value, so no ?. is needed. Use it for
+            // the dimension too (consistent with the codebase; the driver materializes it as a boxed long).
             var name = record["name"].As<string>();
             var rawDimensions = record["dimensions"];
             if (string.IsNullOrEmpty(name) || rawDimensions is null)
                 continue;
 
-            result.Add(new VectorIndexDimension(name, Convert.ToInt32(rawDimensions)));
+            result.Add(new VectorIndexDimension(name, rawDimensions.As<int>()));
         }
 
         return result;

@@ -18,13 +18,16 @@ public interface ILongTermMemoryService
     /// <summary>
     /// Records feedback on an entity by nudging its confidence: <paramref name="positive"/> reinforces,
     /// otherwise it penalizes. The magnitude is <paramref name="delta"/> or, when null, the configured
-    /// <c>LongTermMemoryOptions.FeedbackConfidenceDelta</c>; the result is clamped to [0,1]. Returns the
-    /// updated entity, or null if no entity with that id exists.
+    /// <c>LongTermMemoryOptions.FeedbackConfidenceDelta</c>; the result is clamped to [0,1]. An optional
+    /// <paramref name="scope"/> (R1) restricts the write to the owner's own (or shared) entities so
+    /// feedback cannot mutate another owner's private entity. Returns the updated entity, or null if no
+    /// entity with that id exists (or it is out of scope).
     /// </summary>
     Task<Entity?> RecordEntityFeedbackAsync(
         string entityId,
         bool positive,
         double? delta = null,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

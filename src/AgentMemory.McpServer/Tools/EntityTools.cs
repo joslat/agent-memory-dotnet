@@ -57,15 +57,17 @@ public sealed class EntityTools
         }));
     }
 
-    [McpServerTool(Name = "memory_record_entity_feedback"), Description("Record feedback on an entity by nudging its confidence: positive reinforces, negative penalizes (clamped to 0..1). Returns the updated entity, or found=false if it does not exist.")]
+    [McpServerTool(Name = "memory_record_entity_feedback"), Description("Record feedback on an entity by nudging its confidence: positive reinforces, negative penalizes (clamped to 0..1). Returns the updated entity, or found=false if it does not exist or is out of scope.")]
     public static async Task<string> MemoryRecordEntityFeedback(
         ILongTermMemoryService longTermMemory,
         [Description("Entity ID to apply feedback to")] string entityId,
         [Description("True to reinforce (increase confidence), false to penalize (decrease)")] bool positive,
         [Description("Magnitude of the confidence nudge (optional; defaults to the configured feedback delta)")] double? delta = null,
+        [Description("Owner/user identifier (optional). When set, feedback only affects that user's own or shared entities — never another user's private entity.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var entity = await longTermMemory.RecordEntityFeedbackAsync(entityId, positive, delta, cancellationToken);
+        var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
+        var entity = await longTermMemory.RecordEntityFeedbackAsync(entityId, positive, delta, scope, cancellationToken);
         if (entity is null)
             return ToolJsonContext.Serialize(new { entityId, found = false });
 

@@ -125,7 +125,7 @@ public sealed class EntityToolsTests
             EntityId = "e-1", Name = "Alice", Type = "Person",
             Confidence = 0.85, CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime
         };
-        _longTermMemory.RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<CancellationToken>())
+        _longTermMemory.RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(updated);
 
         var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true);
@@ -133,13 +133,13 @@ public sealed class EntityToolsTests
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeTrue();
         doc.RootElement.GetProperty("confidence").GetDouble().Should().Be(0.85);
-        await _longTermMemory.Received(1).RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<CancellationToken>());
+        await _longTermMemory.Received(1).RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task MemoryRecordEntityFeedback_ReturnsNotFound_WhenEntityMissing()
     {
-        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<CancellationToken>())
+        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns((Entity?)null);
 
         var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "missing", positive: false);

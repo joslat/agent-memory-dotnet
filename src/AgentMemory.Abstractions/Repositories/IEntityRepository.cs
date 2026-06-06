@@ -24,12 +24,14 @@ public interface IEntityRepository
 
     /// <summary>
     /// Adjusts an entity's confidence by <paramref name="delta"/> (clamped to [0,1]) and stamps its
-    /// update time. Returns the updated entity, or null if no entity with that id exists. Backs the
-    /// entity-feedback (reinforce/penalize) surface.
+    /// update time. Honors an optional owner/shared <paramref name="scope"/> (R1) so feedback cannot
+    /// mutate another owner's private entity. Returns the updated entity, or null if no entity with that
+    /// id exists (or it is out of scope). Backs the entity-feedback (reinforce/penalize) surface.
     /// </summary>
     Task<Entity?> ApplyConfidenceDeltaAsync(
         string entityId,
         double delta,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

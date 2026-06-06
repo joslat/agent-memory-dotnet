@@ -54,6 +54,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         string entityId,
         bool positive,
         double? delta = null,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(entityId))
@@ -63,9 +64,9 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         var signed = positive ? magnitude : -magnitude;
 
         _logger.LogDebug(
-            "Recording {Kind} feedback ({Delta}) for entity {EntityId}",
-            positive ? "positive" : "negative", signed, entityId);
-        return _entityRepo.ApplyConfidenceDeltaAsync(entityId, signed, cancellationToken);
+            "Recording {Kind} feedback ({Delta}) for entity {EntityId}, owner={Owner}",
+            positive ? "positive" : "negative", signed, entityId, scope?.OwnerId);
+        return _entityRepo.ApplyConfidenceDeltaAsync(entityId, signed, scope, cancellationToken);
     }
 
     /// <inheritdoc/>
