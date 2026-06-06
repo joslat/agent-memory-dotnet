@@ -5,13 +5,13 @@
 >
 > **Update 2026-06-06 — ✅ multi-user isolation COMPLETE (R1 + R1b + R2).** R1 core (I1–I9) plus a follow-up multi-agent review and remediation (**IC1–IC8**) closed **all** owner-scoping leaks: vector recall, non-vector lookups (subject/triple/name/type/category/location), GraphRAG (all 4 retrievers), ReasoningTrace, relationships, temporal `AsOf`, and the LLM-invokable facade tools are now owner-scoped (optional shared/global). The two R1b store-tier defects are fixed (IC6 `AsyncLocal` store context; `StoreDatabaseNaming` collision hash). The upstream ports **dedup-on-create** (PR #97) and **consolidation/hygiene** (PR #113) landed in parallel. Verified by full unit + Neo4j integration suites. The narrative below (§1, R7) was written against the *original* gap and is kept for context; **Part II §II.5 is the source of truth for completion status.** Upstream fix proposed at neo4j-labs/agent-memory#137; see [`Remaining_Work_Roadmap.md`](Remaining_Work_Roadmap.md), [`schema-parity-assessment.md`](schema-parity-assessment.md), [`neo4j-pr-howto.md`](neo4j-pr-howto.md).
 >
-> **Update 2026-06-06 (release prep) — Phase-2 quick wins shipped + release cut.** Two more upstream-parity items landed: **vector-index dimension validation** (`EmbeddingDimensionMismatchException`, fail-fast on embedder switch) and **`:TOUCHED` reasoning-audit edges** (`(:ReasoningStep)-[:TOUCHED]->(:Entity)`) — both in Part II §II.4. CHANGELOG was cut to `[0.1.0-preview.1]` and the `v0.1.0-preview.1` tag created **locally (not pushed)**; the PR to `main` is **not yet opened** (branch ~26 commits ahead). Tests now **~2,240 unit + ~121 integration green** (incl. live MigrationRunner + Enterprise store-isolation E2E, the latter catching a real `CREATE DATABASE` quoting bug). A code-verified audit (5 docs × per-item code check) refreshed the pending list — **the live "what's worth doing next" view is now Part II §II.6.**
+> **Update 2026-06-06 (release prep) — Phase-2 quick wins shipped + release cut.** Two more upstream-parity items landed: **vector-index dimension validation** (`EmbeddingDimensionMismatchException`, fail-fast on embedder switch) and **`:TOUCHED` reasoning-audit edges** (`(:ReasoningStep)-[:TOUCHED]->(:Entity)`) — both in Part II §II.4. CHANGELOG was cut to `[0.1.0-preview.1]` and the `v0.1.0-preview.1` tag created **locally (not pushed)**; the PR to `main` is **not yet opened** (branch ~26 commits ahead). Tests now **~2,242 unit + ~122 integration green** (incl. live MigrationRunner + Enterprise store-isolation E2E, the latter catching a real `CREATE DATABASE` quoting bug; Tier-2 polish landed). A code-verified audit (5 docs × per-item code check) refreshed the pending list — **the live "what's worth doing next" view is now Part II §II.6.**
 
 ---
 
 ## 1. Summary & recommendation
 
-AgentMemory-for-.NET is **feature-complete for v1 and well-hardened**: 11 packages, ~2,240 unit + 31 SK + ~121 integration + 3 performance tests green, real CI, package-boundary guard tests, Testcontainers integration, 9 samples, a 4-phase remediation + adversarial review pass all closed, a clean MAF **1.9.0** migration, and a working file-based migration runner + schema bootstrapper. Code quality is high and the architecture is clean (centralized Cypher constants, a `CypherBuilder`, role-split service interfaces).
+AgentMemory-for-.NET is **feature-complete for v1 and well-hardened**: 11 packages, ~2,242 unit + 31 SK + ~122 integration + 3 performance tests green, real CI, package-boundary guard tests, Testcontainers integration, 9 samples, a 4-phase remediation + adversarial review pass all closed, a clean MAF **1.9.0** migration, and a working file-based migration runner + schema bootstrapper. Code quality is high and the architecture is clean (centralized Cypher constants, a `CypherBuilder`, role-split service interfaces).
 
 **The one architecturally significant gap described below — multi-user isolation of long-term knowledge — has been CLOSED (2026-06-06; R1 + R1b + R2 via I1–I9 + IC1–IC8).** The two paragraphs that follow describe the *original* gap and the plan to fix it, retained for context. Every recall/lookup/GraphRAG/trace/relationship/`AsOf`/facade-tool path is now owner-scoped with an optional shared/global scope, the `MemoryScope`/`OwnerId` API surface is shipped and forward-compatible, and the per-application store tier (R1b) works. **See Part II §II.5 for the live completion status.**
 
@@ -375,10 +375,10 @@ A 5-doc × per-item code-verification audit refreshed this list. **Every item be
 - ✅ `MigrationRunner` real-DB integration test (**`MigrationRunnerIntegrationTests`**, Community fixture): discovery → multi-statement parse → comment stripping → constraint create → version recording → idempotence. 2 tests. (`InternalsVisibleTo` extended to the integration project for the test-seam ctor.)
 - ⏭️ `AgentSession.WithMemoryIdentity` + MAF `ApplyStoreContext` unit tests — **skipped**: MAF `AgentSession` has no public constructor (made via `agent.CreateSessionAsync()`), so unit-testing these 6-line StateBag adapters needs a live agent (disproportionate). The store-routing they feed is now proven by the E2E above. Revisit if a MAF test harness lands.
 
-**Tier 2 — small correctness / parity polish.**
-- ✅ CHANGELOG streaming claim corrected 2026-06-06 (it overstated owner-stamping; `IStreamingExtractor` is standalone and does not persist).
-- MCP `memory_add_fact` `metadata` param — `Fact` carries `Metadata`; verify the MCP tool surfaces it, add if missing. (S)
-- Consolidation model/doc consistency — add `Archived` to the `Conversation` domain model and `ConsolidationRun` to `SchemaConstants.NodeLabels` (service already works; these are model/label gaps). (S)
+**Tier 2 — small correctness / parity polish.** — ✅ **DONE 2026-06-06.**
+- ✅ CHANGELOG streaming claim corrected (it overstated owner-stamping; `IStreamingExtractor` is standalone and does not persist).
+- ✅ MCP `memory_add_fact` now surfaces `category` + `metadata` (metadata as a JSON-object string, parsed with an actionable error on bad JSON). 2 unit tests.
+- ✅ `Conversation.Archived` reads back (`Neo4jConversationRepository` mapping; archival stays a consolidation-only write) + `ConsolidationRun` added to `SchemaConstants.NodeLabels`. 1 integration test (round-trip via consolidation).
 
 **Tier 3 — robustness / completeness.**
 - `Neo4jMemoryStoreProvisioner` — TOCTOU on the provisioned-cache (`ContainsKey`→`GetOrAdd`) + tighten the fragile "multi-DB unsupported" string match to an exact Neo4j error code. (M)
@@ -392,7 +392,7 @@ A 5-doc × per-item code-verification audit refreshed this list. **Every item be
 
 **Skip (no value / already covered):** first-class `:User` node API (our scalar `owner_id` is functionally equivalent — divergence decided, closes upstream #135); Opik (no .NET SDK); LangChain / SemanticRouter / AutoGen adapters (no demand; covered by MAF).
 
-**Recommended very-next coding task (after the release):** ✅ the Tier-1 store-isolation hardening is **done** (and found+fixed a real `CREATE DATABASE` quoting bug). Next pick: the **Tier-2 polish** — MCP `memory_add_fact` metadata param + `Conversation.Archived`/`ConsolidationRun` label consistency (both S) — then **Tier-3 `SearchSimilarTracesAsOfAsync`** for complete temporal recall.
+**Recommended very-next coding task (after the release):** ✅ Tier-1 (store-isolation hardening — found+fixed a real `CREATE DATABASE` quoting bug) and ✅ Tier-2 (MCP add_fact metadata/category; `Conversation.Archived` read-back; `ConsolidationRun` label) are **done**. Next pick: **Tier-3** — `SearchSimilarTracesAsOfAsync` (reasoning traces in point-in-time recall) and the `Neo4jMemoryStoreProvisioner` TOCTOU/`GetOrAdd` + exact-error-code robustness.
 
 ---
 
