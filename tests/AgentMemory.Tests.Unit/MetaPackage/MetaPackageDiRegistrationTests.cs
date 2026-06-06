@@ -137,6 +137,29 @@ public sealed class MetaPackageDiRegistrationTests
     }
 
     [Fact]
+    public void AddNeo4jAgentMemory_RegistersClockAndIdGeneratorDefaults()
+    {
+        // The meta package must be self-sufficient: IClock/IIdGenerator are required by the assembler,
+        // reasoning, dedup and consolidation. (Consumers can still override via their own registration.)
+        var provider = BuildServices().BuildServiceProvider();
+
+        provider.GetService<IClock>().Should().NotBeNull();
+        provider.GetService<IIdGenerator>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_ConsolidationService_IsResolvable()
+    {
+        // Regression guard for the DI gap the CLI surfaced: IConsolidationService was *registered* but
+        // not *resolvable* because IClock/IIdGenerator were missing. Build the object, don't just check
+        // the descriptor.
+        var provider = BuildServices(configureNeo4j: o => o.Uri = "bolt://test:7687").BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IConsolidationService>().Should().NotBeNull();
+    }
+
+    [Fact]
     public void AddNeo4jAgentMemory_RegistersLlmExtractors()
     {
         var services = BuildServices();

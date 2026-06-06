@@ -42,6 +42,11 @@ public static class ServiceCollectionExtensions
             Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Extraction));
 
         // Core services
+        // Sensible defaults for the two ambient primitives that many services depend on (assembler,
+        // reasoning, consolidation, dedup). TryAdd so a consumer can still register their own first.
+        // Without these the meta package wasn't self-sufficient — every sample had to register them by hand.
+        services.TryAddSingleton<IClock, SystemClock>();
+        services.TryAddSingleton<IIdGenerator, GuidIdGenerator>();
         services.TryAddSingleton<ISessionIdGenerator, SessionIdGenerator>();
 
         // Ambient owner context (IC8) — AsyncLocal-backed, safe as a singleton; set per request/agent

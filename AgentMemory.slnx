@@ -23,6 +23,9 @@
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/AgentMemory.Cli/AgentMemory.Cli.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj" />
     <Project Path="tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj" />

@@ -115,6 +115,15 @@ NuGet package IDs are permanent once published.
   penalizes — clamped to [0,1], with the magnitude configurable via
   `LongTermMemoryOptions.FeedbackConfidenceDelta` (default 0.1).
 
+#### Operational tooling
+
+- **`agentmemory` CLI** (`tools/AgentMemory.Cli`) — an operations command-line front end over the
+  shipped maintenance services: `migrate` (apply Cypher migrations), `bootstrap` (create schema
+  constraints/indexes), `consolidate [--apply]` (memory-hygiene pass, dry-run by default), and
+  `decay --session <id>` (prune decayed memories). Connection resolves from CLI options, `Neo4j:*`
+  config, or `NEO4J_*` env vars. Built for CI/CD migrations, K8s init containers, and scheduled
+  pruning. (Not a published NuGet package.)
+
 #### Search and retrieval
 
 - Vector similarity search across all memory layers (5 indexes + reasoning-step index)
@@ -168,6 +177,11 @@ NuGet package IDs are permanent once published.
 
 ### Fixed
 
+- **The meta `AddNeo4jAgentMemory` is now self-sufficient.** It now registers default `IClock`
+  (`SystemClock`) and `IIdGenerator` (`GuidIdGenerator`) via `TryAdd`, so consolidation, reasoning,
+  the context assembler, and dedup resolve out of the box. Previously these were *registered* but not
+  *resolvable* — every consumer (and every sample) had to register the two primitives by hand. Consumers
+  can still override by registering their own first.
 - **`DatabasePerApplication` provisioning now works.** `Neo4jMemoryStoreProvisioner` inlined the store
   database name into `CREATE DATABASE … IF NOT EXISTS WAIT` unquoted. The default `DatabasePrefix` is
   `mem-`, so every provisioned name contains a dash — which is a Cypher syntax error unquoted, breaking
