@@ -5,13 +5,13 @@
 >
 > **Update 2026-06-06 — ✅ multi-user isolation COMPLETE (R1 + R1b + R2).** R1 core (I1–I9) plus a follow-up multi-agent review and remediation (**IC1–IC8**) closed **all** owner-scoping leaks: vector recall, non-vector lookups (subject/triple/name/type/category/location), GraphRAG (all 4 retrievers), ReasoningTrace, relationships, temporal `AsOf`, and the LLM-invokable facade tools are now owner-scoped (optional shared/global). The two R1b store-tier defects are fixed (IC6 `AsyncLocal` store context; `StoreDatabaseNaming` collision hash). The upstream ports **dedup-on-create** (PR #97) and **consolidation/hygiene** (PR #113) landed in parallel. Verified by full unit + Neo4j integration suites. The narrative below (§1, R7) was written against the *original* gap and is kept for context; **Part II §II.5 is the source of truth for completion status.** Upstream fix proposed at neo4j-labs/agent-memory#137; see [`Remaining_Work_Roadmap.md`](Remaining_Work_Roadmap.md), [`schema-parity-assessment.md`](schema-parity-assessment.md), [`neo4j-pr-howto.md`](neo4j-pr-howto.md).
 >
-> **Update 2026-06-06 (release prep) — Phase-2 quick wins shipped + release cut.** Two more upstream-parity items landed: **vector-index dimension validation** (`EmbeddingDimensionMismatchException`, fail-fast on embedder switch) and **`:TOUCHED` reasoning-audit edges** (`(:ReasoningStep)-[:TOUCHED]->(:Entity)`) — both in Part II §II.4. CHANGELOG was cut to `[0.1.0-preview.1]` and the `v0.1.0-preview.1` tag created **locally (not pushed)**; the PR to `main` is **not yet opened** (branch ~26 commits ahead). Tests now **~2,244 unit + ~123 integration green** (incl. live MigrationRunner + Enterprise store-isolation E2E, the latter catching a real `CREATE DATABASE` quoting bug; Tier-2 polish + Tier-3 point-in-time trace recall landed). A code-verified audit (5 docs × per-item code check) refreshed the pending list — **the live "what's worth doing next" view is now Part II §II.6.**
+> **Update 2026-06-06 (release prep) — Phase-2 quick wins shipped + release cut.** Two more upstream-parity items landed: **vector-index dimension validation** (`EmbeddingDimensionMismatchException`, fail-fast on embedder switch) and **`:TOUCHED` reasoning-audit edges** (`(:ReasoningStep)-[:TOUCHED]->(:Entity)`) — both in Part II §II.4. CHANGELOG was cut to `[0.1.0-preview.1]` and the `v0.1.0-preview.1` tag created **locally (not pushed)**; the PR to `main` is **not yet opened** (branch ~26 commits ahead). Tests now **~2,257 unit + ~128 integration green** (incl. live MigrationRunner + Enterprise store-isolation E2E, the latter catching a real `CREATE DATABASE` quoting bug; Tier-2/Tier-3 hardening + the entity auditability/feedback "trust" surface landed). Code-verified audits refreshed the pending list — **the live cleanup view is Part II §II.6; the higher-ambition "good→great" roadmap is §II.7.**
 
 ---
 
 ## 1. Summary & recommendation
 
-AgentMemory-for-.NET is **feature-complete for v1 and well-hardened**: 11 packages, ~2,244 unit + 31 SK + ~123 integration + 3 performance tests green, real CI, package-boundary guard tests, Testcontainers integration, 9 samples, a 4-phase remediation + adversarial review pass all closed, a clean MAF **1.9.0** migration, and a working file-based migration runner + schema bootstrapper. Code quality is high and the architecture is clean (centralized Cypher constants, a `CypherBuilder`, role-split service interfaces).
+AgentMemory-for-.NET is **feature-complete for v1 and well-hardened**: 11 packages, ~2,257 unit + 31 SK + ~128 integration + 3 performance tests green, real CI, package-boundary guard tests, Testcontainers integration, 9 samples, a 4-phase remediation + adversarial review pass all closed, a clean MAF **1.9.0** migration, and a working file-based migration runner + schema bootstrapper. Code quality is high and the architecture is clean (centralized Cypher constants, a `CypherBuilder`, role-split service interfaces).
 
 **The one architecturally significant gap described below — multi-user isolation of long-term knowledge — has been CLOSED (2026-06-06; R1 + R1b + R2 via I1–I9 + IC1–IC8).** The two paragraphs that follow describe the *original* gap and the plan to fix it, retained for context. Every recall/lookup/GraphRAG/trace/relationship/`AsOf`/facade-tool path is now owner-scoped with an optional shared/global scope, the `MemoryScope`/`OwnerId` API surface is shipped and forward-compatible, and the per-application store tier (R1b) works. **See Part II §II.5 for the live completion status.**
 
@@ -388,11 +388,30 @@ A 5-doc × per-item code-verification audit refreshed this list. **Every item be
 
 **Verified FALSE POSITIVE (do not "fix"):** `FactQueries.Upsert` "duplicates on owner change" — by design. `owner_key = coalesce(owner_id,'*')` is part of the MERGE key, so same-triple/different-owner is *intentionally* a distinct node; `ON MATCH` implies the same `owner_key`, so `owner_id` is already correct. No rebind needed.
 
-**Defer (post-v1 enhancements):** Conversation/Message `OwnerId` (short-term is session-scoped by design); owner-scope the 5 internal non-vector reads (not in the public API — tech debt, no breach); adopt-existing-graph (PR #113); entity feedback / edit-history; buffered/fire-and-forget writes; LLM session-reflection wiring; conflict detection; cross-agent shared namespace; ONNX local embeddings; GLiNER local NLP; CLI tool (R6a); GDS analytics (R6b); BenchmarkDotNet (R6c); S9 truncation refactor (R6d); eval harness; index-naming `_idx` nits.
+**Defer (post-v1 enhancements):** Conversation/Message `OwnerId` (short-term is session-scoped by design); owner-scope the 5 internal non-vector reads (not in the public API — tech debt, no breach); adopt-existing-graph (PR #113); buffered/fire-and-forget writes; LLM session-reflection wiring; conflict detection; cross-agent shared namespace; ONNX local embeddings; GLiNER local NLP; CLI tool (R6a); GDS analytics (R6b); BenchmarkDotNet (R6c); S9 truncation refactor (R6d); eval harness; index-naming `_idx` nits. *(Entity feedback / edit-history / provenance — moved to ✅ DONE, see §II.7.)*
 
 **Skip (no value / already covered):** first-class `:User` node API (our scalar `owner_id` is functionally equivalent — divergence decided, closes upstream #135); Opik (no .NET SDK); LangChain / SemanticRouter / AutoGen adapters (no demand; covered by MAF).
 
 **Recommended very-next coding task (after the release):** ✅ Tier-1 (store-isolation hardening — found+fixed a real `CREATE DATABASE` quoting bug), ✅ Tier-2 (MCP add_fact metadata/category; `Conversation.Archived` read-back; `ConsolidationRun` label), and ✅ the headline Tier-3 item (point-in-time trace recall) are **done**. What remains in §II.6 is all low-urgency: provisioner TOCTOU/`GetOrAdd` (benign — idempotent), `MigrationRunner` quoted-`;` hardening (documented/accepted), and a built-in streaming persistence path. None block the release; pick them up opportunistically post-publish.
+
+### II.7 Good → great roadmap (ambition list) — code-verified 2026-06-06
+
+§II.6 is gap-closure/cleanup. This section is the higher-ambition "what would make the library *great*" list, produced by a 10-candidate code-verification pass (each candidate checked against our code + upstream). Distinct from §II.6's low-urgency remnants.
+
+**✅ DONE — Entity auditability & feedback (the "trust" surface; was the #1 great pick).**
+- `memory_get_entity_provenance` MCP tool surfaces the already-built `EntityProvenance` (source messages + extractors).
+- `Entity.UpdatedAtUtc` reads back (last-modified semantics; surfaced on `memory_get_entity`).
+- Entity feedback: `ILongTermMemoryService.RecordEntityFeedbackAsync` + `memory_record_entity_feedback` (confidence nudge, clamped [0,1], `EntityQueries.ApplyConfidenceDelta`, `LongTermMemoryOptions.FeedbackConfidenceDelta`). 4 service + 2 tool + 2 provenance-tool unit tests; 5 entity integration tests.
+
+**Remaining "great" picks (ranked, not yet built):**
+1. **CLI tool** (`migrate` / `schema-check` / `run-consolidation` / `decay`) — M, **zero library-surface risk** (isolated `tools/AgentMemory.Cli`). Pure wiring over shipped services; closes a hard parity gap (Python ships a CLI). Highest impact-per-effort remaining.
+2. **Conflict / contradiction detection** (detect-only, dry-run) — M. A lead over *both* .NET and upstream Python; pairs with the shipped consolidation service into a complete hygiene story. Scope v1 to syntactic SPO/category mismatches, no auto-resolution.
+
+**Strong "good" (ranked):** auto session reflections (~60% built — `ContextCompressor` done, auto-trigger wiring missing; M) → eval harness (now unblocked by `:TOUCHED`; test-only; M) → GDS analytics (post-1.0; M) → adopt-existing-graph (L; gate on demand) → buffered writes (situational; M) → local/offline embeddings + NLP (L/XL; post-1.0).
+
+**Skip / already done:** bulk message ingest (already shipped — `AddBatchAsync`/`AddMessagesAsync`); first-class `:User` node (scalar `owner_id` equivalent); Opik (no .NET SDK); LangChain/SemanticRouter/AutoGen adapters.
+
+**Suggested next sequence:** CLI tool → conflict-detection (detect-only) → bundle with auto session reflections into a **v0.2.0 "session lifecycle + trust"** release, with the eval harness as its quality gate. GDS / adopt-graph / local-NLP wait for real production demand.
 
 ---
 
