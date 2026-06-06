@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -261,6 +262,24 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
         deleted.Should().BeTrue();
         var fetched = await _repo.GetByIdAsync(fact.FactId);
         fetched.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ForeignOwnerScope_DoesNotDeleteOtherOwnersFact()
+    {
+        var fact = new Fact
+        {
+            FactId = $"fact-{Guid.NewGuid():N}",
+            Subject = "Alice", Predicate = "owns", Object = "Secret",
+            OwnerId = "alice", Confidence = 0.8, CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+        await _repo.UpsertAsync(fact);
+
+        (await _repo.DeleteAsync(fact.FactId, MemoryScope.For("bob"))).Should().BeFalse();
+        (await _repo.GetByIdAsync(fact.FactId)).Should().NotBeNull("bob's scope must not delete alice's fact");
+
+        (await _repo.DeleteAsync(fact.FactId, MemoryScope.For("alice"))).Should().BeTrue();
+        (await _repo.GetByIdAsync(fact.FactId)).Should().BeNull();
     }
 
     [Fact]

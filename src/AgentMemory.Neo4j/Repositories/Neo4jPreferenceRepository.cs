@@ -174,15 +174,19 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
-    public async Task DeleteAsync(string preferenceId, CancellationToken cancellationToken = default)
+    public async Task DeleteAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting preference {Id}", preferenceId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Deleting preference {Id}, owner={Owner}", preferenceId, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.Delete(hasOwner);
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(
-                PreferenceQueries.Delete,
-                new { id = preferenceId });
+            if (hasOwner)
+                await runner.RunAsync(cypher, new Dictionary<string, object> { ["id"] = preferenceId, ["ownerId"] = scope!.OwnerId! });
+            else
+                await runner.RunAsync(cypher, new { id = preferenceId });
         }, cancellationToken);
     }
 

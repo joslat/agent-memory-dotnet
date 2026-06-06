@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 146; // 133 +7 ConsolidationQueries consts +2 SchemaQueries (consolidation_run_id, conversation_archived_idx) +1 SchemaQueries.ShowVectorIndexDimensions +2 ReasoningQueries TOUCHED +1 ConflictQueries.DetectFactContradictions. EntityQueries.ApplyConfidenceDelta is now an owner-conditional *method* (not a const).
+    private const int ExpectedQueryCount = 140; // base + ConsolidationQueries/SchemaQueries/TOUCHED/ConflictQueries consts. Owner-conditional queries are *methods* (excluded): EntityQueries.ApplyConfidenceDelta/Delete/MergeEntities/SearchByLocation/SearchInBoundingBox, FactQueries.Delete, PreferenceQueries.Delete.
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

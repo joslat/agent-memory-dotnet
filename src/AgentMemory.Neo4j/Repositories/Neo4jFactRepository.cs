@@ -345,13 +345,18 @@ public sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken);
     }
 
-    public async Task<bool> DeleteAsync(string factId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting fact {Id}", factId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Deleting fact {Id}, owner={Owner}", factId, scope?.OwnerId);
+
+        var cypher = FactQueries.Delete(hasOwner);
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.Delete, new { factId });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["factId"] = factId, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { factId });
             var records = await cursor.ToListAsync();
             return records.Count > 0 && records[0]["deleted"].As<bool>();
         }, cancellationToken);

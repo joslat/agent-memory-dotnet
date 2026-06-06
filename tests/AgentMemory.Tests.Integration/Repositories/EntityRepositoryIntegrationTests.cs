@@ -158,6 +158,78 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         (await _repo.GetByIdAsync(id))!.Confidence.Should().BeApproximately(0.8, 1e-9);
     }
 
+    // ── Cross-owner delete / merge / spatial denial (R1 isolation hardening) ──
+
+    private async Task<string> SeedOwnedEntityAsync(string name, string? owner)
+    {
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = name, Type = "Organization",
+            Confidence = 0.7, OwnerId = owner, CreatedAtUtc = DateTimeOffset.UtcNow,
+        });
+        return id;
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ForeignOwnerScope_DoesNotDeleteOtherOwnersEntity()
+    {
+        var id = await SeedOwnedEntityAsync("Alice private", "alice");
+
+        (await _repo.DeleteAsync(id, MemoryScope.For("bob"))).Should().BeFalse();
+        (await _repo.GetByIdAsync(id)).Should().NotBeNull("bob's scope must not delete alice's entity");
+
+        (await _repo.DeleteAsync(id, MemoryScope.For("alice"))).Should().BeTrue();
+        (await _repo.GetByIdAsync(id)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_Scoped_DoesNotDeleteSharedEntity()
+    {
+        var id = await SeedOwnedEntityAsync("Shared", owner: null);
+
+        (await _repo.DeleteAsync(id, MemoryScope.For("alice"))).Should().BeFalse("a scoped delete must not remove shared/global data");
+        (await _repo.GetByIdAsync(id)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_ForeignOwnerScope_DoesNotMergeAcrossOwners()
+    {
+        var aliceId = await SeedOwnedEntityAsync("AliceCo", "alice");
+        var bobId = await SeedOwnedEntityAsync("BobCo", "bob");
+
+        // bob's scope must not be able to merge alice's entity into bob's.
+        await _repo.MergeEntitiesAsync(aliceId, bobId, MemoryScope.For("bob"));
+
+        (await _repo.GetByIdAsync(aliceId)).Should().NotBeNull("the cross-owner merge must no-op");
+        (await _repo.GetByIdAsync(bobId))!.Aliases.Should().NotContain("AliceCo", "bob's entity must not absorb alice's name");
+    }
+
+    [Fact]
+    public async Task SearchByLocationAsync_OwnerScoped_ExcludesOtherOwners()
+    {
+        const double lat = 51.5, lon = -0.12;
+        var aliceId = await SeedOwnedEntityAsync("AliceSpot", "alice");
+        var bobId = await SeedOwnedEntityAsync("BobSpot", "bob");
+        var sharedId = await SeedOwnedEntityAsync("SharedSpot", owner: null);
+        foreach (var id in new[] { aliceId, bobId, sharedId })
+            await SetLocationAsync(id, lat, lon);
+
+        var results = await _repo.SearchByLocationAsync(lat, lon, 5.0, 10, MemoryScope.For("alice"));
+        var ids = results.Select(e => e.EntityId).ToList();
+
+        ids.Should().Contain(aliceId).And.Contain(sharedId);
+        ids.Should().NotContain(bobId, "bob's location is invisible to alice's scoped spatial search");
+    }
+
+    private Task SetLocationAsync(string id, double lat, double lon) =>
+        _fixture.TransactionRunner.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                "MATCH (e:Entity {id: $id}) SET e.location = point({latitude: $lat, longitude: $lon})",
+                new { id, lat, lon });
+        });
+
     [Fact]
     public async Task Entity_UpdatedAtUtc_RoundTrips_AfterReUpsert()
     {

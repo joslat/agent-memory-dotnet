@@ -155,11 +155,19 @@ public static class FactQueries
 
     // ── DeleteAsync ────────────────────────────────────────────────────
 
-    /// <summary>Detach-delete a fact by id and report whether it existed.</summary>
-    public const string Delete = @"
+    /// <summary>
+    /// Detach-delete a fact by id and report whether it existed. When scoped (R1) the delete only affects
+    /// the owner's own facts — never another owner's, and never shared/global ones. Null ⇒ unscoped.
+    /// </summary>
+    public static string Delete(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND f.owner_id = $ownerId" : string.Empty;
+        return @"
             MATCH (f:Fact {id: $factId})
+            WHERE true" + owner + @"
             DETACH DELETE f
             RETURN count(f) > 0 AS deleted";
+    }
 
     // ── FindByTripleAsync ──────────────────────────────────────────────
 

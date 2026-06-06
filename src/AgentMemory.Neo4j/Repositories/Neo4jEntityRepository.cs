@@ -317,13 +317,20 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, CancellationToken cancellationToken = default)
+    public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Merging entity {SourceId} into {TargetId}", sourceEntityId, targetEntityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Merging entity {SourceId} into {TargetId}, owner={Owner}", sourceEntityId, targetEntityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.MergeEntities(hasOwner, includeShared);
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(EntityQueries.MergeEntities, new { sourceEntityId, targetEntityId });
+            if (hasOwner)
+                await runner.RunAsync(cypher, new Dictionary<string, object> { ["sourceEntityId"] = sourceEntityId, ["targetEntityId"] = targetEntityId, ["ownerId"] = scope!.OwnerId! });
+            else
+                await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId });
         }, cancellationToken);
 
         await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken);
@@ -409,19 +416,23 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         double longitude,
         double radiusKm,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Searching entities near ({Lat},{Lon}) radius={RadiusKm}km", latitude, longitude, radiusKm);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Searching entities near ({Lat},{Lon}) radius={RadiusKm}km, owner={Owner}", latitude, longitude, radiusKm, scope?.OwnerId);
+
+        var cypher = EntityQueries.SearchByLocation(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.SearchByLocation, new
-            {
-                lat = latitude,
-                lon = longitude,
-                radiusMeters = radiusKm * 1000.0,
-                limit
-            });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object>
+                {
+                    ["lat"] = latitude, ["lon"] = longitude, ["radiusMeters"] = radiusKm * 1000.0, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
+                })
+                : await runner.RunAsync(cypher, new { lat = latitude, lon = longitude, radiusMeters = radiusKm * 1000.0, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -437,14 +448,24 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         double maxLat,
         double maxLon,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Searching entities in bounding box ({MinLat},{MinLon})-({MaxLat},{MaxLon})",
-            minLat, minLon, maxLat, maxLon);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Searching entities in bounding box ({MinLat},{MinLon})-({MaxLat},{MaxLon}), owner={Owner}",
+            minLat, minLon, maxLat, maxLon, scope?.OwnerId);
+
+        var cypher = EntityQueries.SearchInBoundingBox(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.SearchInBoundingBox, new { minLat, minLon, maxLat, maxLon, limit });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object>
+                {
+                    ["minLat"] = minLat, ["minLon"] = minLon, ["maxLat"] = maxLat, ["maxLon"] = maxLon, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
+                })
+                : await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -488,13 +509,18 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<bool> DeleteAsync(string entityId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting entity {Id}", entityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Deleting entity {Id}, owner={Owner}", entityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.Delete(hasOwner);
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.Delete, new { entityId });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { entityId });
             var records = await cursor.ToListAsync();
             return records.Count > 0 && records[0]["deleted"].As<bool>();
         }, cancellationToken);

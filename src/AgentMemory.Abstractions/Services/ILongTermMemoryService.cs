@@ -115,10 +115,12 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes a preference by identifier.
+    /// Deletes a preference by identifier. When <paramref name="scope"/> is supplied (R1) the delete
+    /// only affects the owner's own preference — never another owner's, and never shared/global ones.
     /// </summary>
     Task DeletePreferenceAsync(
         string preferenceId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

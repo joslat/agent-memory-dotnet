@@ -201,11 +201,21 @@ public static class EntityQueries
 
     // ── MergeEntitiesAsync ─────────────────────────────────────────────
 
-    /// <summary>Merge a source entity into a target entity, transferring relationships and aliases.</summary>
-    public const string MergeEntities = @"
+    /// <summary>
+    /// Merge a source entity into a target entity, transferring relationships and aliases. When scoped
+    /// (R1) BOTH source and target must be the owner's own (or shared) — so a merge can never reach
+    /// across the isolation boundary into another owner's entity. Null scope ⇒ unscoped (admin).
+    /// </summary>
+    public static string MergeEntities(bool hasOwnerFilter, bool includeShared)
+    {
+        var guard = !hasOwnerFilter ? string.Empty
+            : includeShared
+                ? "WHERE (source.owner_id = $ownerId OR source.owner_id IS NULL) AND (target.owner_id = $ownerId OR target.owner_id IS NULL)\n            "
+                : "WHERE source.owner_id = $ownerId AND target.owner_id = $ownerId\n            ";
+        return @"
             MATCH (source:Entity {id: $sourceEntityId})
             MATCH (target:Entity {id: $targetEntityId})
-            CALL (source, target) {
+            " + guard + @"CALL (source, target) {
                 MATCH (source)<-[:MENTIONS]-(m:Message)
                 WHERE NOT (m)-[:MENTIONS]->(target)
                 MERGE (m)-[:MENTIONS]->(target)
@@ -231,6 +241,7 @@ public static class EntityQueries
                 target.embedding = null,
                 target.updated_at = datetime()
             RETURN source, target";
+    }
 
     // ── RefreshEntitySearchFieldsAsync ──────────────────────────────────
 
@@ -243,27 +254,44 @@ public static class EntityQueries
 
     // ── SearchByLocationAsync ──────────────────────────────────────────
 
-    /// <summary>Spatial proximity search within a radius (km converted to meters by caller).</summary>
-    public const string SearchByLocation = @"
+    /// <summary>
+    /// Spatial proximity search within a radius (km converted to meters by caller), with an optional
+    /// owner/shared filter (R1) so one user cannot enumerate another's locations by sweeping coordinates.
+    /// </summary>
+    public static string SearchByLocation(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = OwnerAndClause(hasOwnerFilter, includeShared);
+        return @"
             MATCH (e:Entity)
             WHERE e.location IS NOT NULL
-              AND point.distance(e.location, point({latitude: $lat, longitude: $lon})) < $radiusMeters
+              AND point.distance(e.location, point({latitude: $lat, longitude: $lon})) < $radiusMeters" + owner + @"
             RETURN e
             ORDER BY point.distance(e.location, point({latitude: $lat, longitude: $lon}))
             LIMIT $limit";
+    }
 
     // ── SearchInBoundingBoxAsync ────────────────────────────────────────
 
-    /// <summary>Spatial bounding-box search.</summary>
-    public const string SearchInBoundingBox = @"
+    /// <summary>Spatial bounding-box search, with an optional owner/shared filter (R1).</summary>
+    public static string SearchInBoundingBox(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = OwnerAndClause(hasOwnerFilter, includeShared);
+        return @"
             MATCH (e:Entity)
             WHERE e.location IS NOT NULL
               AND point.withinBBox(
                     e.location,
                     point({longitude: $minLon, latitude: $minLat}),
-                    point({longitude: $maxLon, latitude: $maxLat}))
+                    point({longitude: $maxLon, latitude: $maxLat}))" + owner + @"
             RETURN e
             LIMIT $limit";
+    }
+
+    /// <summary>The owner/shared AND-clause for entity alias <c>e</c> (R1), or empty when unscoped.</summary>
+    private static string OwnerAndClause(bool hasOwnerFilter, bool includeShared) =>
+        !hasOwnerFilter ? string.Empty
+        : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                        : " AND e.owner_id = $ownerId";
 
     // ── GetPageWithoutEmbeddingAsync ────────────────────────────────────
 
@@ -279,11 +307,20 @@ public static class EntityQueries
 
     // ── DeleteAsync ────────────────────────────────────────────────────
 
-    /// <summary>Detach-delete an entity by id and report whether it existed.</summary>
-    public const string Delete = @"
+    /// <summary>
+    /// Detach-delete an entity by id and report whether it existed. When scoped (R1) the delete only
+    /// affects the owner's <b>own</b> entities — never another owner's, and never shared/global ones
+    /// (deleting shared data on one user's behalf would affect everyone). Null scope ⇒ unscoped (admin).
+    /// </summary>
+    public static string Delete(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND e.owner_id = $ownerId" : string.Empty;
+        return @"
             MATCH (e:Entity {id: $entityId})
+            WHERE true" + owner + @"
             DETACH DELETE e
             RETURN count(e) > 0 AS deleted";
+    }
 
     // ── FindSimilarByEmbeddingAsync ─────────────────────────────────
 

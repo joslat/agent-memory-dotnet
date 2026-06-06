@@ -182,6 +182,14 @@ NuGet package IDs are permanent once published.
 
 ### Fixed
 
+- **Cross-owner write/delete/merge denial (R1 isolation hardening).** `IEntityRepository.DeleteAsync` /
+  `IFactRepository.DeleteAsync` / `IPreferenceRepository.DeleteAsync` / `ILongTermMemoryService.DeletePreferenceAsync`,
+  `Neo4jEntityRepository.MergeEntitiesAsync`, and the spatial reads (`SearchByLocationAsync` /
+  `SearchInBoundingBoxAsync`) now take an optional `MemoryScope`. When scoped, a delete only removes the
+  owner's **own** node (never another owner's, and never shared/global data), a merge cannot cross the
+  owner boundary, and spatial search can't enumerate another owner's locations. Previously these matched
+  by id/coordinates with no owner check — a destructive multi-tenant gap. Unscoped (null) stays
+  admin/global for back-compat. Covered by cross-owner integration tests.
 - **The meta `AddNeo4jAgentMemory` is now self-sufficient.** It now registers default `IClock`
   (`SystemClock`) and `IIdGenerator` (`GuidIdGenerator`) via `TryAdd`, so consolidation, reasoning,
   the context assembler, and dedup resolve out of the box. Previously these were *registered* but not

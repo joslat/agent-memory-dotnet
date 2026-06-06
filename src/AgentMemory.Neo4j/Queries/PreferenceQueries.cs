@@ -88,8 +88,15 @@ public static class PreferenceQueries
     /// <summary>Reinforce an existing preference reached by dedup: bump its confidence.</summary>
     public const string MarkDeduplicated = "MATCH (p:Preference {id: $id}) SET p.confidence = $confidence RETURN p";
 
-    /// <summary>Delete a Preference and all its relationships.</summary>
-    public const string Delete = "MATCH (p:Preference {id: $id}) DETACH DELETE p";
+    /// <summary>
+    /// Delete a Preference and all its relationships. When scoped (R1) the delete only affects the
+    /// owner's own preferences — never another owner's, and never shared/global ones. Null ⇒ unscoped.
+    /// </summary>
+    public static string Delete(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND p.owner_id = $ownerId" : string.Empty;
+        return "MATCH (p:Preference {id: $id}) WHERE true" + owner + " DETACH DELETE p";
+    }
 
     /// <summary>Create an EXTRACTED_FROM relationship between a Preference and a Message.</summary>
     public const string CreateExtractedFromRelationship = @"

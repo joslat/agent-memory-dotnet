@@ -268,10 +268,11 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
     /// <inheritdoc/>
     public Task DeletePreferenceAsync(
         string preferenceId,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting preference {PreferenceId}", preferenceId);
-        return _prefRepo.DeleteAsync(preferenceId, cancellationToken);
+        _logger.LogDebug("Deleting preference {PreferenceId}, owner={Owner}", preferenceId, scope?.OwnerId);
+        return _prefRepo.DeleteAsync(preferenceId, scope, cancellationToken);
     }
 
     /// <inheritdoc/>

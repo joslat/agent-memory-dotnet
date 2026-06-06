@@ -80,7 +80,7 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Searches entities within a radius (km) of a geographic point.
+    /// Searches entities within a radius (km) of a geographic point, optionally owner-scoped (R1).
     /// Requires the entity_location_idx point index.
     /// </summary>
     Task<IReadOnlyList<Entity>> SearchByLocationAsync(
@@ -88,10 +88,11 @@ public interface IEntityRepository
         double longitude,
         double radiusKm,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Searches entities inside an axis-aligned geographic bounding box.
+    /// Searches entities inside an axis-aligned geographic bounding box, optionally owner-scoped (R1).
     /// Requires the entity_location_idx point index.
     /// </summary>
     Task<IReadOnlyList<Entity>> SearchInBoundingBoxAsync(
@@ -100,6 +101,7 @@ public interface IEntityRepository
         double maxLat,
         double maxLon,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -119,8 +121,11 @@ public interface IEntityRepository
         float[] embedding,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Deletes an entity and all its relationships.</summary>
-    Task<bool> DeleteAsync(string entityId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Deletes an entity and all its relationships. When <paramref name="scope"/> is supplied (R1) the
+    /// delete only affects the owner's own entity — never another owner's, and never shared/global ones.
+    /// </summary>
+    Task<bool> DeleteAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Refreshes the search-indexed fields (name, description, aliases) for an entity.

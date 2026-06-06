@@ -27,13 +27,13 @@ internal static class DemoDataSeeder
         await shortTerm.ClearSessionAsync(SessionId, cancellationToken);
 
         foreach (var preferenceId in Preferences.Select(static p => p.PreferenceId))
-            await preferenceRepository.DeleteAsync(preferenceId, cancellationToken);
+            await preferenceRepository.DeleteAsync(preferenceId, cancellationToken: cancellationToken);
 
         foreach (var factId in Facts.Select(static f => f.FactId))
-            await factRepository.DeleteAsync(factId, cancellationToken);
+            await factRepository.DeleteAsync(factId, cancellationToken: cancellationToken);
 
         foreach (var entityId in Entities.Select(static e => e.EntityId))
-            await entityRepository.DeleteAsync(entityId, cancellationToken);
+            await entityRepository.DeleteAsync(entityId, cancellationToken: cancellationToken);
 
         await shortTerm.AddConversationAsync(
             ConversationId,

@@ -59,8 +59,11 @@ public interface IFactRepository
     /// <summary>Sets the embedding vector on an existing fact node.</summary>
     Task UpdateEmbeddingAsync(string factId, float[] embedding, CancellationToken cancellationToken = default);
 
-    /// <summary>Deletes a fact and all its relationships.</summary>
-    Task<bool> DeleteAsync(string factId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Deletes a fact and all its relationships. When <paramref name="scope"/> is supplied (R1) the
+    /// delete only affects the owner's own fact — never another owner's, and never shared/global ones.
+    /// </summary>
+    Task<bool> DeleteAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>Finds existing facts matching the subject-predicate-object triple.</summary>
     Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default);
