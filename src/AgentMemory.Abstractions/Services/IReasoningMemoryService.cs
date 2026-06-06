@@ -48,6 +48,23 @@ public interface IReasoningMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records that a reasoning step read or acted upon the given entities, writing <c>:TOUCHED</c>
+    /// audit edges from the step to each existing entity (by id). Entity ids that do not resolve — and
+    /// a non-existent step — are silently skipped. Idempotent. Returns the number of entities linked.
+    /// </summary>
+    Task<int> RecordTouchedEntitiesAsync(
+        string stepId,
+        IReadOnlyList<string> entityIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the ids of all entities a reasoning step touched, for auditability/provenance.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetTouchedEntitiesAsync(
+        string stepId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Completes a reasoning trace.
     /// </summary>
     Task<ReasoningTrace> CompleteTraceAsync(

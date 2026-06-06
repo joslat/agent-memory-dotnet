@@ -81,6 +81,37 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
         }, cancellationToken);
     }
 
+    public async Task<int> LinkTouchedEntitiesAsync(
+        string stepId, IReadOnlyList<string> entityIds, CancellationToken cancellationToken = default)
+    {
+        if (entityIds is null || entityIds.Count == 0)
+            return 0;
+
+        _logger.LogDebug("Linking {Count} touched entit(y/ies) to step {StepId}", entityIds.Count, stepId);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                ReasoningQueries.RecordTouchedEntitiesByIds,
+                new { stepId, entityIds = entityIds.ToList() });
+            var record = await cursor.SingleAsync();
+            return (int)record["linked"].As<long>();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetTouchedEntityIdsAsync(
+        string stepId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting touched entities for step {StepId}", stepId);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ReasoningQueries.GetTouchedEntityIds, new { stepId });
+            var records = await cursor.ToListAsync();
+            return (IReadOnlyList<string>)records.Select(r => r["id"].As<string>()).ToList();
+        }, cancellationToken);
+    }
+
     private static ReasoningStep MapToStep(INode node, float[]? embedding) =>
         new()
         {

@@ -27,4 +27,21 @@ public interface IReasoningStepRepository
     Task<ReasoningStep?> GetByIdAsync(
         string stepId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Links a reasoning step to existing entities (by id) via <c>:TOUCHED</c> audit edges. Entity ids
+    /// that do not resolve to a node — and a non-existent step — are silently skipped. Idempotent.
+    /// Returns the number of entities linked.
+    /// </summary>
+    Task<int> LinkTouchedEntitiesAsync(
+        string stepId,
+        IReadOnlyList<string> entityIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the ids of all entities a reasoning step touched (via <c>:TOUCHED</c> edges), ordered by id.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetTouchedEntityIdsAsync(
+        string stepId,
+        CancellationToken cancellationToken = default);
 }

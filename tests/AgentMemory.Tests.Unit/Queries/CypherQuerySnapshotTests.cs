@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 143; // 133 +7 ConsolidationQueries consts +2 SchemaQueries (consolidation_run_id, conversation_archived_idx) +1 SchemaQueries.ShowVectorIndexDimensions
+    private const int ExpectedQueryCount = 145; // 133 +7 ConsolidationQueries consts +2 SchemaQueries (consolidation_run_id, conversation_archived_idx) +1 SchemaQueries.ShowVectorIndexDimensions +2 ReasoningQueries TOUCHED (RecordTouchedEntitiesByIds, GetTouchedEntityIds)
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

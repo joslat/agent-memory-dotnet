@@ -121,4 +121,28 @@ public static class ReasoningQueries
 
     /// <summary>Get a ReasoningStep by id.</summary>
     public const string GetStepById = "MATCH (s:ReasoningStep {id: $id}) RETURN s";
+
+    // ── TOUCHED audit edges (reasoning step → entity) ───────────
+    // Records which entities a reasoning step read or acted upon, for auditability/provenance.
+    // Mirrors the Python reference's by-id variant: we link only to entities that already exist
+    // (created via the resolution/extraction pipeline), never MERGE-create them here. The MERGE on
+    // the edge is idempotent; recorded_at is stamped once on create. See SchemaConstants.RelationshipTypes.Touched.
+
+    /// <summary>
+    /// Link a ReasoningStep to one or more existing entities (by id) with a TOUCHED edge. Entities or
+    /// steps that do not exist are silently skipped. Returns the number of entities linked.
+    /// </summary>
+    public const string RecordTouchedEntitiesByIds = @"
+            MATCH (s:ReasoningStep {id: $stepId})
+            UNWIND $entityIds AS entityId
+            MATCH (e:Entity {id: entityId})
+            MERGE (s)-[r:TOUCHED]->(e)
+            ON CREATE SET r.recorded_at = datetime()
+            RETURN count(r) AS linked";
+
+    /// <summary>Get the ids of all entities a ReasoningStep touched, ordered by id.</summary>
+    public const string GetTouchedEntityIds = @"
+            MATCH (s:ReasoningStep {id: $stepId})-[:TOUCHED]->(e:Entity)
+            RETURN e.id AS id
+            ORDER BY e.id";
 }

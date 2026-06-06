@@ -204,6 +204,61 @@ public sealed class ReasoningMemoryServiceTests
         result[0].Should().Be(trace);
     }
 
+    [Fact]
+    public async Task RecordTouchedEntitiesAsync_DelegatesToRepository_AndReturnsCount()
+    {
+        var entityIds = new[] { "e1", "e2" };
+        _stepRepo
+            .LinkTouchedEntitiesAsync("step-1", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(2));
+        var sut = CreateSut();
+
+        var linked = await sut.RecordTouchedEntitiesAsync("step-1", entityIds);
+
+        linked.Should().Be(2);
+        await _stepRepo.Received(1).LinkTouchedEntitiesAsync(
+            "step-1",
+            Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(entityIds)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordTouchedEntitiesAsync_EmptyList_ShortCircuitsWithoutHittingRepository()
+    {
+        var sut = CreateSut();
+
+        var linked = await sut.RecordTouchedEntitiesAsync("step-1", Array.Empty<string>());
+
+        linked.Should().Be(0);
+        await _stepRepo.DidNotReceive().LinkTouchedEntitiesAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RecordTouchedEntitiesAsync_BlankStepId_Throws(string stepId)
+    {
+        var sut = CreateSut();
+
+        await sut.Invoking(s => s.RecordTouchedEntitiesAsync(stepId, new[] { "e1" }))
+            .Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task GetTouchedEntitiesAsync_DelegatesToRepository()
+    {
+        _stepRepo
+            .GetTouchedEntityIdsAsync("step-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>(new[] { "e1", "e2" }));
+        var sut = CreateSut();
+
+        var result = await sut.GetTouchedEntitiesAsync("step-1");
+
+        result.Should().BeEquivalentTo("e1", "e2");
+        await _stepRepo.Received(1).GetTouchedEntityIdsAsync("step-1", Arg.Any<CancellationToken>());
+    }
+
     // ---- Helpers ----
 
     private static ReasoningTrace CreateTrace(string traceId, string sessionId) => new()

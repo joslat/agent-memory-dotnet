@@ -35,6 +35,12 @@
   offending index) when they differ. Because `CREATE VECTOR INDEX ... IF NOT EXISTS` never alters an
   existing index, switching embedding models previously produced an opaque query-time failure; this is
   a fail-fast guard. Opt out via `Neo4jOptions.ValidateVectorIndexDimensions = false` (default `true`).
+- **`:TOUCHED` reasoning-audit edges.** `IReasoningMemoryService.RecordTouchedEntitiesAsync` /
+  `GetTouchedEntitiesAsync` record and read which entities a reasoning step read or acted upon, as
+  `(:ReasoningStep)-[:TOUCHED]->(:Entity)` edges (a `recorded_at` timestamp is stamped on create).
+  Linking is by entity id to **existing** entities (it never creates entities, preserving the
+  resolution/dedup pipeline), is idempotent, and silently skips ids that do not resolve. Ports the
+  upstream `(:ReasoningStep)-[:TOUCHED]->(:Entity)` provenance edge (neo4j-labs/agent-memory PR #113).
 
 ### Changed (breaking)
 - **`IMemoryService` split into role interfaces** (`AgentMemory.Abstractions`). Its members are now

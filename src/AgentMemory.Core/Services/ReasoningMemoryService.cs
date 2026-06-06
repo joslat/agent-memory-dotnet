@@ -118,6 +118,34 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
     }
 
     /// <inheritdoc/>
+    public Task<int> RecordTouchedEntitiesAsync(
+        string stepId,
+        IReadOnlyList<string> entityIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(stepId))
+            throw new ArgumentException("Step id must be provided.", nameof(stepId));
+
+        if (entityIds is null || entityIds.Count == 0)
+            return Task.FromResult(0);
+
+        _logger.LogDebug(
+            "Recording {Count} touched entit(y/ies) for step {StepId}", entityIds.Count, stepId);
+        return _stepRepo.LinkTouchedEntitiesAsync(stepId, entityIds, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<string>> GetTouchedEntitiesAsync(
+        string stepId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(stepId))
+            throw new ArgumentException("Step id must be provided.", nameof(stepId));
+
+        return _stepRepo.GetTouchedEntityIdsAsync(stepId, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task<ReasoningTrace> CompleteTraceAsync(
         string traceId,
         string? outcome = null,

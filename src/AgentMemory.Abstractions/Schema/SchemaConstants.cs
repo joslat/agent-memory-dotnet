@@ -48,6 +48,13 @@ public static class SchemaConstants
         /// <summary>Tool call to its tool definition relationship.</summary>
         public const string InstanceOf = "INSTANCE_OF";
 
+        /// <summary>
+        /// Reasoning step to an entity it read or acted upon (audit/provenance edge; carries a
+        /// <c>recorded_at</c> timestamp set on create). Matches the Python reference
+        /// <c>(:ReasoningStep)-[:TOUCHED]->(:Entity)</c>.
+        /// </summary>
+        public const string Touched = "TOUCHED";
+
         // Cross-memory
 
         /// <summary>Conversation to reasoning trace relationship.</summary>

@@ -74,8 +74,8 @@ Item | Upstream | Ours | Action
 
 These close *name-level / constant-level* gaps without altering stored data or existing queries. Each is `IF NOT EXISTS` or a const declaration.
 
-1. **(verify-then-safe) Add `[:TOUCHED]` relationship-type constant.**
-   File: `src/AgentMemory.Abstractions/Schema/SchemaConstants.cs` → `RelationshipTypes` class. Add `public const string Touched = "TOUCHED";`. *Blocked on §3 verify of upstream endpoints/direction.* Constant-only addition is risk-free; only wire it into queries once the trace→entity edge is implemented.
+1. ~~**(verify-then-safe) Add `[:TOUCHED]` relationship-type constant.**~~ ✅ **DONE (2026-06-06).**
+   Upstream direction verified against `graph/queries.py` — `(:ReasoningStep)-[:TOUCHED]->(:Entity)`, `recorded_at` stamped on create, identity precedence id > name+type > name. We ported the **by-id** variant (links existing entities only; never MERGE-creates, preserving our resolution/dedup pipeline). `SchemaConstants.RelationshipTypes.Touched = "TOUCHED"` added and wired into `ReasoningQueries.RecordTouchedEntitiesByIds`/`GetTouchedEntityIds` + `IReasoningMemoryService`/`IReasoningStepRepository`. No constraint/index needed (parity-confirmed: upstream `schema.py` has none). 4 unit + 5 integration tests.
 
 > No other "safe now" schema additions exist: every remaining upstream-only item (`User`, `ConsolidationRun`, `MemoryReadAudit`, `archived`, `error_kind`/`summary`) belongs to an unported feature and would create orphan schema with no writer, which is *not* desirable to land blindly.
 
