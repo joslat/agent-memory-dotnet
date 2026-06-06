@@ -69,8 +69,10 @@ NuGet package IDs are permanent once published.
   (`ConsolidationOptions`, `DryRun = true` by default) that archives expired conversations, removes
   duplicate preferences, and reports duplicate entities and over-long reasoning traces, emitting a
   `ConsolidationReport` and recording each run. Backed by migration `0004_consolidation.cypher`.
-- **Streaming (chunked) extraction is DI-registered** (`IStreamingExtractor`), so its output is
-  owner-stamped when persisted via `PersistenceStage`.
+- **Streaming (chunked) extraction is DI-registered** (`IStreamingExtractor`). It is a standalone
+  text → chunks → entities helper and does **not** persist; callers persist its output through their
+  own ingestion path (where owner stamping applies). A built-in streaming persistence path is not
+  yet wired.
 
 #### Operational safety
 

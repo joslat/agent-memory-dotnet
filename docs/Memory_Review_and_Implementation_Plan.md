@@ -4,12 +4,14 @@
 > **Scope:** A through-and-through review of AgentMemory-for-.NET — what is done, what is pending, and where the gaps are — with a deep dive and concrete implementation plan for the headline topic: **multi-user / multi-session memory isolation** (user-scoped memory, with an *optional* shared/global scope).
 >
 > **Update 2026-06-06 — ✅ multi-user isolation COMPLETE (R1 + R1b + R2).** R1 core (I1–I9) plus a follow-up multi-agent review and remediation (**IC1–IC8**) closed **all** owner-scoping leaks: vector recall, non-vector lookups (subject/triple/name/type/category/location), GraphRAG (all 4 retrievers), ReasoningTrace, relationships, temporal `AsOf`, and the LLM-invokable facade tools are now owner-scoped (optional shared/global). The two R1b store-tier defects are fixed (IC6 `AsyncLocal` store context; `StoreDatabaseNaming` collision hash). The upstream ports **dedup-on-create** (PR #97) and **consolidation/hygiene** (PR #113) landed in parallel. Verified by full unit + Neo4j integration suites. The narrative below (§1, R7) was written against the *original* gap and is kept for context; **Part II §II.5 is the source of truth for completion status.** Upstream fix proposed at neo4j-labs/agent-memory#137; see [`Remaining_Work_Roadmap.md`](Remaining_Work_Roadmap.md), [`schema-parity-assessment.md`](schema-parity-assessment.md), [`neo4j-pr-howto.md`](neo4j-pr-howto.md).
+>
+> **Update 2026-06-06 (release prep) — Phase-2 quick wins shipped + release cut.** Two more upstream-parity items landed: **vector-index dimension validation** (`EmbeddingDimensionMismatchException`, fail-fast on embedder switch) and **`:TOUCHED` reasoning-audit edges** (`(:ReasoningStep)-[:TOUCHED]->(:Entity)`) — both in Part II §II.4. CHANGELOG was cut to `[0.1.0-preview.1]` and the `v0.1.0-preview.1` tag created **locally (not pushed)**; the PR to `main` is **not yet opened** (branch ~26 commits ahead). Tests now **~2,239 unit + ~116 integration green**. A code-verified audit (5 docs × per-item code check) refreshed the pending list — **the live "what's worth doing next" view is now Part II §II.6.**
 
 ---
 
 ## 1. Summary & recommendation
 
-AgentMemory-for-.NET is **feature-complete for v1 and well-hardened**: 11 packages, ~2,211 unit + 31 SK + 109 integration + 3 performance tests green, real CI, package-boundary guard tests, Testcontainers integration, 9 samples, a 4-phase remediation + adversarial review pass all closed, a clean MAF **1.9.0** migration, and a working file-based migration runner + schema bootstrapper. Code quality is high and the architecture is clean (centralized Cypher constants, a `CypherBuilder`, role-split service interfaces).
+AgentMemory-for-.NET is **feature-complete for v1 and well-hardened**: 11 packages, ~2,239 unit + 31 SK + ~116 integration + 3 performance tests green, real CI, package-boundary guard tests, Testcontainers integration, 9 samples, a 4-phase remediation + adversarial review pass all closed, a clean MAF **1.9.0** migration, and a working file-based migration runner + schema bootstrapper. Code quality is high and the architecture is clean (centralized Cypher constants, a `CypherBuilder`, role-split service interfaces).
 
 **The one architecturally significant gap described below — multi-user isolation of long-term knowledge — has been CLOSED (2026-06-06; R1 + R1b + R2 via I1–I9 + IC1–IC8).** The two paragraphs that follow describe the *original* gap and the plan to fix it, retained for context. Every recall/lookup/GraphRAG/trace/relationship/`AsOf`/facade-tool path is now owner-scoped with an optional shared/global scope, the `MemoryScope`/`OwnerId` API surface is shipped and forward-compatible, and the per-application store tier (R1b) works. **See Part II §II.5 for the live completion status.**
 
@@ -43,7 +45,7 @@ The design below introduces a nullable `owner_id` per record (**`NULL` = shared/
 | R1 | Multi-user memory isolation (`owner_id` + `MemoryScope`, optional shared) | core / neo4j / abstractions / adapters | 🟥 HIGH | ✅ **Done** — ✅I1 abstractions · ✅I3 scoped read path · ✅I4 assembler scope · ✅I5 write path (`owner_id` persisted+read-back on Fact/Entity/Preference; Fact MERGE keyed by `owner_key`; extraction stamps owner from `ExtractionRequest.UserId`) · ✅I6 owner indexes (`fact/entity/preference/trace_owner_idx` in bootstrap) + non-backfilling migration `0002_owner_scope.cypher` (multi-statement runner; `.cypher` ships to output) · ✅I8 adapters surface identity: MAF context + chat-history providers extract `user_id`/`application_id` from the StateBag → `RecallRequest.UserId`/`ExtractionRequest.UserId` (+ optional writable store-context routing); `AgentSession.WithMemoryIdentity(...)` helper; MCP recall already scoped + add_entity/fact/preference now stamp `OwnerId`; SK `recall` gains `userId` · ✅I9 isolation tests: scope-guard unit tests (owner clause present only when scoped; over-fetch topK) + 6 Neo4j integration tests **passing** (A≠B isolation, shared visible to all, unscoped union, same-triple-different-owner = distinct nodes, same-triple-same-owner dedup, over-fetch no-starvation) — **read+write loop closed, indexed, wired through all three adapters, and verified end-to-end**. ✅ **R1 COMPLETE** — all secondary leaks closed in **IC1–IC8** (reasoning traces, relationships, GraphRAG, non-vector lookups, temporal `AsOf`, facade tools); 2211 unit + 109 integration tests green. Full IC detail + remaining design decisions in **Part II (§II.5)**. | L | ✅ Landed before first NuGet publish |
 | R1b | Application / memory-store isolation (`ApplicationId` → Neo4j database; shared-db fallback) | core / neo4j / infra | 🟥 HIGH | ✅ **Done** — ✅I2 scaffolding · ✅I7 store routing: store-aware `Neo4jSessionFactory` (per-call DB resolution from `IMemoryStoreContext`+`MemoryStoreOptions`; explicit-DB overload), `StoreDatabaseNaming` (resolve + Neo4j-legal `Sanitize` w/ collision-safe hash on truncation), `IMemoryStoreProvisioner`/`Neo4jMemoryStoreProvisioner` (`CREATE DATABASE … WAIT` on `system`, per-store bootstrap, cache, **actionable `NotSupportedException` on Community**), DI wired (singleton context+provisioner, optional `configureStore`). **`SharedDatabase` default reproduces single-store behavior exactly.** ✅ I8 surfaced `application_id` via the StateBag; ✅ IC6 fixed the captive-singleton store-routing defect (`AsyncLocal` store context). **R1b COMPLETE.** | L | `DatabasePerApplication` (Enterprise/Aura) + provisioner; `SharedDatabase`+`owner_id` on Community; §R1b |
 | R2 | Reasoning-trace (+ relationship) isolation | core / neo4j | 🟧 MED | ✅ **Done** — folded into R1: **IC1** ReasoningTrace owner write+recall+delete-decision, **IC2** Relationship edge `owner_id` + `rel_owner_idx` + migration 0003 | M | Done via IC1/IC2 |
-| R3 | NuGet release sequencing | packaging / ci | 🟥 HIGH | 🟢 **Unblocked** — R1 API surface landed; packaging + tag-gated `squad-release.yml` done; `NUGET_API_KEY` set. **Only CHANGELOG versioning + a `v*` tag left.** | S | Publish v0.1.0-preview.1 via tag; ids/version freeze on first publish |
+| R3 | NuGet release sequencing | packaging / ci | 🟥 HIGH | 🟢 **Cut, awaiting push (2026-06-06)** — `NUGET_API_KEY` set; CHANGELOG cut to `[0.1.0-preview.1]`; all 11 packages pack cleanly; **annotated tag `v0.1.0-preview.1` created locally (NOT pushed)**. Remaining: open PR `remediation/analysis-review-hardening`→`main` (~26 commits), then `git push origin v0.1.0-preview.1` to trigger `squad-release.yml`. ids/version freeze on first publish. | S | Push tag to publish (irreversible) — see §II.6 |
 | R4 | Streaming extraction DI wiring | core | 🟧 MED | ✅ **Done (2026-06-06)** — `IStreamingExtractor` registered in `AddAgentMemoryCore` (was intentionally held back until R1 landed). It's a text→chunks→entities helper; owner stamping happens at persistence via `ExtractionRequest.UserId`. Interface name kept as `IStreamingExtractor` (final). | S | Registered; `nextsteps.md` updated |
 | R5 | Code quality / overall correctness | all | 🟩 INFO | ✅ Strong | — | Reuse existing rails; no rework needed |
 | R6a | CLI tool (`migrate` / `schema-check`) | tooling | 🟧 MED | ❌ Not started | M | Post-release ops convenience (R1 migrations landed); not a publish blocker |
@@ -358,7 +360,41 @@ All isolation **code-fixes are done and verified** (IC1–IC8; full unit + Neo4j
 - **Index-naming nits** (`fact_category`, `reasoning_step_timestamp` lack the `_idx` suffix) — cosmetic; renaming is a breaking drop+recreate migration, so deferred.
 - **Background embedding backfill** — intentionally global admin maintenance.
 
-**Next (optional, feature work — not isolation):** the high-value upstream ports in II.4 (fact/preference dedup-on-create; consolidation/hygiene), then NuGet release (R3).
+**Next:** ✅ the high-value upstream ports (dedup-on-create, consolidation/hygiene) and the Phase-2 quick wins (vector-dim validation, `:TOUCHED`) all landed. The NuGet release (R3) is **cut and tagged locally, awaiting push**. The live pending list is **§II.6**.
+
+### II.6 Post-release pending — code-verified 2026-06-06
+
+A 5-doc × per-item code-verification audit refreshed this list. **Every item below was checked against the actual code**, not the (drifted) docs. Nothing here blocks the release; the release is the top priority.
+
+**0 — Ship the release (do first).**
+1. Open PR `remediation/analysis-review-hardening` → `main` (~26 commits, none pushed).
+2. `git push origin v0.1.0-preview.1` → triggers `squad-release.yml` (build → test → pack 11 → `nuget push` → GitHub release). `NUGET_API_KEY` is already set (the audit's "add the secret" item is stale — it's present). Publish is irreversible.
+
+**Tier 1 — test coverage on the shipped, pre-1.0 isolation surface (highest value; the headline feature has thin spots).**
+- `AgentSession.WithMemoryIdentity` helper — public isolation API with **zero tests**; add StateBag-stamping tests. (S)
+- `ApplicationId` → `IMemoryStoreContext` routing + MAF `ApplyStoreContext` — shipped **untested**; inject a writable store context and assert routing. (S)
+- E2E per-request store isolation (extract in store A, recall in store B = empty) — `StoreIsolationIntegrationTests` does not exist. (S)
+- `Neo4jMemoryStoreProvisioner` — real `CREATE DATABASE` + bootstrap integration test (idempotence + Community error path); currently **mock-only**. (M, needs Enterprise/Aura or a skip)
+- `MigrationRunner` — real-DB integration test (discovery → parse → constraint-create → recording); currently **mock-only**. (M)
+
+**Tier 2 — small correctness / parity polish.**
+- ✅ CHANGELOG streaming claim corrected 2026-06-06 (it overstated owner-stamping; `IStreamingExtractor` is standalone and does not persist).
+- MCP `memory_add_fact` `metadata` param — `Fact` carries `Metadata`; verify the MCP tool surfaces it, add if missing. (S)
+- Consolidation model/doc consistency — add `Archived` to the `Conversation` domain model and `ConsolidationRun` to `SchemaConstants.NodeLabels` (service already works; these are model/label gaps). (S)
+
+**Tier 3 — robustness / completeness.**
+- `Neo4jMemoryStoreProvisioner` — TOCTOU on the provisioned-cache (`ContainsKey`→`GetOrAdd`) + tighten the fragile "multi-DB unsupported" string match to an exact Neo4j error code. (M)
+- Temporal — add `SearchSimilarTracesAsOfAsync` so reasoning traces appear in `AssembleContextAsOfAsync` (currently absent from point-in-time recall). (M)
+- `MigrationRunner.ParseStatements` — naive `Split(';')` + line-level `//` strip; latent for a future migration containing `;`/`//` inside a string literal. **Documented/accepted** for current schema DDL; harden if a richer migration is ever needed. (M, low)
+- Streaming extraction — provide a built-in persistence path that threads `owner_id` (today it is a standalone helper; callers must persist its output themselves). (M)
+
+**Verified FALSE POSITIVE (do not "fix"):** `FactQueries.Upsert` "duplicates on owner change" — by design. `owner_key = coalesce(owner_id,'*')` is part of the MERGE key, so same-triple/different-owner is *intentionally* a distinct node; `ON MATCH` implies the same `owner_key`, so `owner_id` is already correct. No rebind needed.
+
+**Defer (post-v1 enhancements):** Conversation/Message `OwnerId` (short-term is session-scoped by design); owner-scope the 5 internal non-vector reads (not in the public API — tech debt, no breach); adopt-existing-graph (PR #113); entity feedback / edit-history; buffered/fire-and-forget writes; LLM session-reflection wiring; conflict detection; cross-agent shared namespace; ONNX local embeddings; GLiNER local NLP; CLI tool (R6a); GDS analytics (R6b); BenchmarkDotNet (R6c); S9 truncation refactor (R6d); eval harness; index-naming `_idx` nits.
+
+**Skip (no value / already covered):** first-class `:User` node API (our scalar `owner_id` is functionally equivalent — divergence decided, closes upstream #135); Opik (no .NET SDK); LangChain / SemanticRouter / AutoGen adapters (no demand; covered by MAF).
+
+**Recommended very-next coding task (after the release):** **Tier-1 test coverage on the store-isolation routing + `WithMemoryIdentity`** — the isolation story is v1's headline and parts of it (R1b store routing, the identity helper) shipped with only mock-level coverage. Cheap (S), high confidence value, hardens the marquee feature before adoption.
 
 ---
 
