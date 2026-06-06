@@ -1,4 +1,35 @@
 ## [Unreleased]
+### Added
+- **Multi-user memory isolation (R1).** Memories now carry an optional `owner_id` so a single store can
+  hold per-user memory alongside shared/global memory. Reads are scoped through **`MemoryScope`**
+  (`{ string? OwnerId, bool IncludeShared = true }`): `owner_id = $ownerId OR (includeShared AND owner_id
+  IS NULL)`. A `null` owner means shared/global (the prior behaviour), so existing single-tenant callers
+  are unaffected. Facts additionally carry an `owner_key = coalesce(owner_id, '*')` sentinel that is part
+  of the Fact MERGE key, so the same SPO triple asserted by different owners stays distinct. Vector-index
+  reads over-fetch (topK × 5, floor 50) and post-filter by owner to avoid per-owner starvation. Every
+  read/write surface — short-term, long-term (entities, facts, preferences, relationships), reasoning
+  traces/steps, temporal recall, and all four retrievers — is owner-aware.
+- **Ambient owner context (`IMemoryOwnerContext` / `IWritableMemoryOwnerContext`).** `AsyncLocal`-backed
+  `DefaultMemoryOwnerContext` lets adapters set the current user once per request/agent flow so the
+  LLM-invokable facade tools scope by owner **without trusting the model** to pass an id. Safe to register
+  as a singleton (the value flows per async context, not process-wide).
+- **Multi-store / application isolation (R1b).** `MemoryStorageStrategy` (`SharedDatabase` |
+  `DatabasePerApplication`) plus `IMemoryStoreContext` / `IMemoryStoreProvisioner` map an `ApplicationId`
+  to a Neo4j database, with an `AsyncLocal`-backed `DefaultMemoryStoreContext` ambient. Defaults to
+  `SharedDatabase` inheriting `Neo4jOptions.Database`, so existing deployments are unchanged.
+- **Dedup-on-create for facts and preferences.** New `LongTermMemoryOptions`
+  (`DeduplicateOnCreate = true`, `DeduplicationSimilarityThreshold = 0.95`, `DeduplicationConfidenceBump
+  = 0.05`): on add, a near-duplicate (same subject/predicate/owner for facts; same category/owner for
+  preferences, above the similarity threshold) is updated in place with a confidence bump instead of
+  creating a second node.
+- **Consolidation / hygiene service (`IConsolidationService`).** Opt-in maintenance pass
+  (`ConsolidationOptions`, `DryRun = true` by default) that archives expired conversations, removes
+  duplicate preferences, and reports duplicate entities and over-long reasoning traces, emitting a
+  `ConsolidationReport` and recording each run. Backed by migration `0004_consolidation.cypher`.
+- **Streaming (chunked) extraction is now DI-registered** (`IStreamingExtractor`). Previously
+  implemented but unregistered; wired up now that the owner-isolation surface (R1) has landed, so its
+  output is owner-stamped when persisted via `PersistenceStage`.
+
 ### Changed (breaking)
 - **`IMemoryService` split into role interfaces** (`AgentMemory.Abstractions`). Its members are now
   declared on three focused interfaces — `IMemoryRecall` (read), `IMemoryIngestion` (write), and
