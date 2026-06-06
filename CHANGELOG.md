@@ -97,6 +97,10 @@ NuGet package IDs are permanent once published.
   Linking is by entity id to **existing** entities (it never creates entities, preserving the
   resolution/dedup pipeline), is idempotent, and silently skips ids that do not resolve. Ports the
   upstream `(:ReasoningStep)-[:TOUCHED]->(:Entity)` provenance edge (neo4j-labs/agent-memory PR #113).
+- **Point-in-time reasoning-trace recall.** `IReasoningMemoryService.SearchSimilarTracesAsOfAsync` and
+  `IReasoningTraceRepository.SearchByTaskVectorAsOfAsync` restrict task-vector search to traces that had
+  started at or before the as-of instant, and `MemoryContextAssembler.AssembleContextAsOfAsync` now
+  includes reasoning traces (previously omitted) — completing temporal recall across all memory tiers.
 
 #### Search and retrieval
 

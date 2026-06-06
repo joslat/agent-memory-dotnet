@@ -216,26 +216,31 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var factsTask = _longTerm.SearchFactsAsOfAsync(
             queryEmbedding, asOf, recallOpts.MaxFacts, minScore, scope, cancellationToken);
 
-        await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask);
+        var tracesTask = _reasoning.SearchSimilarTracesAsOfAsync(
+            queryEmbedding, asOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken);
+
+        await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask, tracesTask);
 
         var recentMessages = await recentTask;
         var entities = await entitiesTask;
         var preferences = await preferencesTask;
         var facts = await factsTask;
+        var traces = await tracesTask;
 
         // Enforce the same context budget as the live recall path so temporal recall cannot blow
-        // past the configured token/char limit. (Relevant messages and traces are not part of the
-        // temporal snapshot, so they pass through as empty.)
+        // past the configured token/char limit. (Relevant messages are not part of the temporal
+        // snapshot, so they pass through as empty.)
         var budget = _options.ContextBudget;
         if (budget.MaxTokens.HasValue || budget.MaxCharacters.HasValue)
         {
             var fitted = ApplyBudget(
                 budget, recentMessages, Array.Empty<Message>(), entities, preferences, facts,
-                Array.Empty<ReasoningTrace>(), graphRagContext: null);
+                traces, graphRagContext: null);
             recentMessages = fitted.Recent;
             entities = fitted.Entities;
             preferences = fitted.Preferences;
             facts = fitted.Facts;
+            traces = fitted.Traces;
         }
 
         var context = new MemoryContext
@@ -247,13 +252,13 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantEntities = new MemoryContextSection<Entity> { Items = entities },
             RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
-            SimilarTraces = MemoryContextSection<ReasoningTrace>.Empty,
+            SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
             Metadata = new Dictionary<string, object> { ["asOf"] = asOf }
         };
 
         _logger.LogDebug(
-            "Assembled temporal context for session {SessionId} as of {AsOf}: {Entities} entities, {Facts} facts, {Prefs} preferences",
-            request.SessionId, asOf, entities.Count, facts.Count, preferences.Count);
+            "Assembled temporal context for session {SessionId} as of {AsOf}: {Entities} entities, {Facts} facts, {Prefs} preferences, {Traces} traces",
+            request.SessionId, asOf, entities.Count, facts.Count, preferences.Count, traces.Count);
 
         return context;
     }

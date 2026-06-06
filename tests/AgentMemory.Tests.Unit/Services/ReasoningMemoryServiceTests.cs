@@ -205,6 +205,26 @@ public sealed class ReasoningMemoryServiceTests
     }
 
     [Fact]
+    public async Task SearchSimilarTracesAsOfAsync_PassesAsOf_AndStripsScores()
+    {
+        var asOf = new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var trace = CreateTrace("trace-1", "session-1");
+        _traceRepo
+            .SearchByTaskVectorAsOfAsync(
+                Arg.Any<float[]>(), asOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(),
+                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<(ReasoningTrace, double)>>(new[] { (trace, 0.91) }));
+        var sut = CreateSut();
+
+        var result = await sut.SearchSimilarTracesAsOfAsync(new float[1536], asOf);
+
+        result.Should().ContainSingle().Which.Should().Be(trace);
+        await _traceRepo.Received(1).SearchByTaskVectorAsOfAsync(
+            Arg.Any<float[]>(), asOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task RecordTouchedEntitiesAsync_DelegatesToRepository_AndReturnsCount()
     {
         var entityIds = new[] { "e1", "e2" };

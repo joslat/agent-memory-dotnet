@@ -50,6 +50,9 @@ public sealed class TemporalContextAssemblerTests
         _longTerm
             .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
     }
 
     private MemoryContextAssembler CreateSut(IOptions<MemoryOptions>? options = null) =>
@@ -184,7 +187,7 @@ public sealed class TemporalContextAssemblerTests
     }
 
     [Fact]
-    public async Task AssembleContextAsOfAsync_DoesNotIncludeRelevantMessagesOrTraces()
+    public async Task AssembleContextAsOfAsync_DoesNotIncludeRelevantMessages()
     {
         var asOf = _fixedTime.AddDays(-5);
         var sut = CreateSut();
@@ -192,9 +195,28 @@ public sealed class TemporalContextAssemblerTests
 
         var context = await sut.AssembleContextAsOfAsync(request, asOf);
 
-        // Temporal recall omits vector-searched messages and traces
+        // Temporal recall omits vector-searched "relevant" messages (no point-in-time message vector search).
         context.RelevantMessages.Items.Should().BeEmpty();
-        context.SimilarTraces.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsOfAsync_IncludesSimilarTracesAsOf()
+    {
+        var asOf = _fixedTime.AddDays(-5);
+        var traces = new[] { CreateTrace("t1"), CreateTrace("t2") };
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(Arg.Any<float[]>(), asOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(traces));
+
+        var sut = CreateSut();
+        var request = new RecallRequest { SessionId = "s1", Query = "test" };
+
+        var context = await sut.AssembleContextAsOfAsync(request, asOf);
+
+        context.SimilarTraces.Items.Should().HaveCount(2);
+        await _reasoning.Received(1).SearchSimilarTracesAsOfAsync(
+            Arg.Any<float[]>(), asOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -218,5 +240,13 @@ public sealed class TemporalContextAssemblerTests
         Type = "PERSON",
         Confidence = 0.9,
         CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    private static ReasoningTrace CreateTrace(string id) => new()
+    {
+        TraceId = id,
+        SessionId = "s1",
+        Task = $"Task {id}",
+        StartedAtUtc = DateTimeOffset.UtcNow
     };
 }

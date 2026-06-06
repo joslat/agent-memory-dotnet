@@ -98,4 +98,18 @@ public interface IReasoningMemoryService
         double minScore = 0.0,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Point-in-time variant of <see cref="SearchSimilarTracesAsync"/>: only traces that had started at
+    /// or before <paramref name="asOf"/>. Completes temporal recall (entities/facts/preferences already
+    /// have point-in-time search) so <c>AssembleContextAsOfAsync</c> can include reasoning traces.
+    /// </summary>
+    Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
 }

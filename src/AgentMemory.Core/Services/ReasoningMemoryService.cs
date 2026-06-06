@@ -211,4 +211,19 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
             taskEmbedding, successFilter, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Trace).ToList();
     }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scored = await _traceRepo.SearchByTaskVectorAsOfAsync(
+            taskEmbedding, asOf, successFilter, limit, minScore, scope, cancellationToken);
+        return scored.Select(r => r.Trace).ToList();
+    }
 }

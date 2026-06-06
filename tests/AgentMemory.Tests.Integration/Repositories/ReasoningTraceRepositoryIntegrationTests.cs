@@ -166,6 +166,37 @@ public class ReasoningTraceRepositoryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SearchByTaskVectorAsOfAsync_ExcludesTracesStartedAfterAsOf()
+    {
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var oldTrace = new ReasoningTrace
+        {
+            TraceId = $"trace-old-{Guid.NewGuid():N}",
+            SessionId = sessionId,
+            Task = "Old task",
+            TaskEmbedding = TestEmbedding,
+            StartedAtUtc = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var newTrace = new ReasoningTrace
+        {
+            TraceId = $"trace-new-{Guid.NewGuid():N}",
+            SessionId = sessionId,
+            Task = "New task",
+            TaskEmbedding = TestEmbedding,
+            StartedAtUtc = new DateTimeOffset(2025, 12, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        await _repo.AddAsync(oldTrace);
+        await _repo.AddAsync(newTrace);
+
+        var asOf = new DateTimeOffset(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);
+        var results = await _repo.SearchByTaskVectorAsOfAsync(QueryEmbedding, asOf, limit: 5);
+
+        var ids = results.Select(r => r.Trace.TraceId).ToList();
+        ids.Should().Contain(oldTrace.TraceId, "it started before the as-of instant");
+        ids.Should().NotContain(newTrace.TraceId, "it started after the as-of instant");
+    }
+
+    [Fact]
     public async Task CreateConversationTraceRelationshipsAsync_CreatesHasTraceAndInSession()
     {
         var convRepo = new Neo4jConversationRepository(

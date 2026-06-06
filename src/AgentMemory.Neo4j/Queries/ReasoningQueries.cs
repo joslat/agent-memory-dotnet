@@ -81,6 +81,36 @@ public static class ReasoningQueries
             LIMIT $limit";
     }
 
+    /// <summary>
+    /// Point-in-time variant of <see cref="SearchByTaskVector"/>: vector similarity over ReasoningTrace
+    /// task embeddings restricted to traces that had started at or before <c>$asOf</c>, with the same
+    /// optional success and owner/shared filters and the same over-fetch-then-LIMIT anti-starvation.
+    /// (A method, not a const, so it is excluded from the Cypher snapshot inventory.)
+    /// </summary>
+    public static string SearchByTaskVectorAsOf(bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK)
+    {
+        var conditions = new List<string>
+        {
+            "score >= $minScore",
+            "node.started_at <= datetime($asOf)"
+        };
+        if (hasSuccessFilter) conditions.Add("node.success = $successFilter");
+        if (hasOwnerFilter)
+            conditions.Add(includeShared
+                ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)"
+                : "node.owner_id = $ownerId");
+
+        var whereClause = "WHERE " + string.Join(" AND ", conditions);
+
+        return $@"
+            CALL db.index.vector.queryNodes('task_embedding_idx', {topK}, $embedding)
+            YIELD node, score
+            {whereClause}
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT $limit";
+    }
+
     /// <summary>Create an INITIATED_BY relationship between a ReasoningTrace and a Message.</summary>
     public const string CreateInitiatedByRelationship = @"
                 MATCH (t:ReasoningTrace {id: $traceId}), (m:Message {id: $messageId})

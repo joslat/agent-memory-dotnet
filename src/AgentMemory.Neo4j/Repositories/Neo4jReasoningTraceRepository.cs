@@ -136,6 +136,49 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner
+            ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor)
+            : limit;
+
+        _logger.LogDebug("Temporal vector search reasoning traces as of {AsOf}, successFilter={Filter}, limit={Limit}, owner={Owner}",
+            asOf, successFilter, limit, scope?.OwnerId);
+
+        var cypher = ReasoningQueries.SearchByTaskVectorAsOf(successFilter.HasValue, hasOwner, includeShared, topK);
+
+        var parameters = new Dictionary<string, object>
+        {
+            ["embedding"] = taskEmbedding.ToList(),
+            ["limit"]     = limit,
+            ["minScore"]  = minScore,
+            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+        };
+        if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node  = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToTrace(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken);
+    }
+
     public async Task CreateInitiatedByRelationshipAsync(string traceId, string messageId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Creating INITIATED_BY: Trace {TraceId} -> Message {MessageId}", traceId, messageId);
