@@ -67,6 +67,9 @@ public static class ServiceCollectionExtensions
         // Memory-hygiene / consolidation (PR #113) — dry-run by default.
         services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();
 
+        // Conflict / contradiction detection (detect-only).
+        services.TryAddTransient<IConflictDetectionService, Neo4jConflictDetectionService>();
+
         return services;
     }
 

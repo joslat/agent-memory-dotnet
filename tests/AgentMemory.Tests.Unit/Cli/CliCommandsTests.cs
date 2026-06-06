@@ -64,6 +64,43 @@ public sealed class CliCommandsTests
     }
 
     [Fact]
+    public async Task ConflictsCommand_PrintsReport_AndReturnsZero()
+    {
+        var svc = Substitute.For<IConflictDetectionService>();
+        svc.DetectConflictsAsync(Arg.Any<ConflictDetectionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new ConflictReport
+            {
+                RanAtUtc = new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero),
+                FactConflicts = new[]
+                {
+                    new FactConflict("Alice", "works_at", null, new[]
+                    {
+                        new ConflictingFactValue("f1", "Acme", 0.9),
+                        new ConflictingFactValue("f2", "Globex", 0.8),
+                    }),
+                },
+            });
+
+        var exit = await new ConflictsCommand(svc, _output).ExecuteAsync();
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("Alice / works_at").And.Contain("Acme").And.Contain("Globex");
+    }
+
+    [Fact]
+    public async Task ConflictsCommand_NoConflicts_SaysSo()
+    {
+        var svc = Substitute.For<IConflictDetectionService>();
+        svc.DetectConflictsAsync(Arg.Any<ConflictDetectionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(new ConflictReport { RanAtUtc = new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero) });
+
+        var exit = await new ConflictsCommand(svc, _output).ExecuteAsync();
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("No contradictions found");
+    }
+
+    [Fact]
     public async Task DecayCommand_WithSession_Prunes_AndReturnsZero()
     {
         var svc = Substitute.For<IMemoryDecayService>();

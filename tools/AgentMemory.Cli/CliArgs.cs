@@ -72,6 +72,7 @@ public static class CliHelp
               migrate                Apply pending Cypher migrations.
               bootstrap              Create schema constraints and indexes.
               consolidate [--apply]  Run the memory-hygiene pass (dry-run unless --apply).
+              conflicts              Detect fact contradictions (detect-only).
               decay --session <id>   Prune decayed memories for a session.
               help                   Show this help.
 

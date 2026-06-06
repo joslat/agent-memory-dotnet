@@ -49,6 +49,27 @@ public sealed class ConsolidateCommand(IConsolidationService service, TextWriter
     }
 }
 
+/// <summary>Detects fact contradictions (detect-only) and prints the report.</summary>
+public sealed class ConflictsCommand(IConflictDetectionService service, TextWriter output)
+{
+    public async Task<int> ExecuteAsync(CancellationToken cancellationToken = default)
+    {
+        var report = await service.DetectConflictsAsync(cancellationToken: cancellationToken);
+
+        output.WriteLine($"Conflict detection — {report.FactConflictCount} fact contradiction group(s).");
+        foreach (var conflict in report.FactConflicts)
+        {
+            var owner = conflict.OwnerId is null ? "shared" : $"owner={conflict.OwnerId}";
+            output.WriteLine($"  [{owner}] {conflict.Subject} / {conflict.Predicate}:");
+            foreach (var value in conflict.Values)
+                output.WriteLine($"      = {value.Object}  (fact {value.FactId}, conf {value.Confidence:0.00})");
+        }
+        if (report.FactConflictCount == 0)
+            output.WriteLine("  No contradictions found.");
+        return 0;
+    }
+}
+
 /// <summary>Prunes decayed memories for a session (decay is session-scoped).</summary>
 public sealed class DecayCommand(IMemoryDecayService service, TextWriter output)
 {

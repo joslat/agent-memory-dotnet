@@ -418,8 +418,7 @@ A 5-dimension adversarial review (find → independently verify) of the session'
 
 **✅ DONE — `agentmemory` CLI** (`tools/AgentMemory.Cli`, was the #2 great pick). Commands: `migrate`, `bootstrap`, `consolidate [--apply]`, `decay --session <id>`; connection from CLI opts / `Neo4j:*` config / `NEO4J_*` env. Testable command handlers (8 unit) + arg parser (7 unit); verified end-to-end against live Neo4j (all four commands). **Surfaced + fixed a real DI gap:** the meta `AddNeo4jAgentMemory` never registered `IClock`/`IIdGenerator`, so consolidation/reasoning/assembler were registered-but-unresolvable (every sample worked around it by hand) — now registered as `TryAdd` defaults in `AddAgentMemoryCore`, with a DI **resolution** test (not just descriptor-presence) to guard it.
 
-**Remaining "great" pick (not yet built):**
-1. **Conflict / contradiction detection** (detect-only, dry-run) — M. A lead over *both* .NET and upstream Python; pairs with the shipped consolidation service into a complete hygiene story. Scope v1 to syntactic SPO/category mismatches, no auto-resolution.
+**✅ DONE — Conflict / contradiction detection** (`IConflictDetectionService`, detect-only). Fact contradictions (same subject+predicate+owner, ≥2 distinct objects), grouped per owner (R1), with a confidence gate. `ConflictQueries.DetectFactContradictions`; `agentmemory conflicts` CLI command. 2 CLI unit + 1 DI-resolution + 3 live integration tests (incl. per-owner grouping + the gate). A lead over both .NET and upstream Python. *(v2: semantic conflicts + preference contradictions + resolution.)*
 
 **Strong "good" (ranked):** auto session reflections (~60% built — `ContextCompressor` done, auto-trigger wiring missing; M) → eval harness (now unblocked by `:TOUCHED`; test-only; M) → GDS analytics (post-1.0; M) → adopt-existing-graph (L; gate on demand) → buffered writes (situational; M) → local/offline embeddings + NLP (L/XL; post-1.0).
 

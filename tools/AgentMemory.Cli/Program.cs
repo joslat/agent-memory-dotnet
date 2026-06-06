@@ -15,7 +15,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay" };
+var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -72,6 +72,8 @@ try
             sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(cli.HasFlag("apply")),
         "decay" => await new DecayCommand(
             sp.GetRequiredService<IMemoryDecayService>(), output).ExecuteAsync(cli.Get("session")),
+        "conflicts" => await new ConflictsCommand(
+            sp.GetRequiredService<IConflictDetectionService>(), output).ExecuteAsync(),
         _ => 1,
     };
 }

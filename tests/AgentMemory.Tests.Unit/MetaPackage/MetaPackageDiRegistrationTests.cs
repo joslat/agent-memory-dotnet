@@ -148,6 +148,15 @@ public sealed class MetaPackageDiRegistrationTests
     }
 
     [Fact]
+    public void AddNeo4jAgentMemory_ConflictDetectionService_IsResolvable()
+    {
+        var provider = BuildServices(configureNeo4j: o => o.Uri = "bolt://test:7687").BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IConflictDetectionService>().Should().NotBeNull();
+    }
+
+    [Fact]
     public void AddNeo4jAgentMemory_ConsolidationService_IsResolvable()
     {
         // Regression guard for the DI gap the CLI surfaced: IConsolidationService was *registered* but

@@ -69,6 +69,10 @@ NuGet package IDs are permanent once published.
   (`ConsolidationOptions`, `DryRun = true` by default) that archives expired conversations, removes
   duplicate preferences, and reports duplicate entities and over-long reasoning traces, emitting a
   `ConsolidationReport` and recording each run. Backed by migration `0004_consolidation.cypher`.
+- **Conflict / contradiction detection (`IConflictDetectionService`).** Detect-only (never mutates):
+  finds fact contradictions — same subject + predicate within an owner scope asserting ≥2 distinct
+  objects — grouped per owner so it respects R1 isolation, with an optional confidence gate. Pairs with
+  the consolidation service for the memory-hygiene story. Exposed via the `agentmemory conflicts` CLI command.
 - **Streaming (chunked) extraction is DI-registered** (`IStreamingExtractor`). It is a standalone
   text → chunks → entities helper and does **not** persist; callers persist its output through their
   own ingestion path (where owner stamping applies). A built-in streaming persistence path is not
@@ -120,8 +124,8 @@ NuGet package IDs are permanent once published.
 
 - **`agentmemory` CLI** (`tools/AgentMemory.Cli`) — an operations command-line front end over the
   shipped maintenance services: `migrate` (apply Cypher migrations), `bootstrap` (create schema
-  constraints/indexes), `consolidate [--apply]` (memory-hygiene pass, dry-run by default), and
-  `decay --session <id>` (prune decayed memories). Connection resolves from CLI options, `Neo4j:*`
+  constraints/indexes), `consolidate [--apply]` (memory-hygiene pass, dry-run by default),
+  `conflicts` (detect fact contradictions), and `decay` (prune decayed memories). Connection resolves from CLI options, `Neo4j:*`
   config, or `NEO4J_*` env vars. Built for CI/CD migrations, K8s init containers, and scheduled
   pruning. (Not a published NuGet package.)
 
