@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
@@ -178,6 +179,8 @@ public sealed class CoreMemoryTools
         [Description("Object or value of the fact (e.g., 'Microsoft', 'Seattle')")] string factObject,
         [Description("Confidence score from 0.0 to 1.0 (optional)")] double? confidence = null,
         [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
+        [Description("Category for grouping the fact (e.g., 'personal', 'professional') (optional)")] string? category = null,
+        [Description("Additional metadata as a JSON object string, e.g. {\"source\":\"crm\"} (optional)")] string? metadataJson = null,
         CancellationToken cancellationToken = default)
     {
         var fact = new Fact
@@ -186,9 +189,11 @@ public sealed class CoreMemoryTools
             Subject = subject,
             Predicate = predicate,
             Object = factObject,
+            Category = category,
             Confidence = confidence ?? options.Value.DefaultConfidence,
             OwnerId = userId,
-            CreatedAtUtc = clock.UtcNow
+            CreatedAtUtc = clock.UtcNow,
+            Metadata = ParseMetadata(metadataJson) ?? new Dictionary<string, object>()
         };
 
         var result = await longTermMemory.AddFactAsync(fact, cancellationToken);
@@ -198,8 +203,28 @@ public sealed class CoreMemoryTools
             result.Subject,
             result.Predicate,
             result.Object,
+            result.Category,
             result.Confidence,
-            result.CreatedAtUtc
+            result.CreatedAtUtc,
+            result.Metadata
         });
+    }
+
+    // Parses an optional JSON-object string into a metadata dictionary. Returns null when blank;
+    // throws an actionable ArgumentException (surfaced to the MCP caller) when the JSON is invalid.
+    private static IReadOnlyDictionary<string, object>? ParseMetadata(string? metadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(metadataJson))
+            return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, object>>(metadataJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new ArgumentException(
+                $"metadataJson must be a valid JSON object: {ex.Message}", nameof(metadataJson));
+        }
     }
 }

@@ -116,6 +116,9 @@ public static class SchemaConstants
         /// <summary>Cypher label for Extractor nodes.</summary>
         public const string Extractor = "Extractor";
 
+        /// <summary>Cypher label for ConsolidationRun audit nodes (memory hygiene, PR #113).</summary>
+        public const string ConsolidationRun = "ConsolidationRun";
+
         /// <summary>Cypher label for Schema nodes.</summary>
         public const string Schema = "Schema";
     }

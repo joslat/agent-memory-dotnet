@@ -117,6 +117,7 @@ public sealed class Neo4jConversationRepository : IConversationRepository
             Title          = node.Properties.TryGetValue("title", out var t) && t is not null ? t.As<string>() : null,
             CreatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
             UpdatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["updated_at"]),
+            Archived       = node.Properties.TryGetValue("archived", out var arch) && arch is not null && arch.As<bool>(),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 }

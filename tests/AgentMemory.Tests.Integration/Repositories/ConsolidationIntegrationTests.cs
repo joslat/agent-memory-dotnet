@@ -120,4 +120,21 @@ public class ConsolidationIntegrationTests : IAsyncLifetime
         (await CountAsync("MATCH (p:Preference {id:'p-3'}) RETURN count(p) AS c")).Should().Be(1); // distinct kept
         (await CountAsync($"MATCH (r:ConsolidationRun {{id:'{report.RunId}'}}) RETURN count(r) AS c")).Should().Be(1);
     }
+
+    [Fact]
+    public async Task Apply_ArchivedConversation_IsReadBackViaRepository()
+    {
+        await SeedAsync();
+
+        await _svc.ConsolidateAsync(Opts with { DryRun = false });
+
+        // Conversation.Archived now round-trips: the repository reads c.archived back into the model.
+        var archived = await _conversations.GetByIdAsync("c-old");
+        var active = await _conversations.GetByIdAsync("c-new");
+
+        archived.Should().NotBeNull();
+        archived!.Archived.Should().BeTrue("the expired conversation was archived by consolidation");
+        active.Should().NotBeNull();
+        active!.Archived.Should().BeFalse("the recent conversation was not archived");
+    }
 }

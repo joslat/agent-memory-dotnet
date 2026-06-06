@@ -73,6 +73,12 @@ NuGet package IDs are permanent once published.
   text → chunks → entities helper and does **not** persist; callers persist its output through their
   own ingestion path (where owner stamping applies). A built-in streaming persistence path is not
   yet wired.
+- **`Conversation.Archived` reads back.** The consolidation pass sets `archived` on expired
+  conversations; the domain model and `Neo4jConversationRepository` mapping now surface it (archival
+  remains a consolidation-only write, not an upsert). `ConsolidationRun` is now declared in
+  `SchemaConstants.NodeLabels` for parity with the Cypher that creates it.
+- **MCP `memory_add_fact` accepts `category` and `metadata`.** The tool now surfaces the `Fact.Category`
+  and `Fact.Metadata` fields (metadata as a JSON-object string) that were previously dropped.
 
 #### Operational safety
 
