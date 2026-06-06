@@ -26,48 +26,34 @@ public static class DecayQueries
                    n.access_count       AS accessCount";
 
     /// <summary>
-    /// Deletes Entity nodes whose retention score (computed inline) falls below the threshold.
-    /// The decay formula is: confidence * exp(-lambda * daysSinceAccess) + boostFactor * accessCount.
+    /// Deletes Entity nodes whose retention score (computed inline) falls below the threshold. The decay
+    /// formula is: confidence * exp(-lambda * daysSinceAccess) + boostFactor * accessCount. When scoped
+    /// (R1) the prune only removes the owner's <b>own</b> nodes — never another owner's, never shared/global.
     /// </summary>
-    public const string PruneEntities = @"
-            MATCH (e:Entity)
-            WHERE e.created_at IS NOT NULL
-            WITH e,
-                 e.confidence AS conf,
-                 COALESCE(e.access_count, 0) AS ac,
-                 duration.between(COALESCE(e.last_accessed_at, e.created_at), datetime($now)).days +
-                 duration.between(COALESCE(e.last_accessed_at, e.created_at), datetime($now)).hours / 24.0 AS daysSince
-            WHERE (COALESCE(conf, 0.5) * exp(-$lambda * daysSince) + $boostFactor * ac) < $minScore
-            DETACH DELETE e
-            RETURN count(*) AS pruned";
+    public static string PruneEntities(bool hasOwnerFilter) => BuildPrune("e", "Entity", hasOwnerFilter);
 
-    /// <summary>
-    /// Deletes Fact nodes whose retention score falls below the threshold.
-    /// </summary>
-    public const string PruneFacts = @"
-            MATCH (f:Fact)
-            WHERE f.created_at IS NOT NULL
-            WITH f,
-                 f.confidence AS conf,
-                 COALESCE(f.access_count, 0) AS ac,
-                 duration.between(COALESCE(f.last_accessed_at, f.created_at), datetime($now)).days +
-                 duration.between(COALESCE(f.last_accessed_at, f.created_at), datetime($now)).hours / 24.0 AS daysSince
-            WHERE (COALESCE(conf, 0.5) * exp(-$lambda * daysSince) + $boostFactor * ac) < $minScore
-            DETACH DELETE f
-            RETURN count(*) AS pruned";
+    /// <summary>Deletes Fact nodes whose retention score falls below the threshold (owner-scoped when set).</summary>
+    public static string PruneFacts(bool hasOwnerFilter) => BuildPrune("f", "Fact", hasOwnerFilter);
 
-    /// <summary>
-    /// Deletes Preference nodes whose retention score falls below the threshold.
-    /// </summary>
-    public const string PrunePreferences = @"
-            MATCH (p:Preference)
-            WHERE p.created_at IS NOT NULL
-            WITH p,
-                 p.confidence AS conf,
-                 COALESCE(p.access_count, 0) AS ac,
-                 duration.between(COALESCE(p.last_accessed_at, p.created_at), datetime($now)).days +
-                 duration.between(COALESCE(p.last_accessed_at, p.created_at), datetime($now)).hours / 24.0 AS daysSince
-            WHERE (COALESCE(conf, 0.5) * exp(-$lambda * daysSince) + $boostFactor * ac) < $minScore
-            DETACH DELETE p
-            RETURN count(*) AS pruned";
+    /// <summary>Deletes Preference nodes whose retention score falls below the threshold (owner-scoped when set).</summary>
+    public static string PrunePreferences(bool hasOwnerFilter) => BuildPrune("p", "Preference", hasOwnerFilter);
+
+    private static string BuildPrune(string a, string label, bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND " + a + ".owner_id = $ownerId" : string.Empty;
+        // daysSince is total elapsed days as a float, computed from the epoch-millis delta. We deliberately
+        // avoid duration.between(...).days, which returns only the *days component* of a normalized
+        // years/months/days duration (e.g. a 400-day span normalizes to ~1y1m and .days is small),
+        // not the total elapsed days the decay formula needs.
+        return
+            "MATCH (" + a + ":" + label + ")\n" +
+            "            WHERE " + a + ".created_at IS NOT NULL" + owner + "\n" +
+            "            WITH " + a + ",\n" +
+            "                 " + a + ".confidence AS conf,\n" +
+            "                 COALESCE(" + a + ".access_count, 0) AS ac,\n" +
+            "                 (datetime($now).epochMillis - COALESCE(" + a + ".last_accessed_at, " + a + ".created_at).epochMillis) / 86400000.0 AS daysSince\n" +
+            "            WHERE (COALESCE(conf, 0.5) * exp(-$lambda * daysSince) + $boostFactor * ac) < $minScore\n" +
+            "            DETACH DELETE " + a + "\n" +
+            "            RETURN count(*) AS pruned";
+    }
 }

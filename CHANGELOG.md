@@ -32,7 +32,7 @@ NuGet package IDs are permanent once published.
 - **Short-term memory** — session-scoped conversation history with participant tracking, recent message recall, semantic vector search, batch add
 - **Long-term memory** — entities with canonical names, aliases, and dynamic labels; facts as SPO triples with confidence and validity periods; preferences by category; relationships between entities; all backed by vector and fulltext search
 - **Reasoning memory** — reasoning traces from agent chains, steps (thought/action/observation), tool call recording with status and outcomes, similar-trace retrieval
-- **Memory decay (scoring)** — exponential decay-score formula (`confidence × exp(−λ×days) + boost×access`) with configurable half-life, plus access-tracking and prune Cypher (`DecayQueries`). *Note: the server-side prune adapter is not yet wired (`MemoryDecayService.PruneExpiredMemoriesAsync` is a portable no-op; the Neo4j-backed, owner-scoped prune is the next adapter to land — see the implementation plan).*
+- **Memory decay (scoring + pruning)** — exponential decay-score formula (`confidence × exp(−λ×days) + boost×access`) with configurable half-life, access-tracking, and server-side prune. The Neo4j adapter (`Neo4jMemoryDecayService`) runs the decay Cypher and is wired by default (it `Replace`s the portable Core no-op). Pruning is **owner-scoped**: `PruneExpiredMemoriesAsync(MemoryScope? scope)` deletes the owner's own low-score nodes only (never another owner's, never shared/global); a null scope prunes globally (admin). Exposed via `agentmemory decay [--owner <id>]`.
 - **Temporal recall** — `RecallAsOfAsync` and point-in-time snapshot queries across all memory tiers using native Neo4j `datetime()` comparisons
 - **Context assembly** — multi-tier recall with configurable token budget, truncation strategies, and blending modes
 - **Metadata filtering** — `MetadataFilterBuilder` with `$eq`, `$ne`, `$contains`, `$in`, `$exists` operators
@@ -125,7 +125,8 @@ NuGet package IDs are permanent once published.
 - **`agentmemory` CLI** (`tools/AgentMemory.Cli`) — an operations command-line front end over the
   shipped maintenance services: `migrate` (apply Cypher migrations), `bootstrap` (create schema
   constraints/indexes), `consolidate [--apply]` (memory-hygiene pass, dry-run by default),
-  `conflicts` (detect fact contradictions), and `decay` (prune decayed memories). Connection resolves from CLI options, `Neo4j:*`
+  `conflicts` (detect fact contradictions), and `decay [--owner <id>]` (prune decayed memories;
+  owner-scoped, or global when omitted). Connection resolves from CLI options, `Neo4j:*`
   config, or `NEO4J_*` env vars. Built for CI/CD migrations, K8s init containers, and scheduled
   pruning. (Not a published NuGet package.)
 

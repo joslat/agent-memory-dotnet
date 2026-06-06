@@ -1,4 +1,5 @@
 using FluentAssertions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Cli.Commands;
 using AgentMemory.Neo4j.Infrastructure;
@@ -101,31 +102,34 @@ public sealed class CliCommandsTests
     }
 
     [Fact]
-    public async Task DecayCommand_WithSession_Prunes_AndReturnsZero()
+    public async Task DecayCommand_WithOwner_PrunesScoped_AndReturnsZero()
     {
         var svc = Substitute.For<IMemoryDecayService>();
-        svc.PruneExpiredMemoriesAsync("user-42", Arg.Any<CancellationToken>()).Returns(3);
+        svc.PruneExpiredMemoriesAsync(Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(3);
 
         var exit = await new DecayCommand(svc, _output).ExecuteAsync("user-42");
 
         exit.Should().Be(0);
-        _output.ToString().Should().Contain("Pruned 3");
-        await svc.Received(1).PruneExpiredMemoriesAsync("user-42", Arg.Any<CancellationToken>());
+        _output.ToString().Should().Contain("Pruned 3").And.Contain("user-42");
+        await svc.Received(1).PruneExpiredMemoriesAsync(
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "user-42"), Arg.Any<CancellationToken>());
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task DecayCommand_WithoutSession_ReturnsUsageError(string? session)
+    public async Task DecayCommand_WithoutOwner_PrunesGlobal_AndReturnsZero(string? owner)
     {
         var svc = Substitute.For<IMemoryDecayService>();
+        svc.PruneExpiredMemoriesAsync(Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(7);
 
-        var exit = await new DecayCommand(svc, _output).ExecuteAsync(session);
+        var exit = await new DecayCommand(svc, _output).ExecuteAsync(owner);
 
-        exit.Should().Be(2);
-        _output.ToString().Should().Contain("--session");
-        await svc.DidNotReceive().PruneExpiredMemoriesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("Pruned 7").And.Contain("global");
+        await svc.Received(1).PruneExpiredMemoriesAsync(
+            Arg.Is<MemoryScope?>(s => s == null), Arg.Any<CancellationToken>());
     }
 
     private static ConsolidationReport Report(bool dryRun) => new()

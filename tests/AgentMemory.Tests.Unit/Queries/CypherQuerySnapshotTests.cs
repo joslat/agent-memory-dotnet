@@ -37,7 +37,7 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 140; // base + ConsolidationQueries/SchemaQueries/TOUCHED/ConflictQueries consts. Owner-conditional queries are *methods* (excluded): EntityQueries.ApplyConfidenceDelta/Delete/MergeEntities/SearchByLocation/SearchInBoundingBox, FactQueries.Delete, PreferenceQueries.Delete.
+    private const int ExpectedQueryCount = 137; // base + ConsolidationQueries/SchemaQueries/TOUCHED/ConflictQueries consts. Owner-conditional queries are *methods* (excluded): EntityQueries.ApplyConfidenceDelta/Delete/MergeEntities/SearchByLocation/SearchInBoundingBox, FactQueries.Delete, PreferenceQueries.Delete, DecayQueries.PruneEntities/PruneFacts/PrunePreferences.
 
     // ── MemberData source ─────────────────────────────────────────────────────
 

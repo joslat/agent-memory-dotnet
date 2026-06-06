@@ -134,9 +134,19 @@ public sealed class MemoryDecayServiceTests
     {
         var sut = CreateSut();
 
-        var pruned = await sut.PruneExpiredMemoriesAsync("session-1");
+        // Core is a portable no-op placeholder; the real prune is the Neo4j adapter.
+        var pruned = await sut.PruneExpiredMemoriesAsync();
 
-        // Core implementation delegates to repo layer; returns 0 as placeholder
+        pruned.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PruneExpiredMemoriesAsync_WithScope_ReturnsZeroForCoreImpl()
+    {
+        var sut = CreateSut();
+
+        var pruned = await sut.PruneExpiredMemoriesAsync(MemoryScope.For("user-1"));
+
         pruned.Should().Be(0);
     }
 

@@ -71,7 +71,7 @@ try
         "consolidate" => await new ConsolidateCommand(
             sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(cli.HasFlag("apply")),
         "decay" => await new DecayCommand(
-            sp.GetRequiredService<IMemoryDecayService>(), output).ExecuteAsync(cli.Get("session")),
+            sp.GetRequiredService<IMemoryDecayService>(), output).ExecuteAsync(cli.Get("owner")),
         "conflicts" => await new ConflictsCommand(
             sp.GetRequiredService<IConflictDetectionService>(), output).ExecuteAsync(),
         _ => 1,

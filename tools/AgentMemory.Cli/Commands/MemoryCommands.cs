@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 
@@ -70,19 +71,19 @@ public sealed class ConflictsCommand(IConflictDetectionService service, TextWrit
     }
 }
 
-/// <summary>Prunes decayed memories for a session (decay is session-scoped).</summary>
+/// <summary>
+/// Prunes decayed memories. With <c>--owner &lt;id&gt;</c> the prune is owner-scoped (the owner's own
+/// nodes only — never another owner's, never shared/global). Without it the prune is global (admin).
+/// </summary>
 public sealed class DecayCommand(IMemoryDecayService service, TextWriter output)
 {
-    public async Task<int> ExecuteAsync(string? sessionId, CancellationToken cancellationToken = default)
+    public async Task<int> ExecuteAsync(string? ownerId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(sessionId))
-        {
-            output.WriteLine("error: 'decay' requires --session <id>.");
-            return 2;
-        }
+        var scope = string.IsNullOrWhiteSpace(ownerId) ? null : MemoryScope.For(ownerId);
+        var pruned = await service.PruneExpiredMemoriesAsync(scope, cancellationToken);
 
-        var pruned = await service.PruneExpiredMemoriesAsync(sessionId, cancellationToken);
-        output.WriteLine($"Pruned {pruned} expired memory node(s) for session '{sessionId}'.");
+        var target = scope is null ? "all owners (global)" : $"owner '{ownerId}'";
+        output.WriteLine($"Pruned {pruned} expired memory node(s) for {target}.");
         return 0;
     }
 }

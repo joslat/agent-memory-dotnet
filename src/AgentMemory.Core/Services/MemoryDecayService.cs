@@ -40,24 +40,17 @@ public sealed class MemoryDecayService : IMemoryDecayService
     }
 
     /// <inheritdoc />
-    public async Task<int> PruneExpiredMemoriesAsync(
-        string sessionId,
+    /// <remarks>
+    /// Portable placeholder: pruning requires server-side Cypher, so the actual implementation is the
+    /// Neo4j adapter (<c>Neo4jMemoryDecayService</c>), which the Neo4j DI registration substitutes for
+    /// this. This Core fallback (for a graph-less setup) is a no-op.
+    /// </remarks>
+    public Task<int> PruneExpiredMemoriesAsync(
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Pruning expired memories for session {SessionId}", sessionId);
-
-        // Compute the retention score locally for all entities/facts/preferences
-        // and delete those below threshold.
-        // In a full Neo4j implementation the prune Cypher queries would run server-side.
-        // This implementation delegates to per-node deletion for portability.
-        int pruned = 0;
-
-        pruned += await PruneByLabelAsync("Entity", cancellationToken);
-        pruned += await PruneByLabelAsync("Fact", cancellationToken);
-        pruned += await PruneByLabelAsync("Preference", cancellationToken);
-
-        _logger.LogInformation("Pruned {Count} expired memory nodes for session {SessionId}", pruned, sessionId);
-        return pruned;
+        _logger.LogDebug("PruneExpiredMemories requested (Core no-op placeholder), owner={Owner}", scope?.OwnerId);
+        return Task.FromResult(0);
     }
 
     /// <inheritdoc />
@@ -108,12 +101,5 @@ public sealed class MemoryDecayService : IMemoryDecayService
         // so the interface compiles; the real work is done by the Neo4j adapter.
         _logger.LogDebug("Access timestamp update requested for {Label} {NodeId}", nodeLabel, nodeId);
         return Task.CompletedTask;
-    }
-
-    private Task<int> PruneByLabelAsync(string label, CancellationToken ct)
-    {
-        // Placeholder: real pruning runs via DecayQueries on the Neo4j adapter.
-        _logger.LogDebug("Pruning stale {Label} nodes", label);
-        return Task.FromResult(0);
     }
 }

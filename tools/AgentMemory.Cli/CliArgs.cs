@@ -73,7 +73,7 @@ public static class CliHelp
               bootstrap              Create schema constraints and indexes.
               consolidate [--apply]  Run the memory-hygiene pass (dry-run unless --apply).
               conflicts              Detect fact contradictions (detect-only).
-              decay --session <id>   Prune decayed memories for a session.
+              decay [--owner <id>]   Prune decayed memories (owner-scoped, or global if omitted).
               help                   Show this help.
 
             CONNECTION (precedence: CLI option > Neo4j:* config > NEO4J_* env > default):
@@ -87,7 +87,8 @@ public static class CliHelp
               agentmemory migrate --uri bolt://db:7687 --password s3cret
               agentmemory consolidate            # dry-run report
               agentmemory consolidate --apply    # perform hygiene mutations
-              agentmemory decay --session user-42
+              agentmemory decay                  # global prune (all owners)
+              agentmemory decay --owner user-42  # prune only user-42's memories
             """);
     }
 }

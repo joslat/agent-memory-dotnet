@@ -91,7 +91,8 @@ public sealed class ShakedownEndToEndTests : IAsyncLifetime
         sp.GetRequiredService<IMemoryQueryFacade>().Should().NotBeNull();
         sp.GetRequiredService<IConsolidationService>().Should().NotBeNull();
         sp.GetRequiredService<IConflictDetectionService>().Should().NotBeNull();
-        sp.GetRequiredService<IMemoryDecayService>().Should().NotBeNull();
+        // The Neo4j DI must Replace the Core portable no-op with the server-side Cypher decay impl.
+        sp.GetRequiredService<IMemoryDecayService>().Should().BeOfType<AgentMemory.Neo4j.Services.Neo4jMemoryDecayService>();
         sp.GetRequiredService<IMigrationRunner>().Should().NotBeNull();
         sp.GetRequiredService<ISchemaBootstrapper>().Should().NotBeNull();
         sp.GetRequiredService<IMemoryExtractionPipeline>().Should().NotBeNull();

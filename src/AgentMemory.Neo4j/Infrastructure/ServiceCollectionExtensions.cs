@@ -70,6 +70,10 @@ public static class ServiceCollectionExtensions
         // Conflict / contradiction detection (detect-only).
         services.TryAddTransient<IConflictDetectionService, Neo4jConflictDetectionService>();
 
+        // Memory decay / pruning — replace the Core portable no-op with the server-side Cypher
+        // implementation. Replace (not TryAdd) because Core unconditionally registers its placeholder.
+        services.Replace(ServiceDescriptor.Scoped<IMemoryDecayService, Neo4jMemoryDecayService>());
+
         return services;
     }
 

@@ -104,7 +104,7 @@ public sealed class DecayQueryTests
     [Fact]
     public void PruneEntities_ContainsDecayFormula()
     {
-        DecayQueries.PruneEntities
+        DecayQueries.PruneEntities(hasOwnerFilter: false)
             .Should().Contain("exp(-$lambda")
             .And.Contain("$minScore")
             .And.Contain("DETACH DELETE");
@@ -113,7 +113,7 @@ public sealed class DecayQueryTests
     [Fact]
     public void PruneFacts_ContainsDecayFormula()
     {
-        DecayQueries.PruneFacts
+        DecayQueries.PruneFacts(hasOwnerFilter: false)
             .Should().Contain("exp(-$lambda")
             .And.Contain("$minScore")
             .And.Contain("DETACH DELETE");
@@ -122,9 +122,28 @@ public sealed class DecayQueryTests
     [Fact]
     public void PrunePreferences_ContainsDecayFormula()
     {
-        DecayQueries.PrunePreferences
+        DecayQueries.PrunePreferences(hasOwnerFilter: false)
             .Should().Contain("exp(-$lambda")
             .And.Contain("$minScore")
             .And.Contain("DETACH DELETE");
+    }
+
+    [Theory]
+    [InlineData("e")]
+    public void PruneEntities_Scoped_AppliesOwnerFilter(string alias)
+    {
+        DecayQueries.PruneEntities(hasOwnerFilter: true)
+            .Should().Contain($"{alias}.owner_id = $ownerId");
+        DecayQueries.PruneEntities(hasOwnerFilter: false)
+            .Should().NotContain("owner_id");
+    }
+
+    [Fact]
+    public void PruneFactsAndPreferences_Scoped_AppliesOwnerFilter()
+    {
+        DecayQueries.PruneFacts(hasOwnerFilter: true).Should().Contain("f.owner_id = $ownerId");
+        DecayQueries.PruneFacts(hasOwnerFilter: false).Should().NotContain("owner_id");
+        DecayQueries.PrunePreferences(hasOwnerFilter: true).Should().Contain("p.owner_id = $ownerId");
+        DecayQueries.PrunePreferences(hasOwnerFilter: false).Should().NotContain("owner_id");
     }
 }
