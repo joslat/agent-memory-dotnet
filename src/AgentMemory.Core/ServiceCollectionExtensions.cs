@@ -87,6 +87,12 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
         services.TryAddScoped<IPersistenceStage, PersistenceStage>();
 
+        // Streaming (chunked) extraction (R4). The extractor is a pure text→chunks→entities helper; it
+        // does NOT persist, so it carries no owner context itself — owner stamping (R1) happens when its
+        // output is persisted via PersistenceStage with ExtractionRequest.UserId. Registered now that the
+        // isolation surface has landed; was intentionally held back until then.
+        services.TryAddScoped<IStreamingExtractor, Extraction.Streaming.StreamingExtractor>();
+
         // Unified extraction pipeline — composes the two stages. Registered via a factory because
         // MemoryExtractionPipeline's constructor is internal (its stage parameters are internal types),
         // which the default DI activator (public ctors only) cannot select.

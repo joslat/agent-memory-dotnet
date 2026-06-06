@@ -123,6 +123,20 @@ public sealed class MetaPackageDiRegistrationTests
     }
 
     [Fact]
+    public void AddNeo4jAgentMemory_RegistersStreamingExtractor()
+    {
+        var services = BuildServices();
+        services.Should().Contain(d => d.ServiceType == typeof(IStreamingExtractor));
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_RegistersConsolidationService()
+    {
+        var services = BuildServices();
+        services.Should().Contain(d => d.ServiceType == typeof(IConsolidationService));
+    }
+
+    [Fact]
     public void AddNeo4jAgentMemory_RegistersLlmExtractors()
     {
         var services = BuildServices();
