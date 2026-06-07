@@ -362,13 +362,19 @@ public sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken);
     }
 
-    public async Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default)
+    public async Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Finding fact by triple ({Subject}, {Predicate}, {Object})", subject, predicate, @object);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Finding fact by triple ({Subject}, {Predicate}, {Object}), owner={Owner}", subject, predicate, @object, scope?.OwnerId);
+
+        var cypher = FactQueries.FindByTriple(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.FindByTriple, new { subject, predicate, @object });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["subject"] = subject, ["predicate"] = predicate, ["object"] = @object, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { subject, predicate, @object });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();

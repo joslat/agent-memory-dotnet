@@ -16,7 +16,10 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets an entity by identifier.
+    /// Gets an entity by identifier. Deliberately unscoped (R1): the id is itself an already-owned
+    /// handle (a caller can only hold it via an owner-scoped recall or by having created the entity),
+    /// so no owner filter is applied. See the unscoped-reads disposition in
+    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
     /// </summary>
     Task<Entity?> GetByIdAsync(
         string entityId,
@@ -54,10 +57,13 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets entities by type.
+    /// Gets entities by type. When <paramref name="scope"/> is supplied (R1) only the owner's own and
+    /// (optionally) shared entities are returned — used by entity resolution so one owner's incoming
+    /// entity cannot resolve onto another owner's private entity. Null scope ⇒ unscoped.
     /// </summary>
     Task<IReadOnlyList<Entity>> GetByTypeAsync(
         string type,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -134,13 +140,16 @@ public interface IEntityRepository
     Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds entities similar to the given entity by embedding vector similarity.
+    /// Finds entities similar to the given entity by embedding vector similarity. When
+    /// <paramref name="scope"/> is supplied (R1) the results are confined to the owner's own and
+    /// (optionally) shared entities. Null scope ⇒ unscoped (admin/maintenance dedup).
     /// </summary>
     Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
-        string entityId, double minSimilarity = 0.85, int limit = 10, CancellationToken ct = default);
+        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken ct = default);
 
     /// <summary>
-    /// Gets pending SAME_AS duplicate pairs for manual review.
+    /// Gets pending SAME_AS duplicate pairs for manual review. Deliberately unscoped (R1): this is an
+    /// admin/maintenance dedup-review surface intended to span all owners; it has no user-facing caller.
     /// </summary>
     Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(int limit = 50, CancellationToken ct = default);
 
@@ -150,7 +159,8 @@ public interface IEntityRepository
     Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Gets all entities extracted from a specific message.
+    /// Gets all entities extracted from a specific message. Deliberately unscoped (R1): the result is
+    /// already confined by <paramref name="messageId"/> (itself an owned handle), so no owner filter is added.
     /// </summary>
     Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(string messageId, CancellationToken ct = default);
 

@@ -61,7 +61,7 @@ public sealed class MemoryExtractionPipelineTests
     public async Task ExtractAsync_DelegatesToExtractionAndPersistenceStages()
     {
         var request = MakeRequest();
-        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
         _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
@@ -72,6 +72,7 @@ public sealed class MemoryExtractionPipelineTests
         await _extractionStage.Received(1).ExtractAsync(
             Arg.Is<IReadOnlyList<Message>>(m => m.Count == 2),
             ExtractionTypes.All,
+            Arg.Any<MemoryScope?>(),
             Arg.Any<CancellationToken>());
         await _persistenceStage.Received(1).PersistAsync(
             Arg.Any<ExtractionStageResult>(),
@@ -85,7 +86,7 @@ public sealed class MemoryExtractionPipelineTests
         var entities = new[] { new ExtractedEntity { Name = "Alice", Type = "Person", Confidence = 0.9 } };
         var facts = new[] { new ExtractedFact { Subject = "A", Predicate = "b", Object = "c", Confidence = 0.9 } };
 
-        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult(entities: entities, facts: facts));
         _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult(entities: 1, facts: 1));
@@ -101,7 +102,7 @@ public sealed class MemoryExtractionPipelineTests
     [Fact]
     public async Task ExtractAsync_MetadataContainsSessionIdAndCounts()
     {
-        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
         _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult(entities: 2, facts: 3, prefs: 1, rels: 0));
@@ -119,7 +120,7 @@ public sealed class MemoryExtractionPipelineTests
     [Fact]
     public async Task ExtractAsync_PassesExtractionTypeFlagToStage()
     {
-        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
         _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
@@ -130,13 +131,52 @@ public sealed class MemoryExtractionPipelineTests
         await _extractionStage.Received(1).ExtractAsync(
             Arg.Any<IReadOnlyList<Message>>(),
             ExtractionTypes.Facts,
+            Arg.Any<MemoryScope?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_WithUserId_OwnerScopesResolution()
+    {
+        // R1: the request's UserId must become the resolution scope so entity resolution can't reach
+        // across the owner boundary. (Persistence already stamps OwnerId from the same UserId.)
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult());
+
+        var sut = CreateSut();
+        await sut.ExtractAsync(MakeRequest() with { UserId = "alice" });
+
+        await _extractionStage.Received(1).ExtractAsync(
+            Arg.Any<IReadOnlyList<Message>>(),
+            Arg.Any<ExtractionTypes>(),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_WithoutUserId_ResolvesUnscoped()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult());
+
+        var sut = CreateSut();
+        await sut.ExtractAsync(MakeRequest()); // no UserId
+
+        await _extractionStage.Received(1).ExtractAsync(
+            Arg.Any<IReadOnlyList<Message>>(),
+            Arg.Any<ExtractionTypes>(),
+            Arg.Is<MemoryScope?>(s => s == null),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ExtractAsync_SourceMessageIdsFromStage()
     {
-        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<CancellationToken>())
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
         _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());

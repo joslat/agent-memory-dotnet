@@ -171,11 +171,21 @@ public static class FactQueries
 
     // ── FindByTripleAsync ──────────────────────────────────────────────
 
-    /// <summary>Case-insensitive lookup of a fact by its subject/predicate/object triple.</summary>
-    public const string FindByTriple = @"
+    /// <summary>
+    /// Case-insensitive lookup of a fact by its subject/predicate/object triple, with an optional
+    /// owner/shared filter (R1) so a triple lookup cannot reach into another owner's private facts.
+    /// Null owner ⇒ unscoped.
+    /// </summary>
+    public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $@"
             MATCH (f:Fact)
             WHERE toLower(f.subject) = toLower($subject)
               AND toLower(f.predicate) = toLower($predicate)
-              AND toLower(f.object) = toLower($object)
+              AND toLower(f.object) = toLower($object){owner}
             RETURN f LIMIT 1";
+    }
 }

@@ -23,7 +23,11 @@ public interface IFactRepository
     /// <summary>Reinforces an existing fact reached by dedup: sets its confidence and returns it.</summary>
     Task<Fact> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default);
 
-    /// <summary>Gets a fact by identifier.</summary>
+    /// <summary>
+    /// Gets a fact by identifier. Deliberately unscoped (R1): the id is itself an already-owned handle,
+    /// so no owner filter is applied. See the unscoped-reads disposition in
+    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
+    /// </summary>
     Task<Fact?> GetByIdAsync(string factId, CancellationToken cancellationToken = default);
 
     /// <summary>Gets facts by subject.</summary>
@@ -65,8 +69,12 @@ public interface IFactRepository
     /// </summary>
     Task<bool> DeleteAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Finds existing facts matching the subject-predicate-object triple.</summary>
-    Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Finds an existing fact matching the subject-predicate-object triple. When <paramref name="scope"/>
+    /// is supplied (R1) the lookup is confined to the owner's own and (optionally) shared facts. Null
+    /// scope ⇒ unscoped.
+    /// </summary>
+    Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Searches facts by vector similarity, returning only those valid at <paramref name="asOf"/>.

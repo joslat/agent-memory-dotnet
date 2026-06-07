@@ -157,13 +157,19 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> GetByTypeAsync(string type, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Entity>> GetByTypeAsync(string type, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting entities by type {Type}", type);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting entities by type {Type}, owner={Owner}", type, scope?.OwnerId);
+
+        var cypher = EntityQueries.GetByType(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetByType, new { type });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["type"] = type, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { type });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -173,15 +179,19 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> SearchByNameAsync(string name, string? type = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Entity>> SearchByNameAsync(string name, string? type = null, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Searching entities by name '{Name}', type={Type}", name, type);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Searching entities by name '{Name}', type={Type}, owner={Owner}", name, type, scope?.OwnerId);
 
-        var cypher = EntityQueries.SearchByNameFiltered(type);
+        var cypher = EntityQueries.SearchByNameFiltered(type, hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { name, type });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object?> { ["name"] = name, ["type"] = type, ["ownerId"] = scope!.OwnerId })
+                : await runner.RunAsync(cypher, new { name, type });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -527,20 +537,22 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
-        string entityId, double minSimilarity = 0.85, int limit = 10, CancellationToken ct = default)
+        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken ct = default)
     {
-        _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}",
-            entityId, minSimilarity, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        // Over-fetch when scoped so a high-volume foreign owner can't starve the post-filter result set.
+        int topK = hasOwner ? Math.Max((limit + 1) * OwnerOverFetchFactor, limit + 1 + OwnerOverFetchFloor) : limit + 1;
+        _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}, owner={Owner}",
+            entityId, minSimilarity, limit, scope?.OwnerId);
+
+        var cypher = EntityQueries.FindSimilarByEmbedding(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.FindSimilarByEmbedding, new
-            {
-                entityId,
-                topK = limit + 1,
-                minSimilarity,
-                limit
-            });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["topK"] = topK, ["minSimilarity"] = minSimilarity, ["limit"] = limit, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { entityId, topK, minSimilarity, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.Core.Stubs;
@@ -30,6 +31,7 @@ public sealed class StubEntityResolver : IEntityResolver
     public Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("StubEntityResolver is in use — returning new entity without deduplication.");
@@ -56,6 +58,7 @@ public sealed class StubEntityResolver : IEntityResolver
     public Task<IReadOnlyList<Entity>> FindPotentialDuplicatesAsync(
         string name,
         string type,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("StubEntityResolver is in use — returning empty duplicate list.");

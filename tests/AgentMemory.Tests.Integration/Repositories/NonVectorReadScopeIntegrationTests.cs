@@ -58,6 +58,46 @@ public class NonVectorReadScopeIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task EntityGetByType_ScopedToOwner_ExcludesOtherUsers()
+    {
+        await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "Acme", Type = "Organization", OwnerId = "alice", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "Globex", Type = "Organization", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "Initech", Type = "Organization", OwnerId = null, Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        var results = await _entities.GetByTypeAsync("Organization", MemoryScope.For("alice"));
+
+        results.Select(e => e.OwnerId).Should().Contain(new[] { "alice", (string?)null });
+        results.Select(e => e.OwnerId).Should().NotContain("bob");
+    }
+
+    [Fact]
+    public async Task EntitySearchByName_ScopedToOwner_ExcludesOtherUsers()
+    {
+        await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "Acme Corporation", Type = "Organization", OwnerId = "alice", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "Acme Corporation", Type = "Organization", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "Acme Corporation", Type = "Organization", OwnerId = null, Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        var results = await _entities.SearchByNameAsync("acme", type: "Organization", scope: MemoryScope.For("alice"));
+
+        results.Select(e => e.OwnerId).Should().Contain(new[] { "alice", (string?)null });
+        results.Select(e => e.OwnerId).Should().NotContain("bob");
+    }
+
+    [Fact]
+    public async Task FactFindByTriple_ScopedToOwner_NeverReturnsOtherOwnersFact()
+    {
+        await _facts.UpsertAsync(new Fact { FactId = $"f-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "likes", Object = "tea", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        // Only bob owns this triple; an alice-scoped lookup must not reach it.
+        var scoped = await _facts.FindByTripleAsync("Alice", "likes", "tea", MemoryScope.For("alice"));
+        scoped.Should().BeNull();
+
+        // bob's own scope (or unscoped) does find it.
+        (await _facts.FindByTripleAsync("Alice", "likes", "tea", MemoryScope.For("bob")))!.OwnerId.Should().Be("bob");
+        (await _facts.FindByTripleAsync("Alice", "likes", "tea"))!.OwnerId.Should().Be("bob");
+    }
+
+    [Fact]
     public async Task PreferenceGetByCategory_ScopedToOwner_ExcludesOtherUsers()
     {
         await _prefs.UpsertAsync(new Preference { PreferenceId = $"p-{Guid.NewGuid():N}", Category = "style", PreferenceText = "dark mode", OwnerId = "alice", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });

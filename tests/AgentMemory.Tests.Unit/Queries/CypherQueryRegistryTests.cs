@@ -45,7 +45,7 @@ public sealed class CypherQueryRegistryTests
     [Theory]
     [InlineData("EntityQueries.Upsert")]
     [InlineData("EntityQueries.GetById")]
-    [InlineData("EntityQueries.FindSimilarByEmbedding")]
+    [InlineData("EntityQueries.GetEntitiesFromMessage")]
     [InlineData("FactQueries.GetById")]
     [InlineData("FactQueries.Upsert")]
     [InlineData("MessageQueries.Add")]

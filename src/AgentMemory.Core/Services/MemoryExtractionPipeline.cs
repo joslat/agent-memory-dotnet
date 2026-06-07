@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 
@@ -39,8 +40,14 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             "Starting extraction for session {SessionId}, {MessageCount} messages.",
             request.SessionId, request.Messages.Count);
 
+        // Owner-scope entity resolution (R1) when the request carries a user: the resolver's candidate
+        // set is confined to this owner's own + shared entities, so an incoming entity can't resolve
+        // onto another owner's private entity. Null UserId ⇒ unscoped (single-tenant) — matches the
+        // owner stamped at persistence below.
+        var scope = string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId);
+
         var staged = await _extractionStage.ExtractAsync(
-            request.Messages, request.TypesToExtract, cancellationToken);
+            request.Messages, request.TypesToExtract, scope, cancellationToken);
 
         var persisted = await _persistenceStage.PersistAsync(staged, request.UserId, cancellationToken);
 

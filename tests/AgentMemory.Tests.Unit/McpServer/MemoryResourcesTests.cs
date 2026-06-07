@@ -125,6 +125,84 @@ public sealed class MemoryResourcesTests
         doc.RootElement.GetProperty("entities").GetArrayLength().Should().Be(0);
     }
 
+    [Fact]
+    public async Task EntityList_WithUserId_OwnerScopesQuery()
+    {
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await EntityListResource.GetEntities(_graphQueryService, userId: "alice");
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => q.Contains("(e.owner_id = $ownerId OR e.owner_id IS NULL)")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (string?)p["ownerId"] == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EntityList_WithoutUserId_IsNotOwnerScoped()
+    {
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await EntityListResource.GetEntities(_graphQueryService);
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => !q.Contains("owner_id")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && !p.ContainsKey("ownerId")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════
+    //  PreferenceListResource
+    // ═══════════════════════════════
+
+    [Fact]
+    public async Task PreferenceList_WithUserId_OwnerScopesQuery()
+    {
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await PreferenceListResource.GetPreferences(_graphQueryService, userId: "alice");
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => q.Contains("(p.owner_id = $ownerId OR p.owner_id IS NULL)")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (string?)p["ownerId"] == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PreferenceList_WithoutUserId_IsNotOwnerScoped()
+    {
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await PreferenceListResource.GetPreferences(_graphQueryService);
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => !q.Contains("owner_id")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && !p.ContainsKey("ownerId")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PreferenceList_ReturnsPreferenceFields()
+    {
+        _graphQueryService.QueryAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<IReadOnlyDictionary<string, object?>>
+            {
+                new Dictionary<string, object?>
+                {
+                    ["id"] = "p1", ["preference"] = "dark mode", ["category"] = "style",
+                    ["context"] = "always", ["confidence"] = 0.9, ["createdAt"] = "2025-01-15T10:00:00Z"
+                }
+            });
+
+        var result = await PreferenceListResource.GetPreferences(_graphQueryService);
+
+        var doc = JsonDocument.Parse(result);
+        var prefs = doc.RootElement.GetProperty("preferences");
+        prefs.GetArrayLength().Should().Be(1);
+        prefs[0].GetProperty("preference").GetString().Should().Be("dark mode");
+        prefs[0].GetProperty("category").GetString().Should().Be("style");
+    }
+
     // ═══════════════════════════════
     //  ConversationListResource
     // ═══════════════════════════════

@@ -183,6 +183,27 @@ NuGet package IDs are permanent once published.
 
 ### Fixed
 
+- **Owner-scoped entity resolution (R1 isolation hardening — fixes a cross-owner write-path leak).**
+  Entity resolution fetched its candidate set via an unscoped read, so when extracting for user A an
+  incoming entity could exact/fuzzy/semantic-match onto user B's **private** entity and auto-merge into
+  it (aliases/sources appended; the foreign node's `owner_id` then re-stamped at persistence). The
+  resolution read is now owner-scoped: `MemoryScope?` flows through `IEntityResolver.ResolveEntityAsync` /
+  `FindPotentialDuplicatesAsync`, the extraction stage, and `MemoryExtractionPipeline` (derived from
+  `ExtractionRequest.UserId`), down to a new owner-conditional `IEntityRepository.GetByTypeAsync(…, scope)`.
+  Shared/global entities (`owner_id IS NULL`) stay matchable by everyone; a null scope reproduces the
+  prior single-tenant behavior. Proven by live cross-owner resolution-isolation tests.
+- **Scope-optional hooks on dedup/name reads (R1).** `Neo4jEntityRepository.SearchByNameAsync`,
+  `IEntityRepository.FindSimilarByEmbeddingAsync`, and `IFactRepository.FindByTripleAsync` gained an
+  optional `MemoryScope` (default global) so a future user-facing wiring can confine them; the entity
+  name search also fixes a latent precedence bug by parenthesizing the name/canonical-name OR. The
+  remaining unscoped reads (by-id lookups, background embedding back-fill, and admin dedup/provenance
+  surfaces) are intentionally global — documented inline, since the lookup key is itself an owned handle
+  or the surface is operator-only.
+- **MCP resources `memory://entities` and `memory://preferences` are now owner-scopable (R1).** Both
+  listed every owner's nodes via raw Cypher with no owner filter and no user parameter — a cross-owner
+  read leak (preference free-text is sensitive). They now accept an optional `userId` that confines the
+  listing to that owner's plus shared rows; omitting it stays unscoped (admin/single-tenant), consistent
+  with the MCP tools. `memory://status` stays global (aggregate counts only).
 - **Cross-owner write/delete/merge denial (R1 isolation hardening).** `IEntityRepository.DeleteAsync` /
   `IFactRepository.DeleteAsync` / `IPreferenceRepository.DeleteAsync` / `ILongTermMemoryService.DeletePreferenceAsync`,
   `Neo4jEntityRepository.MergeEntitiesAsync`, and the spatial reads (`SearchByLocationAsync` /

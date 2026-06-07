@@ -105,19 +105,33 @@ public static class EntityQueries
 
     // ── GetByTypeAsync ─────────────────────────────────────────────────
 
-    /// <summary>Get all entities of a given type.</summary>
-    public const string GetByType = "MATCH (e:Entity {type: $type}) RETURN e";
+    /// <summary>
+    /// Get all entities of a given type, with an optional owner/shared filter (R1). This backs entity
+    /// resolution: scoping the candidate set prevents one owner's incoming entity from resolving onto
+    /// (and merging into) another owner's private entity — a cross-owner write-path leak. Null owner ⇒
+    /// unscoped (single-tenant / admin behavior).
+    /// </summary>
+    public static string GetByType(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $"MATCH (e:Entity {{type: $type}}) WHERE true{owner} RETURN e";
+    }
 
     // ── SearchByNameAsync ──────────────────────────────────────────────
 
     /// <summary>
-    /// Builds a case-insensitive name search query, optionally filtered by entity type.
-    /// When <paramref name="type"/> is non-null a WHERE condition on <c>e.type</c> is prepended.
+    /// Builds a case-insensitive name search query, optionally filtered by entity type and by an
+    /// owner/shared scope (R1). When <paramref name="type"/> is non-null a WHERE condition on
+    /// <c>e.type</c> is prepended. The name/canonical-name OR is parenthesized so the type and owner
+    /// predicates AND correctly across it. Null owner ⇒ unscoped.
     /// </summary>
-    public static string SearchByNameFiltered(string? type) =>
+    public static string SearchByNameFiltered(string? type, bool hasOwnerFilter, bool includeShared) =>
         CypherBuilder.Match("(e:Entity)")
             .Where("e.type = $type", when: type is not null)
-            .And("toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name)")
+            .And("(toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name))")
+            .And(includeShared ? "(e.owner_id = $ownerId OR e.owner_id IS NULL)" : "e.owner_id = $ownerId", when: hasOwnerFilter)
             .Return("e")
             .Build();
 
@@ -324,15 +338,25 @@ public static class EntityQueries
 
     // ── FindSimilarByEmbeddingAsync ─────────────────────────────────
 
-    /// <summary>Vector search for potential duplicate entities, excluding self.</summary>
-    public const string FindSimilarByEmbedding = @"
-            MATCH (source:Entity {id: $entityId}) WHERE source.embedding IS NOT NULL
+    /// <summary>
+    /// Vector search for potential duplicate entities, excluding self, with an optional owner/shared
+    /// filter (R1) so a "find duplicates of my entity" surface cannot surface another owner's private
+    /// entities. Null owner ⇒ unscoped (admin/maintenance).
+    /// </summary>
+    public static string FindSimilarByEmbedding(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (node.owner_id = $ownerId OR node.owner_id IS NULL)"
+                            : " AND node.owner_id = $ownerId";
+        return $@"
+            MATCH (source:Entity {{id: $entityId}}) WHERE source.embedding IS NOT NULL
             CALL db.index.vector.queryNodes('entity_embedding_idx', $topK, source.embedding)
             YIELD node, score
-            WHERE node.id <> $entityId AND score >= $minSimilarity
+            WHERE node.id <> $entityId AND score >= $minSimilarity{owner}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
+    }
 
     // ── GetPendingDuplicatesAsync ───────────────────────────────────
 

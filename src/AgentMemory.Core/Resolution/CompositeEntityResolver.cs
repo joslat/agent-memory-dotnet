@@ -45,9 +45,10 @@ public sealed class CompositeEntityResolver : IEntityResolver
     public async Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = await GetCandidatesAsync(extractedEntity.Type, cancellationToken)
+        var candidates = await GetCandidatesAsync(extractedEntity.Type, scope, cancellationToken)
             .ConfigureAwait(false);
 
         var matchers = BuildMatchers();
@@ -132,9 +133,10 @@ public sealed class CompositeEntityResolver : IEntityResolver
     public async Task<IReadOnlyList<Entity>> FindPotentialDuplicatesAsync(
         string name,
         string type,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = await GetCandidatesAsync(type, cancellationToken).ConfigureAwait(false);
+        var candidates = await GetCandidatesAsync(type, scope, cancellationToken).ConfigureAwait(false);
 
         var probe = new ExtractedEntity { Name = name, Type = type };
         var matchers = BuildMatchers();
@@ -153,15 +155,19 @@ public sealed class CompositeEntityResolver : IEntityResolver
 
     private async Task<IReadOnlyList<Entity>> GetCandidatesAsync(
         string type,
+        MemoryScope? scope,
         CancellationToken cancellationToken)
     {
+        // The candidate set MUST be owner-scoped (R1): without it, an incoming entity could match and
+        // auto-merge onto another owner's private entity (a cross-owner write-path leak). A null scope
+        // (single-tenant / no owner context) preserves the legacy unscoped behavior.
         if (_options.EntityResolution.TypeStrictFiltering)
-            return await _entityRepository.GetByTypeAsync(type, cancellationToken).ConfigureAwait(false);
+            return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
 
-        // Without type filtering, use SearchByVectorAsync is impractical here without an embedding;
+        // Without type filtering, SearchByVectorAsync is impractical here without an embedding;
         // GetByTypeAsync with empty type returns all in many impls, so we fall back gracefully.
         // For a complete impl, a GetAllAsync method would be ideal — use GetByTypeAsync("") as best effort.
-        return await _entityRepository.GetByTypeAsync(type, cancellationToken).ConfigureAwait(false);
+        return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
     }
 
     private IReadOnlyList<IEntityMatcher> BuildMatchers()

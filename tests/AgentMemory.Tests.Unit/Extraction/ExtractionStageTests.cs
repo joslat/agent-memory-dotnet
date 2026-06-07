@@ -42,7 +42,7 @@ public sealed class ExtractionStageTests
     {
         // Resolver echoes back a basic Entity by default
         _resolver
-            .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 var e = ci.Arg<ExtractedEntity>();
@@ -186,6 +186,7 @@ public sealed class ExtractionStageTests
             .ResolveEntityAsync(
                 Arg.Is<ExtractedEntity>(e => e.Name == "the"),
                 Arg.Any<IReadOnlyList<string>>(),
+                Arg.Any<MemoryScope?>(),
                 Arg.Any<CancellationToken>());
     }
 
@@ -579,6 +580,7 @@ public sealed class ExtractionStageTests
             .ResolveEntityAsync(
                 Arg.Is<ExtractedEntity>(e => e.Name == "BadEntity"),
                 Arg.Any<IReadOnlyList<string>>(),
+                Arg.Any<MemoryScope?>(),
                 Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("resolution failed"));
 
