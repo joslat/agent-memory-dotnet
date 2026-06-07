@@ -37,6 +37,13 @@ public sealed class MemoryDecayService : IMemoryDecayService
         _clock = clock;
         _options = options.Value;
         _logger = logger;
+
+        // Guard against a misconfigured half-life (lambda = ln(2)/halfLife): 0 ⇒ Infinity/NaN, <0 ⇒
+        // inverted decay. MemoryDecayOptions bypasses the options Validate() pipeline, so guard here.
+        if (_options.DecayHalfLifeDays <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(options), _options.DecayHalfLifeDays,
+                "MemoryDecayOptions.DecayHalfLifeDays must be greater than 0.");
     }
 
     /// <inheritdoc />

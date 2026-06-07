@@ -136,7 +136,7 @@ public static class SchemaQueries
     /// <summary>Index on Preference.owner_id (multi-user scope).</summary>
     public const string PreferenceOwnerIndex = "CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)";
 
-    /// <summary>Index on ReasoningTrace.owner_id (multi-user scope; trace owner-write lands in R2).</summary>
+    /// <summary>Index on ReasoningTrace.owner_id (multi-user scope; trace owner-write + read-filter shipped in R2).</summary>
     public const string TraceOwnerIndex = "CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)";
 
     /// <summary>Relationship-property index on the RELATED_TO edge's owner_id (multi-user scope).</summary>

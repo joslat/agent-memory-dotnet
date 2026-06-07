@@ -171,6 +171,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 
     public async Task ExtractFromSessionAsync(
         string sessionId,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_session");
@@ -179,7 +180,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            await _inner.ExtractFromSessionAsync(sessionId, cancellationToken);
+            await _inner.ExtractFromSessionAsync(sessionId, userId, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -195,6 +196,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 
     public async Task ExtractFromConversationAsync(
         string conversationId,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_conversation");
@@ -203,7 +205,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            await _inner.ExtractFromConversationAsync(conversationId, cancellationToken);
+            await _inner.ExtractFromConversationAsync(conversationId, userId, cancellationToken);
         }
         catch (Exception ex)
         {

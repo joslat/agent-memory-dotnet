@@ -206,6 +206,16 @@ public sealed class MemoryDecayServiceTests
 
     // ── MemoryDecayOptions defaults ─────────────────────────────────────
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Ctor_RejectsNonPositiveHalfLife(double halfLife)
+    {
+        var act = () => CreateSut(new MemoryDecayOptions { DecayHalfLifeDays = halfLife });
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     [Fact]
     public void DefaultOptions_HaveSensibleDefaults()
     {

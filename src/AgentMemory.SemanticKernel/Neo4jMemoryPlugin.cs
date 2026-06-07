@@ -32,7 +32,7 @@ public sealed class Neo4jMemoryPlugin
         [Description("The user query or topic to recall memories for")] string query,
         [Description("Session identifier")] string sessionId,
         [Description("Optional conversation identifier to narrow recall scope")] string? conversationId = null,
-        [Description("Optional owner/user identifier. Null recalls only shared/global knowledge; set it to also recall that user's private memories.")] string? userId = null,
+        [Description("Optional owner/user identifier. Null recalls across all owners (no owner filter); set it to recall only that user's plus shared/global memories. Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var request = new RecallRequest { SessionId = sessionId, UserId = userId, Query = query };
@@ -72,9 +72,10 @@ public sealed class Neo4jMemoryPlugin
     [Description("Extract and persist entities, facts, preferences and relationships from all messages in a session")]
     public async Task ExtractFromSessionAsync(
         [Description("Session identifier to extract from")] string sessionId,
+        [Description("Optional owner/user identifier (R1). When set, extracted memories are owner-stamped and resolution is owner-scoped; null = stored as shared/global.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        await _memoryService.ExtractFromSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        await _memoryService.ExtractFromSessionAsync(sessionId, userId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Triggers extraction from all stored messages in a conversation.</summary>
@@ -82,9 +83,10 @@ public sealed class Neo4jMemoryPlugin
     [Description("Extract and persist entities, facts, preferences and relationships from all messages in a conversation")]
     public async Task ExtractFromConversationAsync(
         [Description("Conversation identifier to extract from")] string conversationId,
+        [Description("Optional owner/user identifier (R1). When set, extracted memories are owner-stamped and resolution is owner-scoped; null = stored as shared/global.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        await _memoryService.ExtractFromConversationAsync(conversationId, cancellationToken).ConfigureAwait(false);
+        await _memoryService.ExtractFromConversationAsync(conversationId, userId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Clears all short-term and long-term memory for the given session.</summary>

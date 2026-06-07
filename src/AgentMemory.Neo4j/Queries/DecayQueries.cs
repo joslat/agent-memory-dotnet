@@ -51,7 +51,10 @@ public static class DecayQueries
             "            WITH " + a + ",\n" +
             "                 " + a + ".confidence AS conf,\n" +
             "                 COALESCE(" + a + ".access_count, 0) AS ac,\n" +
-            "                 (datetime($now).epochMillis - COALESCE(" + a + ".last_accessed_at, " + a + ".created_at).epochMillis) / 86400000.0 AS daysSince\n" +
+            "                 (datetime($now).epochMillis - COALESCE(" + a + ".last_accessed_at, " + a + ".created_at).epochMillis) / 86400000.0 AS rawDays\n" +
+            // Clamp daysSince to >= 0 so the prune score matches the C# read-path score exactly for nodes
+            // with a future last_accessed_at (a negative exponent would otherwise inflate the score).
+            "            WITH " + a + ", conf, ac, CASE WHEN rawDays < 0 THEN 0.0 ELSE rawDays END AS daysSince\n" +
             "            WHERE (COALESCE(conf, 0.5) * exp(-$lambda * daysSince) + $boostFactor * ac) < $minScore\n" +
             "            DETACH DELETE " + a + "\n" +
             "            RETURN count(*) AS pruned";

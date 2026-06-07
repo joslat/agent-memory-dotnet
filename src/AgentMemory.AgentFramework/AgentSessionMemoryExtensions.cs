@@ -15,7 +15,9 @@ public static class AgentSessionMemoryExtensions
     /// pick them up. Only non-null values are written. Returns the session for chaining.
     /// </summary>
     /// <param name="session">The MAF agent session.</param>
-    /// <param name="userId">Owner/user id (R1). Null ⇒ shared/global knowledge.</param>
+    /// <param name="userId">Owner/user id (R1), used for BOTH recall scoping and write owner-stamping. On
+    /// write, null ⇒ the record is stored as shared/global (owner_id = null). On recall, null ⇒ no owner
+    /// filter (returns all owners); set it to confine recall to this owner's plus shared memory.</param>
     /// <param name="sessionId">Session id; defaults to the provider's fallback when omitted.</param>
     /// <param name="conversationId">Conversation id; defaults to the session id when omitted.</param>
     /// <param name="applicationId">Application / memory-store id (R1b). Null ⇒ default store.</param>

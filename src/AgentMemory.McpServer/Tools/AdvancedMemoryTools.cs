@@ -152,6 +152,7 @@ public sealed class AdvancedMemoryTools
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("Conversation identifier (optional, defaults to session ID)")] string? conversationId = null,
         [Description("Role of the message sender (default: 'user')")] string role = "user",
+        [Description("Owner/user identifier (optional, R1). When set, extracted memories are owner-stamped and resolution is owner-scoped; null = stored as shared/global (visible to all owners on recall).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
@@ -171,7 +172,8 @@ public sealed class AdvancedMemoryTools
             new ExtractionRequest
             {
                 Messages = new[] { message },
-                SessionId = sid
+                SessionId = sid,
+                UserId = userId
             }, cancellationToken);
 
         return ToolJsonContext.Serialize(new
@@ -193,11 +195,12 @@ public sealed class AdvancedMemoryTools
         IMemoryService memoryService,
         IOptions<McpServerOptions> options,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
+        [Description("Owner/user identifier (optional, R1). When set, extracted memories are owner-stamped and resolution is owner-scoped; null = stored as shared/global.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
 
-        await memoryService.ExtractFromSessionAsync(sid, cancellationToken);
+        await memoryService.ExtractFromSessionAsync(sid, userId, cancellationToken);
 
         return ToolJsonContext.Serialize(new
         {

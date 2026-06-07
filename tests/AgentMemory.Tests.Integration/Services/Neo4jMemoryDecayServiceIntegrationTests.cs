@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Neo4j.Services;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -112,6 +114,45 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
     {
         var act = () => _service.CalculateRetentionScoreAsync("any", label);
         await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task CalculateRetentionScoreAsync_NullCreatedAt_ReturnsZero()
+    {
+        // decay-2: a node with no created_at is never prune-eligible; the score must agree (0), not
+        // default to "now" and look artificially fresh.
+        var id = $"entity-{Guid.NewGuid():N}";
+        await using var session = _fixture.Driver.AsyncSession();
+        await session.RunAsync(
+            "CREATE (n:Entity {id: $id, confidence: 0.9, access_count: 0})", // no created_at
+            new { id });
+
+        (await _service.CalculateRetentionScoreAsync(id, "Entity")).Should().Be(0.0);
+    }
+
+    [Fact]
+    public async Task PruneExpiredMemoriesAsync_PrunesRepositoryWrittenEntity()
+    {
+        // test-1: prove the prune works against repository-written property names (not just the
+        // raw-Cypher-seeded read names) — seed via UpsertAsync, then back-date created_at, then prune.
+        var repo = new Neo4jEntityRepository(_fixture.TransactionRunner, NullLogger<Neo4jEntityRepository>.Instance);
+        var id = $"entity-{Guid.NewGuid():N}";
+        await repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Stale", Type = "Concept", Confidence = 0.3, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        // Back-date created_at far enough that the decay score falls below minScore (0.1).
+        await using (var session = _fixture.Driver.AsyncSession())
+        {
+            await session.RunAsync(
+                "MATCH (e:Entity {id:$id}) SET e.created_at = datetime() - duration({days: 400})",
+                new { id });
+        }
+
+        var pruned = await _service.PruneExpiredMemoriesAsync();
+
+        pruned.Should().BeGreaterThan(0);
+        (await ExistsAsync(id)).Should().BeFalse("a repository-written stale entity must be prunable");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

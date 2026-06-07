@@ -10,6 +10,21 @@ namespace AgentMemory.Abstractions.Options;
 /// the backward-compatible default). When set, recall returns records whose <c>owner_id</c>
 /// equals <see cref="OwnerId"/> OR (when <see cref="IncludeShared"/>) records with no owner
 /// (<c>owner_id IS NULL</c>, i.e. shared/global knowledge).
+/// <para>
+/// <b>Scoping convention across the API (note the two distinct null meanings):</b>
+/// <list type="bullet">
+///   <item><description><b>Owner-or-shared reads</b> take <c>MemoryScope? scope</c>: <c>null ⇒ no
+///   filter (returns ALL owners)</c>; a set scope returns the owner's own + (optionally) shared rows.
+///   This is the broadest read — pass a scope in multi-tenant deployments to avoid cross-owner reads.</description></item>
+///   <item><description><b>Writes / owner-stamps</b> (e.g. <c>ExtractionRequest.UserId</c>,
+///   persistence) take <c>string? ownerId</c>: <c>null ⇒ the record is stored as shared/global</c>
+///   (<c>owner_id = null</c>).</description></item>
+///   <item><description><b>Exact-owner dedup-on-create reads</b> (e.g. <c>FindDuplicateAsync</c>) take
+///   <c>string? ownerId</c>: <c>null ⇒ the shared bucket only</c>.</description></item>
+/// </list>
+/// So a <c>null</c> string-<c>ownerId</c> means "the shared bucket" (writes/dedup), whereas a
+/// <c>null</c> <see cref="MemoryScope"/> means "no filter / all owners" (reads).
+/// </para>
 /// </remarks>
 public sealed record MemoryScope
 {

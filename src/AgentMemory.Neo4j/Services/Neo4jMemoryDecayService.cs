@@ -38,6 +38,14 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = (options ?? throw new ArgumentNullException(nameof(options))).Value;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        // Guard against a misconfigured half-life: lambda = ln(2)/halfLife would be Infinity/NaN for 0
+        // and negative for <0, producing an inconsistent/destructive prune. (MemoryDecayOptions is
+        // derived via Options.Create and bypasses the AddOptions().Validate() pipeline, so guard here.)
+        if (_options.DecayHalfLifeDays <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(options), _options.DecayHalfLifeDays,
+                "MemoryDecayOptions.DecayHalfLifeDays must be greater than 0.");
     }
 
     /// <inheritdoc />
@@ -101,6 +109,10 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
             if (records.Count == 0) return 0.0;
 
             var r = records[0];
+            // Parity with the prune (which requires created_at IS NOT NULL): a node with no created_at
+            // is never prune-eligible, so report it as score 0 rather than letting the non-nullable
+            // datetime helper default it to "now" (which would score it as artificially fresh).
+            if (r["createdAt"] is null) return 0.0;
             double confidence = r["confidence"] is null ? 0.5 : Convert.ToDouble(r["confidence"]);
             var createdAt = Neo4jDateTimeHelper.ReadDateTimeOffset(r["createdAt"]);
             var lastAccessedAt = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(r["lastAccessedAt"]);

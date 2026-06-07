@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -44,9 +45,11 @@ public interface IExtractorRepository
         CancellationToken ct = default);
 
     /// <summary>
-    /// Gets full provenance information for an entity.
+    /// Gets full provenance information for an entity. When <paramref name="scope"/> is supplied (R1)
+    /// the lookup is confined to the owner's own or shared entity, returning null when the entity is
+    /// out of scope; null scope ⇒ unscoped (admin/audit).
     /// </summary>
-    Task<EntityProvenance?> GetProvenanceAsync(string entityId, CancellationToken ct = default);
+    Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken ct = default);
 
     /// <summary>
     /// Gets aggregate extraction statistics.

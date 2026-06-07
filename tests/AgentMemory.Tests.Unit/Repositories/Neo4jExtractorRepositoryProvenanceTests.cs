@@ -46,7 +46,7 @@ public sealed class Neo4jExtractorRepositoryProvenanceTests
         var (repo, calls) = CreateReadCapture_EntityProvenance();
         await repo.GetProvenanceAsync("e-1");
         calls.Should().ContainSingle();
-        calls[0].Cypher.Should().Be(ExtractorQueries.GetEntityProvenance);
+        calls[0].Cypher.Should().Be(ExtractorQueries.GetEntityProvenance(hasOwnerFilter: false, includeShared: true));
     }
 
     [Fact]

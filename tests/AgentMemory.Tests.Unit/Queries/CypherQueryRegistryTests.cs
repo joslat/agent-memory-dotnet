@@ -51,7 +51,7 @@ public sealed class CypherQueryRegistryTests
     [InlineData("MessageQueries.Add")]
     [InlineData("MessageQueries.DeleteCascade")]
     [InlineData("ConversationQueries.ListSessions")]
-    [InlineData("ExtractorQueries.GetEntityProvenance")]
+    [InlineData("ExtractorQueries.GetExtractionStats")]
     [InlineData("SchemaQueries.ConversationIdConstraint")]
     [InlineData("RelationshipQueries.Upsert")]
     [InlineData("PreferenceQueries.Upsert")]

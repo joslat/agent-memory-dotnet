@@ -35,14 +35,25 @@ public static class ExtractorQueries
 
     // ── GetEntityProvenance ────────────────────────────────────────────
 
-    /// <summary>Get full provenance for an entity: source messages and extractors.</summary>
-    public const string GetEntityProvenance = @"
-            MATCH (e:Entity {id: $entityId})
+    /// <summary>
+    /// Get full provenance for an entity (source messages + extractors), with an optional owner/shared
+    /// filter (R1). This audit surface returns more than a plain entity read (source message ids +
+    /// extractor timing), so scoping lets a multi-tenant caller avoid confirming/inspecting another
+    /// owner's entity by id; null owner ⇒ unscoped (admin/audit, the default).
+    /// </summary>
+    public static string GetEntityProvenance(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " WHERE (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " WHERE e.owner_id = $ownerId";
+        return $@"
+            MATCH (e:Entity {{id: $entityId}}){owner}
             OPTIONAL MATCH (e)-[ef:EXTRACTED_FROM]->(m:Message)
             OPTIONAL MATCH (e)-[eb:EXTRACTED_BY]->(ex:Extractor)
             RETURN e.id AS entityId,
-                   collect(DISTINCT {messageId: m.id, confidence: ef.confidence, startPos: ef.start_pos, endPos: ef.end_pos}) AS sources,
-                   collect(DISTINCT {extractorName: ex.name, confidence: eb.confidence, extractionTimeMs: eb.extraction_time_ms}) AS extractors";
+                   collect(DISTINCT {{messageId: m.id, confidence: ef.confidence, startPos: ef.start_pos, endPos: ef.end_pos}}) AS sources,
+                   collect(DISTINCT {{extractorName: ex.name, confidence: eb.confidence, extractionTimeMs: eb.extraction_time_ms}}) AS extractors";
+    }
 
     // ── GetExtractionStats ─────────────────────────────────────────────
 

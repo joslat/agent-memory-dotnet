@@ -81,6 +81,36 @@ public sealed class EntityToolsTests
         doc.RootElement.GetArrayLength().Should().Be(0);
     }
 
+    [Fact]
+    public async Task MemoryGetEntity_WithUserId_PassesOwnerScope()
+    {
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Entity>());
+
+        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice", userId: "alice");
+
+        await _longTermMemory.Received(1).GetEntitiesByNameAsync(
+            "Alice", true,
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task MemoryGetEntity_WithoutUserId_PassesNullScope(string? userId)
+    {
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Entity>());
+
+        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice", userId: userId);
+
+        await _longTermMemory.Received(1).GetEntitiesByNameAsync(
+            "Alice", true,
+            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── memory_get_entity_provenance ──
 
     [Fact]
@@ -90,7 +120,7 @@ public sealed class EntityToolsTests
             "e-1",
             new[] { new ProvenanceSource("msg-1", 0.9, 0, 5) },
             new[] { new ProvenanceExtractor("llm", 0.95, 120) });
-        _extractorRepo.GetProvenanceAsync("e-1", Arg.Any<CancellationToken>())
+        _extractorRepo.GetProvenanceAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(provenance);
 
         var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, "e-1");
@@ -105,7 +135,7 @@ public sealed class EntityToolsTests
     [Fact]
     public async Task MemoryGetEntityProvenance_ReturnsNotFound_WhenNull()
     {
-        _extractorRepo.GetProvenanceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _extractorRepo.GetProvenanceAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns((EntityProvenance?)null);
 
         var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, "missing");
@@ -147,6 +177,34 @@ public sealed class EntityToolsTests
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
         doc.RootElement.GetProperty("entityId").GetString().Should().Be("missing");
+    }
+
+    [Fact]
+    public async Task MemoryRecordEntityFeedback_WithUserId_PassesOwnerScope()
+    {
+        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((Entity?)null);
+
+        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true, userId: "alice");
+
+        await _longTermMemory.Received(1).RecordEntityFeedbackAsync(
+            "e-1", true, Arg.Any<double?>(),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryRecordEntityFeedback_WithoutUserId_PassesNullScope()
+    {
+        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((Entity?)null);
+
+        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true);
+
+        await _longTermMemory.Received(1).RecordEntityFeedbackAsync(
+            "e-1", true, Arg.Any<double?>(),
+            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Any<CancellationToken>());
     }
 
     // ── memory_create_relationship ──

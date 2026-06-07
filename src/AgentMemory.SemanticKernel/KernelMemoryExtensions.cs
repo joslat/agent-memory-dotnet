@@ -33,13 +33,14 @@ public static class KernelMemoryExtensions
     }
 
     /// <summary>
-    /// Registers a <see cref="Neo4jTextSearch"/> instance for the given session in the
-    /// kernel builder's DI container.
+    /// Registers a <see cref="Neo4jTextSearch"/> instance for the given session (and optional owner) in
+    /// the kernel builder's DI container. Pass <paramref name="userId"/> in multi-tenant hosts so the SK
+    /// text-search tool recalls only that owner's plus shared memory (R1); null ⇒ unscoped (all owners).
     /// </summary>
-    public static IKernelBuilder AddNeo4jTextSearch(this IKernelBuilder builder, string sessionId)
+    public static IKernelBuilder AddNeo4jTextSearch(this IKernelBuilder builder, string sessionId, string? userId = null)
     {
         builder.Services.AddTransient<Neo4jTextSearch>(sp =>
-            new Neo4jTextSearch(sp.GetRequiredService<IMemoryService>(), sessionId));
+            new Neo4jTextSearch(sp.GetRequiredService<IMemoryService>(), sessionId, userId));
         return builder;
     }
 }

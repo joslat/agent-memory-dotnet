@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Resources;
 using NSubstitute;
@@ -249,6 +250,94 @@ public sealed class MemoryResourcesTests
         await _graphQueryService.Received(1).QueryAsync(
             Arg.Any<string>(),
             Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (long)p["limit"]! == 5L),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ConversationList_WithUserId_ScopesByUserId()
+    {
+        SetupConversationQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await ConversationListResource.GetConversations(_graphQueryService, userId: "alice");
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => q.Contains("(c.user_id = $userId OR c.user_id IS NULL)")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (string?)p["userId"] == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ConversationList_WithoutUserId_IsNotScoped()
+    {
+        SetupConversationQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await ConversationListResource.GetConversations(_graphQueryService);
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => !q.Contains("user_id")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && !p.ContainsKey("userId")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════
+    //  ContextResource (leak-1: owner-scoped recall)
+    // ═══════════════════════════════
+
+    [Fact]
+    public async Task Context_WithUserId_PassesOwnerScopedRecallRequest()
+    {
+        var assembler = Substitute.For<IMemoryContextAssembler>();
+        assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryContext { SessionId = "s1", AssembledAtUtc = new DateTimeOffset(2025, 6, 1, 0, 0, 0, TimeSpan.Zero) });
+
+        await ContextResource.GetContext(assembler, "s1", query: "hello", userId: "alice");
+
+        await assembler.Received(1).AssembleContextAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == "alice" && r.SessionId == "s1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Context_WithoutUserId_PassesUnscopedRecallRequest()
+    {
+        var assembler = Substitute.For<IMemoryContextAssembler>();
+        assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryContext { SessionId = "s1", AssembledAtUtc = new DateTimeOffset(2025, 6, 1, 0, 0, 0, TimeSpan.Zero) });
+
+        await ContextResource.GetContext(assembler, "s1", query: "hello");
+
+        await assembler.Received(1).AssembleContextAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── EntityList / PreferenceList combined-filter + blank-userId edges (test-2) ──
+
+    [Fact]
+    public async Task EntityList_WithTypeAndUserId_JoinsBothPredicatesWithAnd()
+    {
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await EntityListResource.GetEntities(_graphQueryService, type: "PERSON", userId: "alice");
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => q.Contains("e.type = $type")
+                                && q.Contains("(e.owner_id = $ownerId OR e.owner_id IS NULL)")
+                                && q.Contains(" AND ")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (string?)p["ownerId"] == "alice" && (string?)p["type"] == "PERSON"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EntityList_EmptyUserId_IsUnscoped()
+    {
+        SetupEntityQuery(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        await EntityListResource.GetEntities(_graphQueryService, userId: "");
+
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => !q.Contains("owner_id")),
+            Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && !p.ContainsKey("ownerId")),
             Arg.Any<CancellationToken>());
     }
 

@@ -155,17 +155,17 @@ public sealed class Neo4jMemoryPluginTests
     [Fact]
     public async Task ExtractFromSessionAsync_DelegatesToService()
     {
-        _memoryService.ExtractFromSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _memoryService.ExtractFromSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         await _sut.ExtractFromSessionAsync("s1");
-        await _memoryService.Received(1).ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ExtractFromConversationAsync_DelegatesToService()
     {
-        _memoryService.ExtractFromConversationAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _memoryService.ExtractFromConversationAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         await _sut.ExtractFromConversationAsync("c1");
-        await _memoryService.Received(1).ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

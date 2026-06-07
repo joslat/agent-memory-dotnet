@@ -18,9 +18,11 @@ public sealed class EntityTools
     public static async Task<string> MemoryGetEntityProvenance(
         IExtractorRepository extractorRepository,
         [Description("Entity ID to fetch provenance for")] string entityId,
+        [Description("Owner/user identifier (optional). When set, returns provenance only for that owner's own or shared entity (found=false otherwise); null = unscoped (admin/audit).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var provenance = await extractorRepository.GetProvenanceAsync(entityId, cancellationToken);
+        var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
+        var provenance = await extractorRepository.GetProvenanceAsync(entityId, scope, cancellationToken);
         if (provenance is null)
             return ToolJsonContext.Serialize(new { entityId, found = false });
 
@@ -33,11 +35,11 @@ public sealed class EntityTools
         });
     }
 
-    [McpServerTool(Name = "memory_get_entity"), Description("Get entities by name or search for entities. Returns matching entities with their relationships.")]
+    [McpServerTool(Name = "memory_get_entity"), Description("Get entities by name (exact or alias match). Returns matching entities; use memory_create_relationship / graph queries for edges.")]
     public static async Task<string> MemoryGetEntity(
         ILongTermMemoryService longTermMemory,
         [Description("Name to search for (searches exact and alias matches)")] string name,
-        [Description("Owner/user identifier (optional). Null = only shared/global entities; set it to also see that user's private entities.")] string? userId = null,
+        [Description("Owner/user identifier (optional). Null = all owners (unscoped/admin); set it to return only that owner's plus shared (un-owned) entities. Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);

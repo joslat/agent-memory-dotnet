@@ -34,18 +34,23 @@ public interface IMemoryIngestion
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retroactively runs the extraction pipeline on all messages in a session
-    /// and persists the resulting entities, facts, preferences, and relationships.
+    /// Retroactively runs the extraction pipeline on all messages in a session and persists the
+    /// resulting entities, facts, preferences, and relationships. When <paramref name="userId"/> is
+    /// supplied (R1) the extracted nodes are owner-stamped and resolution is owner-scoped; null ⇒ the
+    /// nodes are stored as shared/global (the prior single-tenant behavior).
     /// </summary>
     Task ExtractFromSessionAsync(
         string sessionId,
+        string? userId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retroactively runs the extraction pipeline on all messages in a conversation
-    /// and persists the resulting entities, facts, preferences, and relationships.
+    /// Retroactively runs the extraction pipeline on all messages in a conversation and persists the
+    /// results. When <paramref name="userId"/> is supplied (R1) the extracted nodes are owner-stamped
+    /// and resolution is owner-scoped; null ⇒ stored as shared/global.
     /// </summary>
     Task ExtractFromConversationAsync(
         string conversationId,
+        string? userId = null,
         CancellationToken cancellationToken = default);
 }

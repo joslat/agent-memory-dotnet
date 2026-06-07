@@ -12,8 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Meta-package (Abstractions + Core + Neo4j + Extraction.Llm) — transitively exposes the
-         IMigrationRunner / ISchemaBootstrapper / IConsolidationService / IMemoryDecayService services. -->
+    <!-- Meta-package (Abstractions + Core + Neo4j + Extraction.Llm + Observability + Enrichment +
+         Extraction.AzureLanguage) — transitively exposes IMigrationRunner / ISchemaBootstrapper /
+         IConsolidationService / IMemoryDecayService and the rest of the memory services. -->
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
   </ItemGroup>
 

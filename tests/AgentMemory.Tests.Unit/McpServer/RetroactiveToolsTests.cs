@@ -18,11 +18,11 @@ public sealed class RetroactiveToolsTests
     public RetroactiveToolsTests()
     {
         _memoryService
-            .ExtractFromSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ExtractFromSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         _memoryService
-            .ExtractFromConversationAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ExtractFromConversationAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         _memoryService
@@ -39,7 +39,7 @@ public sealed class RetroactiveToolsTests
 
         await AdvancedMemoryTools.MemoryExtractSession(_memoryService, options, "my-session");
 
-        await _memoryService.Received(1).ExtractFromSessionAsync("my-session", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractFromSessionAsync("my-session", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class RetroactiveToolsTests
 
         await AdvancedMemoryTools.MemoryExtractSession(_memoryService, options);
 
-        await _memoryService.Received(1).ExtractFromSessionAsync("default-sess", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractFromSessionAsync("default-sess", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

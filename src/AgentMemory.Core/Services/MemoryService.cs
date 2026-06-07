@@ -196,10 +196,11 @@ public sealed class MemoryService : IMemoryService
     /// <inheritdoc/>
     public async Task ExtractFromSessionAsync(
         string sessionId,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        _logger.LogDebug("Retroactive extraction for session {SessionId}", sessionId);
+        _logger.LogDebug("Retroactive extraction for session {SessionId}, owner={Owner}", sessionId, userId);
 
         var messages = await _shortTerm.GetRecentMessagesAsync(sessionId, int.MaxValue, cancellationToken);
         if (messages.Count == 0)
@@ -209,17 +210,18 @@ public sealed class MemoryService : IMemoryService
         }
 
         await _extraction.ExtractAsync(
-            new ExtractionRequest { Messages = messages, SessionId = sessionId },
+            new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = userId },
             cancellationToken);
     }
 
     /// <inheritdoc/>
     public async Task ExtractFromConversationAsync(
         string conversationId,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
-        _logger.LogDebug("Retroactive extraction for conversation {ConversationId}", conversationId);
+        _logger.LogDebug("Retroactive extraction for conversation {ConversationId}, owner={Owner}", conversationId, userId);
 
         var messages = await _shortTerm.GetConversationMessagesAsync(conversationId, cancellationToken);
         if (messages.Count == 0)
@@ -230,7 +232,7 @@ public sealed class MemoryService : IMemoryService
 
         var sessionId = messages[0].SessionId;
         await _extraction.ExtractAsync(
-            new ExtractionRequest { Messages = messages, SessionId = sessionId },
+            new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = userId },
             cancellationToken);
     }
 

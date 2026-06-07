@@ -205,6 +205,33 @@ public sealed class CompositeEntityResolverTests
     }
 
     [Fact]
+    public async Task ResolveEntityAsync_CreateNew_StampsOwnerFromScope()
+    {
+        // leak-7: the created entity must carry the scope's owner (defense-in-depth, not just the
+        // persistence-stage re-stamp), so a direct caller never writes a private entity as shared.
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = CreateSut();
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Alice"), Array.Empty<string>(), MemoryScope.For("alice"));
+
+        result.EntityId.Should().Be(NewEntityId);
+        result.OwnerId.Should().Be("alice");
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_CreateNew_NullScope_LeavesOwnerNull()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = CreateSut();
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Alice"), Array.Empty<string>());
+
+        result.OwnerId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ResolveEntityAsync_ExactMatchAboveAutoMergeThreshold_CallsUpsert()
     {
         // Exact match → confidence = 1.0 >= AutoMergeThreshold (0.95) → auto-merge

@@ -11,19 +11,19 @@
 
 ## Part 0 — Open findings to fix (active work, 2026-06-07)
 
-> **This is the live to-do list.** It is the actionable, fully-scoped form of the Review Annex (Part III). Every item below was identified by the 2026-06-07 in-depth adversarial review (51 raw → 37 confirmed) and is recorded here with problem, root cause, the chosen best fix in full, and the test plan **before** implementation. Status starts at **⬜ NOT DONE**; each is flipped to **✅ DONE** as it lands. Items deliberately left as documented/deferred (with rationale) are marked **➖**.
+> **✅ ALL ITEMS IMPLEMENTED 2026-06-07.** This was the actionable, fully-scoped form of the Review Annex (Part III): every item identified by the 2026-06-07 in-depth adversarial review (51 raw → 37 confirmed) was documented here with problem, root cause, the chosen best fix in full, and the test plan **before** implementation (the documentation-first gate), then implemented. All **✅ DONE** items below landed with tests; full gate green (**2265 unit + 31 SK + 168 integration**, Release build + library packs clean). Items deliberately left as documented/deferred (with rationale) are marked **➖** (leak-6 shared write-through, decay-1 by-id ops, rel-3 release process). The genuinely-deferred backlog (§0.D) is unchanged.
 >
 > **Disposition note (objective):** these findings do **not** affect the documented single-tenant default — they are multi-tenant (R1) completeness gaps on public surfaces the repository-layer sweeps did not cover, plus a few edge/robustness items. The repository, entity-resolution, decay-prune, and entity/preference-resource layers are correctly owner-scoped and verified; this batch extends that to the remaining surfaces.
 
 ### 0.A — HIGH
 
-**[leak-1] ⬜ NOT DONE — MCP `ContextResource` (`memory://context/{session_id}`) is unscoped → cross-owner content leak.**
+**[leak-1] ✅ DONE (2026-06-07) — MCP `ContextResource` (`memory://context/{session_id}`) is unscoped → cross-owner content leak.**
 - *Problem:* `ContextResource.GetContext` (`src/AgentMemory.McpServer/Resources/ContextResource.cs:18-30`) builds a `RecallRequest` with `SessionId`/`Query`/`Options` only — no `UserId` — so `MemoryContextAssembler` (`:60-61`) does global recall and the resource serializes entity names, fact triples, and preference text across **all** owners. Its siblings `EntityListResource`/`PreferenceListResource` were owner-scoped in the unscoped-reads pass; this third resource was missed.
 - *Root cause:* missing `userId` parameter + scope on the resource (the same omission fixed on the sibling resources).
 - *Best fix:* add `[Description(... R1 …)] string? userId = null` to `GetContext`; set `RecallRequest.UserId = userId` (null ⇒ unscoped/admin, matching the convention and the sibling resources/`memory_get_context` tool). No new types.
 - *Tests:* live-Neo4j isolation test (seed alice/bob/null; `GetContext(..., userId:"alice")` excludes bob) — see [gap-1/gap-4].
 
-**[gap-2] ⬜ NOT DONE — MCP `EntityTools` owner-scope translation effectively untested.**
+**[gap-2] ✅ DONE (2026-06-07) — MCP `EntityTools` owner-scope translation effectively untested.**
 - *Problem:* `EntityTools.cs:43,69` translate `userId → MemoryScope`, but `EntityToolsTests` never passes a `userId` and asserts scope only with `Arg.Any<MemoryScope?>()`; swapping the translation to always-`null` would keep the suite green.
 - *Best fix:* add unit tests asserting `Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice")` for `MemoryGetEntity` + `MemoryRecordEntityFeedback` with a `userId`; `s == null` without; and empty-string `userId ⇒ null` (the `IsNullOrEmpty` branch). Mirrors the house pattern (`CliCommandsTests`, `CompositeEntityResolverTests`).
 
@@ -33,54 +33,54 @@
 
 ### 0.B — MEDIUM
 
-**[leak-2] ⬜ NOT DONE — SemanticKernel `Neo4jTextSearch` is structurally unscoped.**
+**[leak-2] ✅ DONE (2026-06-07) — SemanticKernel `Neo4jTextSearch` is structurally unscoped.**
 - *Problem:* `Neo4jTextSearch.cs:65-66` builds `RecallRequest { SessionId, Query }` (no `UserId`); its ctor takes only `sessionId`, so it cannot owner-scope. All three SK entry points emit cross-owner facts/preferences/entities.
 - *Best fix:* add an optional `string? userId` to the `Neo4jTextSearch` ctor and to `AddNeo4jTextSearch(...)`; set `RecallRequest.UserId`. Update the class XML doc to state the multi-tenant behavior. Backward-compatible (null ⇒ unscoped, today's behavior).
 - *Tests:* unit test asserting `RecallRequest.UserId` is set from the ctor value (mock `IMemoryRecall`/recall path).
 
-**[leak-3] ⬜ NOT DONE — no-`UserId` extraction entry points persist `owner_id = NULL` (globally visible).**
+**[leak-3] ✅ DONE (2026-06-07) — no-`UserId` extraction entry points persist `owner_id = NULL` (globally visible).**
 - *Problem:* `extract_and_persist` / `memory_extract_session` (`AdvancedMemoryTools.cs:146-207`), `MemoryService.ExtractFromConversationAsync`/`ExtractFromSessionAsync` (`:211-234`), and the MAF facade `Neo4jMicrosoftMemoryFacade.PersistAfterRunAsync` (`:100-105`) build `ExtractionRequest` with no `UserId` → `PersistenceStage` stamps `owner_id=null`; with `IncludeShared=true` those records surface to every scoped user on recall. The MAF facade is sharpest (its sibling provider `PerformStoreAsync` *does* thread `UserId`).
 - *Best fix:* (a) add `string? userId = null` to `extract_and_persist`, `memory_extract_session`, and the MAF facade `PersistAfterRunAsync`, threading it into `ExtractionRequest.UserId`; (b) `ExtractFromConversationAsync` derives the owner from the conversation (`Conversation.UserId`) when not supplied; `ExtractFromSessionAsync` gains an optional `userId` (sessions have no single owner). Backward-compatible defaults (null ⇒ shared, today's behavior).
 - *Tests:* unit assert `ExtractionRequest.UserId` flows from the new params; MAF facade test mirrors `PerformStoreAsync`.
 
-**[corr-1/corr-2/corr-3] ⬜ NOT DONE — inverted / inaccurate API descriptions.**
+**[corr-1/corr-2/corr-3] ✅ DONE (2026-06-07) — inverted / inaccurate API descriptions.**
 - corr-1: `EntityTools.cs:40` says *"Null = only shared/global entities"* — **wrong**, null = all owners. corr-2: `Neo4jMemoryPlugin.cs:35` repeats it. corr-3: `EntityTools.cs:36` claims *"Returns … with their relationships"* but the payload has none.
 - *Best fix:* reword corr-1/corr-2 to *"Null = all owners (unscoped/admin); set it to return only that owner's plus shared memories"* (matches the correct sibling-resource wording). corr-3: drop "with their relationships."
 
-**[gap-1/gap-4] ⬜ NOT DONE — no live-Neo4j isolation test for the MCP resource surface.**
+**[gap-1/gap-4] ✅ DONE (2026-06-07) — no live-Neo4j isolation test for the MCP resource surface.**
 - *Problem:* `MemoryResourcesTests` asserts entity/preference resources only via query-string `.Contains()` against a mock; `ContextResource` has no test.
 - *Best fix:* new integration test constructing a real `Neo4jGraphQueryService(fixture.TransactionRunner, …)` for the list resources and the real recall stack for `ContextResource`; seed alice/bob/null; assert bob's content absent when `userId:"alice"`, present when unscoped.
 
-**[gap-overfetch] ⬜ NOT DONE — over-fetch starvation tested only for Facts (and below the floor).**
+**[gap-overfetch] ✅ DONE (2026-06-07) — over-fetch starvation tested only for Facts (and below the floor).**
 - *Best fix:* add starvation integration tests for `Entity.SearchByVectorAsync`, `Preference.SearchByVectorAsync`, `ReasoningTrace.SearchByTaskVectorAsOfAsync` — each seeding **more** foreign-owner rows than `topK` (e.g. `limit=5` ⇒ 55+ foreign rows at identical score) + a couple owner rows; assert the owner's rows survive.
 
 ### 0.C — LOW (hardening / consistency / edges)
 
-**[leak-7] ⬜ NOT DONE — `CompositeEntityResolver.CreateNewEntityAsync` drops `scope.OwnerId`** (`:195-208`). Masked today by `PersistenceStage` re-stamp, but a future direct caller would write `owner_id=NULL` for a private entity. *Fix:* thread `scope` into the helper and stamp `OwnerId = scope?.OwnerId`. *Test:* resolver unit test asserts created entity carries the scope owner.
+**[leak-7] ✅ DONE (2026-06-07) — `CompositeEntityResolver.CreateNewEntityAsync` drops `scope.OwnerId`** (`:195-208`). Masked today by `PersistenceStage` re-stamp, but a future direct caller would write `owner_id=NULL` for a private entity. *Fix:* thread `scope` into the helper and stamp `OwnerId = scope?.OwnerId`. *Test:* resolver unit test asserts created entity carries the scope owner.
 
-**[leak-4] ⬜ NOT DONE — `memory_get_entity_provenance` unscoped by `entityId`** (`EntityTools.cs:17-34` → `ExtractorQueries.GetEntityProvenance` has no owner predicate). Leaks existence + source message IDs + extractor metadata for a known foreign GUID. *Fix:* add optional `userId` → owner-or-shared predicate on the `Entity` match; return `found=false` out of scope. *Test:* foreign-owner returns found=false.
+**[leak-4] ✅ DONE (2026-06-07) — `memory_get_entity_provenance` unscoped by `entityId`** (`EntityTools.cs:17-34` → `ExtractorQueries.GetEntityProvenance` has no owner predicate). Leaks existence + source message IDs + extractor metadata for a known foreign GUID. *Fix:* add optional `userId` → owner-or-shared predicate on the `Entity` match; return `found=false` out of scope. *Test:* foreign-owner returns found=false.
 
-**[leak-5] ⬜ NOT DONE — `memory://conversations` / `memory://status` expose cross-owner metadata.** *Fix:* add optional `userId` to `ConversationListResource` scoping via the existing `c.user_id` field; document `MemoryStatusResource` as admin aggregate (its counted node types — Conversation/Message — carry `user_id` not `owner_id`, so owner+shared scoping can't apply uniformly). *Test:* conversations scoped by user_id excludes other users.
+**[leak-5] ✅ DONE (2026-06-07) — `memory://conversations` / `memory://status` expose cross-owner metadata.** *Fix:* add optional `userId` to `ConversationListResource` scoping via the existing `c.user_id` field; document `MemoryStatusResource` as admin aggregate (its counted node types — Conversation/Message — carry `user_id` not `owner_id`, so owner+shared scoping can't apply uniformly). *Test:* conversations scoped by user_id excludes other users.
 
 **[leak-6] ➖ DOCUMENT (intentional, with rationale) — resolution can write-through to SHARED entities.** With `includeShared=true`, a scoped owner's extraction can enrich a shared (`owner_id IS NULL`) entity's aliases/description/embedding. This is **not** a cross-*owned*-tenant leak (verified). *Disposition:* this is the intended "shared knowledge grows collaboratively" behavior; making shared knowledge read-only per-owner is a product decision and a breaking change. Document the behavior on `CompositeEntityResolver` + here; a future opt-in `EntityResolutionOptions` flag can harden it. **No behavior change now.**
 
 **[decay-1] ➖ DOCUMENT (intentional) — decay by-id ops (`CalculateRetentionScoreAsync`/`UpdateAccessTimestampAsync`) are not owner-scoped.** Same class as `GetByIdAsync` (by-id, the id is an owned handle; the sole production caller bumps ids from an owner-filtered recall). *Disposition:* document as deliberate by-id admin ops, consistent with the `GetById*` disposition. No change.
 
-**[decay-2] ⬜ NOT DONE — `CalculateRetentionScoreAsync` vs prune disagree on null `created_at`.** Read path reads via the non-nullable helper (returns `UtcNow` ⇒ scores fresh); prune requires `created_at IS NOT NULL` (⇒ never prunes). *Fix:* treat null `created_at` as score `0` in the Neo4j `CalculateRetentionScoreAsync` so read agrees with prune. *Test:* node with null created_at scores 0.
+**[decay-2] ✅ DONE (2026-06-07) — `CalculateRetentionScoreAsync` vs prune disagree on null `created_at`.** Read path reads via the non-nullable helper (returns `UtcNow` ⇒ scores fresh); prune requires `created_at IS NOT NULL` (⇒ never prunes). *Fix:* treat null `created_at` as score `0` in the Neo4j `CalculateRetentionScoreAsync` so read agrees with prune. *Test:* node with null created_at scores 0.
 
-**[decay-3] ⬜ NOT DONE — no `DecayHalfLifeDays > 0` guard.** `MemoryDecayOptions` is registered via `Options.Create`, bypassing validation; `=0 ⇒ lambda=∞/NaN ⇒ destructive prune`. *Fix:* register `AddOptions<MemoryDecayOptions>().Validate(o => o.DecayHalfLifeDays > 0).ValidateOnStart()` (or a ctor guard). *Test:* validation rejects 0.
+**[decay-3] ✅ DONE (2026-06-07) — no `DecayHalfLifeDays > 0` guard.** `MemoryDecayOptions` is registered via `Options.Create`, bypassing validation; `=0 ⇒ lambda=∞/NaN ⇒ destructive prune`. *Fix:* register `AddOptions<MemoryDecayOptions>().Validate(o => o.DecayHalfLifeDays > 0).ValidateOnStart()` (or a ctor guard). *Test:* validation rejects 0.
 
-**[decay-4] ⬜ NOT DONE — prune Cypher `daysSince` not clamped ≥ 0** (read path is). Benign (only errs toward not-pruning). *Fix:* `CASE WHEN daysSince < 0 THEN 0 ELSE daysSince END` in `DecayQueries.BuildPrune` for read/prune parity.
+**[decay-4] ✅ DONE (2026-06-07) — prune Cypher `daysSince` not clamped ≥ 0** (read path is). Benign (only errs toward not-pruning). *Fix:* `CASE WHEN daysSince < 0 THEN 0 ELSE daysSince END` in `DecayQueries.BuildPrune` for read/prune parity.
 
-**[test-1] ⬜ NOT DONE — decay integration test seeds via raw Cypher.** *Fix:* add one decay test that seeds via the real `UpsertAsync` (then back-date `created_at` via Cypher) so prune/score is proven against repository-written property names.
+**[test-1] ✅ DONE (2026-06-07) — decay integration test seeds via raw Cypher.** *Fix:* add one decay test that seeds via the real `UpsertAsync` (then back-date `created_at` via Cypher) so prune/score is proven against repository-written property names.
 
-**[test-2] ⬜ NOT DONE — resource combined `type`+`userId` / empty-userId edges untested.** *Fix:* `MemoryResourcesTests` cases for `EntityList`/`PreferenceList` with both filters set, and `userId=""`/`" "`.
+**[test-2] ✅ DONE (2026-06-07) — resource combined `type`+`userId` / empty-userId edges untested.** *Fix:* `MemoryResourcesTests` cases for `EntityList`/`PreferenceList` with both filters set, and `userId=""`/`" "`.
 
-**[design-1] ⬜ NOT DONE — read-scoping convention split is undocumented.** Reads use `MemoryScope? scope` (null = no filter); dedup-on-create reads + write-stamps use `string? ownerId` (null = the shared bucket). *Fix:* document the convention once in `MemoryScope` XML remarks (and reference from the design doc). No code change.
+**[design-1] ✅ DONE (2026-06-07) — read-scoping convention split is undocumented.** Reads use `MemoryScope? scope` (null = no filter); dedup-on-create reads + write-stamps use `string? ownerId` (null = the shared bucket). *Fix:* document the convention once in `MemoryScope` XML remarks (and reference from the design doc). No code change.
 
-**[rel-meta] ⬜ NOT DONE — meta-package under-documented.** CHANGELOG.md:28 + the CLI csproj comment say 4 deps; the `AgentMemory` meta has **7** `ProjectReference`s. *Fix:* update the docs to list all 7 (safe minimal fix).
+**[rel-meta] ✅ DONE (2026-06-07) — meta-package under-documented.** CHANGELOG.md:28 + the CLI csproj comment say 4 deps; the `AgentMemory` meta has **7** `ProjectReference`s. *Fix:* update the docs to list all 7 (safe minimal fix).
 
-**[cleanup] ⬜ NOT DONE — stale comment.** `SchemaQueries.cs:139` comment "trace owner-write lands in R2" predates R2 completion. *Fix:* remove/correct it.
+**[cleanup] ✅ DONE (2026-06-07) — stale comment.** `SchemaQueries.cs:139` comment "trace owner-write lands in R2" predates R2 completion. *Fix:* remove/correct it.
 
 ### 0.D — Genuinely deferred (verified accurate, do NOT build now)
 

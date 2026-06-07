@@ -227,7 +227,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromSessionAsync_CreatesActivity_WithSessionTag()
     {
-        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromSessionAsync("s1");
@@ -240,7 +240,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromSessionAsync_OnError_IncrementsErrorCounterAndSetsStatus()
     {
-        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("extract failed")));
 
         var act = () => _sut.ExtractFromSessionAsync("s1");
@@ -254,19 +254,19 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromSessionAsync_RecordsDurationMetric()
     {
-        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromSessionAsync("s1");
 
         // If no exception, duration was recorded (verified by inner being called)
-        await _inner.Received(1).ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _inner.Received(1).ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ExtractFromConversationAsync_CreatesActivity_WithConversationTag()
     {
-        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromConversationAsync("c1");
@@ -279,7 +279,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromConversationAsync_OnError_IncrementsErrorCounterAndSetsStatus()
     {
-        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("extract conv failed")));
 
         var act = () => _sut.ExtractFromConversationAsync("c1");
@@ -293,12 +293,12 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromConversationAsync_RecordsDurationMetric()
     {
-        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromConversationAsync("c1");
 
-        await _inner.Received(1).ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>());
+        await _inner.Received(1).ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
