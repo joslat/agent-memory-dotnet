@@ -86,6 +86,17 @@
 
 R6b (GDS analytics), R6c (BenchmarkDotNet), R6d (S9 truncation refactor), R7 (WorkflowMemory sample), §II.6 provisioner TOCTOU, `MigrationRunner` parser, streaming built-in persistence — **all verified still un-built and correctly deferred post-preview** (see §III.2). The background-embedding-backfill global read is intentional by design.
 
+### 0.E — Post-PR review follow-ups (PR #2, 2026-06-07) — ✅ all resolved
+
+After opening PR #2, a second adversarial review of the just-landed batch (verdict: *minor-fixes*; 3 confirmed findings, 0 false positives) surfaced a small gap in the original leak-3 fix and two doc/symmetry nits — all now fixed:
+- **✅ new-1 (was the real one):** `MemoryService.ExtractFromConversationAsync` shipped only the explicit `userId` param, not the promised **owner-derivation** from `Conversation.UserId` — so a retroactive extraction of an owned conversation with no `userId` persisted as shared. Fixed: `MemoryService` now takes an optional `IConversationRepository` (trailing, DI-injected when registered) and, when `userId` is null, loads the conversation and falls back to its `UserId`. Unit tests cover derive / explicit-wins / no-repo-stays-shared.
+- **✅ new-2:** corrected the `MemoryStatusResource` XML-doc rationale (it wrongly said the counted node types lack `owner_id`; the true reason it's unscoped is that it returns store-wide *aggregate counts* with no per-node content).
+- **✅ F3:** `StubEntityResolver` now stamps `OwnerId` from scope, for symmetry with `CompositeEntityResolver` (no prod impact — persistence re-stamps regardless).
+- **✅ Test hardening:** tightened the under-asserted owner-threading tests (SK `Neo4jTextSearch` userId, MAF facade `PersistAfterRunAsync` userId) from `Arg.Any` to concrete-value assertions; added a `tests/README.md` documenting the suite, fixtures, run modes, and the E2E shakedown.
+- **✅ CI:** PR #2's first Linux CI run failed on a pre-existing cross-platform bug in `PackageBoundaryGuardTests` (parsed csproj `\`-separated `Include` paths with `Path.GetFileNameWithoutExtension`, which only splits on `\` on Windows); fixed by normalizing separators. CI green thereafter.
+
+**Acknowledged remaining test gaps (documented, not blocking):** no *live* owner-stamp-on-extraction integration test (pipeline threading is unit-proven); `ContextResource` owner-confinement is unit-mock-only. See `tests/README.md`.
+
 ---
 
 ## 1. Summary & recommendation

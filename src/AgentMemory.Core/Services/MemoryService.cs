@@ -20,6 +20,7 @@ public sealed class MemoryService : IMemoryService
     private readonly IPreferenceRepository _preferenceRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IMemoryDecayService? _decayService;
+    private readonly IConversationRepository? _conversationRepository;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -40,7 +41,8 @@ public sealed class MemoryService : IMemoryService
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<MemoryService> logger,
-        IMemoryDecayService? decayService = null)
+        IMemoryDecayService? decayService = null,
+        IConversationRepository? conversationRepository = null)
     {
         ArgumentNullException.ThrowIfNull(shortTerm);
         ArgumentNullException.ThrowIfNull(assembler);
@@ -66,6 +68,7 @@ public sealed class MemoryService : IMemoryService
         _idGenerator = idGenerator;
         _logger = logger;
         _decayService = decayService;
+        _conversationRepository = conversationRepository;
     }
 
     /// <inheritdoc/>
@@ -230,9 +233,20 @@ public sealed class MemoryService : IMemoryService
             return;
         }
 
+        // R1: when the caller doesn't supply an owner, derive it from the conversation's stored owner
+        // (Conversation.UserId) so retroactive extraction of an owned conversation is owner-stamped
+        // rather than persisted as shared/global. Requires the conversation repository to be available;
+        // when it isn't (graph-less/test setups), fall back to the explicit userId (or null = shared).
+        var ownerId = userId;
+        if (string.IsNullOrEmpty(ownerId) && _conversationRepository is not null)
+        {
+            var conversation = await _conversationRepository.GetByIdAsync(conversationId, cancellationToken);
+            ownerId = conversation?.UserId;
+        }
+
         var sessionId = messages[0].SessionId;
         await _extraction.ExtractAsync(
-            new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = userId },
+            new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = ownerId },
             cancellationToken);
     }
 

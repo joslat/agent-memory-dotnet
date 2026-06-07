@@ -39,6 +39,7 @@ public sealed class StubEntityResolver : IEntityResolver
         var entity = new Entity
         {
             EntityId = _idGenerator.GenerateId(),
+            OwnerId = scope?.OwnerId, // R1 symmetry with CompositeEntityResolver (persistence re-stamps anyway)
             Name = extractedEntity.Name,
             CanonicalName = extractedEntity.Name,
             Type = extractedEntity.Type,

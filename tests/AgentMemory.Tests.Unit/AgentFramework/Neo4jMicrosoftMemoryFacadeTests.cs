@@ -121,10 +121,10 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
             .Returns(new ExtractionResult());
 
         var messages = new List<ChatMessage> { new(ChatRole.User, "Hello") };
-        await _sut.PersistAfterRunAsync(messages, "s1", "c1");
+        await _sut.PersistAfterRunAsync(messages, "s1", "c1", userId: "alice");
 
         await _memoryService.Received(1).ExtractAndPersistAsync(
-            Arg.Is<ExtractionRequest>(r => r.SessionId == "s1"),
+            Arg.Is<ExtractionRequest>(r => r.SessionId == "s1" && r.UserId == "alice"),
             Arg.Any<CancellationToken>());
     }
 

@@ -7,10 +7,10 @@ namespace AgentMemory.McpServer.Resources;
 
 /// <summary>
 /// MCP resource that exposes memory status and statistics. <b>Admin/operator surface (R1):</b> it returns
-/// store-wide aggregate counts across <i>all</i> owners and is intentionally NOT owner-scoped — the counted
-/// node types (Conversation/Message) carry <c>user_id</c> rather than <c>owner_id</c>, so the owner+shared
-/// model cannot be applied uniformly, and aggregate counts expose no node content. Under the
-/// <c>DatabasePerApplication</c> isolation tier these counts are already physically isolated per store.
+/// store-wide aggregate <i>counts</i> across <i>all</i> owners and is intentionally NOT owner-scoped — the
+/// counts (Entity/Fact/Preference/Conversation/Message/ReasoningTrace node totals) expose no per-node
+/// content, so there is nothing per-owner to leak. Under the <c>DatabasePerApplication</c> isolation tier
+/// these counts are additionally physically isolated per store.
 /// </summary>
 [McpServerResourceType]
 public sealed class MemoryStatusResource

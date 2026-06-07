@@ -35,12 +35,13 @@ public sealed class MemoryServiceBatchTests
             .Returns(new ExtractionResult());
     }
 
-    private MemoryService CreateSut() =>
+    private MemoryService CreateSut(IConversationRepository? conversationRepository = null) =>
         new(_shortTerm, _assembler, _extraction,
             _entityRepo, _factRepo, _prefRepo, _embeddingOrchestrator,
             Options.Create(new MemoryOptions()),
             _clock, _idGenerator,
-            NullLogger<MemoryService>.Instance);
+            NullLogger<MemoryService>.Instance,
+            conversationRepository: conversationRepository);
 
     private static Message MakeMessage(string id, string sessionId, string convId = "conv-1") => new()
     {
@@ -116,6 +117,57 @@ public sealed class MemoryServiceBatchTests
         await sut.ExtractFromConversationAsync("empty-conv");
 
         await _extraction.DidNotReceive().ExtractAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_NoUserId_DerivesOwnerFromConversation()
+    {
+        // new-1 (R1): retroactive extraction of an owned conversation must owner-stamp from the
+        // conversation's stored owner when the caller doesn't supply one.
+        _shortTerm.GetConversationMessagesAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1", "conv-10") });
+        var convRepo = Substitute.For<IConversationRepository>();
+        convRepo.GetByIdAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new Conversation { ConversationId = "conv-10", SessionId = "sess-1", UserId = "alice", CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime });
+
+        var sut = CreateSut(convRepo);
+        await sut.ExtractFromConversationAsync("conv-10");
+
+        await _extraction.Received(1).ExtractAsync(
+            Arg.Is<ExtractionRequest>(r => r.UserId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_ExplicitUserId_WinsOverConversationOwner()
+    {
+        _shortTerm.GetConversationMessagesAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1", "conv-10") });
+        var convRepo = Substitute.For<IConversationRepository>();
+        convRepo.GetByIdAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new Conversation { ConversationId = "conv-10", SessionId = "sess-1", UserId = "alice", CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime });
+
+        var sut = CreateSut(convRepo);
+        await sut.ExtractFromConversationAsync("conv-10", userId: "bob");
+
+        await _extraction.Received(1).ExtractAsync(
+            Arg.Is<ExtractionRequest>(r => r.UserId == "bob"),
+            Arg.Any<CancellationToken>());
+        await convRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_NoUserId_NoConversationRepo_StaysShared()
+    {
+        _shortTerm.GetConversationMessagesAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1", "conv-10") });
+
+        var sut = CreateSut(); // no conversation repository (graph-less/back-compat)
+        await sut.ExtractFromConversationAsync("conv-10");
+
+        await _extraction.Received(1).ExtractAsync(
+            Arg.Is<ExtractionRequest>(r => r.UserId == null),
+            Arg.Any<CancellationToken>());
     }
 
     // ── GenerateEmbeddingsBatchAsync — Entity ──

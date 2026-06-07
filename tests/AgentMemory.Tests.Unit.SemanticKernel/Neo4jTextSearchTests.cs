@@ -59,6 +59,28 @@ public sealed class Neo4jTextSearchTests
     }
 
     [Fact]
+    public async Task SearchAsync_WithUserId_OwnerScopesRecall()
+    {
+        // leak-2 (R1): a per-user Neo4jTextSearch must thread its owner into the recall request.
+        var scoped = new Neo4jTextSearch(_memoryService, SessionId, "alice");
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall());
+
+        await scoped.SearchAsync("query");
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SearchAsync_NoUserId_RecallsUnscoped()
+    {
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall());
+        await _sut.SearchAsync("query");
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task GetTextSearchResultsAsync_EmptyRecall_ReturnsEmptyResults()
     {
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall());
