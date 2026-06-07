@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -9,7 +10,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 
 [Collection("Neo4j Integration")]
 [Trait("Category", "Integration")]
-public class EntityRepositoryIntegrationTests
+public class EntityRepositoryIntegrationTests : IAsyncLifetime
 {
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jEntityRepository _repo;
@@ -82,6 +83,216 @@ public class EntityRepositoryIntegrationTests
         var result = await _repo.GetByIdAsync("entity-does-not-exist");
 
         result.Should().BeNull();
+    }
+
+    // ── ApplyConfidenceDeltaAsync (entity feedback) + UpdatedAtUtc read-back ──
+
+    private async Task<string> SeedEntityAsync(double confidence)
+    {
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Feedback Subject", Type = "Concept",
+            Confidence = confidence, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+        return id;
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_IncreasesConfidence_AndStampsUpdatedAt()
+    {
+        var id = await SeedEntityAsync(0.5);
+
+        var updated = await _repo.ApplyConfidenceDeltaAsync(id, 0.2);
+
+        updated.Should().NotBeNull();
+        updated!.Confidence.Should().BeApproximately(0.7, 1e-9);
+        updated.UpdatedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ClampsToOne()
+    {
+        var id = await SeedEntityAsync(0.95);
+
+        var updated = await _repo.ApplyConfidenceDeltaAsync(id, 0.5);
+
+        updated!.Confidence.Should().Be(1.0);
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ClampsToZero()
+    {
+        var id = await SeedEntityAsync(0.1);
+
+        var updated = await _repo.ApplyConfidenceDeltaAsync(id, -0.5);
+
+        updated!.Confidence.Should().Be(0.0);
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ReturnsNull_WhenEntityMissing()
+    {
+        (await _repo.ApplyConfidenceDeltaAsync("entity-does-not-exist", 0.1)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ApplyConfidenceDeltaAsync_ForeignOwnerScope_DoesNotMutate_OtherOwnersEntity()
+    {
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Alice private", Type = "Concept",
+            Confidence = 0.5, OwnerId = "alice", CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        // Bob's scope must NOT match Alice's private entity (R1): no row, no mutation.
+        (await _repo.ApplyConfidenceDeltaAsync(id, 0.3, MemoryScope.For("bob"))).Should().BeNull();
+
+        // Alice's own scope can.
+        var aliceResult = await _repo.ApplyConfidenceDeltaAsync(id, 0.3, MemoryScope.For("alice"));
+        aliceResult.Should().NotBeNull();
+        aliceResult!.Confidence.Should().BeApproximately(0.8, 1e-9);
+
+        // Confidence reflects only Alice's +0.3 — Bob's attempt changed nothing.
+        (await _repo.GetByIdAsync(id))!.Confidence.Should().BeApproximately(0.8, 1e-9);
+    }
+
+    // ── Cross-owner delete / merge / spatial denial (R1 isolation hardening) ──
+
+    private async Task<string> SeedOwnedEntityAsync(string name, string? owner)
+    {
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = name, Type = "Organization",
+            Confidence = 0.7, OwnerId = owner, CreatedAtUtc = DateTimeOffset.UtcNow,
+        });
+        return id;
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ForeignOwnerScope_DoesNotDeleteOtherOwnersEntity()
+    {
+        var id = await SeedOwnedEntityAsync("Alice private", "alice");
+
+        (await _repo.DeleteAsync(id, MemoryScope.For("bob"))).Should().BeFalse();
+        (await _repo.GetByIdAsync(id)).Should().NotBeNull("bob's scope must not delete alice's entity");
+
+        (await _repo.DeleteAsync(id, MemoryScope.For("alice"))).Should().BeTrue();
+        (await _repo.GetByIdAsync(id)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_Scoped_DoesNotDeleteSharedEntity()
+    {
+        var id = await SeedOwnedEntityAsync("Shared", owner: null);
+
+        (await _repo.DeleteAsync(id, MemoryScope.For("alice"))).Should().BeFalse("a scoped delete must not remove shared/global data");
+        (await _repo.GetByIdAsync(id)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_ForeignOwnerScope_DoesNotMergeAcrossOwners()
+    {
+        var aliceId = await SeedOwnedEntityAsync("AliceCo", "alice");
+        var bobId = await SeedOwnedEntityAsync("BobCo", "bob");
+
+        // bob's scope must not be able to merge alice's entity into bob's.
+        await _repo.MergeEntitiesAsync(aliceId, bobId, MemoryScope.For("bob"));
+
+        (await _repo.GetByIdAsync(aliceId)).Should().NotBeNull("the cross-owner merge must no-op");
+        (await _repo.GetByIdAsync(bobId))!.Aliases.Should().NotContain("AliceCo", "bob's entity must not absorb alice's name");
+    }
+
+    [Fact]
+    public async Task SearchByLocationAsync_OwnerScoped_ExcludesOtherOwners()
+    {
+        const double lat = 51.5, lon = -0.12;
+        var aliceId = await SeedOwnedEntityAsync("AliceSpot", "alice");
+        var bobId = await SeedOwnedEntityAsync("BobSpot", "bob");
+        var sharedId = await SeedOwnedEntityAsync("SharedSpot", owner: null);
+        foreach (var id in new[] { aliceId, bobId, sharedId })
+            await SetLocationAsync(id, lat, lon);
+
+        var results = await _repo.SearchByLocationAsync(lat, lon, 5.0, 10, MemoryScope.For("alice"));
+        var ids = results.Select(e => e.EntityId).ToList();
+
+        ids.Should().Contain(aliceId).And.Contain(sharedId);
+        ids.Should().NotContain(bobId, "bob's location is invisible to alice's scoped spatial search");
+    }
+
+    private Task SetLocationAsync(string id, double lat, double lon) =>
+        _fixture.TransactionRunner.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                "MATCH (e:Entity {id: $id}) SET e.location = point({latitude: $lat, longitude: $lon})",
+                new { id, lat, lon });
+        });
+
+    [Fact]
+    public async Task UpsertAsync_WithLatLon_PersistsLocation_AndRoundTrips()
+    {
+        const double lat = 48.8566, lon = 2.3522; // Paris
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Paris HQ", Type = "Location",
+            Confidence = 0.9, Latitude = lat, Longitude = lon, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var read = await _repo.GetByIdAsync(id);
+        read!.Latitude.Should().BeApproximately(lat, 1e-6);
+        read.Longitude.Should().BeApproximately(lon, 1e-6);
+
+        // And it is findable by the spatial search (proves the point() is well-formed, not just stored).
+        var near = await _repo.SearchByLocationAsync(lat, lon, radiusKm: 1.0, limit: 10);
+        near.Select(e => e.EntityId).Should().Contain(id);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_WithLatLon_PersistsLocation_AndRoundTrips()
+    {
+        const double lat = 40.7128, lon = -74.0060; // New York
+        var withLoc = $"entity-{Guid.NewGuid():N}";
+        var withoutLoc = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Entity { EntityId = withLoc, Name = "NYC Office", Type = "Location", Confidence = 0.9, Latitude = lat, Longitude = lon, CreatedAtUtc = DateTimeOffset.UtcNow },
+            new Entity { EntityId = withoutLoc, Name = "No Coords", Type = "Concept", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        var read = await _repo.GetByIdAsync(withLoc);
+        read!.Latitude.Should().BeApproximately(lat, 1e-6);
+        read.Longitude.Should().BeApproximately(lon, 1e-6);
+
+        // Entities without coords stay null (no spurious location written).
+        var readNoLoc = await _repo.GetByIdAsync(withoutLoc);
+        readNoLoc!.Latitude.Should().BeNull();
+        readNoLoc.Longitude.Should().BeNull();
+
+        var near = await _repo.SearchByLocationAsync(lat, lon, radiusKm: 1.0, limit: 10);
+        near.Select(e => e.EntityId).Should().Contain(withLoc).And.NotContain(withoutLoc);
+    }
+
+    [Fact]
+    public async Task Entity_UpdatedAtUtc_RoundTrips_AfterReUpsert()
+    {
+        // updated_at is set ON MATCH (last-modified semantics): null on first create, populated after an
+        // update. Verify it round-trips into the model once the entity is modified.
+        var id = await SeedEntityAsync(0.5);
+
+        var afterCreate = await _repo.GetByIdAsync(id);
+        afterCreate!.UpdatedAtUtc.Should().BeNull("a freshly created, never-updated entity has no update time");
+
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Feedback Subject (edited)", Type = "Concept",
+            Confidence = 0.6, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var afterUpdate = await _repo.GetByIdAsync(id);
+        afterUpdate!.UpdatedAtUtc.Should().NotBeNull("the second upsert hits ON MATCH and stamps updated_at");
     }
 
     [Fact]

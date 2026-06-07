@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 
@@ -17,6 +18,8 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
     private readonly IPersistenceStage _persistenceStage;
     private readonly ILogger<MemoryExtractionPipeline> _logger;
 
+    // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
+    // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
     internal MemoryExtractionPipeline(
         IExtractionStage extractionStage,
         IPersistenceStage persistenceStage,
@@ -27,6 +30,7 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
         CancellationToken cancellationToken = default)
@@ -36,10 +40,16 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             "Starting extraction for session {SessionId}, {MessageCount} messages.",
             request.SessionId, request.Messages.Count);
 
-        var staged = await _extractionStage.ExtractAsync(
-            request.Messages, request.TypesToExtract, cancellationToken);
+        // Owner-scope entity resolution (R1) when the request carries a user: the resolver's candidate
+        // set is confined to this owner's own + shared entities, so an incoming entity can't resolve
+        // onto another owner's private entity. Null UserId ⇒ unscoped (single-tenant) — matches the
+        // owner stamped at persistence below.
+        var scope = string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId);
 
-        var persisted = await _persistenceStage.PersistAsync(staged, cancellationToken);
+        var staged = await _extractionStage.ExtractAsync(
+            request.Messages, request.TypesToExtract, scope, cancellationToken);
+
+        var persisted = await _persistenceStage.PersistAsync(staged, request.UserId, cancellationToken);
 
         sw.Stop();
         _logger.LogInformation(

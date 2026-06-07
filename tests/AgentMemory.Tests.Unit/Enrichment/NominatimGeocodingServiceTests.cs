@@ -69,6 +69,26 @@ public sealed class NominatimGeocodingServiceTests
     }
 
     [Fact]
+    public async Task Geocode_MalformedCoordinates_ReturnsNull()
+    {
+        const string malformed = """
+            [
+              {
+                "lat": "not-a-number",
+                "lon": "-0.1278",
+                "display_name": "Somewhere"
+              }
+            ]
+            """;
+        var handler = new MockHttpMessageHandler(malformed);
+        var sut = CreateSut(handler);
+
+        var result = await sut.GeocodeAsync("Somewhere");
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Geocode_HttpError_ReturnsNull_LogsWarning()
     {
         var handler = new MockHttpMessageHandler("{}", HttpStatusCode.ServiceUnavailable);

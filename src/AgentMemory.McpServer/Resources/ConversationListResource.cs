@@ -16,10 +16,16 @@ public sealed class ConversationListResource
     public static async Task<string> GetConversations(
         IGraphQueryService graphQueryService,
         [Description("Maximum number of conversations to return")] int limit = 20,
+        [Description("Owner/user identifier (optional). When set, returns only that user's (plus un-attributed) conversations; null = all users (unscoped/admin). Set it in multi-tenant deployments to avoid leaking other users' session ids (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var query = """
+        // Conversations carry user_id (not owner_id). Scope to the user's own + un-attributed rows.
+        var hasOwner = !string.IsNullOrEmpty(userId);
+        var whereClause = hasOwner ? "WHERE (c.user_id = $userId OR c.user_id IS NULL)" : "";
+
+        var query = $"""
             MATCH (c:Conversation)
+            {whereClause}
             OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(m:Message)
             WITH c, count(m) AS messageCount
             ORDER BY c.created_at DESC
@@ -32,6 +38,7 @@ public sealed class ConversationListResource
         {
             ["limit"] = (long)limit
         };
+        if (hasOwner) parameters["userId"] = userId;
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken);
 

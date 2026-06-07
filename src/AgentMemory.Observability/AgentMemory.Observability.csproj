@@ -4,7 +4,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Description>OpenTelemetry-based observability decorators for the Neo4j Agent Memory library. Opt-in tracing, metrics, and structured logging.</Description>
+    <Description>OpenTelemetry-based observability decorators for AgentMemory for .NET. Opt-in tracing, metrics, and structured logging.</Description>
+    <PackageTags>agent-memory;observability;opentelemetry;tracing;metrics;neo4j</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

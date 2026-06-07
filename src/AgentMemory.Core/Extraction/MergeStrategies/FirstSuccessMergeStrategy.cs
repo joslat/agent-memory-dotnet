@@ -11,8 +11,10 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// </summary>
 public sealed class FirstSuccessMergeStrategy<T> : IMergeStrategy<T> where T : class
 {
+    /// <inheritdoc/>
     public MergeStrategyType StrategyType => MergeStrategyType.FirstSuccess;
 
+    /// <inheritdoc/>
     public IReadOnlyList<T> Merge(IReadOnlyList<IReadOnlyList<T>> extractorResults)
     {
         foreach (var resultList in extractorResults)

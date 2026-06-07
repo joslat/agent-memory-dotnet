@@ -77,6 +77,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
         IReadOnlyList<ChatMessage> messages,
         string sessionId,
         string conversationId,
+        string? userId = null,
         CancellationToken ct = default)
     {
         if (messages.Count == 0)
@@ -101,7 +102,8 @@ public sealed class Neo4jMicrosoftMemoryFacade
                         new ExtractionRequest
                         {
                             Messages = internalMessages,
-                            SessionId = sessionId
+                            SessionId = sessionId,
+                            UserId = userId
                         }, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex)

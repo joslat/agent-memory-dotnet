@@ -1,7 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Core;
+using AgentMemory.Enrichment;
+using AgentMemory.Extraction.AzureLanguage;
 using AgentMemory.Extraction.Llm;
+using AgentMemory.Observability;
 using NeoInfra = AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory;
@@ -33,5 +36,42 @@ public static class ServiceCollectionExtensions
         services.AddLlmExtraction(configureLlm);
 
         return services;
+    }
+
+    /// <summary>
+    /// Opt-in: adds OpenTelemetry-based metrics and instruments the memory service. Chain after
+    /// <see cref="AddNeo4jAgentMemory"/>.
+    /// </summary>
+    public static IServiceCollection WithObservability(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddAgentMemoryObservability();
+    }
+
+    /// <summary>
+    /// Opt-in: adds geocoding + entity enrichment services (Nominatim geocoding, Wikimedia/Diffbot
+    /// enrichment) with rate-limiting and caching decorators. Chain after <see cref="AddNeo4jAgentMemory"/>.
+    /// </summary>
+    public static IServiceCollection WithEnrichment(
+        this IServiceCollection services,
+        Action<GeocodingOptions>? configureGeocoding = null,
+        Action<EnrichmentOptions>? configureEnrichment = null,
+        Action<EnrichmentCacheOptions>? configureCaching = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddEnrichmentServices(configureGeocoding, configureEnrichment, configureCaching);
+    }
+
+    /// <summary>
+    /// Opt-in: adds Azure AI Language-backed extractors as an alternative/supplement to the LLM
+    /// extractors. Chain after <see cref="AddNeo4jAgentMemory"/>.
+    /// </summary>
+    public static IServiceCollection WithAzureLanguageExtraction(
+        this IServiceCollection services,
+        Action<AzureLanguageOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        return services.AddAzureLanguageExtraction(configure);
     }
 }

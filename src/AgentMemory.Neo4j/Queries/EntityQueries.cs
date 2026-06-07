@@ -15,6 +15,7 @@ public static class EntityQueries
     public const string Upsert = @"
             MERGE (e:Entity {id: $id})
             ON CREATE SET
+                e.owner_id           = $ownerId,
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -45,45 +46,92 @@ public static class EntityQueries
     /// <summary>Get a single entity by id.</summary>
     public const string GetById = "MATCH (e:Entity {id: $id}) RETURN e";
 
+    // ── ApplyConfidenceDeltaAsync (entity feedback) ────────────────────
+
+    /// <summary>
+    /// Nudges an entity's confidence by <c>$delta</c> (positive or negative), clamped to [0,1], and
+    /// stamps <c>updated_at</c>. Backs the entity-feedback surface (reinforce/penalize). Honors an
+    /// optional owner/shared filter (R1) so feedback cannot mutate another owner's private entity;
+    /// null owner ⇒ unscoped. Returns the node (no row ⇒ not found or out of scope).
+    /// </summary>
+    public static string ApplyConfidenceDelta(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $@"
+            MATCH (e:Entity {{id: $id}})
+            WHERE true{owner}
+            SET e.confidence = CASE
+                    WHEN e.confidence + $delta > 1.0 THEN 1.0
+                    WHEN e.confidence + $delta < 0.0 THEN 0.0
+                    ELSE e.confidence + $delta END,
+                e.updated_at = datetime()
+            RETURN e";
+    }
+
     // ── GetByNameAsync ─────────────────────────────────────────────────
 
-    /// <summary>Get entities matching name or aliases.</summary>
-    public const string GetByNameWithAliases =
-        "MATCH (e:Entity) WHERE e.name = $name OR $name IN e.aliases RETURN e";
-
-    /// <summary>Get entities matching exact name only.</summary>
-    public const string GetByNameOnly =
-        "MATCH (e:Entity {name: $name}) RETURN e";
-
-    /// <summary>Returns the appropriate GetByName query based on <paramref name="includeAliases"/>.</summary>
-    public static string GetByName(bool includeAliases) =>
-        includeAliases ? GetByNameWithAliases : GetByNameOnly;
+    /// <summary>
+    /// Builds the get-by-name query, optionally matching aliases, with an optional owner/shared
+    /// filter (R1). Null owner ⇒ unscoped (today's behavior).
+    /// </summary>
+    public static string GetByName(bool includeAliases, bool hasOwnerFilter, bool includeShared)
+    {
+        var nameMatch = includeAliases
+            ? "MATCH (e:Entity) WHERE (e.name = $name OR $name IN e.aliases)"
+            : "MATCH (e:Entity) WHERE e.name = $name";
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $"{nameMatch}{owner} RETURN e";
+    }
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
-    /// <summary>Vector similarity search on entity embeddings.</summary>
-    public const string SearchByVector = @"
-            CALL db.index.vector.queryNodes('entity_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
+    /// <summary>
+    /// Vector similarity search on entity embeddings, with an optional owner/shared filter (R1).
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering.
+    /// </summary>
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        new CypherBuilder()
+            .WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK)
+            .Where("score >= $minScore")
+            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
+            .Return("node, score")
+            .OrderBy("score DESC")
+            .Limit("$limit")
+            .Build();
 
     // ── GetByTypeAsync ─────────────────────────────────────────────────
 
-    /// <summary>Get all entities of a given type.</summary>
-    public const string GetByType = "MATCH (e:Entity {type: $type}) RETURN e";
+    /// <summary>
+    /// Get all entities of a given type, with an optional owner/shared filter (R1). This backs entity
+    /// resolution: scoping the candidate set prevents one owner's incoming entity from resolving onto
+    /// (and merging into) another owner's private entity — a cross-owner write-path leak. Null owner ⇒
+    /// unscoped (single-tenant / admin behavior).
+    /// </summary>
+    public static string GetByType(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return $"MATCH (e:Entity {{type: $type}}) WHERE true{owner} RETURN e";
+    }
 
     // ── SearchByNameAsync ──────────────────────────────────────────────
 
     /// <summary>
-    /// Builds a case-insensitive name search query, optionally filtered by entity type.
-    /// When <paramref name="type"/> is non-null a WHERE condition on <c>e.type</c> is prepended.
+    /// Builds a case-insensitive name search query, optionally filtered by entity type and by an
+    /// owner/shared scope (R1). When <paramref name="type"/> is non-null a WHERE condition on
+    /// <c>e.type</c> is prepended. The name/canonical-name OR is parenthesized so the type and owner
+    /// predicates AND correctly across it. Null owner ⇒ unscoped.
     /// </summary>
-    public static string SearchByNameFiltered(string? type) =>
+    public static string SearchByNameFiltered(string? type, bool hasOwnerFilter, bool includeShared) =>
         CypherBuilder.Match("(e:Entity)")
             .Where("e.type = $type", when: type is not null)
-            .And("toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name)")
+            .And("(toLower(e.name) CONTAINS toLower($name) OR toLower(e.canonical_name) CONTAINS toLower($name))")
+            .And(includeShared ? "(e.owner_id = $ownerId OR e.owner_id IS NULL)" : "e.owner_id = $ownerId", when: hasOwnerFilter)
             .Return("e")
             .Build();
 
@@ -130,6 +178,7 @@ public static class EntityQueries
             UNWIND $items AS item
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
+                e.owner_id           = item.owner_id,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -166,11 +215,21 @@ public static class EntityQueries
 
     // ── MergeEntitiesAsync ─────────────────────────────────────────────
 
-    /// <summary>Merge a source entity into a target entity, transferring relationships and aliases.</summary>
-    public const string MergeEntities = @"
+    /// <summary>
+    /// Merge a source entity into a target entity, transferring relationships and aliases. When scoped
+    /// (R1) BOTH source and target must be the owner's own (or shared) — so a merge can never reach
+    /// across the isolation boundary into another owner's entity. Null scope ⇒ unscoped (admin).
+    /// </summary>
+    public static string MergeEntities(bool hasOwnerFilter, bool includeShared)
+    {
+        var guard = !hasOwnerFilter ? string.Empty
+            : includeShared
+                ? "WHERE (source.owner_id = $ownerId OR source.owner_id IS NULL) AND (target.owner_id = $ownerId OR target.owner_id IS NULL)\n            "
+                : "WHERE source.owner_id = $ownerId AND target.owner_id = $ownerId\n            ";
+        return @"
             MATCH (source:Entity {id: $sourceEntityId})
             MATCH (target:Entity {id: $targetEntityId})
-            CALL (source, target) {
+            " + guard + @"CALL (source, target) {
                 MATCH (source)<-[:MENTIONS]-(m:Message)
                 WHERE NOT (m)-[:MENTIONS]->(target)
                 MERGE (m)-[:MENTIONS]->(target)
@@ -196,6 +255,7 @@ public static class EntityQueries
                 target.embedding = null,
                 target.updated_at = datetime()
             RETURN source, target";
+    }
 
     // ── RefreshEntitySearchFieldsAsync ──────────────────────────────────
 
@@ -208,27 +268,44 @@ public static class EntityQueries
 
     // ── SearchByLocationAsync ──────────────────────────────────────────
 
-    /// <summary>Spatial proximity search within a radius (km converted to meters by caller).</summary>
-    public const string SearchByLocation = @"
+    /// <summary>
+    /// Spatial proximity search within a radius (km converted to meters by caller), with an optional
+    /// owner/shared filter (R1) so one user cannot enumerate another's locations by sweeping coordinates.
+    /// </summary>
+    public static string SearchByLocation(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = OwnerAndClause(hasOwnerFilter, includeShared);
+        return @"
             MATCH (e:Entity)
             WHERE e.location IS NOT NULL
-              AND point.distance(e.location, point({latitude: $lat, longitude: $lon})) < $radiusMeters
+              AND point.distance(e.location, point({latitude: $lat, longitude: $lon})) < $radiusMeters" + owner + @"
             RETURN e
             ORDER BY point.distance(e.location, point({latitude: $lat, longitude: $lon}))
             LIMIT $limit";
+    }
 
     // ── SearchInBoundingBoxAsync ────────────────────────────────────────
 
-    /// <summary>Spatial bounding-box search.</summary>
-    public const string SearchInBoundingBox = @"
+    /// <summary>Spatial bounding-box search, with an optional owner/shared filter (R1).</summary>
+    public static string SearchInBoundingBox(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = OwnerAndClause(hasOwnerFilter, includeShared);
+        return @"
             MATCH (e:Entity)
             WHERE e.location IS NOT NULL
               AND point.withinBBox(
                     e.location,
                     point({longitude: $minLon, latitude: $minLat}),
-                    point({longitude: $maxLon, latitude: $maxLat}))
+                    point({longitude: $maxLon, latitude: $maxLat}))" + owner + @"
             RETURN e
             LIMIT $limit";
+    }
+
+    /// <summary>The owner/shared AND-clause for entity alias <c>e</c> (R1), or empty when unscoped.</summary>
+    private static string OwnerAndClause(bool hasOwnerFilter, bool includeShared) =>
+        !hasOwnerFilter ? string.Empty
+        : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                        : " AND e.owner_id = $ownerId";
 
     // ── GetPageWithoutEmbeddingAsync ────────────────────────────────────
 
@@ -244,23 +321,42 @@ public static class EntityQueries
 
     // ── DeleteAsync ────────────────────────────────────────────────────
 
-    /// <summary>Detach-delete an entity by id and report whether it existed.</summary>
-    public const string Delete = @"
+    /// <summary>
+    /// Detach-delete an entity by id and report whether it existed. When scoped (R1) the delete only
+    /// affects the owner's <b>own</b> entities — never another owner's, and never shared/global ones
+    /// (deleting shared data on one user's behalf would affect everyone). Null scope ⇒ unscoped (admin).
+    /// </summary>
+    public static string Delete(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND e.owner_id = $ownerId" : string.Empty;
+        return @"
             MATCH (e:Entity {id: $entityId})
+            WHERE true" + owner + @"
             DETACH DELETE e
             RETURN count(e) > 0 AS deleted";
+    }
 
     // ── FindSimilarByEmbeddingAsync ─────────────────────────────────
 
-    /// <summary>Vector search for potential duplicate entities, excluding self.</summary>
-    public const string FindSimilarByEmbedding = @"
-            MATCH (source:Entity {id: $entityId}) WHERE source.embedding IS NOT NULL
+    /// <summary>
+    /// Vector search for potential duplicate entities, excluding self, with an optional owner/shared
+    /// filter (R1) so a "find duplicates of my entity" surface cannot surface another owner's private
+    /// entities. Null owner ⇒ unscoped (admin/maintenance).
+    /// </summary>
+    public static string FindSimilarByEmbedding(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (node.owner_id = $ownerId OR node.owner_id IS NULL)"
+                            : " AND node.owner_id = $ownerId";
+        return $@"
+            MATCH (source:Entity {{id: $entityId}}) WHERE source.embedding IS NOT NULL
             CALL db.index.vector.queryNodes('entity_embedding_idx', $topK, source.embedding)
             YIELD node, score
-            WHERE node.id <> $entityId AND score >= $minSimilarity
+            WHERE node.id <> $entityId AND score >= $minSimilarity{owner}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
+    }
 
     // ── GetPendingDuplicatesAsync ───────────────────────────────────
 

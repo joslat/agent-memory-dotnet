@@ -150,7 +150,7 @@ var message = await memory.AddMessageAsync(
     role:           "user",
     content:        "My name is Alice and I prefer dark mode.");
 
-Console.WriteLine($"Stored message: {message.Id}");
+Console.WriteLine($"Stored message: {message.MessageId}");
 
 // Recall context for a follow-up query
 var recall = await memory.RecallAsync(new RecallRequest

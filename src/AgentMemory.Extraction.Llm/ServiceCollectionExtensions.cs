@@ -16,10 +16,13 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<LlmExtractionOptions>? configure = null)
     {
-        if (configure is not null)
-            services.AddOptions<LlmExtractionOptions>().Configure(configure);
-        else
-            services.AddOptions<LlmExtractionOptions>();
+        var llmOptions = configure is not null
+            ? services.AddOptions<LlmExtractionOptions>().Configure(configure)
+            : services.AddOptions<LlmExtractionOptions>();
+        llmOptions
+            .Validate(o => o.Temperature >= 0.0f, "LlmExtraction Temperature must be non-negative.")
+            .Validate(o => o.MaxRetries >= 0, "LlmExtraction MaxRetries must be non-negative.")
+            .ValidateOnStart();
 
         services.TryAddScoped<IEntityExtractor, LlmEntityExtractor>();
         services.TryAddScoped<IFactExtractor, LlmFactExtractor>();

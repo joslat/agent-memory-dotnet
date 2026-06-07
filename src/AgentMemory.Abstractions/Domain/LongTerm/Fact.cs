@@ -62,6 +62,12 @@ public sealed record Fact
     public string? Category { get; init; }
 
     /// <summary>
+    /// Optional owner/user id that scopes this record. Null means shared/global (visible to
+    /// everyone). See <c>MemoryScope</c> and docs/Memory_Review_and_Implementation_Plan.md (R1).
+    /// </summary>
+    public string? OwnerId { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

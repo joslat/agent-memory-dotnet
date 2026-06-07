@@ -42,6 +42,7 @@ internal sealed class PersistenceStage : IPersistenceStage
 
     public async Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
         var sourceMessageIds = extraction.SourceMessageIds;
@@ -52,7 +53,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         {
             try
             {
-                var entityToSave = entity;
+                var entityToSave = entity with { OwnerId = ownerId };
                 if (entityToSave.Embedding is null)
                 {
                     var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
@@ -105,6 +106,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     ValidFrom = extracted.ValidFrom,
                     ValidUntil = extracted.ValidUntil,
                     Embedding = factEmbedding,
+                    OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow
                 };
@@ -154,6 +156,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Context = extracted.Context,
                     Confidence = extracted.Confidence,
                     Embedding = prefEmbedding,
+                    OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow
                 };
@@ -215,6 +218,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Description = extracted.Description,
                     Confidence = extracted.Confidence,
                     Attributes = extracted.Attributes,
+                    OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow
                 };

@@ -51,6 +51,11 @@ public sealed record ToolCall
     public string? Description { get; init; }
 
     /// <summary>
+    /// UTC timestamp when the tool call was recorded. Server-assigned on write; populated on read.
+    /// </summary>
+    public DateTimeOffset? TimestampUtc { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

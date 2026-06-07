@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.SemanticKernel.Data;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 
 #pragma warning disable SKEXP0001
 
@@ -9,18 +10,25 @@ namespace AgentMemory.SemanticKernel;
 
 /// <summary>
 /// Implements SK <see cref="ITextSearch{TRecord}"/> backed by <see cref="IMemoryService"/>.
-/// Each instance is scoped to a single session.
+/// Each instance is scoped to a single session and, optionally, to a single owner (R1): when
+/// <c>userId</c> is supplied the recall is confined to that owner's plus shared memory; when null the
+/// recall is unscoped (returns all owners) — set it per-user in multi-tenant hosts to avoid cross-owner reads.
 /// </summary>
 public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
 {
     private readonly IMemoryService _memoryService;
     private readonly string _sessionId;
+    private readonly string? _userId;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jTextSearch"/>.</summary>
-    public Neo4jTextSearch(IMemoryService memoryService, string sessionId)
+    /// <param name="memoryService">The backing memory service.</param>
+    /// <param name="sessionId">Session to recall within.</param>
+    /// <param name="userId">Optional owner/user id (R1). Null ⇒ unscoped recall (all owners).</param>
+    public Neo4jTextSearch(IMemoryService memoryService, string sessionId, string? userId = null)
     {
         _memoryService = memoryService;
         _sessionId = sessionId;
+        _userId = userId;
     }
 
     /// <inheritdoc/>
@@ -30,7 +38,7 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         CancellationToken cancellationToken = default)
     {
         var result = await RecallAsync(query, cancellationToken).ConfigureAwait(false);
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         var items = string.IsNullOrEmpty(formatted)
             ? AsyncEnumerable.Empty<string>()
             : YieldSingle(formatted, cancellationToken);
@@ -62,7 +70,12 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         try
         {
             return await _memoryService.RecallAsync(
-                new RecallRequest { SessionId = _sessionId, Query = query }, ct).ConfigureAwait(false);
+                new RecallRequest { SessionId = _sessionId, UserId = _userId, Query = query }, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Honor cancellation — do not mask it as an empty result.
+            throw;
         }
         catch
         {

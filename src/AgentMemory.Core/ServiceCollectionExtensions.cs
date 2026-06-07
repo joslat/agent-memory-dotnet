@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -41,12 +42,43 @@ public static class ServiceCollectionExtensions
             Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Extraction));
 
         // Core services
+        // Sensible defaults for the two ambient primitives that many services depend on (assembler,
+        // reasoning, consolidation, dedup). TryAdd so a consumer can still register their own first.
+        // Without these the meta package wasn't self-sufficient — every sample had to register them by hand.
+        services.TryAddSingleton<IClock, SystemClock>();
+        services.TryAddSingleton<IIdGenerator, GuidIdGenerator>();
         services.TryAddSingleton<ISessionIdGenerator, SessionIdGenerator>();
+
+        // Ambient owner context (IC8) — AsyncLocal-backed, safe as a singleton; set per request/agent
+        // flow by adapters so the LLM-invokable facade tools scope by owner without trusting the model.
+        services.TryAddSingleton<DefaultMemoryOwnerContext>();
+        services.TryAddSingleton<IMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
+        services.TryAddSingleton<IWritableMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
         services.TryAddScoped<IShortTermMemoryService, ShortTermMemoryService>();
         services.TryAddScoped<ILongTermMemoryService, LongTermMemoryService>();
         services.TryAddScoped<IReasoningMemoryService, ReasoningMemoryService>();
-        services.TryAddScoped<IMemoryContextAssembler, MemoryContextAssembler>();
+        // GraphRAG is an optional source: resolve it with GetService so memory-only consumers
+        // (who never call AddGraphRagAdapter) don't fail to construct the assembler. When the
+        // GraphRAG adapter IS registered, that instance (incl. any observability decorator) is used.
+        services.TryAddScoped<IMemoryContextAssembler>(sp => new MemoryContextAssembler(
+            sp.GetRequiredService<IShortTermMemoryService>(),
+            sp.GetRequiredService<ILongTermMemoryService>(),
+            sp.GetRequiredService<IReasoningMemoryService>(),
+            sp.GetService<IGraphRagContextSource>(),
+            sp.GetRequiredService<IEmbeddingOrchestrator>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<IOptions<MemoryOptions>>(),
+            sp.GetRequiredService<ILogger<MemoryContextAssembler>>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
+
+        // Role interfaces (ISP): bind each to the same scoped IMemoryService instance so consumers
+        // can depend on a narrow contract (recall / ingestion / maintenance) without a second object.
+        services.TryAddScoped<IMemoryRecall>(sp => sp.GetRequiredService<IMemoryService>());
+        services.TryAddScoped<IMemoryIngestion>(sp => sp.GetRequiredService<IMemoryService>());
+        services.TryAddScoped<IMemoryMaintenance>(sp => sp.GetRequiredService<IMemoryService>());
+
+        // Render-ready query/command facade shared by framework adapters (MAF tools, SK plugin).
+        services.TryAddScoped<IMemoryQueryFacade, MemoryQueryFacade>();
 
         // Entity resolution — CompositeEntityResolver replaces StubEntityResolver.
         // Callers may override by registering their own IEntityResolver before calling this method.
@@ -60,8 +92,19 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
         services.TryAddScoped<IPersistenceStage, PersistenceStage>();
 
-        // Unified extraction pipeline — composes the two stages.
-        services.TryAddScoped<IMemoryExtractionPipeline, MemoryExtractionPipeline>();
+        // Streaming (chunked) extraction (R4). The extractor is a pure text→chunks→entities helper; it
+        // does NOT persist, so it carries no owner context itself — owner stamping (R1) happens when its
+        // output is persisted via PersistenceStage with ExtractionRequest.UserId. Registered now that the
+        // isolation surface has landed; was intentionally held back until then.
+        services.TryAddScoped<IStreamingExtractor, Extraction.Streaming.StreamingExtractor>();
+
+        // Unified extraction pipeline — composes the two stages. Registered via a factory because
+        // MemoryExtractionPipeline's constructor is internal (its stage parameters are internal types),
+        // which the default DI activator (public ctors only) cannot select.
+        services.TryAddScoped<IMemoryExtractionPipeline>(sp => new MemoryExtractionPipeline(
+            sp.GetRequiredService<IExtractionStage>(),
+            sp.GetRequiredService<IPersistenceStage>(),
+            sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>()));
 
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();

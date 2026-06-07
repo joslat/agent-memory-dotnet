@@ -1,7 +1,9 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 using NSubstitute;
 
@@ -11,11 +13,29 @@ public class SchemaBootstrapperTests
 {
     private static SchemaBootstrapper CreateBootstrapper(
         INeo4jTransactionRunner txRunner,
-        int embeddingDimensions = 1536)
+        int embeddingDimensions = 1536,
+        bool validateVectorIndexDimensions = true)
     {
-        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = embeddingDimensions });
+        var options = Options.Create(new Neo4jOptions
+        {
+            EmbeddingDimensions = embeddingDimensions,
+            ValidateVectorIndexDimensions = validateVectorIndexDimensions,
+        });
         return new SchemaBootstrapper(txRunner, options, NullLogger<SchemaBootstrapper>.Instance);
     }
+
+    private static void StubWriteRunner(INeo4jTransactionRunner txRunner)
+        => txRunner
+            .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+    private static void StubVectorIndexRead(
+        INeo4jTransactionRunner txRunner, params VectorIndexDimension[] indexes)
+        => txRunner
+            .ReadAsync(
+                Arg.Any<Func<IAsyncQueryRunner, Task<IReadOnlyList<VectorIndexDimension>>>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<VectorIndexDimension>>(indexes));
 
     [Fact]
     public async Task BootstrapAsync_ExecutesExpectedTotalNumberOfStatements()
@@ -42,8 +62,8 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 10 constraints + 3 fulltext + 6 vector + 15 property = 34
-        executedStatements.Should().HaveCount(34);
+        // 11 constraints + 3 fulltext + 6 vector + 21 property = 41
+        executedStatements.Should().HaveCount(41);
     }
 
     [Fact]
@@ -70,7 +90,8 @@ public class SchemaBootstrapperTests
         await bootstrapper.BootstrapAsync();
 
         var constraints = executedStatements.Where(s => s.StartsWith("CREATE CONSTRAINT")).ToList();
-        constraints.Should().HaveCount(10);
+        constraints.Should().HaveCount(11);
+        constraints.Should().Contain(s => s.Contains("consolidation_run_id"));
         constraints.Should().Contain(s => s.Contains("conversation_id"));
         constraints.Should().Contain(s => s.Contains("message_id"));
         constraints.Should().Contain(s => s.Contains("entity_id"));
@@ -172,8 +193,9 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(15);
+        propertyIndexes.Should().HaveCount(21);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("conversation_archived_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
         propertyIndexes.Should().Contain(s => s.Contains("message_role_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("entity_type"));
@@ -188,6 +210,11 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("schema_name_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("schema_version_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("entity_location_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("fact_owner_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("entity_owner_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("preference_owner_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("trace_owner_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("rel_owner_idx"));
     }
 
     [Theory]
@@ -196,7 +223,7 @@ public class SchemaBootstrapperTests
     [InlineData(768)]
     public void BuildVectorIndexes_EmbeddingDimensionAppearsInAllIndexes(int dimensions)
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(dimensions);
+        var indexes = SchemaQueries.BuildVectorIndexes(dimensions);
 
         indexes.Should().HaveCount(6);
         indexes.Should().AllSatisfy(idx =>
@@ -206,7 +233,7 @@ public class SchemaBootstrapperTests
     [Fact]
     public void BuildVectorIndexes_AllIndexesUseCosineFunction()
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
+        var indexes = SchemaQueries.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
             idx.Should().Contain("'cosine'"));
@@ -215,7 +242,7 @@ public class SchemaBootstrapperTests
     [Fact]
     public void BuildVectorIndexes_AllIndexesTargetEmbeddingProperty()
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
+        var indexes = SchemaQueries.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
             idx.Should().MatchRegex(@"ON \(n\.(embedding|task_embedding)\)"));
@@ -224,7 +251,7 @@ public class SchemaBootstrapperTests
     [Fact]
     public void BuildVectorIndexes_AllIndexesAreIdempotent()
     {
-        var indexes = SchemaBootstrapper.BuildVectorIndexes(1536);
+        var indexes = SchemaQueries.BuildVectorIndexes(1536);
 
         indexes.Should().AllSatisfy(idx =>
             idx.Should().Contain("IF NOT EXISTS"));
@@ -236,6 +263,59 @@ public class SchemaBootstrapperTests
         var options = new Neo4jOptions();
 
         options.EmbeddingDimensions.Should().Be(1536);
+    }
+
+    [Fact]
+    public void Neo4jOptions_ValidateVectorIndexDimensions_DefaultsToTrue()
+        => new Neo4jOptions().ValidateVectorIndexDimensions.Should().BeTrue();
+
+    [Fact]
+    public async Task BootstrapAsync_WhenExistingVectorIndexDimensionsMatch_DoesNotThrow()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubWriteRunner(txRunner);
+        StubVectorIndexRead(txRunner,
+            new VectorIndexDimension("fact_embedding_idx", 1536),
+            new VectorIndexDimension("entity_embedding_idx", 1536));
+
+        var bootstrapper = CreateBootstrapper(txRunner, embeddingDimensions: 1536);
+
+        await bootstrapper.Invoking(b => b.BootstrapAsync()).Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_WhenExistingVectorIndexDimensionsMismatch_Throws()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubWriteRunner(txRunner);
+        StubVectorIndexRead(txRunner,
+            new VectorIndexDimension("fact_embedding_idx", 1536),
+            new VectorIndexDimension("entity_embedding_idx", 3072)); // stale after model switch
+
+        var bootstrapper = CreateBootstrapper(txRunner, embeddingDimensions: 1536);
+
+        var ex = (await bootstrapper.Invoking(b => b.BootstrapAsync())
+            .Should().ThrowAsync<EmbeddingDimensionMismatchException>()).Which;
+        ex.ExpectedDimensions.Should().Be(1536);
+        ex.Mismatches.Should().ContainSingle().Which.IndexName.Should().Be("entity_embedding_idx");
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_WhenValidationDisabled_SkipsTheReadAndDoesNotThrow()
+    {
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubWriteRunner(txRunner);
+        // Even with a mismatch staged, validation is off, so it must not be consulted.
+        StubVectorIndexRead(txRunner, new VectorIndexDimension("fact_embedding_idx", 3072));
+
+        var bootstrapper = CreateBootstrapper(
+            txRunner, embeddingDimensions: 1536, validateVectorIndexDimensions: false);
+
+        await bootstrapper.Invoking(b => b.BootstrapAsync()).Should().NotThrowAsync();
+
+        await txRunner.DidNotReceive().ReadAsync(
+            Arg.Any<Func<IAsyncQueryRunner, Task<IReadOnlyList<VectorIndexDimension>>>>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

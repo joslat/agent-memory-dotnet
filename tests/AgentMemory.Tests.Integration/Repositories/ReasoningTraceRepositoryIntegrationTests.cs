@@ -9,7 +9,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 
 [Collection("Neo4j Integration")]
 [Trait("Category", "Integration")]
-public class ReasoningTraceRepositoryIntegrationTests
+public class ReasoningTraceRepositoryIntegrationTests : IAsyncLifetime
 {
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jReasoningTraceRepository _repo;
@@ -163,6 +163,37 @@ public class ReasoningTraceRepositoryIntegrationTests
         results.Should().NotBeEmpty();
         results[0].Trace.TraceId.Should().Be(trace.TraceId);
         results[0].Score.Should().BeGreaterThan(0.0);
+    }
+
+    [Fact]
+    public async Task SearchByTaskVectorAsOfAsync_ExcludesTracesStartedAfterAsOf()
+    {
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var oldTrace = new ReasoningTrace
+        {
+            TraceId = $"trace-old-{Guid.NewGuid():N}",
+            SessionId = sessionId,
+            Task = "Old task",
+            TaskEmbedding = TestEmbedding,
+            StartedAtUtc = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        var newTrace = new ReasoningTrace
+        {
+            TraceId = $"trace-new-{Guid.NewGuid():N}",
+            SessionId = sessionId,
+            Task = "New task",
+            TaskEmbedding = TestEmbedding,
+            StartedAtUtc = new DateTimeOffset(2025, 12, 1, 0, 0, 0, TimeSpan.Zero)
+        };
+        await _repo.AddAsync(oldTrace);
+        await _repo.AddAsync(newTrace);
+
+        var asOf = new DateTimeOffset(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);
+        var results = await _repo.SearchByTaskVectorAsOfAsync(QueryEmbedding, asOf, limit: 5);
+
+        var ids = results.Select(r => r.Trace.TraceId).ToList();
+        ids.Should().Contain(oldTrace.TraceId, "it started before the as-of instant");
+        ids.Should().NotContain(newTrace.TraceId, "it started after the as-of instant");
     }
 
     [Fact]

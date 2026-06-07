@@ -17,15 +17,20 @@ public sealed class PreferenceListResource
         IGraphQueryService graphQueryService,
         [Description("Filter by category (optional)")] string? category = null,
         [Description("Maximum number of preferences to return")] int limit = 50,
+        [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) preferences; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads of preference text (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var categoryFilter = category is not null
-            ? "WHERE p.category = $category"
-            : "";
+        // R1: owner-scope the listing so a multi-tenant client can't read other owners' preferences
+        // (the free-text 'context' is sensitive). null userId ⇒ unscoped (admin/single-tenant).
+        var conditions = new List<string>();
+        if (category is not null) conditions.Add("p.category = $category");
+        var hasOwner = !string.IsNullOrEmpty(userId);
+        if (hasOwner) conditions.Add("(p.owner_id = $ownerId OR p.owner_id IS NULL)");
+        var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
 
         var query = $"""
             MATCH (p:Preference)
-            {categoryFilter}
+            {whereClause}
             WITH p
             ORDER BY p.category, p.created_at DESC
             LIMIT $limit
@@ -39,6 +44,7 @@ public sealed class PreferenceListResource
             ["limit"] = (long)limit,
             ["category"] = (object?)category
         };
+        if (hasOwner) parameters["ownerId"] = userId;
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken);
 

@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 using AgentMemory.Abstractions.Domain.Schema;
 
 namespace AgentMemory.Abstractions.Services;

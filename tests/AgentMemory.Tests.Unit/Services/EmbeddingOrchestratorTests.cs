@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Services;
 using AgentMemory.Tests.Unit.TestHelpers;
 using NSubstitute;
@@ -210,5 +211,65 @@ public sealed class EmbeddingOrchestratorTests
         var sut = CreateSut();
         var result = await sut.EmbedFactAsync("", "", "");
         result.Should().BeEmpty();
+    }
+
+    // ── EmbedBatchAsync (3.11) ──
+
+    [Fact]
+    public async Task EmbedBatchAsync_EmptyInput_ReturnsEmptyList()
+    {
+        var sut = CreateSut();
+        var result = await sut.EmbedBatchAsync(Array.Empty<string>());
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_AllNonBlank_ReturnsOneVectorPerInput()
+    {
+        var sut = CreateSut();
+        var result = await sut.EmbedBatchAsync(new[] { "alpha", "beta", "gamma" });
+
+        result.Should().HaveCount(3);
+        result.Should().OnlyContain(v => v.Length == 8);
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_BlankEntries_YieldEmptyVectorsInThoseSlots()
+    {
+        var sut = CreateSut();
+        var result = await sut.EmbedBatchAsync(new[] { "alpha", "", "gamma" });
+
+        result.Should().HaveCount(3);
+        result[0].Should().NotBeEmpty();
+        result[1].Should().BeEmpty();   // blank input → empty vector, alignment preserved
+        result[2].Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_NullInput_Throws()
+    {
+        var sut = CreateSut();
+        var act = async () => await sut.EmbedBatchAsync(null!);
+        await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_GeneratorReturnsFewerVectors_DegradesGracefullyWithAlignment()
+    {
+        // A misbehaving generator that returns only ONE vector regardless of input count.
+        var generator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        generator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(
+                new[] { new Embedding<float>(new float[8]) })));
+        var sut = new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance);
+
+        var result = await sut.EmbedBatchAsync(new[] { "alpha", "beta", "gamma" });
+
+        // Contract preserved: one slot per input; matched slot filled, unmatched slots empty; no throw.
+        result.Should().HaveCount(3);
+        result[0].Should().NotBeEmpty();
+        result[1].Should().BeEmpty();
+        result[2].Should().BeEmpty();
     }
 }

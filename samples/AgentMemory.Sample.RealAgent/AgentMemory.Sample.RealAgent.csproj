@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The adapter references only Microsoft.Agents.AI.Abstractions; a runnable agent needs the
+         concrete package (AsAIAgent, ChatClientAgent, sessions, OpenTelemetry middleware). Pinned to
+         1.9.0 to match the adapter's .Abstractions pin. -->
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.9.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+  </ItemGroup>
+
+</Project>

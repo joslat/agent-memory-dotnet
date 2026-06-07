@@ -20,7 +20,7 @@ public sealed class Neo4jEntityRepositoryDeduplicationTests
         var (repo, calls) = CreateReadCapture(Array.Empty<IRecord>());
         await repo.FindSimilarByEmbeddingAsync("ent-1");
         calls.Should().ContainSingle();
-        calls[0].Cypher.Should().Be(EntityQueries.FindSimilarByEmbedding);
+        calls[0].Cypher.Should().Be(EntityQueries.FindSimilarByEmbedding(hasOwnerFilter: false, includeShared: true));
     }
 
     [Fact]

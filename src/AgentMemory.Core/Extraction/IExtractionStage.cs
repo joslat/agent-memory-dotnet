@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Core.Extraction;
 
@@ -9,10 +10,13 @@ namespace AgentMemory.Core.Extraction;
 internal interface IExtractionStage
 {
     /// <summary>
-    /// Extracts, merges, filters, validates, and resolves items from the given messages.
+    /// Extracts, merges, filters, validates, and resolves items from the given messages. When
+    /// <paramref name="scope"/> is supplied (R1) entity resolution is confined to the owner's own and
+    /// (optionally) shared entities, so resolution cannot reach across the owner isolation boundary.
     /// </summary>
     Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
         ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

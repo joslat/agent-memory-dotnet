@@ -1,7 +1,9 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain.Enrichment;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -12,7 +14,7 @@ namespace AgentMemory.Enrichment;
 /// Enrichment service backed by the Diffbot Knowledge Graph API.
 /// Supports PERSON, ORGANIZATION, LOCATION, OBJECT, and EVENT entity types.
 /// </summary>
-public sealed class DiffbotEnrichmentService : IEnrichmentService
+public sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
 {
     internal const string ClientName = "Diffbot";
 
@@ -50,11 +52,11 @@ public sealed class DiffbotEnrichmentService : IEnrichmentService
 
     public DiffbotEnrichmentService(
         HttpClient httpClient,
-        DiffbotEnrichmentOptions options,
+        IOptions<DiffbotEnrichmentOptions> options,
         ILogger<DiffbotEnrichmentService> logger)
     {
         _httpClient = httpClient;
-        _options = options;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -88,9 +90,14 @@ public sealed class DiffbotEnrichmentService : IEnrichmentService
         {
             var diffbotType = TypeMapping[entityType];
             var query = $"name:\"{entityName}\" type:{diffbotType}";
-            var url = $"{_options.BaseUrl}/dql?type=query&token={Uri.EscapeDataString(_options.ApiKey)}&query={Uri.EscapeDataString(query)}&size=1";
+            // The API key is sent via the Authorization header (Diffbot supports "Authorization: token <key>")
+            // rather than the query string, so it cannot leak into proxy/access logs.
+            var url = $"{_options.BaseUrl}/dql?type=query&query={Uri.EscapeDataString(query)}&size=1";
 
-            using var response = await _httpClient.GetAsync(url, ct).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("token", _options.ApiKey);
+
+            using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -330,4 +337,9 @@ public sealed class DiffbotEnrichmentService : IEnrichmentService
         if (json != "[]" && json != "null")
             props[key] = json;
     }
+
+    /// <summary>
+    /// Disposes the rate-limiting semaphore.
+    /// </summary>
+    public void Dispose() => _rateLock.Dispose();
 }

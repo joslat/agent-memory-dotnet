@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using FluentAssertions;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -79,6 +80,51 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
             a => a.OperationName == "memory.recall").Subject;
         activity.Status.Should().Be(ActivityStatusCode.Error);
         activity.StatusDescription.Should().Be("boom");
+    }
+
+    [Fact]
+    public async Task ExtractAndPersist_DoesNotIncrementExtractionCounters_OwnedByExtractorDecorators()
+    {
+        // Regression test for the double-count bug: the orchestrator must NOT increment the
+        // entity/fact/preference counters (those are owned by the per-extractor decorators).
+        var request = new ExtractionRequest
+        {
+            SessionId = "s1",
+            Messages = new[] { CreateMessage("msg-1", "s1") }
+        };
+        _inner.ExtractAndPersistAsync(request, Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = new[] { new ExtractedEntity { Name = "Test", Type = "Person" } },
+                Facts = new[] { new ExtractedFact { Subject = "a", Predicate = "is", Object = "b" } },
+                Preferences = new[] { new ExtractedPreference { Category = "style", PreferenceText = "dark" } }
+            });
+
+        long entities = 0, facts = 0, prefs = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == MemoryMetrics.MeterName) l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+        {
+            switch (instrument.Name)
+            {
+                case "memory.entities.extracted": Interlocked.Add(ref entities, value); break;
+                case "memory.facts.extracted": Interlocked.Add(ref facts, value); break;
+                case "memory.preferences.extracted": Interlocked.Add(ref prefs, value); break;
+            }
+        });
+        listener.Start();
+
+        await _sut.ExtractAndPersistAsync(request);
+        listener.Dispose();
+
+        entities.Should().Be(0, "extraction counts are owned solely by the extractor decorators");
+        facts.Should().Be(0);
+        prefs.Should().Be(0);
     }
 
     [Fact]
@@ -181,7 +227,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromSessionAsync_CreatesActivity_WithSessionTag()
     {
-        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromSessionAsync("s1");
@@ -194,7 +240,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromSessionAsync_OnError_IncrementsErrorCounterAndSetsStatus()
     {
-        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("extract failed")));
 
         var act = () => _sut.ExtractFromSessionAsync("s1");
@@ -208,19 +254,19 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromSessionAsync_RecordsDurationMetric()
     {
-        _inner.ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromSessionAsync("s1");
 
         // If no exception, duration was recorded (verified by inner being called)
-        await _inner.Received(1).ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _inner.Received(1).ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ExtractFromConversationAsync_CreatesActivity_WithConversationTag()
     {
-        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromConversationAsync("c1");
@@ -233,7 +279,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromConversationAsync_OnError_IncrementsErrorCounterAndSetsStatus()
     {
-        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("extract conv failed")));
 
         var act = () => _sut.ExtractFromConversationAsync("c1");
@@ -247,12 +293,12 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ExtractFromConversationAsync_RecordsDurationMetric()
     {
-        _inner.ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>())
+        _inner.ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ExtractFromConversationAsync("c1");
 
-        await _inner.Received(1).ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>());
+        await _inner.Received(1).ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

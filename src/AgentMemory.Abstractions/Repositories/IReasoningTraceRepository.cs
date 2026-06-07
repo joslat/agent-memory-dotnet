@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -19,12 +20,26 @@ public interface IReasoningTraceRepository
     /// <summary>Lists traces for a session.</summary>
     Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, CancellationToken cancellationToken = default);
 
-    /// <summary>Searches traces by task embedding similarity.</summary>
+    /// <summary>Searches traces by task embedding similarity, optionally scoped to an owner (R1).</summary>
     Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(
         float[] taskEmbedding,
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Point-in-time variant of <see cref="SearchByTaskVectorAsync"/>: only traces that had started at
+    /// or before <paramref name="asOf"/>, optionally scoped to an owner (R1).
+    /// </summary>
+    Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Creates an INITIATED_BY relationship from a trace to the message that triggered it.</summary>

@@ -1,15 +1,19 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
 public sealed class Neo4jEntityRepository : IEntityRepository
 {
+    private const int OwnerOverFetchFactor = Neo4jFactRepository.OwnerOverFetchFactor;
+    private const int OwnerOverFetchFloor = Neo4jFactRepository.OwnerOverFetchFloor;
+
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jEntityRepository> _logger;
 
@@ -28,6 +32,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             var parameters = new Dictionary<string, object?>
             {
                 ["id"]             = entity.EntityId,
+                ["ownerId"]        = entity.OwnerId,
                 ["name"]           = entity.Name,
                 ["canonicalName"]  = (object?)entity.CanonicalName,
                 ["type"]           = entity.Type,
@@ -94,15 +99,21 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> GetByNameAsync(string name, bool includeAliases = true, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Entity>> GetByNameAsync(
+        string name, bool includeAliases = true, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting entities by name '{Name}', includeAliases={IncludeAliases}", name, includeAliases);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting entities by name '{Name}', includeAliases={IncludeAliases}, owner={Owner}",
+            name, includeAliases, scope?.OwnerId);
 
-        var cypher = EntityQueries.GetByName(includeAliases);
+        var cypher = EntityQueries.GetByName(includeAliases, hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["name"] = name };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { name });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -116,18 +127,26 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Vector search entities, limit={Limit}", limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        _logger.LogDebug("Vector search entities, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
+
+        var cypher = EntityQueries.SearchByVector(hasOwner, includeShared, topK);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.SearchByVector, new
-            {
-                embedding = queryEmbedding.ToList(),
-                limit,
-                minScore
-            });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -138,13 +157,19 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> GetByTypeAsync(string type, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Entity>> GetByTypeAsync(string type, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting entities by type {Type}", type);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting entities by type {Type}, owner={Owner}", type, scope?.OwnerId);
+
+        var cypher = EntityQueries.GetByType(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetByType, new { type });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["type"] = type, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { type });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -154,15 +179,19 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Entity>> SearchByNameAsync(string name, string? type = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Entity>> SearchByNameAsync(string name, string? type = null, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Searching entities by name '{Name}', type={Type}", name, type);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Searching entities by name '{Name}', type={Type}, owner={Owner}", name, type, scope?.OwnerId);
 
-        var cypher = EntityQueries.SearchByNameFiltered(type);
+        var cypher = EntityQueries.SearchByNameFiltered(type, hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { name, type });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object?> { ["name"] = name, ["type"] = type, ["ownerId"] = scope!.OwnerId })
+                : await runner.RunAsync(cypher, new { name, type });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -230,6 +259,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         var items = entities.Select(e => new Dictionary<string, object?>
         {
             ["id"]                = e.EntityId,
+            ["owner_id"]          = e.OwnerId,
             ["name"]              = e.Name,
             ["canonical_name"]    = (object?)e.CanonicalName,
             ["type"]              = e.Type,
@@ -254,6 +284,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 await runner.RunAsync(
                     SharedFragments.SetEntityEmbedding,
                     new { id = entity.EntityId, embedding = entity.Embedding!.ToList() });
+            }
+
+            // Persist geospatial location individually (parity with single UpsertAsync — the UNWIND
+            // upsert can't set a point() from per-row nullable coords without erroring on missing ones).
+            foreach (var entity in entities.Where(e => e.Latitude.HasValue && e.Longitude.HasValue))
+            {
+                await runner.RunAsync(
+                    SharedFragments.SetEntityLocation,
+                    new { id = entity.EntityId, lat = entity.Latitude!.Value, lon = entity.Longitude!.Value });
             }
 
             // Dynamically add POLE+O type labels
@@ -297,13 +336,20 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, CancellationToken cancellationToken = default)
+    public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Merging entity {SourceId} into {TargetId}", sourceEntityId, targetEntityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Merging entity {SourceId} into {TargetId}, owner={Owner}", sourceEntityId, targetEntityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.MergeEntities(hasOwner, includeShared);
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(EntityQueries.MergeEntities, new { sourceEntityId, targetEntityId });
+            if (hasOwner)
+                await runner.RunAsync(cypher, new Dictionary<string, object> { ["sourceEntityId"] = sourceEntityId, ["targetEntityId"] = targetEntityId, ["ownerId"] = scope!.OwnerId! });
+            else
+                await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId });
         }, cancellationToken);
 
         await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken);
@@ -337,6 +383,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         return new Entity
         {
             EntityId       = node["id"].As<string>(),
+            OwnerId        = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
             Name           = node["name"].As<string>(),
             CanonicalName  = node.Properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
             Type           = node["type"].As<string>(),
@@ -354,8 +401,33 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
             CreatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
+            UpdatedAtUtc   = node.Properties.TryGetValue("updated_at", out var ua) && ua is not null
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ua)
+                                : null,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
+    }
+
+    public async Task<Entity?> ApplyConfidenceDeltaAsync(
+        string entityId, double delta, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+
+        _logger.LogDebug("Applying confidence delta {Delta} to entity {Id}, owner={Owner}", delta, entityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.ApplyConfidenceDelta(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object> { ["id"] = entityId, ["delta"] = delta };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["e"].As<INode>();
+            return MapToEntity(node, ReadEmbedding(node));
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Entity>> SearchByLocationAsync(
@@ -363,19 +435,23 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         double longitude,
         double radiusKm,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Searching entities near ({Lat},{Lon}) radius={RadiusKm}km", latitude, longitude, radiusKm);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Searching entities near ({Lat},{Lon}) radius={RadiusKm}km, owner={Owner}", latitude, longitude, radiusKm, scope?.OwnerId);
+
+        var cypher = EntityQueries.SearchByLocation(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.SearchByLocation, new
-            {
-                lat = latitude,
-                lon = longitude,
-                radiusMeters = radiusKm * 1000.0,
-                limit
-            });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object>
+                {
+                    ["lat"] = latitude, ["lon"] = longitude, ["radiusMeters"] = radiusKm * 1000.0, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
+                })
+                : await runner.RunAsync(cypher, new { lat = latitude, lon = longitude, radiusMeters = radiusKm * 1000.0, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -391,14 +467,24 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         double maxLat,
         double maxLon,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Searching entities in bounding box ({MinLat},{MinLon})-({MaxLat},{MaxLon})",
-            minLat, minLon, maxLat, maxLon);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Searching entities in bounding box ({MinLat},{MinLon})-({MaxLat},{MaxLon}), owner={Owner}",
+            minLat, minLon, maxLat, maxLon, scope?.OwnerId);
+
+        var cypher = EntityQueries.SearchInBoundingBox(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.SearchInBoundingBox, new { minLat, minLon, maxLat, maxLon, limit });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object>
+                {
+                    ["minLat"] = minLat, ["minLon"] = minLon, ["maxLat"] = maxLat, ["maxLon"] = maxLon, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
+                })
+                : await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -442,33 +528,40 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
-    public async Task<bool> DeleteAsync(string entityId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting entity {Id}", entityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Deleting entity {Id}, owner={Owner}", entityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.Delete(hasOwner);
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.Delete, new { entityId });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { entityId });
             var records = await cursor.ToListAsync();
             return records.Count > 0 && records[0]["deleted"].As<bool>();
         }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
-        string entityId, double minSimilarity = 0.85, int limit = 10, CancellationToken ct = default)
+        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken ct = default)
     {
-        _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}",
-            entityId, minSimilarity, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        // Over-fetch when scoped so a high-volume foreign owner can't starve the post-filter result set.
+        int topK = hasOwner ? Math.Max((limit + 1) * OwnerOverFetchFactor, limit + 1 + OwnerOverFetchFloor) : limit + 1;
+        _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}, owner={Owner}",
+            entityId, minSimilarity, limit, scope?.OwnerId);
+
+        var cypher = EntityQueries.FindSimilarByEmbedding(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.FindSimilarByEmbedding, new
-            {
-                entityId,
-                topK = limit + 1,
-                minSimilarity,
-                limit
-            });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["topK"] = topK, ["minSimilarity"] = minSimilarity, ["limit"] = limit, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { entityId, topK, minSimilarity, limit });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -541,19 +634,27 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Temporal vector search entities as of {AsOf}, limit={Limit}", asOf, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor) : limit;
+        _logger.LogDebug("Temporal vector search entities as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
+
+        var cypher = TemporalQueries.SearchEntitiesAsOf(hasOwner, includeShared, topK);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"]     = limit,
+            ["minScore"]  = minScore,
+            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(TemporalQueries.SearchEntitiesAsOf, new
-            {
-                embedding = queryEmbedding.ToList(),
-                limit,
-                minScore,
-                asOf = asOf.UtcDateTime.ToString("O")
-            });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -597,12 +698,4 @@ public sealed class Neo4jEntityRepository : IEntityRepository
     {
         return new string(label.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
     }
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

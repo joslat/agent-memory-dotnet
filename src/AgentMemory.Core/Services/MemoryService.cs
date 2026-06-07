@@ -20,11 +20,15 @@ public sealed class MemoryService : IMemoryService
     private readonly IPreferenceRepository _preferenceRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IMemoryDecayService? _decayService;
+    private readonly IConversationRepository? _conversationRepository;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<MemoryService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MemoryService"/> class.
+    /// </summary>
     public MemoryService(
         IShortTermMemoryService shortTerm,
         IMemoryContextAssembler assembler,
@@ -37,8 +41,21 @@ public sealed class MemoryService : IMemoryService
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<MemoryService> logger,
-        IMemoryDecayService? decayService = null)
+        IMemoryDecayService? decayService = null,
+        IConversationRepository? conversationRepository = null)
     {
+        ArgumentNullException.ThrowIfNull(shortTerm);
+        ArgumentNullException.ThrowIfNull(assembler);
+        ArgumentNullException.ThrowIfNull(extraction);
+        ArgumentNullException.ThrowIfNull(entityRepository);
+        ArgumentNullException.ThrowIfNull(factRepository);
+        ArgumentNullException.ThrowIfNull(preferenceRepository);
+        ArgumentNullException.ThrowIfNull(embeddingOrchestrator);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(idGenerator);
+        ArgumentNullException.ThrowIfNull(logger);
+
         _shortTerm = shortTerm;
         _assembler = assembler;
         _extraction = extraction;
@@ -51,19 +68,23 @@ public sealed class MemoryService : IMemoryService
         _idGenerator = idGenerator;
         _logger = logger;
         _decayService = decayService;
+        _conversationRepository = conversationRepository;
     }
 
+    /// <inheritdoc/>
     public async Task<RecallResult> RecallAsync(
         RecallRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Recalling memory for session {SessionId}", request.SessionId);
         var context = await _assembler.AssembleContextAsync(request, cancellationToken);
 
-        // Fire-and-forget: update access timestamps for recalled long-term memories
+        // Update access timestamps for recalled long-term memories (awaited so failures and
+        // cancellation are observed; the method itself is resilient and logs internally).
         if (_decayService is not null)
         {
-            _ = UpdateAccessTimestampsAsync(context);
+            await UpdateAccessTimestampsAsync(context, cancellationToken);
         }
 
         int totalItems = context.RecentMessages.Items.Count
@@ -95,11 +116,13 @@ public sealed class MemoryService : IMemoryService
         };
     }
 
+    /// <inheritdoc/>
     public async Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Recalling memory for session {SessionId} as of {AsOf}", request.SessionId, asOf);
         var context = await _assembler.AssembleContextAsOfAsync(request, asOf, cancellationToken);
 
@@ -116,6 +139,7 @@ public sealed class MemoryService : IMemoryService
         };
     }
 
+    /// <inheritdoc/>
     public async Task<Message> AddMessageAsync(
         string sessionId,
         string conversationId,
@@ -124,6 +148,11 @@ public sealed class MemoryService : IMemoryService
         IReadOnlyDictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+        ArgumentNullException.ThrowIfNull(content);
+
         var message = new Message
         {
             MessageId = _idGenerator.GenerateId(),
@@ -138,34 +167,43 @@ public sealed class MemoryService : IMemoryService
         return await _shortTerm.AddMessageAsync(message, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Message>> AddMessagesAsync(
         IEnumerable<Message> messages,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(messages);
         return _shortTerm.AddMessagesAsync(messages, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task<ExtractionResult> ExtractAndPersistAsync(
         ExtractionRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Extracting and persisting memory for session {SessionId}", request.SessionId);
         return _extraction.ExtractAsync(request, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task ClearSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         _logger.LogDebug("Clearing session {SessionId}", sessionId);
         return _shortTerm.ClearSessionAsync(sessionId, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task ExtractFromSessionAsync(
         string sessionId,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Retroactive extraction for session {SessionId}", sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        _logger.LogDebug("Retroactive extraction for session {SessionId}, owner={Owner}", sessionId, userId);
 
         var messages = await _shortTerm.GetRecentMessagesAsync(sessionId, int.MaxValue, cancellationToken);
         if (messages.Count == 0)
@@ -175,15 +213,18 @@ public sealed class MemoryService : IMemoryService
         }
 
         await _extraction.ExtractAsync(
-            new ExtractionRequest { Messages = messages, SessionId = sessionId },
+            new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = userId },
             cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task ExtractFromConversationAsync(
         string conversationId,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Retroactive extraction for conversation {ConversationId}", conversationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        _logger.LogDebug("Retroactive extraction for conversation {ConversationId}, owner={Owner}", conversationId, userId);
 
         var messages = await _shortTerm.GetConversationMessagesAsync(conversationId, cancellationToken);
         if (messages.Count == 0)
@@ -192,17 +233,30 @@ public sealed class MemoryService : IMemoryService
             return;
         }
 
+        // R1: when the caller doesn't supply an owner, derive it from the conversation's stored owner
+        // (Conversation.UserId) so retroactive extraction of an owned conversation is owner-stamped
+        // rather than persisted as shared/global. Requires the conversation repository to be available;
+        // when it isn't (graph-less/test setups), fall back to the explicit userId (or null = shared).
+        var ownerId = userId;
+        if (string.IsNullOrEmpty(ownerId) && _conversationRepository is not null)
+        {
+            var conversation = await _conversationRepository.GetByIdAsync(conversationId, cancellationToken);
+            ownerId = conversation?.UserId;
+        }
+
         var sessionId = messages[0].SessionId;
         await _extraction.ExtractAsync(
-            new ExtractionRequest { Messages = messages, SessionId = sessionId },
+            new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = ownerId },
             cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<int> GenerateEmbeddingsBatchAsync(
         string nodeLabel,
         int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeLabel);
         _logger.LogDebug("Batch embedding generation for label '{NodeLabel}', batchSize={BatchSize}", nodeLabel, batchSize);
 
         return nodeLabel switch
@@ -273,22 +327,26 @@ public sealed class MemoryService : IMemoryService
         return total;
     }
 
-    private async Task UpdateAccessTimestampsAsync(MemoryContext context)
+    private async Task UpdateAccessTimestampsAsync(MemoryContext context, CancellationToken cancellationToken)
     {
         try
         {
             var tasks = new List<Task>();
 
             foreach (var entity in context.RelevantEntities.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(entity.EntityId, "Entity"));
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(entity.EntityId, "Entity", cancellationToken));
 
             foreach (var fact in context.RelevantFacts.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(fact.FactId, "Fact"));
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(fact.FactId, "Fact", cancellationToken));
 
             foreach (var pref in context.RelevantPreferences.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, "Preference"));
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, "Preference", cancellationToken));
 
             await Task.WhenAll(tasks);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

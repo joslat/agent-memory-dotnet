@@ -67,6 +67,12 @@ public sealed record Entity
     public required DateTimeOffset CreatedAtUtc { get; init; }
 
     /// <summary>
+    /// UTC timestamp of the entity's last update (server-assigned on every upsert; populated on read).
+    /// Null only for nodes written before this field existed. Surfaces the edit recency for auditing.
+    /// </summary>
+    public DateTimeOffset? UpdatedAtUtc { get; init; }
+
+    /// <summary>
     /// Geographic latitude for LOCATION-type entities. Stored as a Neo4j point.
     /// </summary>
     public double? Latitude { get; init; }
@@ -75,6 +81,12 @@ public sealed record Entity
     /// Geographic longitude for LOCATION-type entities. Stored as a Neo4j point.
     /// </summary>
     public double? Longitude { get; init; }
+
+    /// <summary>
+    /// Optional owner/user id that scopes this record. Null means shared/global (visible to
+    /// everyone). See <c>MemoryScope</c> and docs/Memory_Review_and_Implementation_Plan.md (R1).
+    /// </summary>
+    public string? OwnerId { get; init; }
 
     /// <summary>
     /// Additional metadata.

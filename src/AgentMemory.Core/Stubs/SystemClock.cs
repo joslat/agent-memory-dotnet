@@ -7,5 +7,6 @@ namespace AgentMemory.Core.Stubs;
 /// </summary>
 public sealed class SystemClock : IClock
 {
+    /// <inheritdoc/>
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
 }

@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -33,7 +34,10 @@ public interface IExtractorRepository
         CancellationToken ct = default);
 
     /// <summary>
-    /// Gets entities extracted by a given extractor.
+    /// Gets entities extracted by a given extractor. Deliberately unscoped (R1): this is an
+    /// operator/QA provenance surface keyed by extractor name (a system handle, not a user identity),
+    /// intended to span all owners; it has no user-facing caller. See the unscoped-reads disposition in
+    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
     /// </summary>
     Task<IReadOnlyList<(Entity Entity, double Confidence)>> GetEntitiesByExtractorAsync(
         string extractorName,
@@ -41,9 +45,11 @@ public interface IExtractorRepository
         CancellationToken ct = default);
 
     /// <summary>
-    /// Gets full provenance information for an entity.
+    /// Gets full provenance information for an entity. When <paramref name="scope"/> is supplied (R1)
+    /// the lookup is confined to the owner's own or shared entity, returning null when the entity is
+    /// out of scope; null scope ⇒ unscoped (admin/audit).
     /// </summary>
-    Task<EntityProvenance?> GetProvenanceAsync(string entityId, CancellationToken ct = default);
+    Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken ct = default);
 
     /// <summary>
     /// Gets aggregate extraction statistics.

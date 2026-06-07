@@ -27,13 +27,13 @@ public sealed class LongTermMemoryServiceTests
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
 
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
         _embeddingOrchestrator
-            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
         _embeddingOrchestrator
-            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
 
         _entityRepo
@@ -70,7 +70,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .DidNotReceive()
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -98,10 +98,55 @@ public sealed class LongTermMemoryServiceTests
     }
 
     [Fact]
+    public async Task RecordEntityFeedbackAsync_Positive_AppliesConfiguredDelta()
+    {
+        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(CreateEntity("e-1")));
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { FeedbackConfidenceDelta = 0.1 }));
+
+        await sut.RecordEntityFeedbackAsync("e-1", positive: true);
+
+        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", 0.1, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordEntityFeedbackAsync_Negative_AppliesNegativeDelta()
+    {
+        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(CreateEntity("e-1")));
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { FeedbackConfidenceDelta = 0.2 }));
+
+        await sut.RecordEntityFeedbackAsync("e-1", positive: false);
+
+        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", -0.2, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordEntityFeedbackAsync_ExplicitDelta_IsSignedByDirection()
+    {
+        _entityRepo.ApplyConfidenceDeltaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(CreateEntity("e-1")));
+        var sut = CreateSut();
+
+        await sut.RecordEntityFeedbackAsync("e-1", positive: false, delta: 0.3);
+
+        await _entityRepo.Received(1).ApplyConfidenceDeltaAsync("e-1", -0.3, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RecordEntityFeedbackAsync_BlankId_Throws(string id)
+    {
+        var sut = CreateSut();
+        await sut.Invoking(s => s.RecordEntityFeedbackAsync(id, true)).Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
     public async Task GetEntitiesByNameAsync_DelegatesToRepository()
     {
         _entityRepo
-            .GetByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .GetByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
         var sut = CreateSut();
 
@@ -109,7 +154,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _entityRepo
             .Received(1)
-            .GetByNameAsync("Alice", Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            .GetByNameAsync("Alice", Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -117,7 +162,7 @@ public sealed class LongTermMemoryServiceTests
     {
         var entity = CreateEntity("e-1");
         _entityRepo
-            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Entity, double)>>(new[] { (entity, 0.9) }));
         var sut = CreateSut();
 
@@ -139,7 +184,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -157,7 +202,7 @@ public sealed class LongTermMemoryServiceTests
     public async Task GetPreferencesByCategoryAsync_DelegatesToRepository()
     {
         _prefRepo
-            .GetByCategoryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetByCategoryAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
         var sut = CreateSut();
 
@@ -165,7 +210,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _prefRepo
             .Received(1)
-            .GetByCategoryAsync("style", Arg.Any<CancellationToken>());
+            .GetByCategoryAsync("style", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -173,7 +218,7 @@ public sealed class LongTermMemoryServiceTests
     {
         var pref = CreatePreference("p-1");
         _prefRepo
-            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Preference, double)>>(new[] { (pref, 0.85) }));
         var sut = CreateSut();
 
@@ -195,14 +240,14 @@ public sealed class LongTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task GetFactsBySubjectAsync_DelegatesToRepository()
     {
         _factRepo
-            .GetBySubjectAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
         var sut = CreateSut();
 
@@ -210,7 +255,7 @@ public sealed class LongTermMemoryServiceTests
 
         await _factRepo
             .Received(1)
-            .GetBySubjectAsync("Alice", Arg.Any<CancellationToken>());
+            .GetBySubjectAsync("Alice", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -218,7 +263,7 @@ public sealed class LongTermMemoryServiceTests
     {
         var fact = CreateFact("f-1");
         _factRepo
-            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchByVectorAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Fact, double)>>(new[] { (fact, 0.88) }));
         var sut = CreateSut();
 
@@ -245,7 +290,7 @@ public sealed class LongTermMemoryServiceTests
     public async Task GetEntityRelationshipsAsync_DelegatesToRepository()
     {
         _relRepo
-            .GetByEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .GetByEntityAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Relationship>>(Array.Empty<Relationship>()));
         var sut = CreateSut();
 
@@ -253,7 +298,66 @@ public sealed class LongTermMemoryServiceTests
 
         await _relRepo
             .Received(1)
-            .GetByEntityAsync("e-1", Arg.Any<CancellationToken>());
+            .GetByEntityAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    // ---- Dedup-on-create (PR#97) ----
+
+    [Fact]
+    public async Task AddFactAsync_WhenDuplicateFound_ReinforcesInsteadOfCreating()
+    {
+        var existing = CreateFact("f-existing"); // confidence 0.9
+        _factRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(existing));
+        _factRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(existing with { Confidence = ci.ArgAt<double>(1) }));
+
+        var sut = CreateSut();
+        var result = await sut.AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.Received(1).MarkDeduplicatedAsync("f-existing", Arg.Is<double>(c => c > 0.9), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        result.FactId.Should().Be("f-existing");
+    }
+
+    [Fact]
+    public async Task AddFactAsync_WhenNoDuplicate_Upserts()
+    {
+        _factRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(null));
+
+        await CreateSut().AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddFactAsync_DeduplicateDisabled_SkipsDuplicateLookup()
+    {
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { DeduplicateOnCreate = false }));
+
+        await sut.AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.DidNotReceive().FindDuplicateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_WhenDuplicateFound_ReinforcesInsteadOfCreating()
+    {
+        var existing = CreatePreference("p-existing");
+        _prefRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Preference?>(existing));
+        _prefRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(existing with { Confidence = ci.ArgAt<double>(1) }));
+
+        var result = await CreateSut().AddPreferenceAsync(CreatePreference("p-new"));
+
+        await _prefRepo.Received(1).MarkDeduplicatedAsync("p-existing", Arg.Is<double>(c => c > 0.9), Arg.Any<CancellationToken>());
+        await _prefRepo.DidNotReceive().UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
+        result.PreferenceId.Should().Be("p-existing");
     }
 
     // ---- Helpers ----
@@ -305,32 +409,32 @@ public sealed class LongTermMemoryServiceTests
     public async Task DeletePreferenceAsync_DelegatesToRepositoryWithCorrectId()
     {
         var sut = CreateSut();
-        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
 
         await sut.DeletePreferenceAsync("pref-123");
 
-        await _prefRepo.Received(1).DeleteAsync("pref-123", Arg.Any<CancellationToken>());
+        await _prefRepo.Received(1).DeleteAsync("pref-123", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task DeletePreferenceAsync_DelegatesToRepositoryWithAnyId()
     {
         var sut = CreateSut();
-        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
 
         await sut.DeletePreferenceAsync("any-id-value");
 
-        await _prefRepo.Received(1).DeleteAsync("any-id-value", Arg.Any<CancellationToken>());
+        await _prefRepo.Received(1).DeleteAsync("any-id-value", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task DeletePreferenceAsync_RepositoryIsCalled()
     {
         var sut = CreateSut();
-        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _prefRepo.DeleteAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
 
         await sut.DeletePreferenceAsync("pref-to-delete");
 
-        await _prefRepo.Received(1).DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _prefRepo.Received(1).DeleteAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 }

@@ -38,6 +38,9 @@ public static class SchemaQueries
     /// <summary>Unique constraint on Extractor.name.</summary>
     public const string ExtractorNameConstraint = "CREATE CONSTRAINT extractor_name IF NOT EXISTS FOR (ex:Extractor) REQUIRE ex.name IS UNIQUE";
 
+    /// <summary>Unique constraint on ConsolidationRun.id (memory-hygiene audit, PR #113).</summary>
+    public const string ConsolidationRunIdConstraint = "CREATE CONSTRAINT consolidation_run_id IF NOT EXISTS FOR (r:ConsolidationRun) REQUIRE r.id IS UNIQUE";
+
     /// <summary>All uniqueness constraints in bootstrap order.</summary>
     public static readonly string[] Constraints =
     [
@@ -50,7 +53,8 @@ public static class SchemaQueries
         ReasoningStepIdConstraint,
         ToolCallIdConstraint,
         ToolNameConstraint,
-        ExtractorNameConstraint
+        ExtractorNameConstraint,
+        ConsolidationRunIdConstraint
     ];
 
     // ── Fulltext Indexes ────────────────────────────────────────
@@ -119,6 +123,28 @@ public static class SchemaQueries
     /// <summary>Point index on Entity.location.</summary>
     public const string EntityLocationIndex = "CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.location)";
 
+    // ── Owner-scope property indexes (R1, multi-user isolation) ──
+    // owner_id is nullable; NULL = shared/global. These indexes accelerate the owner filter
+    // applied during scoped vector recall (see {Fact,Entity,Preference}Queries.SearchByVector).
+
+    /// <summary>Index on Fact.owner_id (multi-user scope).</summary>
+    public const string FactOwnerIndex = "CREATE INDEX fact_owner_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_id)";
+
+    /// <summary>Index on Entity.owner_id (multi-user scope).</summary>
+    public const string EntityOwnerIndex = "CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)";
+
+    /// <summary>Index on Preference.owner_id (multi-user scope).</summary>
+    public const string PreferenceOwnerIndex = "CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)";
+
+    /// <summary>Index on ReasoningTrace.owner_id (multi-user scope; trace owner-write + read-filter shipped in R2).</summary>
+    public const string TraceOwnerIndex = "CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)";
+
+    /// <summary>Relationship-property index on the RELATED_TO edge's owner_id (multi-user scope).</summary>
+    public const string RelationshipOwnerIndex = "CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)";
+
+    /// <summary>Index on Conversation.archived (memory-hygiene / consolidation, PR #113).</summary>
+    public const string ConversationArchivedIndex = "CREATE INDEX conversation_archived_idx IF NOT EXISTS FOR (c:Conversation) ON (c.archived)";
+
     /// <summary>All property indexes in bootstrap order.</summary>
     public static readonly string[] PropertyIndexes =
     [
@@ -136,7 +162,13 @@ public static class SchemaQueries
         ToolCallStatusIndex,
         SchemaNameIndex,
         SchemaVersionIndex,
-        EntityLocationIndex
+        EntityLocationIndex,
+        FactOwnerIndex,
+        EntityOwnerIndex,
+        PreferenceOwnerIndex,
+        TraceOwnerIndex,
+        RelationshipOwnerIndex,
+        ConversationArchivedIndex
     ];
 
     // ── Vector Indexes (parameterized by dimensions) ────────────
@@ -145,14 +177,44 @@ public static class SchemaQueries
     /// Builds the set of vector index CREATE statements for the given embedding dimensions.
     /// </summary>
     public static string[] BuildVectorIndexes(int dimensions) =>
-    [
+        dimensions > 0
+        ?
+        [
         $"CREATE VECTOR INDEX message_embedding_idx IF NOT EXISTS FOR (n:Message) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX entity_embedding_idx IF NOT EXISTS FOR (n:Entity) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX preference_embedding_idx IF NOT EXISTS FOR (n:Preference) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX fact_embedding_idx IF NOT EXISTS FOR (n:Fact) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningStep) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX task_embedding_idx IF NOT EXISTS FOR (n:ReasoningTrace) ON (n.task_embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}"
-    ];
+        ]
+        : throw new ArgumentOutOfRangeException(nameof(dimensions), dimensions, "Embedding dimensions must be a positive integer.");
+
+    /// <summary>
+    /// The full ordered set of schema statements (constraints → fulltext → vector → property indexes)
+    /// for a given embedding dimensionality. Used to bootstrap a freshly provisioned per-application
+    /// database (R1b). Not a query constant, so it is excluded from the Cypher snapshot inventory.
+    /// </summary>
+    public static IReadOnlyList<string> BootstrapStatements(int dimensions)
+    {
+        var statements = new List<string>(
+            Constraints.Length + FulltextIndexes.Length + PropertyIndexes.Length + 6);
+        statements.AddRange(Constraints);
+        statements.AddRange(FulltextIndexes);
+        statements.AddRange(BuildVectorIndexes(dimensions));
+        statements.AddRange(PropertyIndexes);
+        return statements;
+    }
+
+    // ── Vector-index validation ─────────────────────────────────
+
+    /// <summary>
+    /// Lists every vector index with the dimensionality it was created with. Used at bootstrap to
+    /// fail-fast when an existing index's dimensions no longer match the configured embedder
+    /// (<c>CREATE VECTOR INDEX ... IF NOT EXISTS</c> never alters an existing index).
+    /// </summary>
+    public const string ShowVectorIndexDimensions =
+        "SHOW VECTOR INDEXES YIELD name, options " +
+        "RETURN name AS name, options['indexConfig']['vector.dimensions'] AS dimensions";
 
     // ── Migration ───────────────────────────────────────────────
 

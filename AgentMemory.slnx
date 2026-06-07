@@ -1,7 +1,13 @@
 <Solution>
   <Folder Name="/samples/">
+    <Project Path="samples/AgentMemory.Sample.AgentWithMemory/AgentMemory.Sample.AgentWithMemory.csproj" />
+    <Project Path="samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj" />
+    <Project Path="samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj" />
     <Project Path="samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.ChatHistoryProvider/AgentMemory.Sample.ChatHistoryProvider.csproj" />
+    <Project Path="samples/AgentMemory.Sample.MemoryToolsAgent/AgentMemory.Sample.MemoryToolsAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.RealAgent/AgentMemory.Sample.RealAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj" />
   </Folder>
   <Folder Name="/src/">
@@ -17,8 +23,12 @@
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/AgentMemory.Cli/AgentMemory.Cli.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj" />
+    <Project Path="tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj" />
   </Folder>

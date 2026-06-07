@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 namespace AgentMemory.Abstractions.Domain.Schema;
 
 /// <summary>Available schema models for knowledge graph entity classification.</summary>

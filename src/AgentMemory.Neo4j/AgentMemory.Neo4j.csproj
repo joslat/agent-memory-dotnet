@@ -6,7 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.5.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
@@ -17,10 +17,19 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Description>Neo4j persistence and retrieval for AgentMemory for .NET — repositories, schema bootstrapper, and GraphRAG retrievers (vector, fulltext, hybrid, graph).</Description>
+    <PackageTags>agent-memory;neo4j;graphrag;memory;ai</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
+  </ItemGroup>
+
+  <!-- Cypher migration scripts must ship next to the assembly so MigrationRunner can
+       discover them under AppContext.BaseDirectory/Schema/Migrations at runtime. -->
+  <ItemGroup>
+    <Content Include="Schema\Migrations\*.cypher" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

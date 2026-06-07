@@ -1,3 +1,5 @@
+using AgentMemory.Neo4j.Infrastructure;
+
 namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
@@ -11,9 +13,11 @@ public static class FactQueries
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
     public const string Upsert = @"
-            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object})
+            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object, owner_key: $ownerKey})
             ON CREATE SET
                 f.id                 = $id,
+                f.owner_id           = $ownerId,
+                f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
@@ -22,6 +26,7 @@ public static class FactQueries
                 f.metadata           = $metadata
             ON MATCH SET
                 f.id                 = $id,
+                f.category           = $category,
                 f.confidence         = $confidence,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
@@ -40,6 +45,9 @@ public static class FactQueries
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
+                f.owner_id           = item.owner_id,
+                f.owner_key          = item.owner_key,
+                f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
@@ -50,6 +58,7 @@ public static class FactQueries
                 f.subject            = item.subject,
                 f.predicate          = item.predicate,
                 f.object             = item.object,
+                f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
@@ -64,18 +73,52 @@ public static class FactQueries
 
     // ── GetBySubjectAsync ──────────────────────────────────────────────
 
-    /// <summary>Get all facts for a given subject.</summary>
-    public const string GetBySubject = "MATCH (f:Fact {subject: $subject}) RETURN f";
+    /// <summary>Get all facts for a given subject, with an optional owner/shared filter (R1).</summary>
+    public static string GetBySubject(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $"MATCH (f:Fact) WHERE f.subject = $subject{owner} RETURN f";
+    }
+
+    // ── Dedup-on-create ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Finds the most-similar existing fact with the same subject+predicate within the same owner
+    /// (matched by <c>owner_key</c>) whose cosine score ≥ <c>$threshold</c> — used to reinforce instead
+    /// of creating a near-duplicate node. Over-fetches <paramref name="topK"/> candidates, returns top 1.
+    /// </summary>
+    public static string FindDuplicate(int topK) => $@"
+            CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
+            YIELD node, score
+            WHERE score >= $threshold
+              AND toLower(node.subject) = toLower($subject)
+              AND toLower(node.predicate) = toLower($predicate)
+              AND node.owner_key = $ownerKey
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT 1";
+
+    /// <summary>Reinforce an existing fact reached by dedup: bump its confidence.</summary>
+    public const string MarkDeduplicated = "MATCH (f:Fact {id: $id}) SET f.confidence = $confidence RETURN f";
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
-    /// <summary>Vector similarity search on fact embeddings.</summary>
-    public const string SearchByVector = @"
-            CALL db.index.vector.queryNodes('fact_embedding_idx', $limit, $embedding)
-            YIELD node, score
-            WHERE score >= $minScore
-            RETURN node, score
-            ORDER BY score DESC";
+    /// <summary>
+    /// Vector similarity search on fact embeddings, with an optional owner/shared filter (R1).
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering, so
+    /// an owner filter is never starved by higher-scoring foreign rows.
+    /// </summary>
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        new CypherBuilder()
+            .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
+            .Where("score >= $minScore")
+            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
+            .Return("node, score")
+            .OrderBy("score DESC")
+            .Limit("$limit")
+            .Build();
 
     // ── CreateExtractedFromRelationshipAsync ────────────────────────────
 
@@ -112,19 +155,37 @@ public static class FactQueries
 
     // ── DeleteAsync ────────────────────────────────────────────────────
 
-    /// <summary>Detach-delete a fact by id and report whether it existed.</summary>
-    public const string Delete = @"
+    /// <summary>
+    /// Detach-delete a fact by id and report whether it existed. When scoped (R1) the delete only affects
+    /// the owner's own facts — never another owner's, and never shared/global ones. Null ⇒ unscoped.
+    /// </summary>
+    public static string Delete(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND f.owner_id = $ownerId" : string.Empty;
+        return @"
             MATCH (f:Fact {id: $factId})
+            WHERE true" + owner + @"
             DETACH DELETE f
             RETURN count(f) > 0 AS deleted";
+    }
 
     // ── FindByTripleAsync ──────────────────────────────────────────────
 
-    /// <summary>Case-insensitive lookup of a fact by its subject/predicate/object triple.</summary>
-    public const string FindByTriple = @"
+    /// <summary>
+    /// Case-insensitive lookup of a fact by its subject/predicate/object triple, with an optional
+    /// owner/shared filter (R1) so a triple lookup cannot reach into another owner's private facts.
+    /// Null owner ⇒ unscoped.
+    /// </summary>
+    public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $@"
             MATCH (f:Fact)
             WHERE toLower(f.subject) = toLower($subject)
               AND toLower(f.predicate) = toLower($predicate)
-              AND toLower(f.object) = toLower($object)
+              AND toLower(f.object) = toLower($object){owner}
             RETURN f LIMIT 1";
+    }
 }

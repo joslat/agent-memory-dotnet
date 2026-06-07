@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.SemanticKernel;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.SemanticKernel;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -22,14 +23,14 @@ public sealed class Neo4jMemoryPluginTests
     public void FormatRecallResult_EmptyContext_ReturnsEmptyString()
     {
         var result = EmptyRecall("s1");
-        Neo4jMemoryPlugin.FormatRecallResult(result).Should().BeEmpty();
+        MemoryContextFormatter.FormatRecallResult(result).Should().BeEmpty();
     }
 
     [Fact]
     public void FormatRecallResult_WithRecentMessages_IncludesMessages()
     {
         var result = RecallWithMessages("s1");
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("[user]: Hello world");
         formatted.Should().Contain("Recent Messages");
     }
@@ -50,7 +51,7 @@ public sealed class Neo4jMemoryPluginTests
             },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("Known Entities").And.Contain("Neo4j (Organization)").And.Contain("Graph database company");
     }
 
@@ -70,7 +71,7 @@ public sealed class Neo4jMemoryPluginTests
             },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("Known Facts").And.Contain("Neo4j is a graph database");
     }
 
@@ -90,7 +91,7 @@ public sealed class Neo4jMemoryPluginTests
             },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("User Preferences").And.Contain("[style] Prefers dark mode");
     }
 
@@ -102,7 +103,7 @@ public sealed class Neo4jMemoryPluginTests
             Context = new MemoryContext { SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow, GraphRagContext = "GraphRAG summary here" },
             TotalItemsRetrieved = 1
         };
-        var formatted = Neo4jMemoryPlugin.FormatRecallResult(result);
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
         formatted.Should().Contain("Graph Context").And.Contain("GraphRAG summary here");
     }
 
@@ -154,17 +155,17 @@ public sealed class Neo4jMemoryPluginTests
     [Fact]
     public async Task ExtractFromSessionAsync_DelegatesToService()
     {
-        _memoryService.ExtractFromSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _memoryService.ExtractFromSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         await _sut.ExtractFromSessionAsync("s1");
-        await _memoryService.Received(1).ExtractFromSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractFromSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ExtractFromConversationAsync_DelegatesToService()
     {
-        _memoryService.ExtractFromConversationAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _memoryService.ExtractFromConversationAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         await _sut.ExtractFromConversationAsync("c1");
-        await _memoryService.Received(1).ExtractFromConversationAsync("c1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractFromConversationAsync("c1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

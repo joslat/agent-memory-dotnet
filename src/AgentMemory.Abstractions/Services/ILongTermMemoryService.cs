@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Services;
 
@@ -15,11 +16,27 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records feedback on an entity by nudging its confidence: <paramref name="positive"/> reinforces,
+    /// otherwise it penalizes. The magnitude is <paramref name="delta"/> or, when null, the configured
+    /// <c>LongTermMemoryOptions.FeedbackConfidenceDelta</c>; the result is clamped to [0,1]. An optional
+    /// <paramref name="scope"/> (R1) restricts the write to the owner's own (or shared) entities so
+    /// feedback cannot mutate another owner's private entity. Returns the updated entity, or null if no
+    /// entity with that id exists (or it is out of scope).
+    /// </summary>
+    Task<Entity?> RecordEntityFeedbackAsync(
+        string entityId,
+        bool positive,
+        double? delta = null,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets entities by name.
     /// </summary>
     Task<IReadOnlyList<Entity>> GetEntitiesByNameAsync(
         string name,
         bool includeAliases = true,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -29,6 +46,7 @@ public interface ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -43,6 +61,7 @@ public interface ILongTermMemoryService
     /// </summary>
     Task<IReadOnlyList<Preference>> GetPreferencesByCategoryAsync(
         string category,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -52,6 +71,7 @@ public interface ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -66,6 +86,7 @@ public interface ILongTermMemoryService
     /// </summary>
     Task<IReadOnlyList<Fact>> GetFactsBySubjectAsync(
         string subject,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -75,6 +96,7 @@ public interface ILongTermMemoryService
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -89,13 +111,16 @@ public interface ILongTermMemoryService
     /// </summary>
     Task<IReadOnlyList<Relationship>> GetEntityRelationshipsAsync(
         string entityId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes a preference by identifier.
+    /// Deletes a preference by identifier. When <paramref name="scope"/> is supplied (R1) the delete
+    /// only affects the owner's own preference — never another owner's, and never shared/global ones.
     /// </summary>
     Task DeletePreferenceAsync(
         string preferenceId,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -106,6 +131,7 @@ public interface ILongTermMemoryService
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -116,6 +142,7 @@ public interface ILongTermMemoryService
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -126,5 +153,6 @@ public interface ILongTermMemoryService
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

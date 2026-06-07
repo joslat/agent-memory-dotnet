@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -10,17 +11,34 @@ public interface IFactRepository
     /// <summary>Adds or updates a fact.</summary>
     Task<Fact> UpsertAsync(Fact fact, CancellationToken cancellationToken = default);
 
-    /// <summary>Gets a fact by identifier.</summary>
+    /// <summary>
+    /// Finds the most-similar existing fact with the same subject+predicate within the same owner
+    /// (<paramref name="ownerId"/>; null = shared) whose cosine score ≥ <paramref name="threshold"/>,
+    /// or null. Used for dedup-on-create.
+    /// </summary>
+    Task<Fact?> FindDuplicateAsync(
+        string subject, string predicate, float[] embedding, string? ownerId, double threshold,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reinforces an existing fact reached by dedup: sets its confidence and returns it.</summary>
+    Task<Fact> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a fact by identifier. Deliberately unscoped (R1): the id is itself an already-owned handle,
+    /// so no owner filter is applied. See the unscoped-reads disposition in
+    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
+    /// </summary>
     Task<Fact?> GetByIdAsync(string factId, CancellationToken cancellationToken = default);
 
     /// <summary>Gets facts by subject.</summary>
-    Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Fact>> GetBySubjectAsync(string subject, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>Searches facts by vector similarity.</summary>
     Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Adds or updates a batch of facts atomically.</summary>
@@ -45,11 +63,18 @@ public interface IFactRepository
     /// <summary>Sets the embedding vector on an existing fact node.</summary>
     Task UpdateEmbeddingAsync(string factId, float[] embedding, CancellationToken cancellationToken = default);
 
-    /// <summary>Deletes a fact and all its relationships.</summary>
-    Task<bool> DeleteAsync(string factId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Deletes a fact and all its relationships. When <paramref name="scope"/> is supplied (R1) the
+    /// delete only affects the owner's own fact — never another owner's, and never shared/global ones.
+    /// </summary>
+    Task<bool> DeleteAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Finds existing facts matching the subject-predicate-object triple.</summary>
-    Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Finds an existing fact matching the subject-predicate-object triple. When <paramref name="scope"/>
+    /// is supplied (R1) the lookup is confined to the owner's own and (optionally) shared facts. Null
+    /// scope ⇒ unscoped.
+    /// </summary>
+    Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Searches facts by vector similarity, returning only those valid at <paramref name="asOf"/>.
@@ -59,5 +84,6 @@ public interface IFactRepository
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

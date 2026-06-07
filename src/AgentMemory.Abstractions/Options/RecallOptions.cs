@@ -32,6 +32,12 @@ public sealed record RecallOptions
     /// <summary>Retrieval blend mode.</summary>
     public RetrievalBlendMode BlendMode { get; init; } = RetrievalBlendMode.Blended;
 
+    /// <summary>
+    /// Optional owner/user scope for long-term recall. When null, the assembler derives a scope from
+    /// <c>RecallRequest.UserId</c> (or recalls globally if that is also null). See <c>MemoryScope</c>.
+    /// </summary>
+    public MemoryScope? Scope { get; init; }
+
     /// <summary>Default singleton instance.</summary>
     public static RecallOptions Default { get; } = new();
 }

@@ -23,6 +23,19 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
 
     public INeo4jTransactionRunner TransactionRunner { get; private set; } = null!;
 
+    /// <summary>Bolt connection string for the running container (for tests that build their own provider).</summary>
+    public string ConnectionString => _container!.GetConnectionString();
+
+    /// <summary>Container username (for tests that build their own provider/driver).</summary>
+    public string User => ContainerUsername;
+
+    /// <summary>Container password (for tests that build their own provider/driver).</summary>
+    public string Password => ContainerPassword;
+
+    /// <summary>The raw driver, for tests that construct services needing <see cref="IDriver"/> directly
+    /// (e.g. the GraphRAG retrievers).</summary>
+    public IDriver Driver => _driver!;
+
     public async Task InitializeAsync()
     {
         _container = new Neo4jBuilder("neo4j:5.26")
@@ -107,8 +120,11 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
         }
 
         public IAsyncSession OpenSession(AccessMode accessMode = AccessMode.Write) =>
+            OpenSession(_database, accessMode);
+
+        public IAsyncSession OpenSession(string database, AccessMode accessMode = AccessMode.Write) =>
             _driver.AsyncSession(c => c
-                .WithDatabase(_database)
+                .WithDatabase(database)
                 .WithDefaultAccessMode(accessMode));
     }
 }

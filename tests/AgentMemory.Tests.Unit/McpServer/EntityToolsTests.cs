@@ -2,6 +2,8 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer;
 using AgentMemory.McpServer.Tools;
@@ -12,6 +14,7 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class EntityToolsTests
 {
     private readonly ILongTermMemoryService _longTermMemory = Substitute.For<ILongTermMemoryService>();
+    private readonly IExtractorRepository _extractorRepo = Substitute.For<IExtractorRepository>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IOptions<McpServerOptions> _options = Options.Create(new McpServerOptions());
@@ -29,12 +32,12 @@ public sealed class EntityToolsTests
     [Fact]
     public async Task MemoryGetEntity_CallsGetEntitiesByNameAsyncWithIncludeAliasesTrue()
     {
-        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
         await EntityTools.MemoryGetEntity(_longTermMemory, "Alice");
 
-        await _longTermMemory.Received(1).GetEntitiesByNameAsync("Alice", true, Arg.Any<CancellationToken>());
+        await _longTermMemory.Received(1).GetEntitiesByNameAsync("Alice", true, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -52,7 +55,7 @@ public sealed class EntityToolsTests
                 CreatedAtUtc = FixedTime
             }
         };
-        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(entities);
 
         var result = await EntityTools.MemoryGetEntity(_longTermMemory, "Alice");
@@ -68,7 +71,7 @@ public sealed class EntityToolsTests
     [Fact]
     public async Task MemoryGetEntity_ReturnsEmptyArrayWhenNoEntitiesFound()
     {
-        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
         var result = await EntityTools.MemoryGetEntity(_longTermMemory, "Nobody");
@@ -76,6 +79,132 @@ public sealed class EntityToolsTests
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
         doc.RootElement.GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task MemoryGetEntity_WithUserId_PassesOwnerScope()
+    {
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Entity>());
+
+        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice", userId: "alice");
+
+        await _longTermMemory.Received(1).GetEntitiesByNameAsync(
+            "Alice", true,
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task MemoryGetEntity_WithoutUserId_PassesNullScope(string? userId)
+    {
+        _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Entity>());
+
+        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice", userId: userId);
+
+        await _longTermMemory.Received(1).GetEntitiesByNameAsync(
+            "Alice", true,
+            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── memory_get_entity_provenance ──
+
+    [Fact]
+    public async Task MemoryGetEntityProvenance_ReturnsSourcesAndExtractors_WhenFound()
+    {
+        var provenance = new EntityProvenance(
+            "e-1",
+            new[] { new ProvenanceSource("msg-1", 0.9, 0, 5) },
+            new[] { new ProvenanceExtractor("llm", 0.95, 120) });
+        _extractorRepo.GetProvenanceAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(provenance);
+
+        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, "e-1");
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("found").GetBoolean().Should().BeTrue();
+        doc.RootElement.GetProperty("entityId").GetString().Should().Be("e-1");
+        doc.RootElement.GetProperty("sources").GetArrayLength().Should().Be(1);
+        doc.RootElement.GetProperty("extractors")[0].GetProperty("extractorName").GetString().Should().Be("llm");
+    }
+
+    [Fact]
+    public async Task MemoryGetEntityProvenance_ReturnsNotFound_WhenNull()
+    {
+        _extractorRepo.GetProvenanceAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((EntityProvenance?)null);
+
+        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, "missing");
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("entityId").GetString().Should().Be("missing");
+    }
+
+    // ── memory_record_entity_feedback ──
+
+    [Fact]
+    public async Task MemoryRecordEntityFeedback_DelegatesAndReturnsUpdatedEntity()
+    {
+        var updated = new Entity
+        {
+            EntityId = "e-1", Name = "Alice", Type = "Person",
+            Confidence = 0.85, CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime
+        };
+        _longTermMemory.RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(updated);
+
+        var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true);
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("found").GetBoolean().Should().BeTrue();
+        doc.RootElement.GetProperty("confidence").GetDouble().Should().Be(0.85);
+        await _longTermMemory.Received(1).RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryRecordEntityFeedback_ReturnsNotFound_WhenEntityMissing()
+    {
+        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((Entity?)null);
+
+        var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "missing", positive: false);
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("entityId").GetString().Should().Be("missing");
+    }
+
+    [Fact]
+    public async Task MemoryRecordEntityFeedback_WithUserId_PassesOwnerScope()
+    {
+        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((Entity?)null);
+
+        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true, userId: "alice");
+
+        await _longTermMemory.Received(1).RecordEntityFeedbackAsync(
+            "e-1", true, Arg.Any<double?>(),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryRecordEntityFeedback_WithoutUserId_PassesNullScope()
+    {
+        _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((Entity?)null);
+
+        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true);
+
+        await _longTermMemory.Received(1).RecordEntityFeedbackAsync(
+            "e-1", true, Arg.Any<double?>(),
+            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Any<CancellationToken>());
     }
 
     // ── memory_create_relationship ──

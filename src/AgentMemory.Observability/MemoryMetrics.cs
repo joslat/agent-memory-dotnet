@@ -5,7 +5,7 @@ namespace AgentMemory.Observability;
 /// <summary>
 /// Centralized <see cref="Meter"/> with counters and histograms for memory operations.
 /// </summary>
-public sealed class MemoryMetrics
+public sealed class MemoryMetrics : IDisposable
 {
     /// <summary>
     /// The meter name used when registering with OpenTelemetry.
@@ -111,6 +111,11 @@ public sealed class MemoryMetrics
             unit: "ms",
             description: "Duration of enrichment operations in milliseconds");
     }
+
+    /// <summary>
+    /// Disposes the underlying <see cref="Meter"/>.
+    /// </summary>
+    public void Dispose() => _meter.Dispose();
 
     // Counters
 

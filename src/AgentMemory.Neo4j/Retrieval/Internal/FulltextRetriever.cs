@@ -25,7 +25,7 @@ internal sealed class FulltextRetriever : IRetriever
     }
 
     public async Task<RetrieverResult> SearchAsync(
-        string queryText, int topK, CancellationToken cancellationToken = default)
+        string queryText, int topK, string? ownerId = null, CancellationToken cancellationToken = default)
     {
         var searchText = _filterStopWords
             ? StopWordFilter.ExtractKeywords(queryText)
@@ -34,19 +34,25 @@ internal sealed class FulltextRetriever : IRetriever
         if (string.IsNullOrWhiteSpace(searchText))
             return new RetrieverResult([]);
 
+        bool scoped = RetrieverScope.IsScoped(ownerId);
+        string ownerWhere = RetrieverScope.OwnerWhere("node", scoped);
+
+        // Fulltext queryNodes returns all scored matches, so an owner WHERE before LIMIT cannot starve.
         string cypher = _retrievalQuery is not null
             ? $"""
                CALL db.index.fulltext.queryNodes($index_name, $query)
                YIELD node, score
+               {ownerWhere}
                WITH node, score
                ORDER BY score DESC
                LIMIT $top_k
                {_retrievalQuery}
                LIMIT $top_k
                """
-            : """
+            : $"""
               CALL db.index.fulltext.queryNodes($index_name, $query)
               YIELD node, score
+              {ownerWhere}
               WITH node, score
               ORDER BY score DESC
               LIMIT $top_k
@@ -59,6 +65,7 @@ internal sealed class FulltextRetriever : IRetriever
             ["query"] = searchText,
             ["top_k"] = topK
         };
+        if (scoped) parameters["owner_id"] = ownerId;
 
         var (records, _, _) = await _driver.ExecutableQuery(cypher)
             .WithParameters(parameters)
@@ -75,13 +82,6 @@ internal sealed class FulltextRetriever : IRetriever
         if (record.Keys.Contains("text"))
             return VectorRetriever.FormatCypherResult(record);
 
-        var node = record["node"].As<INode>();
-        var score = record["score"].As<double>();
-        var content = node.Properties.TryGetValue("text", out var text)
-            ? text?.ToString() ?? ""
-            : node.Properties.TryGetValue("content", out var c)
-                ? c?.ToString() ?? ""
-                : node.ToString()!;
-        return new RetrieverResultItem(content, new Dictionary<string, object?> { ["score"] = score });
+        return RetrieverRecordMapper.FromNodeScore(record);
     }
 }

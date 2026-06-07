@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Services;
 
@@ -8,13 +9,15 @@ namespace AgentMemory.Abstractions.Services;
 public interface IReasoningMemoryService
 {
     /// <summary>
-    /// Starts a new reasoning trace.
+    /// Starts a new reasoning trace. <paramref name="ownerId"/> scopes the trace to a user (R1;
+    /// null = shared/global).
     /// </summary>
     Task<ReasoningTrace> StartTraceAsync(
         string sessionId,
         string task,
         float[]? taskEmbedding = null,
         IReadOnlyDictionary<string, object>? metadata = null,
+        string? ownerId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -42,6 +45,23 @@ public interface IReasoningMemoryService
         long? durationMs = null,
         string? error = null,
         IReadOnlyDictionary<string, object>? metadata = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records that a reasoning step read or acted upon the given entities, writing <c>:TOUCHED</c>
+    /// audit edges from the step to each existing entity (by id). Entity ids that do not resolve — and
+    /// a non-existent step — are silently skipped. Idempotent. Returns the number of entities linked.
+    /// </summary>
+    Task<int> RecordTouchedEntitiesAsync(
+        string stepId,
+        IReadOnlyList<string> entityIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the ids of all entities a reasoning step touched, for auditability/provenance.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetTouchedEntitiesAsync(
+        string stepId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -76,5 +96,20 @@ public interface IReasoningMemoryService
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Point-in-time variant of <see cref="SearchSimilarTracesAsync"/>: only traces that had started at
+    /// or before <paramref name="asOf"/>. Completes temporal recall (entities/facts/preferences already
+    /// have point-in-time search) so <c>AssembleContextAsOfAsync</c> can include reasoning traces.
+    /// </summary>
+    Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 }

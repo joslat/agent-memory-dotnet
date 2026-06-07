@@ -8,11 +8,10 @@ namespace AgentMemory.Abstractions.Services;
 public interface IGeocodingService
 {
     /// <summary>
-    /// Geocodes the given location text and returns the result, or <c>null</c> if the
-    /// location cannot be resolved or an error occurs.
-    /// </summary>
-    /// <summary>
     /// Resolves a free-text location string to geographic coordinates.
     /// </summary>
+    /// <param name="locationText">The free-text location to geocode (e.g. "Paris, France").</param>
+    /// <param name="ct">A token to cancel the operation.</param>
+    /// <returns>The geocoding result, or <c>null</c> if the location cannot be resolved or an error occurs.</returns>
     Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken ct = default);
 }

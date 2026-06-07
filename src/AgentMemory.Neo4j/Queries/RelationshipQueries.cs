@@ -16,6 +16,7 @@ public static class RelationshipQueries
             MERGE (s)-[r:RELATED_TO {id: $id}]->(t)
             ON CREATE SET
                 r.relation_type      = $relationType,
+                r.owner_id           = $ownerId,
                 r.source_entity_id   = $sourceEntityId,
                 r.target_entity_id   = $targetEntityId,
                 r.confidence         = $confidence,
@@ -44,23 +45,31 @@ public static class RelationshipQueries
     /// <summary>Get a single RELATED_TO relationship by id.</summary>
     public const string GetById = "MATCH ()-[r:RELATED_TO {id: $id}]->() RETURN r";
 
+    // ── owner/shared filter on the RELATED_TO edge (R1) ─────────────────
+
+    /// <summary>The owner/shared AND-clause for relationship edge <c>r</c>, or empty when unscoped.</summary>
+    private static string OwnerAnd(bool hasOwnerFilter, bool includeShared) =>
+        !hasOwnerFilter ? string.Empty
+        : includeShared ? " AND (r.owner_id = $ownerId OR r.owner_id IS NULL)"
+                        : " AND r.owner_id = $ownerId";
+
     // ── GetByEntityAsync ───────────────────────────────────────────────
 
     /// <summary>Get all RELATED_TO relationships involving a specific entity (source or target).</summary>
-    public const string GetByEntity = @"
+    public static string GetByEntity(bool hasOwnerFilter, bool includeShared) => $@"
             MATCH (s:Entity)-[r:RELATED_TO]->(t:Entity)
-            WHERE s.id = $entityId OR t.id = $entityId
+            WHERE (s.id = $entityId OR t.id = $entityId){OwnerAnd(hasOwnerFilter, includeShared)}
             RETURN r";
 
     // ── GetBySourceEntityAsync ─────────────────────────────────────────
 
     /// <summary>Get all outgoing RELATED_TO relationships from a specific entity.</summary>
-    public const string GetBySourceEntity =
-        "MATCH (s:Entity {id: $sourceEntityId})-[r:RELATED_TO]->() RETURN r";
+    public static string GetBySourceEntity(bool hasOwnerFilter, bool includeShared) =>
+        $"MATCH (s:Entity {{id: $sourceEntityId}})-[r:RELATED_TO]->() WHERE true{OwnerAnd(hasOwnerFilter, includeShared)} RETURN r";
 
     // ── GetByTargetEntityAsync ─────────────────────────────────────────
 
     /// <summary>Get all incoming RELATED_TO relationships to a specific entity.</summary>
-    public const string GetByTargetEntity =
-        "MATCH ()-[r:RELATED_TO]->(t:Entity {id: $targetEntityId}) RETURN r";
+    public static string GetByTargetEntity(bool hasOwnerFilter, bool includeShared) =>
+        $"MATCH ()-[r:RELATED_TO]->(t:Entity {{id: $targetEntityId}}) WHERE true{OwnerAnd(hasOwnerFilter, includeShared)} RETURN r";
 }

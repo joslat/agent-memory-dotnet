@@ -48,7 +48,7 @@ public sealed class SemanticMatchEntityMatcherTests
         var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
         var candidateEmbedding = UnitVector(4, 0);
         orchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(candidateEmbedding));
 
         // Same vector → similarity = 1.0
@@ -70,7 +70,7 @@ public sealed class SemanticMatchEntityMatcherTests
         var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
         var candidateEmbedding = UnitVector(4, 0); // e1 = [1,0,0,0]
         orchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(candidateEmbedding));
 
         // Orthogonal vector → similarity = 0.0
@@ -89,7 +89,7 @@ public sealed class SemanticMatchEntityMatcherTests
     {
         var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
         orchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(UnitVector(4, 0)));
 
         // Entity has no embedding — should be skipped
@@ -108,7 +108,7 @@ public sealed class SemanticMatchEntityMatcherTests
     {
         var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
         orchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(UnitVector(4, 0)));
 
         var existing = new[] { MakeEntityWithEmbedding("Alice", UnitVector(4, 0)) };
@@ -119,7 +119,7 @@ public sealed class SemanticMatchEntityMatcherTests
         await sut.TryMatchAsync(MakeCandidate("Alice"), existing);
 
         await orchestrator.Received(1)
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

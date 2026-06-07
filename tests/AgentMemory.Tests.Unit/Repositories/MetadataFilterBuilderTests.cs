@@ -207,4 +207,51 @@ public sealed class MetadataFilterBuilderTests
         // Dot in property name must be backtick-quoted to be valid Cypher
         clause.Should().Contain("m.`metadata.some.nested`");
     }
+
+    // ── Identifier injection hardening ───────────────────────────────────────
+
+    [Fact]
+    public void Build_KeyWithBacktick_EscapesByDoubling_NotInjected()
+    {
+        var filters = new Dictionary<string, object>
+        {
+            ["a`b"] = new Dictionary<string, object> { ["$eq"] = "x" }
+        };
+
+        var (clause, _) = MetadataFilterBuilder.Build(filters);
+
+        // The embedded backtick is doubled so it stays inside the quoted identifier.
+        clause.Should().Contain("m.`a``b` = $filter_0");
+    }
+
+    [Fact]
+    public void Build_KeyAttemptingClauseBreakout_IsContainedWithinIdentifier()
+    {
+        // A malicious key that tries to close the identifier and inject Cypher.
+        var malicious = "x` RETURN n; //";
+        var filters = new Dictionary<string, object>
+        {
+            [malicious] = new Dictionary<string, object> { ["$eq"] = "x" }
+        };
+
+        var (clause, _) = MetadataFilterBuilder.Build(filters);
+
+        // The lone backtick is doubled, so no unescaped `...` boundary leaks into the clause.
+        clause.Should().Contain("m.`x`` RETURN n; //` = $filter_0");
+    }
+
+    [Fact]
+    public void Build_KeyWithUnicodeEscapeBacktick_IsRejected()
+    {
+        // "\u0060" is the Cypher Unicode escape for a backtick; reject it so it cannot be
+        // re-interpreted by the Cypher lexer to break out of the quoted identifier.
+        var filters = new Dictionary<string, object>
+        {
+            [@"a\u0060b"] = new Dictionary<string, object> { ["$eq"] = "x" }
+        };
+
+        var act = () => MetadataFilterBuilder.Build(filters);
+
+        act.Should().Throw<ArgumentException>();
+    }
 }

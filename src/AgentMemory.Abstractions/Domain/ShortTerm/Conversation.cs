@@ -36,6 +36,13 @@ public sealed record Conversation
     public string? Title { get; init; }
 
     /// <summary>
+    /// Whether this conversation has been archived by a consolidation/hygiene pass (defaults to false).
+    /// Set in the graph by <see cref="AgentMemory.Abstractions.Services.IConsolidationService"/>'s
+    /// archive-expired-conversations step; surfaced here for read-back (archival is not performed via upsert).
+    /// </summary>
+    public bool Archived { get; init; }
+
+    /// <summary>
     /// Additional metadata for the conversation.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

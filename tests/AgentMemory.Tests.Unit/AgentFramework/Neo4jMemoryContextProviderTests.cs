@@ -51,7 +51,7 @@ public sealed class Neo4jMemoryContextProviderTests
     public async Task BuildContextAsync_UsesEmbeddingOrchestrator_EmbedQueryAsync()
     {
         var messages = new List<ChatMessage> { new(ChatRole.User, "Tell me about Neo4j.") };
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.5f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(EmptyRecall("s1"));
@@ -59,7 +59,7 @@ public sealed class Neo4jMemoryContextProviderTests
         await _sut.BuildContextAsync(messages, "s1", "c1", CancellationToken.None);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r => r.QueryEmbedding != null && r.QueryEmbedding.Length == 1),
             Arg.Any<CancellationToken>());
@@ -69,7 +69,7 @@ public sealed class Neo4jMemoryContextProviderTests
     public async Task BuildContextAsync_WithUserMessage_CallsRecallAsync()
     {
         var messages = new List<ChatMessage> { new(ChatRole.User, "What is Neo4j?") };
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f, 0.2f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(EmptyRecall("s1"));
@@ -78,6 +78,38 @@ public sealed class Neo4jMemoryContextProviderTests
 
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r => r.SessionId == "s1" && r.Query.Contains("Neo4j")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_WithUserId_SetsRecallRequestUserId()
+    {
+        var messages = new List<ChatMessage> { new(ChatRole.User, "What do I prefer?") };
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        await _sut.BuildContextAsync(messages, "s1", "c1", CancellationToken.None, userId: "alice");
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_WithoutUserId_RecallRequestUserIdIsNull()
+    {
+        var messages = new List<ChatMessage> { new(ChatRole.User, "What do I prefer?") };
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        await _sut.BuildContextAsync(messages, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == null),
             Arg.Any<CancellationToken>());
     }
 
@@ -99,7 +131,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 RecentMessages = new MemoryContextSection<Message> { Items = [storedMsg] }
             }
         };
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(recallResult);
@@ -114,7 +146,7 @@ public sealed class Neo4jMemoryContextProviderTests
     [Fact]
     public async Task BuildContextAsync_EmbeddingFails_StillCallsRecall()
     {
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Embedding service unavailable"));
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(EmptyRecall("s1"));
@@ -131,7 +163,7 @@ public sealed class Neo4jMemoryContextProviderTests
     [Fact]
     public async Task BuildContextAsync_RecallFails_ReturnsEmptyContext()
     {
-        _embeddingOrchestrator.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("DB down"));
@@ -228,6 +260,39 @@ public sealed class Neo4jMemoryContextProviderTests
 
         await _memoryService.Received(1).ExtractAndPersistAsync(
             Arg.Is<ExtractionRequest>(r => r.SessionId == "s1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_AutoExtractEnabled_WithUserId_StampsExtractionOwner()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Paris is the capital of France.") };
+        var storedMessage = new Message
+        {
+            MessageId = "m-owner-1", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Paris is the capital of France.",
+            TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+        _memoryService
+            .ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = new[] { "m-owner-1" }
+            });
+
+        await sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None, userId: "bob");
+
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r => r.SessionId == "s1" && r.UserId == "bob"),
             Arg.Any<CancellationToken>());
     }
 

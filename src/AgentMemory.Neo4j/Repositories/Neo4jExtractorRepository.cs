@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
@@ -116,13 +118,19 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
     }
 
     /// <inheritdoc />
-    public async Task<EntityProvenance?> GetProvenanceAsync(string entityId, CancellationToken ct = default)
+    public async Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken ct = default)
     {
-        _logger.LogDebug("Getting provenance for entity {EntityId}", entityId);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting provenance for entity {EntityId}, owner={Owner}", entityId, scope?.OwnerId);
+
+        var cypher = ExtractorQueries.GetEntityProvenance(hasOwner, includeShared);
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.GetEntityProvenance, new { entityId });
+            var cursor = hasOwner
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! })
+                : await runner.RunAsync(cypher, new { entityId });
             var records = await cursor.ToListAsync();
             if (records.Count == 0) return null;
 
@@ -254,10 +262,4 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
             Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
     }
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json)
-              ?? new Dictionary<string, object>();
 }

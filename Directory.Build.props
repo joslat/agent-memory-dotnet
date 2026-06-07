@@ -6,8 +6,35 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
-  <!-- TreatWarningsAsErrors only for src projects, not tests -->
-  <PropertyGroup Condition="!$(MSBuildProjectDirectory.Contains('\tests\'))">
+  <!-- TreatWarningsAsErrors only for src projects, not tests. Match on the project name
+       (which contains ".Tests") rather than a path fragment so the condition is correct on
+       both Windows ('\tests\') and Linux/macOS ('/tests/') — e.g. under CI. -->
+  <PropertyGroup Condition="!$(MSBuildProjectName.Contains('.Tests'))">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <!-- Shared NuGet packaging metadata for the publishable src/ libraries. Scoped by project name
+       (test projects contain ".Tests", samples contain ".Sample") so it is correct cross-platform
+       and never leaks into non-published projects. Per-package Description/PackageTags live in each
+       .csproj. NuGet package IDs default to the (already de-Neo4j-renamed) project names. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
+    <Version>0.1.0-preview.1</Version>
+    <Authors>Jose Luis Latorre Millas</Authors>
+    <Company>Jose Luis Latorre Millas</Company>
+    <Product>AgentMemory for .NET</Product>
+    <Copyright>Copyright © Jose Luis Latorre Millas</Copyright>
+    <PackageProjectUrl>https://github.com/joslat/agent-memory-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/joslat/agent-memory-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 </Project>

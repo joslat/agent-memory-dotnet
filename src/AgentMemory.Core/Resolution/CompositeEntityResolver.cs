@@ -13,6 +13,14 @@ namespace AgentMemory.Core.Resolution;
 /// Post-resolution, high-confidence matches are auto-merged (alias added);
 /// mid-confidence matches are flagged for SAME_AS relationship creation by the caller.
 /// </summary>
+/// <remarks>
+/// R1 scoping: when a <see cref="MemoryScope"/> with an owner is supplied, the candidate set is confined
+/// to the owner's own + shared entities, so resolution can never reach another owner's <i>private</i>
+/// entity. Note that with the default <c>IncludeShared=true</c>, a scoped owner's extraction <i>can</i>
+/// still auto-merge into (and enrich the aliases/description of) a <b>shared</b> (owner_id IS NULL)
+/// entity — this is intentional "shared knowledge grows collaboratively" behavior, not a cross-owner
+/// leak (a future opt-in option could make shared knowledge read-only per owner if a deployment needs it).
+/// </remarks>
 public sealed class CompositeEntityResolver : IEntityResolver
 {
     private readonly IEntityRepository _entityRepository;
@@ -22,6 +30,9 @@ public sealed class CompositeEntityResolver : IEntityResolver
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<CompositeEntityResolver> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CompositeEntityResolver"/> class.
+    /// </summary>
     public CompositeEntityResolver(
         IEntityRepository entityRepository,
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -38,12 +49,14 @@ public sealed class CompositeEntityResolver : IEntityResolver
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = await GetCandidatesAsync(extractedEntity.Type, cancellationToken)
+        var candidates = await GetCandidatesAsync(extractedEntity.Type, scope, cancellationToken)
             .ConfigureAwait(false);
 
         var matchers = BuildMatchers();
@@ -64,7 +77,7 @@ public sealed class CompositeEntityResolver : IEntityResolver
         }
 
         if (resolutionResult is null)
-            return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, cancellationToken)
+            return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, cancellationToken)
                 .ConfigureAwait(false);
 
         var matched = resolutionResult.ResolvedEntity;
@@ -120,16 +133,18 @@ public sealed class CompositeEntityResolver : IEntityResolver
             "No match above SameAs threshold for '{Name}' — creating new entity.",
             extractedEntity.Name);
 
-        return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, cancellationToken)
+        return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, cancellationToken)
             .ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Entity>> FindPotentialDuplicatesAsync(
         string name,
         string type,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = await GetCandidatesAsync(type, cancellationToken).ConfigureAwait(false);
+        var candidates = await GetCandidatesAsync(type, scope, cancellationToken).ConfigureAwait(false);
 
         var probe = new ExtractedEntity { Name = name, Type = type };
         var matchers = BuildMatchers();
@@ -148,15 +163,19 @@ public sealed class CompositeEntityResolver : IEntityResolver
 
     private async Task<IReadOnlyList<Entity>> GetCandidatesAsync(
         string type,
+        MemoryScope? scope,
         CancellationToken cancellationToken)
     {
+        // The candidate set MUST be owner-scoped (R1): without it, an incoming entity could match and
+        // auto-merge onto another owner's private entity (a cross-owner write-path leak). A null scope
+        // (single-tenant / no owner context) preserves the legacy unscoped behavior.
         if (_options.EntityResolution.TypeStrictFiltering)
-            return await _entityRepository.GetByTypeAsync(type, cancellationToken).ConfigureAwait(false);
+            return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
 
-        // Without type filtering, use SearchByVectorAsync is impractical here without an embedding;
+        // Without type filtering, SearchByVectorAsync is impractical here without an embedding;
         // GetByTypeAsync with empty type returns all in many impls, so we fall back gracefully.
         // For a complete impl, a GetAllAsync method would be ideal — use GetByTypeAsync("") as best effort.
-        return await _entityRepository.GetByTypeAsync(type, cancellationToken).ConfigureAwait(false);
+        return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
     }
 
     private IReadOnlyList<IEntityMatcher> BuildMatchers()
@@ -179,11 +198,16 @@ public sealed class CompositeEntityResolver : IEntityResolver
     private async Task<Entity> CreateNewEntityAsync(
         ExtractedEntity extracted,
         IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope,
         CancellationToken cancellationToken)
     {
         var entity = new Entity
         {
             EntityId = _idGenerator.GenerateId(),
+            // R1: stamp the owner from the resolution scope so the resolver's output is self-consistently
+            // scoped (defense-in-depth; the persistence stage also stamps owner_id, but a direct caller
+            // would otherwise create a private entity as owner_id=NULL/shared). Null scope ⇒ shared.
+            OwnerId = scope?.OwnerId,
             Name = extracted.Name,
             CanonicalName = extracted.Name,
             Type = extracted.Type,

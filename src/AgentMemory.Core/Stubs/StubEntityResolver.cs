@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.Core.Stubs;
@@ -13,6 +14,9 @@ public sealed class StubEntityResolver : IEntityResolver
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StubEntityResolver"/> class.
+    /// </summary>
     public StubEntityResolver(
         ILogger<StubEntityResolver> logger,
         IClock clock,
@@ -23,9 +27,11 @@ public sealed class StubEntityResolver : IEntityResolver
         _idGenerator = idGenerator;
     }
 
+    /// <inheritdoc/>
     public Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("StubEntityResolver is in use — returning new entity without deduplication.");
@@ -33,6 +39,7 @@ public sealed class StubEntityResolver : IEntityResolver
         var entity = new Entity
         {
             EntityId = _idGenerator.GenerateId(),
+            OwnerId = scope?.OwnerId, // R1 symmetry with CompositeEntityResolver (persistence re-stamps anyway)
             Name = extractedEntity.Name,
             CanonicalName = extractedEntity.Name,
             Type = extractedEntity.Type,
@@ -48,9 +55,11 @@ public sealed class StubEntityResolver : IEntityResolver
         return Task.FromResult(entity);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Entity>> FindPotentialDuplicatesAsync(
         string name,
         string type,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("StubEntityResolver is in use — returning empty duplicate list.");

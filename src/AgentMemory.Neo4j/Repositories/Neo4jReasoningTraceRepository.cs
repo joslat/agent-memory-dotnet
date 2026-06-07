@@ -1,10 +1,12 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
@@ -98,11 +100,19 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Vector search reasoning traces, successFilter={Filter}, limit={Limit}", successFilter, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner
+            ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor)
+            : limit;
 
-        var cypher = ReasoningQueries.SearchByTaskVector(successFilter.HasValue);
+        _logger.LogDebug("Vector search reasoning traces, successFilter={Filter}, limit={Limit}, owner={Owner}",
+            successFilter, limit, scope?.OwnerId);
+
+        var cypher = ReasoningQueries.SearchByTaskVector(successFilter.HasValue, hasOwner, includeShared, topK);
 
         var parameters = new Dictionary<string, object>
         {
@@ -111,6 +121,50 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             ["minScore"]  = minScore
         };
         if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node  = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToTrace(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner
+            ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor)
+            : limit;
+
+        _logger.LogDebug("Temporal vector search reasoning traces as of {AsOf}, successFilter={Filter}, limit={Limit}, owner={Owner}",
+            asOf, successFilter, limit, scope?.OwnerId);
+
+        var cypher = ReasoningQueries.SearchByTaskVectorAsOf(successFilter.HasValue, hasOwner, includeShared, topK);
+
+        var parameters = new Dictionary<string, object>
+        {
+            ["embedding"] = taskEmbedding.ToList(),
+            ["limit"]     = limit,
+            ["minScore"]  = minScore,
+            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+        };
+        if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -164,6 +218,7 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         {
             TraceId        = node["id"].As<string>(),
             SessionId      = node["session_id"].As<string>(),
+            OwnerId        = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string?>() : null,
             Task           = node["task"].As<string>(),
             TaskEmbedding  = taskEmbedding,
             Outcome        = node.Properties.TryGetValue("outcome", out var out_) ? out_.As<string>() : null,
@@ -187,6 +242,7 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         ["id"]          = trace.TraceId,
         ["sessionId"]   = trace.SessionId,
+        ["ownerId"]     = (object?)trace.OwnerId,
         ["task"]        = trace.Task,
         ["outcome"]     = (object?)trace.Outcome,
         ["success"]     = (object?)trace.Success,
@@ -194,12 +250,4 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         ["completedAt"] = (object?)(trace.CompletedAtUtc?.ToString("O")),
         ["metadata"]    = SerializeMetadata(trace.Metadata)
     };
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -9,7 +10,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 
 [Collection("Neo4j Integration")]
 [Trait("Category", "Integration")]
-public class FactRepositoryIntegrationTests
+public class FactRepositoryIntegrationTests : IAsyncLifetime
 {
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jFactRepository _repo;
@@ -80,6 +81,73 @@ public class FactRepositoryIntegrationTests
         var result = await _repo.GetByIdAsync("fact-does-not-exist");
 
         result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UpsertAsync_PersistsAndReadsBackCategory()
+    {
+        var fact = new Fact
+        {
+            FactId = $"fact-{Guid.NewGuid():N}",
+            Subject = "Dana",
+            Predicate = "specializes_in",
+            Object = "graph databases",
+            Category = "professional",
+            Confidence = 0.9,
+            CreatedAtUtc = new DateTimeOffset(2025, 2, 2, 0, 0, 0, TimeSpan.Zero)
+        };
+        await _repo.UpsertAsync(fact);
+
+        var result = await _repo.GetByIdAsync(fact.FactId);
+
+        result.Should().NotBeNull();
+        result!.Category.Should().Be("professional");
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_PersistsAndReadsBackCategory()
+    {
+        var subject = $"Subject-{Guid.NewGuid():N}";
+        var facts = new[]
+        {
+            new Fact
+            {
+                FactId = $"fact-{Guid.NewGuid():N}",
+                Subject = subject,
+                Predicate = "born_in",
+                Object = "Madrid",
+                Category = "personal",
+                Confidence = 0.8,
+                CreatedAtUtc = DateTimeOffset.UtcNow
+            }
+        };
+        await _repo.UpsertBatchAsync(facts);
+
+        var results = await _repo.GetBySubjectAsync(subject);
+
+        results.Should().ContainSingle()
+            .Which.Category.Should().Be("personal");
+    }
+
+    [Fact]
+    public async Task UpsertAsync_NullCategory_RoundTripsAsNull()
+    {
+        var fact = new Fact
+        {
+            FactId = $"fact-{Guid.NewGuid():N}",
+            Subject = "Erin",
+            Predicate = "drinks",
+            Object = "tea",
+            Category = null,
+            Confidence = 0.7,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        await _repo.UpsertAsync(fact);
+
+        var result = await _repo.GetByIdAsync(fact.FactId);
+
+        result.Should().NotBeNull();
+        result!.Category.Should().BeNull();
     }
 
     [Fact]
@@ -194,6 +262,24 @@ public class FactRepositoryIntegrationTests
         deleted.Should().BeTrue();
         var fetched = await _repo.GetByIdAsync(fact.FactId);
         fetched.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ForeignOwnerScope_DoesNotDeleteOtherOwnersFact()
+    {
+        var fact = new Fact
+        {
+            FactId = $"fact-{Guid.NewGuid():N}",
+            Subject = "Alice", Predicate = "owns", Object = "Secret",
+            OwnerId = "alice", Confidence = 0.8, CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+        await _repo.UpsertAsync(fact);
+
+        (await _repo.DeleteAsync(fact.FactId, MemoryScope.For("bob"))).Should().BeFalse();
+        (await _repo.GetByIdAsync(fact.FactId)).Should().NotBeNull("bob's scope must not delete alice's fact");
+
+        (await _repo.DeleteAsync(fact.FactId, MemoryScope.For("alice"))).Should().BeTrue();
+        (await _repo.GetByIdAsync(fact.FactId)).Should().BeNull();
     }
 
     [Fact]

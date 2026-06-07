@@ -25,7 +25,7 @@ public sealed class ReasoningToolsTests
         _reasoningMemory.StartTraceAsync(
                 Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(trace);
 
         await ReasoningTools.MemoryStartTrace(_reasoningMemory, _options, "Solve problem", "ses-1");
@@ -33,7 +33,7 @@ public sealed class ReasoningToolsTests
         await _reasoningMemory.Received(1).StartTraceAsync(
             "ses-1", "Solve problem",
             Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public sealed class ReasoningToolsTests
         _reasoningMemory.StartTraceAsync(
                 Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(CreateTrace());
 
         await ReasoningTools.MemoryStartTrace(_reasoningMemory, _options, "task");
@@ -50,7 +50,7 @@ public sealed class ReasoningToolsTests
         await _reasoningMemory.Received(1).StartTraceAsync(
             "default", "task",
             Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public sealed class ReasoningToolsTests
         _reasoningMemory.StartTraceAsync(
                 Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(),
-                Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(CreateTrace());
 
         var result = await ReasoningTools.MemoryStartTrace(_reasoningMemory, _options, "Solve problem", "ses-1");

@@ -11,8 +11,13 @@ public sealed class StubFactExtractor : IFactExtractor
 {
     private readonly ILogger<StubFactExtractor> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="StubFactExtractor"/> class.
+    /// </summary>
+    /// <param name="logger">The logger used to record diagnostic information.</param>
     public StubFactExtractor(ILogger<StubFactExtractor> logger) => _logger = logger;
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<ExtractedFact>> ExtractAsync(
         IReadOnlyList<Message> messages,
         CancellationToken cancellationToken = default)

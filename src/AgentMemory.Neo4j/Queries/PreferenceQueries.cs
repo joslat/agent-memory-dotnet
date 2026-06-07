@@ -1,3 +1,5 @@
+using AgentMemory.Neo4j.Infrastructure;
+
 namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
@@ -9,6 +11,7 @@ public static class PreferenceQueries
     public const string Upsert = @"
             MERGE (p:Preference {id: $id})
             ON CREATE SET
+                p.owner_id           = $ownerId,
                 p.category           = $category,
                 p.preference         = $preferenceText,
                 p.context            = $context,
@@ -38,19 +41,62 @@ public static class PreferenceQueries
     /// <summary>Get a Preference by id.</summary>
     public const string GetById = "MATCH (p:Preference {id: $id}) RETURN p";
 
-    /// <summary>Get all Preferences by category.</summary>
-    public const string GetByCategory = "MATCH (p:Preference {category: $category}) RETURN p";
+    /// <summary>Get all Preferences by category, with an optional owner/shared filter (R1).</summary>
+    public static string GetByCategory(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (p.owner_id = $ownerId OR p.owner_id IS NULL)"
+                            : " AND p.owner_id = $ownerId";
+        return $"MATCH (p:Preference) WHERE p.category = $category{owner} RETURN p";
+    }
 
-    /// <summary>Vector similarity search over Preference embeddings.</summary>
-    public const string SearchByVector = @"
-            CALL db.index.vector.queryNodes('preference_embedding_idx', $limit, $embedding)
+    /// <summary>
+    /// Vector similarity search over Preference embeddings, with an optional owner/shared filter (R1).
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering.
+    /// </summary>
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        new CypherBuilder()
+            .WithVectorSearch("preference_embedding_idx", "$embedding", "node", topK)
+            .Where("score >= $minScore")
+            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
+            .Return("node, score")
+            .OrderBy("score DESC")
+            .Limit("$limit")
+            .Build();
+
+    // ── Dedup-on-create ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Finds the most-similar existing preference in the same category within the same owner whose
+    /// cosine score ≥ <c>$threshold</c> — used to reinforce instead of creating a near-duplicate node.
+    /// Over-fetches <paramref name="topK"/> candidates, returns top 1.
+    /// </summary>
+    public static string FindDuplicate(int topK, bool ownerIsShared)
+    {
+        var ownerClause = ownerIsShared ? "node.owner_id IS NULL" : "node.owner_id = $ownerId";
+        return $@"
+            CALL db.index.vector.queryNodes('preference_embedding_idx', {topK}, $embedding)
             YIELD node, score
-            WHERE score >= $minScore
+            WHERE score >= $threshold
+              AND node.category = $category
+              AND {ownerClause}
             RETURN node, score
-            ORDER BY score DESC";
+            ORDER BY score DESC
+            LIMIT 1";
+    }
 
-    /// <summary>Delete a Preference and all its relationships.</summary>
-    public const string Delete = "MATCH (p:Preference {id: $id}) DETACH DELETE p";
+    /// <summary>Reinforce an existing preference reached by dedup: bump its confidence.</summary>
+    public const string MarkDeduplicated = "MATCH (p:Preference {id: $id}) SET p.confidence = $confidence RETURN p";
+
+    /// <summary>
+    /// Delete a Preference and all its relationships. When scoped (R1) the delete only affects the
+    /// owner's own preferences — never another owner's, and never shared/global ones. Null ⇒ unscoped.
+    /// </summary>
+    public static string Delete(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND p.owner_id = $ownerId" : string.Empty;
+        return "MATCH (p:Preference {id: $id}) WHERE true" + owner + " DETACH DELETE p";
+    }
 
     /// <summary>Create an EXTRACTED_FROM relationship between a Preference and a Message.</summary>
     public const string CreateExtractedFromRelationship = @"

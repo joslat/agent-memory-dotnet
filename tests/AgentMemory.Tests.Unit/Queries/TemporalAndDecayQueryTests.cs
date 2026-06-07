@@ -5,15 +5,13 @@ namespace AgentMemory.Tests.Unit.Queries;
 
 public sealed class TemporalQueryTests
 {
+    // The get-by-id + recent-messages AsOf queries remain const strings.
     [Theory]
-    [InlineData(nameof(TemporalQueries.SearchEntitiesAsOf), "datetime($asOf)")]
-    [InlineData(nameof(TemporalQueries.SearchFactsAsOf), "datetime($asOf)")]
-    [InlineData(nameof(TemporalQueries.SearchPreferencesAsOf), "datetime($asOf)")]
     [InlineData(nameof(TemporalQueries.GetRecentMessagesAsOf), "datetime($asOf)")]
     [InlineData(nameof(TemporalQueries.GetEntityByIdAsOf), "datetime($asOf)")]
     [InlineData(nameof(TemporalQueries.GetFactByIdAsOf), "datetime($asOf)")]
     [InlineData(nameof(TemporalQueries.GetPreferenceByIdAsOf), "datetime($asOf)")]
-    public void AllTemporalQueries_ContainAsOfFilter(string queryName, string expectedFragment)
+    public void AllTemporalConstQueries_ContainAsOfFilter(string queryName, string expectedFragment)
     {
         var field = typeof(TemporalQueries).GetField(queryName);
         field.Should().NotBeNull($"TemporalQueries should have field {queryName}");
@@ -22,28 +20,43 @@ public sealed class TemporalQueryTests
         query.Should().Contain(expectedFragment);
     }
 
-    [Theory]
-    [InlineData(nameof(TemporalQueries.SearchEntitiesAsOf))]
-    [InlineData(nameof(TemporalQueries.SearchFactsAsOf))]
-    [InlineData(nameof(TemporalQueries.SearchPreferencesAsOf))]
-    public void VectorSearchQueries_ContainEmbeddingIndex(string queryName)
+    // The scoped vector AsOf searches are now methods (IC5): they over-fetch + filter by owner.
+    [Fact]
+    public void TemporalSearchMethods_ContainAsOfFilterAndEmbeddingIndex()
     {
-        var query = (string)typeof(TemporalQueries).GetField(queryName)!.GetValue(null)!;
-        query.Should().Contain("db.index.vector.queryNodes");
+        foreach (var q in new[]
+        {
+            TemporalQueries.SearchEntitiesAsOf(hasOwnerFilter: false, includeShared: true, topK: 10),
+            TemporalQueries.SearchFactsAsOf(hasOwnerFilter: false, includeShared: true, topK: 10),
+            TemporalQueries.SearchPreferencesAsOf(hasOwnerFilter: false, includeShared: true, topK: 10),
+        })
+        {
+            q.Should().Contain("datetime($asOf)");
+            q.Should().Contain("db.index.vector.queryNodes");
+        }
     }
 
     [Fact]
     public void SearchEntitiesAsOf_FiltersCreatedAtAndInvalidatedAt()
     {
-        TemporalQueries.SearchEntitiesAsOf
+        TemporalQueries.SearchEntitiesAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
             .Should().Contain("node.created_at <= datetime($asOf)")
             .And.Contain("node.invalidated_at IS NULL OR node.invalidated_at > datetime($asOf)");
     }
 
     [Fact]
+    public void SearchEntitiesAsOf_Scoped_AppliesOwnerFilter()
+    {
+        TemporalQueries.SearchEntitiesAsOf(hasOwnerFilter: true, includeShared: true, topK: 50)
+            .Should().Contain("node.owner_id = $ownerId OR node.owner_id IS NULL");
+        TemporalQueries.SearchEntitiesAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
+            .Should().NotContain("owner_id");
+    }
+
+    [Fact]
     public void SearchFactsAsOf_FiltersValidityWindow()
     {
-        TemporalQueries.SearchFactsAsOf
+        TemporalQueries.SearchFactsAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
             .Should().Contain("node.valid_from IS NULL OR node.valid_from <= datetime($asOf)")
             .And.Contain("node.valid_until IS NULL OR node.valid_until > datetime($asOf)");
     }
@@ -91,7 +104,7 @@ public sealed class DecayQueryTests
     [Fact]
     public void PruneEntities_ContainsDecayFormula()
     {
-        DecayQueries.PruneEntities
+        DecayQueries.PruneEntities(hasOwnerFilter: false)
             .Should().Contain("exp(-$lambda")
             .And.Contain("$minScore")
             .And.Contain("DETACH DELETE");
@@ -100,7 +113,7 @@ public sealed class DecayQueryTests
     [Fact]
     public void PruneFacts_ContainsDecayFormula()
     {
-        DecayQueries.PruneFacts
+        DecayQueries.PruneFacts(hasOwnerFilter: false)
             .Should().Contain("exp(-$lambda")
             .And.Contain("$minScore")
             .And.Contain("DETACH DELETE");
@@ -109,9 +122,28 @@ public sealed class DecayQueryTests
     [Fact]
     public void PrunePreferences_ContainsDecayFormula()
     {
-        DecayQueries.PrunePreferences
+        DecayQueries.PrunePreferences(hasOwnerFilter: false)
             .Should().Contain("exp(-$lambda")
             .And.Contain("$minScore")
             .And.Contain("DETACH DELETE");
+    }
+
+    [Theory]
+    [InlineData("e")]
+    public void PruneEntities_Scoped_AppliesOwnerFilter(string alias)
+    {
+        DecayQueries.PruneEntities(hasOwnerFilter: true)
+            .Should().Contain($"{alias}.owner_id = $ownerId");
+        DecayQueries.PruneEntities(hasOwnerFilter: false)
+            .Should().NotContain("owner_id");
+    }
+
+    [Fact]
+    public void PruneFactsAndPreferences_Scoped_AppliesOwnerFilter()
+    {
+        DecayQueries.PruneFacts(hasOwnerFilter: true).Should().Contain("f.owner_id = $ownerId");
+        DecayQueries.PruneFacts(hasOwnerFilter: false).Should().NotContain("owner_id");
+        DecayQueries.PrunePreferences(hasOwnerFilter: true).Should().Contain("p.owner_id = $ownerId");
+        DecayQueries.PrunePreferences(hasOwnerFilter: false).Should().NotContain("owner_id");
     }
 }

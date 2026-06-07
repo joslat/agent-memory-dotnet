@@ -18,15 +18,20 @@ public sealed class EntityListResource
         [Description("Maximum number of entities to return")] int limit = 50,
         [Description("Number of entities to skip")] int offset = 0,
         [Description("Filter by entity type (e.g., PERSON, LOCATION)")] string? type = null,
+        [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) entities; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var typeFilter = type is not null
-            ? "WHERE e.type = $type"
-            : "";
+        // R1: owner-scope the listing so a multi-tenant client can't read other owners' entities.
+        // null userId ⇒ unscoped (admin/single-tenant), matching the rest of the MCP surface.
+        var conditions = new List<string>();
+        if (type is not null) conditions.Add("e.type = $type");
+        var hasOwner = !string.IsNullOrEmpty(userId);
+        if (hasOwner) conditions.Add("(e.owner_id = $ownerId OR e.owner_id IS NULL)");
+        var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
 
         var query = $"""
             MATCH (e:Entity)
-            {typeFilter}
+            {whereClause}
             WITH e
             ORDER BY e.created_at DESC
             SKIP $offset
@@ -41,6 +46,7 @@ public sealed class EntityListResource
             ["offset"] = (long)offset,
             ["type"] = (object?)type
         };
+        if (hasOwner) parameters["ownerId"] = userId;
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken);
 

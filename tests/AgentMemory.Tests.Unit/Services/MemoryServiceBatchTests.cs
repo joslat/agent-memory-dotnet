@@ -35,12 +35,13 @@ public sealed class MemoryServiceBatchTests
             .Returns(new ExtractionResult());
     }
 
-    private MemoryService CreateSut() =>
+    private MemoryService CreateSut(IConversationRepository? conversationRepository = null) =>
         new(_shortTerm, _assembler, _extraction,
             _entityRepo, _factRepo, _prefRepo, _embeddingOrchestrator,
             Options.Create(new MemoryOptions()),
             _clock, _idGenerator,
-            NullLogger<MemoryService>.Instance);
+            NullLogger<MemoryService>.Instance,
+            conversationRepository: conversationRepository);
 
     private static Message MakeMessage(string id, string sessionId, string convId = "conv-1") => new()
     {
@@ -118,6 +119,57 @@ public sealed class MemoryServiceBatchTests
         await _extraction.DidNotReceive().ExtractAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task ExtractFromConversationAsync_NoUserId_DerivesOwnerFromConversation()
+    {
+        // new-1 (R1): retroactive extraction of an owned conversation must owner-stamp from the
+        // conversation's stored owner when the caller doesn't supply one.
+        _shortTerm.GetConversationMessagesAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1", "conv-10") });
+        var convRepo = Substitute.For<IConversationRepository>();
+        convRepo.GetByIdAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new Conversation { ConversationId = "conv-10", SessionId = "sess-1", UserId = "alice", CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime });
+
+        var sut = CreateSut(convRepo);
+        await sut.ExtractFromConversationAsync("conv-10");
+
+        await _extraction.Received(1).ExtractAsync(
+            Arg.Is<ExtractionRequest>(r => r.UserId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_ExplicitUserId_WinsOverConversationOwner()
+    {
+        _shortTerm.GetConversationMessagesAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1", "conv-10") });
+        var convRepo = Substitute.For<IConversationRepository>();
+        convRepo.GetByIdAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new Conversation { ConversationId = "conv-10", SessionId = "sess-1", UserId = "alice", CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime });
+
+        var sut = CreateSut(convRepo);
+        await sut.ExtractFromConversationAsync("conv-10", userId: "bob");
+
+        await _extraction.Received(1).ExtractAsync(
+            Arg.Is<ExtractionRequest>(r => r.UserId == "bob"),
+            Arg.Any<CancellationToken>());
+        await convRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_NoUserId_NoConversationRepo_StaysShared()
+    {
+        _shortTerm.GetConversationMessagesAsync("conv-10", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1", "conv-10") });
+
+        var sut = CreateSut(); // no conversation repository (graph-less/back-compat)
+        await sut.ExtractFromConversationAsync("conv-10");
+
+        await _extraction.Received(1).ExtractAsync(
+            Arg.Is<ExtractionRequest>(r => r.UserId == null),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── GenerateEmbeddingsBatchAsync — Entity ──
 
     [Fact]
@@ -131,14 +183,14 @@ public sealed class MemoryServiceBatchTests
         // First page has items with hasNextPage=false; loop should not call again
         _entityRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PagedResult<Entity>(entities, hasNextPage: false));
-        _embeddingOrchestrator.EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.1f }));
 
         var sut = CreateSut();
         var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
 
         count.Should().Be(2);
-        await _embeddingOrchestrator.Received(2).EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(2).EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpdateEmbeddingAsync("e1", Arg.Any<float[]>(), Arg.Any<CancellationToken>());
         await _entityRepo.Received(1).UpdateEmbeddingAsync("e2", Arg.Any<float[]>(), Arg.Any<CancellationToken>());
     }
@@ -153,14 +205,14 @@ public sealed class MemoryServiceBatchTests
         };
         _factRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PagedResult<Fact>(new List<Fact> { fact }, hasNextPage: false));
-        _embeddingOrchestrator.EmbedFactAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.5f }));
 
         var sut = CreateSut();
         await sut.GenerateEmbeddingsBatchAsync("Fact", batchSize: 100);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedFactAsync("Alice", "works_at", "Acme", Arg.Any<CancellationToken>());
+            .EmbedAsync("Alice works_at Acme", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -173,14 +225,14 @@ public sealed class MemoryServiceBatchTests
         };
         _prefRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new PagedResult<Preference>(new List<Preference> { pref }, hasNextPage: false));
-        _embeddingOrchestrator.EmbedPreferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.3f }));
 
         var sut = CreateSut();
         await sut.GenerateEmbeddingsBatchAsync("Preference", batchSize: 100);
 
         await _embeddingOrchestrator.Received(1)
-            .EmbedPreferenceAsync("Prefers dark mode", Arg.Any<CancellationToken>());
+            .EmbedAsync("Prefers dark mode", Arg.Any<CancellationToken>());
     }
 
     [Fact]

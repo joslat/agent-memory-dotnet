@@ -23,6 +23,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly AgentFrameworkOptions _options;
+    private readonly IMemoryStoreContext? _storeContext;
     private readonly ILogger<Neo4jChatHistoryProvider> _logger;
 
     /// <inheritdoc />
@@ -34,13 +35,15 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         IClock clock,
         IIdGenerator idGenerator,
         AgentFrameworkOptions options,
-        ILogger<Neo4jChatHistoryProvider> logger)
+        ILogger<Neo4jChatHistoryProvider> logger,
+        IMemoryStoreContext? storeContext = null)
         : base(null, null, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _storeContext = storeContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -52,13 +55,15 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var (sessionId, _) = ExtractIds(context.Session, context.Agent);
+        var ids = ExtractIds(context.Session, context.Agent);
+        ApplyStoreContext(ids.applicationId);
         try
         {
             var recallResult = await _memoryService.RecallAsync(
                 new Abstractions.Domain.RecallRequest
                 {
-                    SessionId = sessionId,
+                    SessionId = ids.sessionId,
+                    UserId = ids.userId,
                     Query = string.Empty,
                     Options = new RecallOptions
                     {
@@ -73,7 +78,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Failed to retrieve chat history for session {SessionId}.", sessionId);
+                "Failed to retrieve chat history for session {SessionId}.", ids.sessionId);
             return [];
         }
     }
@@ -86,7 +91,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         InvokedContext context,
         CancellationToken cancellationToken = default)
     {
-        var (sessionId, conversationId) = ExtractIds(context.Session, context.Agent);
+        var (sessionId, conversationId, userId, applicationId) = ExtractIds(context.Session, context.Agent);
+        ApplyStoreContext(applicationId);
         try
         {
             // Persist request messages (user + system turns not already in memory)
@@ -127,7 +133,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                         new Abstractions.Domain.ExtractionRequest
                         {
                             Messages = storedResponses,
-                            SessionId = sessionId
+                            SessionId = sessionId,
+                            UserId = userId
                         }, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -144,12 +151,14 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         }
     }
 
-    private (string sessionId, string conversationId) ExtractIds(
+    private (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(
         AgentSession? session,
         AIAgent? agent)
     {
         string? sessionId = null;
         string? conversationId = null;
+        string? userId = null;
+        string? applicationId = null;
 
         try
         {
@@ -160,17 +169,31 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                     System.Text.Json.JsonSerializerOptions.Default);
                 bag.TryGetValue(_options.DefaultConversationIdKey, out conversationId,
                     System.Text.Json.JsonSerializerOptions.Default);
+                bag.TryGetValue(_options.DefaultUserIdKey, out userId,
+                    System.Text.Json.JsonSerializerOptions.Default);
+                bag.TryGetValue(_options.DefaultApplicationIdKey, out applicationId,
+                    System.Text.Json.JsonSerializerOptions.Default);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Could not extract session IDs from state bag.");
+            _logger.LogDebug(ex, "Could not extract identity from state bag.");
         }
 
         sessionId ??= agent?.Id ?? Guid.NewGuid().ToString("N");
         // Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
         conversationId ??= sessionId;
 
-        return (sessionId, conversationId);
+        return (sessionId, conversationId,
+            string.IsNullOrWhiteSpace(userId) ? null : userId,
+            string.IsNullOrWhiteSpace(applicationId) ? null : applicationId);
+    }
+
+    // Routes the memory store for this scope when an application_id is supplied and a writable store
+    // context is registered (R1b). No-op otherwise.
+    private void ApplyStoreContext(string? applicationId)
+    {
+        if (applicationId is not null && _storeContext is IWritableMemoryStoreContext writable)
+            writable.ApplicationId = applicationId;
     }
 }

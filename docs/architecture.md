@@ -130,7 +130,7 @@ graph TD
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.4.1 (approved, D-AR2-1) — .NET 9 BCL otherwise |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 31 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall, etc.), 15 service interfaces, 10 repository interfaces, 9 configuration types, 6 enums |
+| **Key types** | 45 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall, etc.), 29 service interfaces, 11 repository interfaces, 14 configuration types, 9 enums (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
 
 **Namespace structure:**
 ```
@@ -437,7 +437,7 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 | **B7** | No adapter may contain business logic that belongs in Core | Adapters are thin translation layers only |
 | **B8** | Adapters depend on Core/Abstractions — never the reverse | Dependency inversion; core doesn't know about adapters |
 
-**Enforcement:** Code review gates on all PRs. Future CI step to scan .csproj files for prohibited `<PackageReference>` entries.
+**Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the Squad CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
 
 **Current Verification (as of Gap Closure Sprint + MEAI adoption D-AR2-1):**
 - ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.4.1 (approved, B1)

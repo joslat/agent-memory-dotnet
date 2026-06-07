@@ -18,6 +18,9 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<ReasoningMemoryService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ReasoningMemoryService"/> class.
+    /// </summary>
     public ReasoningMemoryService(
         IReasoningTraceRepository traceRepo,
         IReasoningStepRepository stepRepo,
@@ -34,17 +37,20 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<ReasoningTrace> StartTraceAsync(
         string sessionId,
         string task,
         float[]? taskEmbedding = null,
         IReadOnlyDictionary<string, object>? metadata = null,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
         var trace = new ReasoningTrace
         {
             TraceId = _idGenerator.GenerateId(),
             SessionId = sessionId,
+            OwnerId = ownerId,
             Task = task,
             TaskEmbedding = taskEmbedding,
             StartedAtUtc = _clock.UtcNow,
@@ -55,6 +61,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _traceRepo.AddAsync(trace, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ReasoningStep> AddStepAsync(
         string traceId,
         int stepNumber,
@@ -81,6 +88,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _stepRepo.AddAsync(step, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<ToolCall> RecordToolCallAsync(
         string stepId,
         string toolName,
@@ -109,6 +117,35 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _toolCallRepo.AddAsync(toolCall, cancellationToken);
     }
 
+    /// <inheritdoc/>
+    public Task<int> RecordTouchedEntitiesAsync(
+        string stepId,
+        IReadOnlyList<string> entityIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(stepId))
+            throw new ArgumentException("Step id must be provided.", nameof(stepId));
+
+        if (entityIds is null || entityIds.Count == 0)
+            return Task.FromResult(0);
+
+        _logger.LogDebug(
+            "Recording {Count} touched entit(y/ies) for step {StepId}", entityIds.Count, stepId);
+        return _stepRepo.LinkTouchedEntitiesAsync(stepId, entityIds, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<string>> GetTouchedEntitiesAsync(
+        string stepId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(stepId))
+            throw new ArgumentException("Step id must be provided.", nameof(stepId));
+
+        return _stepRepo.GetTouchedEntityIdsAsync(stepId, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task<ReasoningTrace> CompleteTraceAsync(
         string traceId,
         string? outcome = null,
@@ -132,6 +169,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return await _traceRepo.UpdateAsync(completed, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<(ReasoningTrace Trace, IReadOnlyList<ReasoningStep> Steps)> GetTraceWithStepsAsync(
         string traceId,
         CancellationToken cancellationToken = default)
@@ -151,6 +189,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return (trace, steps);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<ReasoningTrace>> ListTracesAsync(
         string sessionId,
         int limit = 10,
@@ -159,15 +198,32 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         return _traceRepo.ListBySessionAsync(sessionId, limit, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsync(
         float[] taskEmbedding,
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         var scored = await _traceRepo.SearchByTaskVectorAsync(
-            taskEmbedding, successFilter, limit, minScore, cancellationToken);
+            taskEmbedding, successFilter, limit, minScore, scope, cancellationToken);
+        return scored.Select(r => r.Trace).ToList();
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsOfAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        AgentMemory.Abstractions.Options.MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scored = await _traceRepo.SearchByTaskVectorAsOfAsync(
+            taskEmbedding, asOf, successFilter, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Trace).ToList();
     }
 }

@@ -44,6 +44,7 @@ internal sealed class ExtractionStage : IExtractionStage
     public async Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
         ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         var sourceMessageIds = messages.Select(m => m.MessageId).ToList();
@@ -103,7 +104,7 @@ internal sealed class ExtractionStage : IExtractionStage
             try
             {
                 var entity = await _entityResolver.ResolveEntityAsync(
-                    extracted, sourceMessageIds, cancellationToken);
+                    extracted, sourceMessageIds, scope, cancellationToken);
                 resolvedEntityMap[extracted.Name] = entity;
                 _logger.LogDebug("Resolved entity '{Name}' (id={Id}).", entity.Name, entity.EntityId);
             }

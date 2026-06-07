@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Options;
+
 namespace AgentMemory.Abstractions.Domain;
 
 /// <summary>
@@ -50,6 +52,13 @@ public sealed record MemoryContext
     /// Optional GraphRAG-derived context.
     /// </summary>
     public string? GraphRagContext { get; init; }
+
+    /// <summary>
+    /// The blend mode that produced this context. Determines which sources were retrieved
+    /// (see <see cref="RetrievalBlendMode"/>) and the order in which memory and GraphRAG-derived
+    /// context are rendered by formatters. Defaults to <see cref="RetrievalBlendMode.Blended"/>.
+    /// </summary>
+    public RetrievalBlendMode BlendMode { get; init; } = RetrievalBlendMode.Blended;
 
     /// <summary>
     /// UTC timestamp when the context was assembled.

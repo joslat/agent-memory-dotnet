@@ -21,6 +21,9 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     private readonly ShortTermMemoryOptions _options;
     private readonly ILogger<ShortTermMemoryService> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ShortTermMemoryService"/> class.
+    /// </summary>
     public ShortTermMemoryService(
         IConversationRepository conversationRepo,
         IMessageRepository messageRepo,
@@ -41,6 +44,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         _logger = logger;
     }
 
+    /// <inheritdoc/>
     public async Task<Conversation> AddConversationAsync(
         string conversationId,
         string sessionId,
@@ -63,6 +67,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         return await _conversationRepo.UpsertAsync(conversation, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<Message> AddMessageAsync(
         Message message,
         CancellationToken cancellationToken = default)
@@ -79,6 +84,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         return await _messageRepo.AddAsync(finalMessage, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Message>> AddMessagesAsync(
         IEnumerable<Message> messages,
         CancellationToken cancellationToken = default)
@@ -101,6 +107,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         return await _messageRepo.AddBatchAsync(results, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         string sessionId,
         int limit = 10,
@@ -110,6 +117,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         return await _messageRepo.GetRecentBySessionAsync(sessionId, cappedLimit, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Message>> GetConversationMessagesAsync(
         string conversationId,
         CancellationToken cancellationToken = default)
@@ -117,6 +125,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         return _messageRepo.GetByConversationAsync(conversationId, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Message>> SearchMessagesAsync(
         string? sessionId,
         float[] queryEmbedding,
@@ -129,6 +138,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         return scored.Select(r => r.Message).ToList();
     }
 
+    /// <inheritdoc/>
     public async Task ClearSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
@@ -139,6 +149,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         await _reasoningTraceRepo.DeleteBySessionAsync(sessionId, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsOfAsync(
         string sessionId,
         DateTimeOffset asOf,

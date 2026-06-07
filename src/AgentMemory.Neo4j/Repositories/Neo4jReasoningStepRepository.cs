@@ -1,10 +1,10 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
@@ -81,6 +81,37 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
         }, cancellationToken);
     }
 
+    public async Task<int> LinkTouchedEntitiesAsync(
+        string stepId, IReadOnlyList<string> entityIds, CancellationToken cancellationToken = default)
+    {
+        if (entityIds is null || entityIds.Count == 0)
+            return 0;
+
+        _logger.LogDebug("Linking {Count} touched entit(y/ies) to step {StepId}", entityIds.Count, stepId);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                ReasoningQueries.RecordTouchedEntitiesByIds,
+                new { stepId, entityIds = entityIds.ToList() });
+            var record = await cursor.SingleAsync();
+            return (int)record["linked"].As<long>();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetTouchedEntityIdsAsync(
+        string stepId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting touched entities for step {StepId}", stepId);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(ReasoningQueries.GetTouchedEntityIds, new { stepId });
+            var records = await cursor.ToListAsync();
+            return (IReadOnlyList<string>)records.Select(r => r["id"].As<string>()).ToList();
+        }, cancellationToken);
+    }
+
     private static ReasoningStep MapToStep(INode node, float[]? embedding) =>
         new()
         {
@@ -91,6 +122,9 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
             Action      = node.Properties.TryGetValue("action", out var act) ? act.As<string>() : null,
             Observation = node.Properties.TryGetValue("observation", out var obs) ? obs.As<string>() : null,
             Embedding   = embedding,
+            TimestampUtc = node.Properties.TryGetValue("timestamp", out var ts)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ts)
+                                : null,
             Metadata    = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
@@ -99,12 +133,4 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
         if (!node.Properties.TryGetValue("embedding", out var ev) || ev is null) return null;
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

@@ -32,7 +32,7 @@ public sealed class ShortTermMemoryServiceTests
         _clock.UtcNow.Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-id-1", "generated-id-2", "generated-id-3");
         _embeddingOrchestrator
-            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
 
         _conversationRepo
@@ -97,7 +97,7 @@ public sealed class ShortTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(1)
-            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public sealed class ShortTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .DidNotReceive()
-            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public sealed class ShortTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .DidNotReceive()
-            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class ShortTermMemoryServiceTests
 
         await _embeddingOrchestrator
             .Received(3)
-            .EmbedMessageAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -1,10 +1,10 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
@@ -117,14 +117,7 @@ public sealed class Neo4jConversationRepository : IConversationRepository
             Title          = node.Properties.TryGetValue("title", out var t) && t is not null ? t.As<string>() : null,
             CreatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
             UpdatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["updated_at"]),
+            Archived       = node.Properties.TryGetValue("archived", out var arch) && arch is not null && arch.As<bool>(),
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

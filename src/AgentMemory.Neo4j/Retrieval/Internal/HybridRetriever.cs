@@ -25,10 +25,10 @@ internal sealed class HybridRetriever : IRetriever
     }
 
     public async Task<RetrieverResult> SearchAsync(
-        string queryText, int topK, CancellationToken cancellationToken = default)
+        string queryText, int topK, string? ownerId = null, CancellationToken cancellationToken = default)
     {
-        var vectorTask = _vector.SearchAsync(queryText, topK, cancellationToken);
-        var fulltextTask = _fulltext.SearchAsync(queryText, topK, cancellationToken);
+        var vectorTask = _vector.SearchAsync(queryText, topK, ownerId, cancellationToken);
+        var fulltextTask = _fulltext.SearchAsync(queryText, topK, ownerId, cancellationToken);
 
         await Task.WhenAll(vectorTask, fulltextTask).ConfigureAwait(false);
 

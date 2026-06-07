@@ -1,15 +1,19 @@
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
+using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
 public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 {
+    private const int OwnerOverFetchFactor = Neo4jFactRepository.OwnerOverFetchFactor;
+    private const int OwnerOverFetchFloor = Neo4jFactRepository.OwnerOverFetchFloor;
+
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jPreferenceRepository> _logger;
 
@@ -28,6 +32,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             var parameters = new Dictionary<string, object?>
             {
                 ["id"]               = preference.PreferenceId,
+                ["ownerId"]          = preference.OwnerId,
                 ["category"]         = preference.Category,
                 ["preferenceText"]   = preference.PreferenceText,
                 ["context"]          = (object?)preference.Context,
@@ -74,13 +79,20 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Preference>> GetByCategoryAsync(string category, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Preference>> GetByCategoryAsync(
+        string category, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Getting preferences by category '{Category}'", category);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Getting preferences by category '{Category}', owner={Owner}", category, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.GetByCategory(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["category"] = category };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.GetByCategory, new { category });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -94,18 +106,26 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Vector search preferences, limit={Limit}", limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        _logger.LogDebug("Vector search preferences, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.SearchByVector(hasOwner, includeShared, topK);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.SearchByVector, new
-            {
-                embedding = queryEmbedding.ToList(),
-                limit,
-                minScore
-            });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -116,15 +136,57 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
-    public async Task DeleteAsync(string preferenceId, CancellationToken cancellationToken = default)
+    private const int DedupOverFetch = 10;
+
+    public async Task<Preference?> FindDuplicateAsync(
+        string category, float[] embedding, string? ownerId, double threshold,
+        CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting preference {Id}", preferenceId);
+        bool ownerIsShared = string.IsNullOrEmpty(ownerId);
+        var cypher = PreferenceQueries.FindDuplicate(DedupOverFetch, ownerIsShared);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = embedding.ToList(),
+            ["threshold"] = threshold,
+            ["category"]  = category,
+        };
+        if (!ownerIsShared) parameters["ownerId"] = ownerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["node"].As<INode>();
+            return MapToPreference(node, ReadEmbedding(node));
+        }, cancellationToken);
+    }
+
+    public async Task<Preference> MarkDeduplicatedAsync(string preferenceId, double confidence, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Reinforcing preference {Id} via dedup (confidence={Confidence}).", preferenceId, confidence);
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(PreferenceQueries.MarkDeduplicated, new { id = preferenceId, confidence });
+            var record = await cursor.SingleAsync();
+            var node = record["p"].As<INode>();
+            return MapToPreference(node, ReadEmbedding(node));
+        }, cancellationToken);
+    }
+
+    public async Task DeleteAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Deleting preference {Id}, owner={Owner}", preferenceId, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.Delete(hasOwner);
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(
-                PreferenceQueries.Delete,
-                new { id = preferenceId });
+            if (hasOwner)
+                await runner.RunAsync(cypher, new Dictionary<string, object> { ["id"] = preferenceId, ["ownerId"] = scope!.OwnerId! });
+            else
+                await runner.RunAsync(cypher, new { id = preferenceId });
         }, cancellationToken);
     }
 
@@ -168,6 +230,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         new()
         {
             PreferenceId     = node["id"].As<string>(),
+            OwnerId          = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
             Category         = node["category"].As<string>(),
             PreferenceText   = node["preference"].As<string>(),
             Context          = node.Properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,
@@ -225,19 +288,27 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         DateTimeOffset asOf,
         int limit = 10,
         double minScore = 0.0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Temporal vector search preferences as of {AsOf}, limit={Limit}", asOf, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        int topK = hasOwner ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor) : limit;
+        _logger.LogDebug("Temporal vector search preferences as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
+
+        var cypher = TemporalQueries.SearchPreferencesAsOf(hasOwner, includeShared, topK);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"]     = limit,
+            ["minScore"]  = minScore,
+            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(TemporalQueries.SearchPreferencesAsOf, new
-            {
-                embedding = queryEmbedding.ToList(),
-                limit,
-                minScore,
-                asOf = asOf.UtcDateTime.ToString("O")
-            });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
@@ -247,12 +318,4 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             }).ToList();
         }, cancellationToken);
     }
-
-    private static string SerializeMetadata(IReadOnlyDictionary<string, object> metadata)
-        => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
-
-    private static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrEmpty(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
 }

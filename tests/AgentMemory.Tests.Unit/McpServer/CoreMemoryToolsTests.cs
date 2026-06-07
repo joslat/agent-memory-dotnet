@@ -336,6 +336,36 @@ public sealed class CoreMemoryToolsTests
     }
 
     [Fact]
+    public async Task MemoryAddFact_PassesCategoryAndMetadata()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options,
+            "Alice", "works_at", "Microsoft",
+            confidence: null, userId: "u1", category: "professional",
+            metadataJson: "{\"source\":\"crm\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f =>
+                f.Category == "professional" &&
+                f.OwnerId == "u1" &&
+                f.Metadata.ContainsKey("source")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_InvalidMetadataJson_ThrowsArgumentException()
+    {
+        var act = async () => await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options,
+            "Alice", "works_at", "Microsoft", metadataJson: "not-json");
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
     public async Task MemoryAddFact_ReturnsJsonWithFactProperties()
     {
         _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())

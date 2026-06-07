@@ -32,10 +32,10 @@ public sealed class CompositeEntityResolverTests
 
         // Default: zero vector (orthogonal to any unit vector, no semantic match above threshold)
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[4]));
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[4]));
 
         _entityRepo
@@ -79,7 +79,7 @@ public sealed class CompositeEntityResolverTests
     public async Task ResolveEntityAsync_ExactMatch_ReturnsExisting_WithoutCallingEmbeddingProvider()
     {
         var existing = new[] { MakeEntity("e1", "Alice") };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         var sut = CreateSut();
@@ -88,14 +88,14 @@ public sealed class CompositeEntityResolverTests
         result.EntityId.Should().Be("e1");
         // Exact match short-circuits — embedding provider not called
         await _embeddingOrchestrator.DidNotReceive()
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ResolveEntityAsync_FuzzyMatchWhenExactFails_ReturnsExisting()
     {
         var existing = new[] { MakeEntity("e1", "John Smith") };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         var opts = new ExtractionOptions
@@ -120,11 +120,11 @@ public sealed class CompositeEntityResolverTests
     {
         var unitVec = new float[] { 1.0f, 0.0f, 0.0f, 0.0f };
         var existing = new[] { MakeEntity("e1", "Completely Different Name", embedding: unitVec) };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -147,7 +147,7 @@ public sealed class CompositeEntityResolverTests
     [Fact]
     public async Task ResolveEntityAsync_NoMatch_CreatesNewEntity()
     {
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
 
         var sut = CreateSut();
@@ -162,14 +162,73 @@ public sealed class CompositeEntityResolverTests
     [Fact]
     public async Task ResolveEntityAsync_TypeStrictFiltering_FetchesCandidatesOfCorrectType()
     {
-        _entityRepo.GetByTypeAsync("Organization", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Organization", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
 
         var sut = CreateSut();
         await sut.ResolveEntityAsync(MakeCandidate("OpenAI", type: "Organization"), Array.Empty<string>());
 
-        await _entityRepo.Received(1).GetByTypeAsync("Organization", Arg.Any<CancellationToken>());
-        await _entityRepo.DidNotReceive().GetByTypeAsync("Person", Arg.Any<CancellationToken>());
+        await _entityRepo.Received(1).GetByTypeAsync("Organization", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _entityRepo.DidNotReceive().GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_PassesOwnerScopeToCandidateLookup()
+    {
+        // R1: the candidate set must be confined to the owner so an incoming entity can't resolve onto
+        // (and merge into) another owner's private entity — a cross-owner write-path leak.
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = CreateSut();
+        await sut.ResolveEntityAsync(MakeCandidate("Alice"), Array.Empty<string>(), MemoryScope.For("alice"));
+
+        await _entityRepo.Received(1).GetByTypeAsync(
+            "Person",
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_NullScope_LooksUpCandidatesUnscoped()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = CreateSut();
+        await sut.ResolveEntityAsync(MakeCandidate("Alice"), Array.Empty<string>());
+
+        await _entityRepo.Received(1).GetByTypeAsync(
+            "Person",
+            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_CreateNew_StampsOwnerFromScope()
+    {
+        // leak-7: the created entity must carry the scope's owner (defense-in-depth, not just the
+        // persistence-stage re-stamp), so a direct caller never writes a private entity as shared.
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = CreateSut();
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Alice"), Array.Empty<string>(), MemoryScope.For("alice"));
+
+        result.EntityId.Should().Be(NewEntityId);
+        result.OwnerId.Should().Be("alice");
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_CreateNew_NullScope_LeavesOwnerNull()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = CreateSut();
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Alice"), Array.Empty<string>());
+
+        result.OwnerId.Should().BeNull();
     }
 
     [Fact]
@@ -177,7 +236,7 @@ public sealed class CompositeEntityResolverTests
     {
         // Exact match → confidence = 1.0 >= AutoMergeThreshold (0.95) → auto-merge
         var existing = new[] { MakeEntity("e1", "Alice Smith", aliases: "Ally Smith") };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         var sut = CreateSut(new ExtractionOptions
@@ -196,7 +255,7 @@ public sealed class CompositeEntityResolverTests
     {
         // Fuzzy score for "John Smith Jr" vs "John Smith" should be in SameAs range
         var existing = new[] { MakeEntity("e1", "John Smith") };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         var opts = new ExtractionOptions
@@ -223,7 +282,7 @@ public sealed class CompositeEntityResolverTests
     public async Task FindPotentialDuplicatesAsync_ReturnsMatchedEntities()
     {
         var existing = new[] { MakeEntity("e1", "Alice") };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         var sut = CreateSut();
@@ -236,7 +295,7 @@ public sealed class CompositeEntityResolverTests
     [Fact]
     public async Task FindPotentialDuplicatesAsync_NoMatches_ReturnsEmpty()
     {
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
 
         var sut = CreateSut();
@@ -255,15 +314,15 @@ public sealed class CompositeEntityResolverTests
         {
             MakeEntity("e1", "Alice", embedding: unitVec)
         };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         // Semantic matcher will compute cosine similarity = 1.0 (above AutoMergeThreshold)
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -284,11 +343,11 @@ public sealed class CompositeEntityResolverTests
         // "Alicia" is NOT in existing aliases → alias will be added → re-embedding triggered
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
-        // 1 call for semantic match query + 1 for re-embedding with combined name + aliases
+        // 1 call for the semantic-match query ("Alicia") + 1 for re-embedding the merged name+aliases.
         await _embeddingOrchestrator.Received(1)
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync("Alicia", Arg.Any<CancellationToken>());
         await _embeddingOrchestrator.Received(1)
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Is<string>(s => s.Contains("Alice") && s.Contains("Alicia")), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -305,11 +364,11 @@ public sealed class CompositeEntityResolverTests
                 CreatedAtUtc = FixedTime
             }
         };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -330,11 +389,11 @@ public sealed class CompositeEntityResolverTests
         // "Alicia" IS already in aliases → no alias change → no re-embedding
         await sut.ResolveEntityAsync(MakeCandidate("Alicia"), Array.Empty<string>());
 
-        // Only 1 call: for semantic match query
+        // Only the semantic-match query ("Alicia") is embedded; no combined re-embedding occurs.
         await _embeddingOrchestrator.Received(1)
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync("Alicia", Arg.Any<CancellationToken>());
         await _embeddingOrchestrator.DidNotReceive()
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .EmbedAsync(Arg.Is<string>(s => s.Contains("Alice") && s.Contains("Alicia")), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -345,14 +404,14 @@ public sealed class CompositeEntityResolverTests
         {
             MakeEntity("e1", "Alice", embedding: unitVec)
         };
-        _entityRepo.GetByTypeAsync("Person", Arg.Any<CancellationToken>())
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
 
         _embeddingOrchestrator
-            .EmbedEntityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
         _embeddingOrchestrator
-            .EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(unitVec));
 
         var opts = new ExtractionOptions
@@ -374,6 +433,6 @@ public sealed class CompositeEntityResolverTests
 
         // The re-embedding call uses combined text: "{name} {aliases}" = "Alice Alicia"
         await _embeddingOrchestrator.Received(1)
-            .EmbedTextAsync("Alice Alicia", Arg.Any<CancellationToken>());
+            .EmbedAsync("Alice Alicia", Arg.Any<CancellationToken>());
     }
 }

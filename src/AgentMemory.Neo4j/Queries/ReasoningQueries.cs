@@ -7,11 +7,12 @@ public static class ReasoningQueries
 {
     // ── ReasoningTrace ──────────────────────────────────────────
 
-    /// <summary>Create a new ReasoningTrace node.</summary>
+    /// <summary>Create a new ReasoningTrace node. <c>owner_id</c> (R1; null = shared/global) is set once.</summary>
     public const string AddTrace = @"
             CREATE (t:ReasoningTrace {
                 id:           $id,
                 session_id:   $sessionId,
+                owner_id:     $ownerId,
                 task:         $task,
                 outcome:      $outcome,
                 success:      $success,
@@ -55,20 +56,59 @@ public static class ReasoningQueries
         DETACH DELETE t, s";
 
     /// <summary>
-    /// Vector similarity search over ReasoningTrace task embeddings (without success filter).
+    /// Vector similarity search over ReasoningTrace task embeddings, with an optional success filter
+    /// and an optional owner/shared filter (R1). When scoped, over-fetches <paramref name="topK"/>
+    /// candidates then LIMITs to <c>$limit</c> after filtering, so the owner filter is never starved
+    /// by higher-scoring foreign rows (the vector index cannot pre-filter on a property).
     /// </summary>
-    public static string SearchByTaskVector(bool hasSuccessFilter)
+    public static string SearchByTaskVector(bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK)
     {
-        var whereClause = hasSuccessFilter
-            ? "WHERE score >= $minScore AND node.success = $successFilter"
-            : "WHERE score >= $minScore";
+        var conditions = new List<string> { "score >= $minScore" };
+        if (hasSuccessFilter) conditions.Add("node.success = $successFilter");
+        if (hasOwnerFilter)
+            conditions.Add(includeShared
+                ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)"
+                : "node.owner_id = $ownerId");
+
+        var whereClause = "WHERE " + string.Join(" AND ", conditions);
 
         return $@"
-            CALL db.index.vector.queryNodes('task_embedding_idx', $limit, $embedding)
+            CALL db.index.vector.queryNodes('task_embedding_idx', {topK}, $embedding)
             YIELD node, score
             {whereClause}
             RETURN node, score
-            ORDER BY score DESC";
+            ORDER BY score DESC
+            LIMIT $limit";
+    }
+
+    /// <summary>
+    /// Point-in-time variant of <see cref="SearchByTaskVector"/>: vector similarity over ReasoningTrace
+    /// task embeddings restricted to traces that had started at or before <c>$asOf</c>, with the same
+    /// optional success and owner/shared filters and the same over-fetch-then-LIMIT anti-starvation.
+    /// (A method, not a const, so it is excluded from the Cypher snapshot inventory.)
+    /// </summary>
+    public static string SearchByTaskVectorAsOf(bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK)
+    {
+        var conditions = new List<string>
+        {
+            "score >= $minScore",
+            "node.started_at <= datetime($asOf)"
+        };
+        if (hasSuccessFilter) conditions.Add("node.success = $successFilter");
+        if (hasOwnerFilter)
+            conditions.Add(includeShared
+                ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)"
+                : "node.owner_id = $ownerId");
+
+        var whereClause = "WHERE " + string.Join(" AND ", conditions);
+
+        return $@"
+            CALL db.index.vector.queryNodes('task_embedding_idx', {topK}, $embedding)
+            YIELD node, score
+            {whereClause}
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT $limit";
     }
 
     /// <summary>Create an INITIATED_BY relationship between a ReasoningTrace and a Message.</summary>
@@ -111,4 +151,28 @@ public static class ReasoningQueries
 
     /// <summary>Get a ReasoningStep by id.</summary>
     public const string GetStepById = "MATCH (s:ReasoningStep {id: $id}) RETURN s";
+
+    // ── TOUCHED audit edges (reasoning step → entity) ───────────
+    // Records which entities a reasoning step read or acted upon, for auditability/provenance.
+    // Mirrors the Python reference's by-id variant: we link only to entities that already exist
+    // (created via the resolution/extraction pipeline), never MERGE-create them here. The MERGE on
+    // the edge is idempotent; recorded_at is stamped once on create. See SchemaConstants.RelationshipTypes.Touched.
+
+    /// <summary>
+    /// Link a ReasoningStep to one or more existing entities (by id) with a TOUCHED edge. Entities or
+    /// steps that do not exist are silently skipped. Returns the number of entities linked.
+    /// </summary>
+    public const string RecordTouchedEntitiesByIds = @"
+            MATCH (s:ReasoningStep {id: $stepId})
+            UNWIND $entityIds AS entityId
+            MATCH (e:Entity {id: entityId})
+            MERGE (s)-[r:TOUCHED]->(e)
+            ON CREATE SET r.recorded_at = datetime()
+            RETURN count(r) AS linked";
+
+    /// <summary>Get the ids of all entities a ReasoningStep touched, ordered by id.</summary>
+    public const string GetTouchedEntityIds = @"
+            MATCH (s:ReasoningStep {id: $stepId})-[:TOUCHED]->(e:Entity)
+            RETURN e.id AS id
+            ORDER BY e.id";
 }

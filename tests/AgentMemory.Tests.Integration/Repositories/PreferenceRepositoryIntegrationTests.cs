@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -9,7 +10,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 
 [Collection("Neo4j Integration")]
 [Trait("Category", "Integration")]
-public class PreferenceRepositoryIntegrationTests
+public class PreferenceRepositoryIntegrationTests : IAsyncLifetime
 {
     private readonly Neo4jIntegrationFixture _fixture;
     private readonly Neo4jPreferenceRepository _repo;
@@ -97,6 +98,24 @@ public class PreferenceRepositoryIntegrationTests
 
         var result = await _repo.GetByIdAsync(pref.PreferenceId);
         result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ForeignOwnerScope_DoesNotDeleteOtherOwnersPreference()
+    {
+        var pref = new Preference
+        {
+            PreferenceId = $"pref-{Guid.NewGuid():N}",
+            Category = "style", PreferenceText = "alice-only",
+            OwnerId = "alice", Confidence = 0.8, CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+        await _repo.UpsertAsync(pref);
+
+        await _repo.DeleteAsync(pref.PreferenceId, MemoryScope.For("bob"));
+        (await _repo.GetByIdAsync(pref.PreferenceId)).Should().NotBeNull("bob's scope must not delete alice's preference");
+
+        await _repo.DeleteAsync(pref.PreferenceId, MemoryScope.For("alice"));
+        (await _repo.GetByIdAsync(pref.PreferenceId)).Should().BeNull();
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Options;
+
 namespace AgentMemory.Abstractions.Services;
 
 /// <summary>
@@ -6,11 +8,13 @@ namespace AgentMemory.Abstractions.Services;
 public interface IMemoryDecayService
 {
     /// <summary>
-    /// Removes all memory nodes (entities, facts, preferences) for the given session
-    /// whose computed retention score falls below the configured minimum threshold.
+    /// Removes memory nodes (entities, facts, preferences) whose computed retention score falls below
+    /// the configured minimum threshold. When <paramref name="scope"/> is supplied (R1) the prune only
+    /// removes the owner's <b>own</b> nodes — never another owner's, and never shared/global ones; null
+    /// means an unscoped (admin/global) prune across all owners.
     /// </summary>
     /// <returns>Total number of nodes pruned.</returns>
-    Task<int> PruneExpiredMemoriesAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task<int> PruneExpiredMemoriesAsync(MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Calculates the retention score for a single memory node.

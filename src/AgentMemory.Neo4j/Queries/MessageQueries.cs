@@ -11,9 +11,15 @@ public static class MessageQueries
 {
     // ── AddAsync ───────────────────────────────────────────────────────
 
-    /// <summary>Create a message and link it to its conversation via HAS_MESSAGE.</summary>
+    /// <summary>Create a message and link it to its conversation via HAS_MESSAGE. The conversation
+    /// is MERGE-d so persisting a message never silently no-ops when the conversation was not
+    /// explicitly created first (e.g. from the MAF context/history providers); a thin conversation
+    /// is created and later enriched by ConversationQueries.Upsert.</summary>
     public const string Add = @"
-            MATCH (conv:Conversation {id: $conversationId})
+            MERGE (conv:Conversation {id: $conversationId})
+            ON CREATE SET conv.session_id = $sessionId,
+                          conv.created_at = datetime($timestamp),
+                          conv.updated_at = datetime($timestamp)
             CREATE (m:Message {
                 id:              $id,
                 conversation_id: $conversationId,
@@ -46,7 +52,10 @@ public static class MessageQueries
     /// <summary>Batch create messages and link to conversations via UNWIND.</summary>
     public const string AddBatch = @"
             UNWIND $messages AS msg
-            MATCH (conv:Conversation {id: msg.conversation_id})
+            MERGE (conv:Conversation {id: msg.conversation_id})
+            ON CREATE SET conv.session_id = msg.session_id,
+                          conv.created_at = datetime(msg.timestamp),
+                          conv.updated_at = datetime(msg.timestamp)
             CREATE (m:Message {
                 id:              msg.id,
                 conversation_id: msg.conversation_id,

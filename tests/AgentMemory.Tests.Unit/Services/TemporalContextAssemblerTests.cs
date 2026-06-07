@@ -30,7 +30,7 @@ public sealed class TemporalContextAssemblerTests
         _clock.UtcNow.Returns(_fixedTime);
 
         _embeddingOrchestrator
-            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(_generatedEmbedding));
 
         SetupEmptyServiceReturns();
@@ -42,14 +42,17 @@ public sealed class TemporalContextAssemblerTests
             .GetRecentMessagesAsOfAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
         _longTerm
-            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
         _longTerm
-            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
         _longTerm
-            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
     }
 
     private MemoryContextAssembler CreateSut(IOptions<MemoryOptions>? options = null) =>
@@ -94,7 +97,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchEntitiesAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -107,7 +110,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchFactsAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -120,7 +123,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchPreferencesAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -132,7 +135,7 @@ public sealed class TemporalContextAssemblerTests
 
         await sut.AssembleContextAsOfAsync(request, asOf);
 
-        await _embeddingOrchestrator.Received(1).EmbedQueryAsync("What do I know?", Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.Received(1).EmbedAsync("What do I know?", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -145,7 +148,7 @@ public sealed class TemporalContextAssemblerTests
 
         await sut.AssembleContextAsOfAsync(request, asOf);
 
-        await _embeddingOrchestrator.DidNotReceive().EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -172,7 +175,7 @@ public sealed class TemporalContextAssemblerTests
         };
 
         _longTerm
-            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(entities));
 
         var sut = CreateSut();
@@ -184,7 +187,7 @@ public sealed class TemporalContextAssemblerTests
     }
 
     [Fact]
-    public async Task AssembleContextAsOfAsync_DoesNotIncludeRelevantMessagesOrTraces()
+    public async Task AssembleContextAsOfAsync_DoesNotIncludeRelevantMessages()
     {
         var asOf = _fixedTime.AddDays(-5);
         var sut = CreateSut();
@@ -192,9 +195,28 @@ public sealed class TemporalContextAssemblerTests
 
         var context = await sut.AssembleContextAsOfAsync(request, asOf);
 
-        // Temporal recall omits vector-searched messages and traces
+        // Temporal recall omits vector-searched "relevant" messages (no point-in-time message vector search).
         context.RelevantMessages.Items.Should().BeEmpty();
-        context.SimilarTraces.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsOfAsync_IncludesSimilarTracesAsOf()
+    {
+        var asOf = _fixedTime.AddDays(-5);
+        var traces = new[] { CreateTrace("t1"), CreateTrace("t2") };
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(Arg.Any<float[]>(), asOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(traces));
+
+        var sut = CreateSut();
+        var request = new RecallRequest { SessionId = "s1", Query = "test" };
+
+        var context = await sut.AssembleContextAsOfAsync(request, asOf);
+
+        context.SimilarTraces.Items.Should().HaveCount(2);
+        await _reasoning.Received(1).SearchSimilarTracesAsOfAsync(
+            Arg.Any<float[]>(), asOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -218,5 +240,13 @@ public sealed class TemporalContextAssemblerTests
         Type = "PERSON",
         Confidence = 0.9,
         CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    private static ReasoningTrace CreateTrace(string id) => new()
+    {
+        TraceId = id,
+        SessionId = "s1",
+        Task = $"Task {id}",
+        StartedAtUtc = DateTimeOffset.UtcNow
     };
 }

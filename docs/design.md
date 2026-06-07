@@ -321,23 +321,40 @@ LLM-based extraction is implemented via `AgentMemory.Extraction.Llm`:
 
 All service interfaces are defined in `AgentMemory.Abstractions.Services`.
 
+This catalog is authoritative: it lists every interface in `AgentMemory.Abstractions.Services`
+(**29 total**), which is the count `architecture.md §3.1` refers to.
+
 | # | Interface | Purpose | Key Methods |
 |---|---|---|---|
-| 1 | `IMemoryService` | Top-level facade for all memory operations | `RecallAsync`, `AddMessageAsync`, `AddMessagesAsync`, `ExtractAndPersistAsync`, `ClearSessionAsync` |
-| 2 | `IShortTermMemoryService` | Conversation and message operations | `AddConversationAsync`, `AddMessageAsync`, `AddMessagesAsync`, `GetRecentMessagesAsync`, `GetConversationMessagesAsync`, `SearchMessagesAsync`, `ClearSessionAsync` |
-| 3 | `ILongTermMemoryService` | Entity, fact, preference, relationship operations | `AddEntityAsync`, `GetEntitiesByNameAsync`, `SearchEntitiesAsync`, `AddPreferenceAsync`, `GetPreferencesByCategoryAsync`, `SearchPreferencesAsync`, `AddFactAsync`, `GetFactsBySubjectAsync`, `SearchFactsAsync`, `AddRelationshipAsync`, `GetEntityRelationshipsAsync` |
-| 4 | `IReasoningMemoryService` | Trace, step, and tool call operations | `StartTraceAsync`, `AddStepAsync`, `RecordToolCallAsync`, `CompleteTraceAsync`, `GetTraceWithStepsAsync`, `ListTracesAsync`, `SearchSimilarTracesAsync` |
-| 5 | `IMemoryContextAssembler` | Context orchestration across all layers | `AssembleContextAsync` |
-| 6 | `IMemoryExtractionPipeline` | Extraction coordination | `ExtractAsync` |
-| 7 | `IEntityExtractor` | Entity extraction from messages | `ExtractEntitiesAsync` |
-| 8 | `IFactExtractor` | Fact extraction from messages | `ExtractFactsAsync` |
-| 9 | `IPreferenceExtractor` | Preference extraction from messages | `ExtractPreferencesAsync` |
-| 10 | `IRelationshipExtractor` | Relationship extraction from messages | `ExtractRelationshipsAsync` |
-| 11 | `IEmbeddingOrchestrator` | Embedding generation coordination | `GenerateAsync`, `GenerateBatchAsync` |
-| 12 | `IEntityResolver` | Entity deduplication | `ResolveAsync` |
-| 13 | `IGraphRagContextSource` | GraphRAG integration point | `GetContextAsync` |
-| 14 | `IClock` | Testable time abstraction | `UtcNow` |
-| 15 | `IIdGenerator` | Testable ID generation | `NewId` |
+| 1 | `IMemoryService` | Top-level facade composing the three role interfaces below | (inherits `IMemoryRecall` + `IMemoryIngestion` + `IMemoryMaintenance`) |
+| 2 | `IMemoryRecall` | Read role: recall assembled context | `RecallAsync`, `RecallAsOfAsync` |
+| 3 | `IMemoryIngestion` | Write role: add messages, extract & persist | `AddMessageAsync`, `AddMessagesAsync`, `ExtractAndPersistAsync`, `ExtractFromSessionAsync`, `ExtractFromConversationAsync` |
+| 4 | `IMemoryMaintenance` | Upkeep role: clear sessions, backfill embeddings | `ClearSessionAsync`, `GenerateEmbeddingsBatchAsync` |
+| 5 | `IShortTermMemoryService` | Conversation and message operations | `AddConversationAsync`, `AddMessageAsync`, `AddMessagesAsync`, `GetRecentMessagesAsync`, `GetRecentMessagesAsOfAsync`, `GetConversationMessagesAsync`, `SearchMessagesAsync`, `ClearSessionAsync` |
+| 6 | `ILongTermMemoryService` | Entity, fact, preference, relationship operations (incl. point-in-time search) | `AddEntityAsync`, `GetEntitiesByNameAsync`, `SearchEntitiesAsync`, `SearchEntitiesAsOfAsync`, `AddPreferenceAsync`, `GetPreferencesByCategoryAsync`, `SearchPreferencesAsync`, `SearchPreferencesAsOfAsync`, `DeletePreferenceAsync`, `AddFactAsync`, `GetFactsBySubjectAsync`, `SearchFactsAsync`, `SearchFactsAsOfAsync`, `AddRelationshipAsync`, `GetEntityRelationshipsAsync` |
+| 7 | `IReasoningMemoryService` | Trace, step, and tool call operations | `StartTraceAsync`, `AddStepAsync`, `RecordToolCallAsync`, `CompleteTraceAsync`, `GetTraceWithStepsAsync`, `ListTracesAsync`, `SearchSimilarTracesAsync` |
+| 8 | `IMemoryContextAssembler` | Context orchestration across all layers | `AssembleContextAsync`, `AssembleContextAsOfAsync` |
+| 9 | `IMemoryQueryFacade` | Render-ready search/command facade for adapters (tools, SK plugin) | `SearchMemoryAsync`, `RememberPreferenceAsync`, `RememberFactAsync`, `RecallPreferencesAsync`, `SearchKnowledgeAsync`, `FindSimilarTasksAsync` |
+| 10 | `IMemoryExtractionPipeline` | Extraction coordination | `ExtractAsync` |
+| 11 | `IEntityExtractor` | Entity extraction from messages | `ExtractAsync` |
+| 12 | `IFactExtractor` | Fact extraction from messages | `ExtractAsync` |
+| 13 | `IPreferenceExtractor` | Preference extraction from messages | `ExtractAsync` |
+| 14 | `IRelationshipExtractor` | Relationship extraction from messages | `ExtractAsync` |
+| 15 | `IStreamingExtractor` | Incremental/streaming extraction | `ExtractAsync` |
+| 16 | `IMergeStrategy` | Merges results from multiple extractors | `Merge` |
+| 17 | `IEmbeddingOrchestrator` | Embedding generation (single + batch) | `EmbedAsync`, `EmbedBatchAsync` (+ `EmbedEntity/Fact/Preference/Message/Query/TextAsync` extension helpers) |
+| 18 | `IEntityResolver` | Entity deduplication / resolution | `ResolveEntityAsync`, `FindPotentialDuplicatesAsync` |
+| 19 | `IMemoryDecayService` | Time-decay scoring and pruning | `CalculateRetentionScoreAsync`, `PruneExpiredMemoriesAsync`, `UpdateAccessTimestampAsync` |
+| 20 | `IContextCompressor` | Compresses assembled context to fit budgets | `CompressAsync` |
+| 21 | `IGraphRagContextSource` | GraphRAG integration point | `GetContextAsync` |
+| 22 | `IGraphQueryService` | Read-only ad-hoc Cypher query surface | `QueryAsync` |
+| 23 | `IEnrichmentService` | Entity enrichment (Wikimedia/Diffbot) | `EnrichEntityAsync` |
+| 24 | `IGeocodingService` | Location → coordinates (Nominatim) | `GeocodeAsync` |
+| 25 | `IBackgroundEnrichmentQueue` | Async enrichment work queue | `EnqueueAsync`, `EnqueueBatchAsync` |
+| 26 | `ISchemaManager` | Schema document load/save/versioning | `LoadSchemaAsync`, `SaveSchemaAsync`, `SchemaExistsAsync`, `LoadSchemaVersionAsync`, `DeleteSchemaAsync` |
+| 27 | `ISessionIdGenerator` | Session-id strategy (per-conversation/day/user) | `GenerateSessionId` |
+| 28 | `IClock` | Testable time abstraction | `UtcNow` |
+| 29 | `IIdGenerator` | Testable ID generation | `GenerateId` |
 
 ---
 
@@ -357,6 +374,7 @@ All repository interfaces are defined in `AgentMemory.Abstractions.Repositories`
 | 8 | `IReasoningStepRepository` | Step persistence | `AddAsync`, `GetByTraceAsync`, `GetByIdAsync` | `:ReasoningStep` |
 | 9 | `IToolCallRepository` | Tool call persistence | `AddAsync`, `UpdateAsync`, `GetByStepAsync`, `GetByIdAsync` | `:ToolCall` |
 | 10 | `ISchemaRepository` | Schema + migration management | `InitializeSchemaAsync`, `IsSchemaInitializedAsync`, `GetSchemaVersionAsync`, `ApplyMigrationAsync` | (meta) |
+| 11 | `IExtractorRepository` | Extractor registry + extraction provenance | `GetByNameAsync`, `CreateExtractedByRelationshipAsync`, `GetProvenanceAsync`, `GetExtractorStatsAsync`, `GetExtractionStatsAsync`, `DeleteProvenanceAsync` | `:Extractor` / `EXTRACTED_BY` |
 
 ### Repository Patterns
 

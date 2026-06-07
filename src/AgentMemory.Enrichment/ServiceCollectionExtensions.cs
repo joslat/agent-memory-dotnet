@@ -27,10 +27,21 @@ public static class ServiceCollectionExtensions
         var geoOptions = services.AddOptions<GeocodingOptions>();
         if (configureGeocoding is not null)
             geoOptions.Configure(configureGeocoding);
+        geoOptions
+            .Validate(o => !string.IsNullOrWhiteSpace(o.BaseUrl), "Geocoding BaseUrl must be provided.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.UserAgent), "Geocoding UserAgent must be provided (Nominatim requires it).")
+            .Validate(o => o.TimeoutSeconds > 0, "Geocoding TimeoutSeconds must be positive.")
+            .Validate(o => o.RateLimitPerSecond > 0, "Geocoding RateLimitPerSecond must be positive.")
+            .ValidateOnStart();
 
         var enrichOptions = services.AddOptions<EnrichmentOptions>();
         if (configureEnrichment is not null)
             enrichOptions.Configure(configureEnrichment);
+        enrichOptions
+            .Validate(o => !string.IsNullOrWhiteSpace(o.WikipediaLanguage), "Enrichment WikipediaLanguage must be provided.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.WikipediaBaseUrl), "Enrichment WikipediaBaseUrl must be provided.")
+            .Validate(o => o.TimeoutSeconds > 0, "Enrichment TimeoutSeconds must be positive.")
+            .ValidateOnStart();
 
         var cacheOptions = services.AddOptions<EnrichmentCacheOptions>();
         if (configureCaching is not null)
@@ -88,14 +99,18 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<DiffbotEnrichmentOptions> configure)
     {
-        var options = new DiffbotEnrichmentOptions();
-        configure(options);
+        services.AddOptions<DiffbotEnrichmentOptions>()
+            .Configure(configure)
+            .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Diffbot ApiKey must be provided.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.BaseUrl), "Diffbot BaseUrl must be provided.")
+            .Validate(o => o.RateLimitSeconds >= 0, "Diffbot RateLimitSeconds must be non-negative.")
+            .Validate(o => o.Timeout > TimeSpan.Zero, "Diffbot Timeout must be positive.")
+            .ValidateOnStart();
 
-        services.TryAddSingleton(options);
-
-        services.AddHttpClient<DiffbotEnrichmentService>((_, client) =>
+        services.AddHttpClient<DiffbotEnrichmentService>((sp, client) =>
         {
-            client.Timeout = options.Timeout;
+            var opts = sp.GetRequiredService<IOptions<DiffbotEnrichmentOptions>>().Value;
+            client.Timeout = opts.Timeout;
         });
 
         return services;

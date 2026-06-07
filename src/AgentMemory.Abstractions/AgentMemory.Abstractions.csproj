@@ -6,12 +6,13 @@
     <Nullable>enable</Nullable>
     <RootNamespace>AgentMemory.Abstractions</RootNamespace>
     <AssemblyName>AgentMemory.Abstractions</AssemblyName>
-    <Description>Abstractions and domain models for the Neo4j Agent Memory library.</Description>
+    <Description>Abstractions and domain models for AgentMemory for .NET, a Neo4j-backed agent-memory library.</Description>
+    <PackageTags>agent-memory;ai;llm;memory;abstractions;neo4j</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.4.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.5.1" />
   </ItemGroup>
 
 </Project>
