@@ -85,7 +85,10 @@ public sealed class PackageBoundaryGuardTests
                 "{0}.csproj must not declare a {1}* PackageReference", project, prefix);
 
         var projectRefNames = doc.Descendants("ProjectReference")
-            .Select(e => Path.GetFileNameWithoutExtension(e.Attribute("Include")?.Value ?? string.Empty))
+            // Normalize Windows '\' separators to '/' before extracting the file name: csproj Include
+            // paths use backslashes, but '\' is not a path separator on Linux/CI, so
+            // Path.GetFileNameWithoutExtension would otherwise return the whole "..\X\X" path there.
+            .Select(e => Path.GetFileNameWithoutExtension((e.Attribute("Include")?.Value ?? string.Empty).Replace('\\', '/')))
             .Where(n => !string.IsNullOrEmpty(n))
             .ToList();
         projectRefNames.Should().OnlyContain(n => rule.AllowedInternalReferences.Contains(n),
