@@ -179,7 +179,7 @@ NuGet package IDs are permanent once published.
   (defaults to `Blended`, so existing output ordering is unchanged).
 - **Microsoft Agent Framework (MAF) 1.9.0** (from 1.1.0) and `Microsoft.Extensions.AI.Abstractions`
   10.5.1 (from 10.4.1, the floor MAF 1.9.0 requires). The migration was source-compatible — no adapter
-  code changes — see `docs/plans/maf-1.9.0-migration.md`.
+  code changes — see `docs/archive/maf-1.9.0-migration.md`.
 
 ### Fixed
 
