@@ -183,6 +183,12 @@ NuGet package IDs are permanent once published.
 
 ### Fixed
 
+- **Batch entity upsert now persists geospatial `location`.** `Neo4jEntityRepository.UpsertBatchAsync`
+  set embeddings, labels, and provenance but silently dropped `Latitude`/`Longitude`, so entities
+  created via the batch path had no `location` point and were invisible to `SearchByLocationAsync` /
+  `SearchInBoundingBoxAsync` (single `UpsertAsync` already persisted it). The batch now writes the
+  point for every entity with both coordinates, matching the single path. Covered by single + batch
+  round-trip integration tests (model coords → read-back → spatial search) and batch unit tests.
 - **Owner-scoped entity resolution (R1 isolation hardening — fixes a cross-owner write-path leak).**
   Entity resolution fetched its candidate set via an unscoped read, so when extracting for user A an
   incoming entity could exact/fuzzy/semantic-match onto user B's **private** entity and auto-merge into

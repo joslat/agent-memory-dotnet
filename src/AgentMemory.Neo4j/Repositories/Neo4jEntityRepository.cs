@@ -286,6 +286,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, embedding = entity.Embedding!.ToList() });
             }
 
+            // Persist geospatial location individually (parity with single UpsertAsync — the UNWIND
+            // upsert can't set a point() from per-row nullable coords without erroring on missing ones).
+            foreach (var entity in entities.Where(e => e.Latitude.HasValue && e.Longitude.HasValue))
+            {
+                await runner.RunAsync(
+                    SharedFragments.SetEntityLocation,
+                    new { id = entity.EntityId, lat = entity.Latitude!.Value, lon = entity.Longitude!.Value });
+            }
+
             // Dynamically add POLE+O type labels
             foreach (var entity in entities)
             {

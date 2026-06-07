@@ -86,6 +86,35 @@ public sealed class Neo4jEntityRepositoryLocationTests
         return (new Neo4jEntityRepository(txRunner, NullLogger<Neo4jEntityRepository>.Instance), calls);
     }
 
+    /// <summary>
+    /// Capture for WriteAsync&lt;List&lt;Entity&gt;&gt; used by UpsertBatchAsync. Every RunAsync returns an
+    /// empty cursor (the batch's follow-up SET calls iterate the input entities, not the result rows).
+    /// </summary>
+    private static (Neo4jEntityRepository Repo, List<(string Cypher, object? Parameters)> Calls)
+        CreateBatchUpsertCapture()
+    {
+        var calls = new List<(string Cypher, object? Parameters)>();
+        var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        txRunner
+            .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<List<Entity>>>>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var work = call.Arg<Func<IAsyncQueryRunner, Task<List<Entity>>>>();
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner
+                    .RunAsync(Arg.Any<string>(), Arg.Any<object>())
+                    .Returns(ci =>
+                    {
+                        calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
+                        var empty = Substitute.For<IResultCursor>();
+                        empty.FetchAsync().Returns(Task.FromResult(false));
+                        return Task.FromResult(empty);
+                    });
+                return await work(runner);
+            });
+        return (new Neo4jEntityRepository(txRunner, NullLogger<Neo4jEntityRepository>.Instance), calls);
+    }
+
     private static (Neo4jEntityRepository Repo, List<(string Cypher, object? Parameters)> Calls)
         CreateWriteCapture()
     {
@@ -207,6 +236,32 @@ public sealed class Neo4jEntityRepositoryLocationTests
         var entity = MakeEntity(); // no lat/lon
 
         await repo.UpsertAsync(entity);
+
+        calls.Should().NotContain(c => c.Cypher.Contains("e.location = point("));
+    }
+
+    // ── UpsertBatchAsync — location persistence (parity with single upsert) ──
+
+    [Fact]
+    public async Task UpsertBatchAsync_WithLatLon_SetsLocationPoint()
+    {
+        var (repo, calls) = CreateBatchUpsertCapture();
+
+        await repo.UpsertBatchAsync(new[] { MakeEntity(id: "e-1", lat: 40.7128, lon: -74.0060) });
+
+        var locationCall = calls.FirstOrDefault(c => c.Cypher.Contains("e.location = point("));
+        locationCall.Cypher.Should().NotBeNull("the batch path must persist location, like single upsert");
+        var param = locationCall.Parameters!;
+        param.GetType().GetProperty("lat")!.GetValue(param).Should().Be(40.7128);
+        param.GetType().GetProperty("lon")!.GetValue(param).Should().Be(-74.0060);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_WithoutLatLon_DoesNotSetLocationPoint()
+    {
+        var (repo, calls) = CreateBatchUpsertCapture();
+
+        await repo.UpsertBatchAsync(new[] { MakeEntity(id: "e-1") }); // no lat/lon
 
         calls.Should().NotContain(c => c.Cypher.Contains("e.location = point("));
     }

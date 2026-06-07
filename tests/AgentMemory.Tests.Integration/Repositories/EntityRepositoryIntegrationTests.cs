@@ -231,6 +231,51 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         });
 
     [Fact]
+    public async Task UpsertAsync_WithLatLon_PersistsLocation_AndRoundTrips()
+    {
+        const double lat = 48.8566, lon = 2.3522; // Paris
+        var id = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Entity
+        {
+            EntityId = id, Name = "Paris HQ", Type = "Location",
+            Confidence = 0.9, Latitude = lat, Longitude = lon, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        var read = await _repo.GetByIdAsync(id);
+        read!.Latitude.Should().BeApproximately(lat, 1e-6);
+        read.Longitude.Should().BeApproximately(lon, 1e-6);
+
+        // And it is findable by the spatial search (proves the point() is well-formed, not just stored).
+        var near = await _repo.SearchByLocationAsync(lat, lon, radiusKm: 1.0, limit: 10);
+        near.Select(e => e.EntityId).Should().Contain(id);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_WithLatLon_PersistsLocation_AndRoundTrips()
+    {
+        const double lat = 40.7128, lon = -74.0060; // New York
+        var withLoc = $"entity-{Guid.NewGuid():N}";
+        var withoutLoc = $"entity-{Guid.NewGuid():N}";
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Entity { EntityId = withLoc, Name = "NYC Office", Type = "Location", Confidence = 0.9, Latitude = lat, Longitude = lon, CreatedAtUtc = DateTimeOffset.UtcNow },
+            new Entity { EntityId = withoutLoc, Name = "No Coords", Type = "Concept", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        var read = await _repo.GetByIdAsync(withLoc);
+        read!.Latitude.Should().BeApproximately(lat, 1e-6);
+        read.Longitude.Should().BeApproximately(lon, 1e-6);
+
+        // Entities without coords stay null (no spurious location written).
+        var readNoLoc = await _repo.GetByIdAsync(withoutLoc);
+        readNoLoc!.Latitude.Should().BeNull();
+        readNoLoc.Longitude.Should().BeNull();
+
+        var near = await _repo.SearchByLocationAsync(lat, lon, radiusKm: 1.0, limit: 10);
+        near.Select(e => e.EntityId).Should().Contain(withLoc).And.NotContain(withoutLoc);
+    }
+
+    [Fact]
     public async Task Entity_UpdatedAtUtc_RoundTrips_AfterReUpsert()
     {
         // updated_at is set ON MATCH (last-modified semantics): null on first create, populated after an
