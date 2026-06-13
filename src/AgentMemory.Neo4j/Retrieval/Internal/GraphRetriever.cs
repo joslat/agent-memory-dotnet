@@ -89,7 +89,11 @@ internal sealed class GraphRetriever : IRetriever
         // (plus shared/global) so the graph walk cannot surface another user's connected nodes. Blank
         // lines when unscoped, so the query is byte-for-byte today's behavior. Over-fetch via $fetchK.
         var seedWhere = scoped ? "WHERE (seed.owner_id = $owner_id OR seed.owner_id IS NULL)" : string.Empty;
-        var relatedWhere = scoped ? "WHERE (related.owner_id = $owner_id OR related.owner_id IS NULL)" : string.Empty;
+        // Scope the WHOLE path — seed, every intermediate hop, and the related endpoint — not just the
+        // endpoints, so a scoped walk can never route THROUGH another owner's private node to reach an
+        // owned/shared neighbour (that path would otherwise leak a connecting-bridge inference via `hops`).
+        // `nodes(path)` includes seed+related, so this single predicate subsumes the old endpoint filter.
+        var pathWhere = scoped ? "WHERE all(n IN nodes(path) WHERE n.owner_id = $owner_id OR n.owner_id IS NULL)" : string.Empty;
 
         // D2 — structural hop decay: a neighbour at h hops is scored seedScore·γ^h (spreading-activation
         // lite). γ = 1.0 ⇒ no decay ⇒ emit today's exact query (rank by raw score, hops as tiebreaker).
@@ -103,7 +107,7 @@ internal sealed class GraphRetriever : IRetriever
             ORDER BY score DESC
             LIMIT $k
             MATCH path = (seed)-[:RELATED_TO*1..{{maxTraversalHops}}]-(related)
-            {{relatedWhere}}
+            {{pathWhere}}
             WITH seed, related, score, length(path) AS hops
             RETURN
               coalesce(seed.text, seed.content, seed.name, '') AS seedText,
@@ -123,7 +127,7 @@ internal sealed class GraphRetriever : IRetriever
         ORDER BY score DESC
         LIMIT $k
         MATCH path = (seed)-[:RELATED_TO*1..{{maxTraversalHops}}]-(related)
-        {{relatedWhere}}
+        {{pathWhere}}
         WITH seed, related, score, length(path) AS hops
         WITH seed, related, score, hops, score * ($gamma ^ hops) AS structScore
         RETURN

@@ -128,6 +128,27 @@ public sealed class GraphRetrieverTests
     }
 
     [Theory]
+    [InlineData(1.0)]   // no decay branch
+    [InlineData(0.7)]   // structural-decay branch
+    public void BuildTraversalCypher_Scoped_FiltersTheWholePath_NotJustEndpoints(double gamma)
+    {
+        // R1 hardening: a scoped graph walk must not route THROUGH another owner's node — every node on
+        // the path (seed, intermediates, related) is owner/shared-filtered, not only the endpoints.
+        var scoped = GraphRetriever.BuildTraversalCypher(2, scoped: true, gamma: gamma);
+        scoped.Should().Contain("all(n IN nodes(path) WHERE n.owner_id = $owner_id OR n.owner_id IS NULL)");
+        scoped.Should().NotContain("related.owner_id", "the endpoint-only filter is subsumed by the path-wide one");
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(0.7)]
+    public void BuildTraversalCypher_Unscoped_HasNoOwnerFilterOnThePath(double gamma)
+    {
+        GraphRetriever.BuildTraversalCypher(2, scoped: false, gamma: gamma)
+            .Should().NotContain("owner_id").And.NotContain("nodes(path)");
+    }
+
+    [Theory]
     [InlineData(0.0)]
     [InlineData(-1.0)]
     [InlineData(2.0)]
