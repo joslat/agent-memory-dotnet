@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-preview.2] - 2026-06-13
+
 ### Added
 
 - **Schema-parity compatibility kit (TCK) — reusable component + CLI self-check + regression test.** A versioned, drop-in verifier that proves the .NET schema stays compatible with upstream `neo4j-agent-memory`. The frozen upstream `schema.json` snapshots ship as embedded resources (`UpstreamSchemaRegistry`, keyed by version — currently v0.5.0); `SchemaParityVerifier` reflects the live `SchemaConstants` (`DotNetSchema`) and compares labels, relationship types, and property names against a snapshot under a documented divergence `SchemaParityPolicy`, returning a `SchemaParityReport` (breaks vs. intentional divergences). Three surfaces over one engine: (1) a **CLI self-verification** — `agentmemory schema-parity [--upstream-version <v>]` (no Neo4j needed; exit 1 on a break; CI-friendly); (2) a **reusable library component** (`AgentMemory.Neo4j.Schema.Parity`); (3) a **regression test** that asserts current compatibility *and* that the verifier catches each drift class (dropped label, renamed property, undocumented .NET-only type, upstream catching up to a .NET superset). Adding a new upstream version is a drop-in: embed its `schema.json` and register a policy. v0.5.0 result: COMPATIBLE with 8 documented divergences (the `owner_id`/`owner_key`/`invalidated_at` supersets, the `HAS_FACT`/`HAS_PREFERENCE`/`IN_SESSION` extensions, and the `User`/`MemoryReadAudit` omissions).
