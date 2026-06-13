@@ -139,6 +139,29 @@ public sealed class AdvancedMemoryToolsTests
         doc.RootElement.GetProperty("relationshipCount").GetInt32().Should().Be(0);
     }
 
+    [Fact]
+    public async Task MemoryExportGraph_SessionScoped_UsesStoredSchemaPropertyNames()
+    {
+        // cycle-3: the stored schema uses snake_case `session_id` and `id` (not `sessionId`/`entityId`).
+        // The old camelCase names made a session-scoped export return zero nodes and null endpoint ids.
+        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var captured = new List<string>();
+        _graphQueryService.QueryAsync(
+                Arg.Do<string>(q => captured.Add(q)),
+                Arg.Any<IReadOnlyDictionary<string, object?>?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<IReadOnlyDictionary<string, object?>>());
+
+        await AdvancedMemoryTools.MemoryExportGraph(_graphQueryService, options, sessionId: "sess-1");
+
+        captured.Should().HaveCount(2);
+        // The $sessionId PARAMETER name is unchanged; only the PROPERTY accessor must be snake_case, and
+        // node ids must use `id` (not `entityId`). Assert the broken property accessors are gone.
+        captured.Should().NotContain(q => q.Contains(".sessionId"), "the stored key property is session_id");
+        captured.Should().NotContain(q => q.Contains(".entityId"), "the stored node id property is `id`");
+        captured.Should().Contain(q => q.Contains("n.session_id = $sessionId"));
+        captured.Should().Contain(q => q.Contains("coalesce(a.id, elementId(a))") && q.Contains("a.session_id"));
+    }
+
     // ── memory_find_duplicates ──
 
     [Fact]
@@ -166,6 +189,23 @@ public sealed class AdvancedMemoryToolsTests
             Arg.Any<string>(),
             Arg.Is<IReadOnlyDictionary<string, object?>?>(d => d != null && (double)d["threshold"]! == 0.75),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryFindDuplicates_UsesIdProperty_NotEntityId()
+    {
+        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var captured = new List<string>();
+        _graphQueryService.QueryAsync(
+                Arg.Do<string>(q => captured.Add(q)),
+                Arg.Any<IReadOnlyDictionary<string, object?>?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<IReadOnlyDictionary<string, object?>>());
+
+        await AdvancedMemoryTools.MemoryFindDuplicates(_graphQueryService, options);
+
+        captured.Should().ContainSingle();
+        captured[0].Should().Contain("a.id AS entityAId").And.Contain("b.id AS entityBId");
+        captured[0].Should().NotContain(".entityId", "entities store their logical id under `id`");
     }
 
     [Fact]

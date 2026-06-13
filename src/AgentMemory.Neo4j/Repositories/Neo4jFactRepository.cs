@@ -70,7 +70,9 @@ public sealed class Neo4jFactRepository : IFactRepository
             var record = await cursor.SingleAsync();
             var node = record["f"].As<INode>();
 
-            if (fact.Embedding is not null)
+            // Only persist a real (non-empty) vector so a degraded empty embedding leaves `embedding`
+            // NULL and re-queueable for the back-fill (mirrors the entity/preference repos).
+            if (fact.Embedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     SharedFragments.SetFactEmbedding,
@@ -117,8 +119,8 @@ public sealed class Neo4jFactRepository : IFactRepository
             var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items });
             var records = await cursor.ToListAsync();
 
-            // Set embeddings individually
-            foreach (var fact in facts.Where(f => f.Embedding is not null))
+            // Set embeddings individually — only for nodes with a real (non-empty) vector.
+            foreach (var fact in facts.Where(f => f.Embedding is { Length: > 0 }))
             {
                 await runner.RunAsync(
                     SharedFragments.SetFactEmbedding,
@@ -351,6 +353,14 @@ public sealed class Neo4jFactRepository : IFactRepository
         float[] embedding,
         CancellationToken cancellationToken = default)
     {
+        // Never overwrite with a zero-length vector — keep `embedding` NULL so the node stays
+        // re-queueable for the back-fill rather than being poisoned with `[]`.
+        if (embedding.Length == 0)
+        {
+            _logger.LogDebug("Skipping empty embedding update for fact {Id}.", factId);
+            return;
+        }
+
         _logger.LogDebug("Updating embedding for fact {Id}", factId);
 
         await _tx.WriteAsync(async runner =>

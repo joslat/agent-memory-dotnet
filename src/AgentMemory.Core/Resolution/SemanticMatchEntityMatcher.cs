@@ -32,12 +32,23 @@ internal sealed class SemanticMatchEntityMatcher : IEntityMatcher
             .EmbedEntityAsync(candidate.Name, cancellationToken)
             .ConfigureAwait(false);
 
+        // The embedding orchestrator degrades to an empty vector on a generation failure (transient
+        // provider outage / rate limit). Treat that as "no semantic signal" and skip matching entirely,
+        // so resolution falls through to CreateNew and the entity (plus its relationships) is still
+        // persisted — rather than throwing a dimension-mismatch out of the resolver, which would silently
+        // drop the entity and every edge that references it.
+        if (candidateEmbedding.Length == 0)
+            return null;
+
         Entity? bestEntity = null;
         double bestScore = _options.SemanticMatchThreshold;
 
         foreach (var existing in existingEntities)
         {
-            if (existing.Embedding is null)
+            // Skip candidates with no embedding, or whose stored vector has a different dimensionality
+            // (e.g. a partially back-filled node, or a node embedded by a different model). Comparing
+            // mismatched dimensions can only error, never match.
+            if (existing.Embedding is null || existing.Embedding.Length != candidateEmbedding.Length)
                 continue;
 
             var similarity = CosineSimilarity(candidateEmbedding, existing.Embedding);

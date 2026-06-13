@@ -57,7 +57,12 @@ public sealed class Neo4jMicrosoftMemoryFacade
                 .RecallAsync(new RecallRequest { SessionId = sessionId, Query = queryText }, ct)
                 .ConfigureAwait(false);
 
+            // RecentMessages is newest-first (recall orders DESC); reverse it to chronological
+            // (oldest-first) before blending with the semantically-relevant messages so the agent reads
+            // recent history in the order it happened. (RelevantMessages ordering is left as-is — it is
+            // similarity-ranked, not chronological.)
             return recall.Context.RecentMessages.Items
+                .Reverse()
                 .Concat(recall.Context.RelevantMessages.Items)
                 .DistinctBy(m => m.MessageId)
                 .Select(MafTypeMapper.ToChatMessage)

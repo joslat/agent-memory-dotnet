@@ -40,7 +40,8 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
             var record = await cursor.SingleAsync();
             var node = record["s"].As<INode>();
 
-            if (step.Embedding is not null)
+            // Only persist a real (non-empty) vector; a degraded empty embedding leaves `embedding` NULL.
+            if (step.Embedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     ReasoningQueries.SetStepEmbedding,

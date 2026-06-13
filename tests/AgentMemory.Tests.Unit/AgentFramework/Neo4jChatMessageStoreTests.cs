@@ -110,6 +110,38 @@ public sealed class Neo4jChatMessageStoreTests
     }
 
     [Fact]
+    public async Task GetMessagesAsync_ReturnsChronologicalOrder()
+    {
+        // cycle-3: recall returns RecentMessages newest-first (DESC). A chat-history surface must hand the
+        // agent the conversation oldest-first, so the store reverses to chronological order.
+        var older = new Message
+        {
+            MessageId = "m-old", SessionId = "s1", ConversationId = "c1",
+            Role = "user", Content = "first", TimestampUtc = _now.AddMinutes(-5)
+        };
+        var newer = new Message
+        {
+            MessageId = "m-new", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "second", TimestampUtc = _now
+        };
+        // Recall hands back newest-first: [newer, older].
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RecallResult
+            {
+                Context = new MemoryContext
+                {
+                    SessionId = "s1",
+                    AssembledAtUtc = _now,
+                    RecentMessages = new MemoryContextSection<Message> { Items = [newer, older] }
+                }
+            });
+
+        var result = await _sut.GetMessagesAsync("s1");
+
+        result.Select(m => m.Text).Should().ContainInOrder("first", "second");
+    }
+
+    [Fact]
     public async Task GetMessagesAsync_ServiceThrows_ReturnsEmpty()
     {
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())

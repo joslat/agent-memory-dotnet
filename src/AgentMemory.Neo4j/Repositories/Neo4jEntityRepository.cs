@@ -71,7 +71,11 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, lat = entity.Latitude.Value, lon = entity.Longitude.Value });
             }
 
-            if (entity.Embedding is not null)
+            // Only persist a real (non-empty) vector. A zero-length embedding (the orchestrator's
+            // degraded result on a generation failure) must leave the `embedding` property NULL so the
+            // back-fill job can later re-process the node — writing `[]` would make `embedding IS NULL`
+            // false and strand the node un-searchable forever.
+            if (entity.Embedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     SharedFragments.SetEntityEmbedding,
@@ -294,8 +298,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             var cursor = await runner.RunAsync(EntityQueries.UpsertBatch, new { items });
             var records = await cursor.ToListAsync();
 
-            // Set embeddings individually
-            foreach (var entity in entities.Where(e => e.Embedding is not null))
+            // Set embeddings individually — only for nodes with a real (non-empty) vector, so a degraded
+            // empty embedding leaves `embedding` NULL and re-queueable for the back-fill (see UpsertAsync).
+            foreach (var entity in entities.Where(e => e.Embedding is { Length: > 0 }))
             {
                 await runner.RunAsync(
                     SharedFragments.SetEntityEmbedding,
@@ -534,6 +539,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         float[] embedding,
         CancellationToken cancellationToken = default)
     {
+        // Never overwrite with a zero-length vector (e.g. a back-fill run that itself hit a transient
+        // embedding failure). Skipping keeps `embedding` NULL so the node stays re-queueable rather than
+        // being poisoned with `[]` and stranded un-searchable.
+        if (embedding.Length == 0)
+        {
+            _logger.LogDebug("Skipping empty embedding update for entity {Id}.", entityId);
+            return;
+        }
+
         _logger.LogDebug("Updating embedding for entity {Id}", entityId);
 
         await _tx.WriteAsync(async runner =>

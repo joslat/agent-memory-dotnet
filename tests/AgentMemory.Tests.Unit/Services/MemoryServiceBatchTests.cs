@@ -59,7 +59,7 @@ public sealed class MemoryServiceBatchTests
     public async Task ExtractFromSessionAsync_GetsMessagesAndRunsExtraction()
     {
         var messages = new List<Message> { MakeMessage("m1", "sess-1"), MakeMessage("m2", "sess-1") };
-        _shortTerm.GetRecentMessagesAsync("sess-1", int.MaxValue, Arg.Any<CancellationToken>())
+        _shortTerm.GetAllSessionMessagesAsync("sess-1", Arg.Any<CancellationToken>())
             .Returns(messages);
 
         var sut = CreateSut();
@@ -73,9 +73,25 @@ public sealed class MemoryServiceBatchTests
     }
 
     [Fact]
+    public async Task ExtractFromSessionAsync_UsesUncappedSessionFetch_NotTheCappedRecentPath()
+    {
+        // cycle-3: whole-session extraction must read every message, not the MaxMessagesPerQuery-capped
+        // recent page. Guards against silently dropping the oldest messages of a long session.
+        _shortTerm.GetAllSessionMessagesAsync("sess-1", Arg.Any<CancellationToken>())
+            .Returns(new List<Message> { MakeMessage("m1", "sess-1") });
+
+        var sut = CreateSut();
+        await sut.ExtractFromSessionAsync("sess-1");
+
+        await _shortTerm.Received(1).GetAllSessionMessagesAsync("sess-1", Arg.Any<CancellationToken>());
+        await _shortTerm.DidNotReceive().GetRecentMessagesAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ExtractFromSessionAsync_WhenNoMessages_SkipsExtraction()
     {
-        _shortTerm.GetRecentMessagesAsync("empty-sess", int.MaxValue, Arg.Any<CancellationToken>())
+        _shortTerm.GetAllSessionMessagesAsync("empty-sess", Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
         var sut = CreateSut();

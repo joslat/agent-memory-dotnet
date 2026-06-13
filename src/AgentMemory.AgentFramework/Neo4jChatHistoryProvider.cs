@@ -24,6 +24,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     private readonly IIdGenerator _idGenerator;
     private readonly AgentFrameworkOptions _options;
     private readonly IMemoryStoreContext? _storeContext;
+    private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly ILogger<Neo4jChatHistoryProvider> _logger;
 
     /// <inheritdoc />
@@ -36,7 +37,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         IIdGenerator idGenerator,
         AgentFrameworkOptions options,
         ILogger<Neo4jChatHistoryProvider> logger,
-        IMemoryStoreContext? storeContext = null)
+        IMemoryStoreContext? storeContext = null,
+        IWritableMemoryOwnerContext? ownerContext = null)
         : base(null, null, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
@@ -44,6 +46,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _storeContext = storeContext;
+        _ownerContext = ownerContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -57,6 +60,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     {
         var ids = ExtractIds(context.Session, context.Agent);
         ApplyStoreContext(ids.applicationId);
+        ApplyOwnerContext(ids.userId);
         try
         {
             var recallResult = await _memoryService.RecallAsync(
@@ -71,7 +75,10 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                     }
                 }, cancellationToken).ConfigureAwait(false);
 
+            // RecentMessages is newest-first (the recall query orders DESC); a chat-history provider must
+            // hand the agent its prior turns in chronological (oldest-first) order, so reverse here.
             return recallResult.Context.RecentMessages.Items
+                .Reverse()
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }
@@ -93,6 +100,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     {
         var (sessionId, conversationId, userId, applicationId) = ExtractIds(context.Session, context.Agent);
         ApplyStoreContext(applicationId);
+        ApplyOwnerContext(userId);
         try
         {
             // Persist request messages (user + system turns not already in memory)
@@ -195,5 +203,17 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     {
         if (applicationId is not null && _storeContext is IWritableMemoryStoreContext writable)
             writable.ApplicationId = applicationId;
+    }
+
+    // Pushes the turn's owner (IC8) into the ambient context so the LLM-invokable facade tools scope by
+    // owner without trusting the model. Set unconditionally (incl. null = shared) so a previous turn's
+    // owner can't bleed through. NOTE: the default owner context is AsyncLocal-backed and a value set in
+    // this awaited hook does not flow back to the framework caller; for guaranteed scoping the host must
+    // set the owner context around the run (or register a scoped context). See
+    // docs/review-2026-06-13-cycle3.md (finding #4).
+    private void ApplyOwnerContext(string? userId)
+    {
+        if (_ownerContext is not null)
+            _ownerContext.UserId = userId;
     }
 }

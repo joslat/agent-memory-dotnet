@@ -118,6 +118,16 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     }
 
     /// <inheritdoc/>
+    public Task<IReadOnlyList<Message>> GetAllSessionMessagesAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        // Deliberately bypasses the MaxMessagesPerQuery cap: whole-session extraction must see every
+        // message, not just the most recent page.
+        return _messageRepo.GetAllBySessionAsync(sessionId, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Message>> GetConversationMessagesAsync(
         string conversationId,
         CancellationToken cancellationToken = default)

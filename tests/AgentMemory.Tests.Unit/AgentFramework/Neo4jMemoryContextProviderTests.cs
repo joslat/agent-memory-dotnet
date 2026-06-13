@@ -174,6 +174,70 @@ public sealed class Neo4jMemoryContextProviderTests
         result.Messages.Should().BeNullOrEmpty();
     }
 
+    // ── Ambient owner context (IC8) — cross-owner isolation of LLM-invokable tools ────────
+    //
+    // The agent's mid-turn facade tools (search_memory / remember_*) scope only via the ambient
+    // IMemoryOwnerContext. The provider must push the turn's userId into it, or those tools run unscoped
+    // (cross-owner read leak) and writes are stored shared/global. We assert the WIRING via a substitute:
+    // DefaultMemoryOwnerContext is AsyncLocal-backed, and a value set inside an awaited async method is not
+    // observable by the caller afterwards — so the host must own the enclosing scope for the value to reach
+    // the tools (documented in docs/review-2026-06-13-cycle3.md). Here we verify the provider sets it.
+
+    [Fact]
+    public async Task BuildContextAsync_WithUserId_PushesOwnerIntoAmbientContext()
+    {
+        var owner = Substitute.For<IWritableMemoryOwnerContext>();
+        var sut = new Neo4jMemoryContextProvider(
+            _memoryService, _embeddingOrchestrator,
+            Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        var messages = new List<ChatMessage> { new(ChatRole.User, "What do I prefer?") };
+        await sut.BuildContextAsync(messages, "s1", "c1", CancellationToken.None, userId: "alice");
+
+        owner.Received().UserId = "alice";
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_WithUserId_PushesOwnerIntoAmbientContext()
+    {
+        var owner = Substitute.For<IWritableMemoryOwnerContext>();
+        var sut = new Neo4jMemoryContextProvider(
+            _memoryService, _embeddingOrchestrator,
+            Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.Assistant, "noted") }, "s1", "c1",
+            CancellationToken.None, userId: "bob");
+
+        owner.Received().UserId = "bob";
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_WithoutUserId_PushesNullOwner_NoStaleBleed()
+    {
+        // An unowned turn must reset the ambient owner to null (shared), never inherit a previous turn's.
+        var owner = Substitute.For<IWritableMemoryOwnerContext>();
+        var sut = new Neo4jMemoryContextProvider(
+            _memoryService, _embeddingOrchestrator,
+            Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hi") }, "s1", "c1", CancellationToken.None);
+
+        owner.Received().UserId = null;
+    }
+
     // ── PerformStoreAsync (internal, tested via InternalsVisibleTo) ────────
 
     private static readonly DateTimeOffset FixedTime = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);

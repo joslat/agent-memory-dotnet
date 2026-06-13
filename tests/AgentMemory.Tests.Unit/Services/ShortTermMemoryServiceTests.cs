@@ -187,6 +187,23 @@ public sealed class ShortTermMemoryServiceTests
     }
 
     [Fact]
+    public async Task GetAllSessionMessagesAsync_DelegatesToUncappedRepoFetch()
+    {
+        // cycle-3: whole-session extraction must bypass the MaxMessagesPerQuery cap. This method routes to
+        // the uncapped GetAllBySessionAsync, never the capped GetRecentBySessionAsync.
+        _messageRepo
+            .GetAllBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
+        var sut = CreateSut(Options.Create(new ShortTermMemoryOptions { MaxMessagesPerQuery = 10 }));
+
+        await sut.GetAllSessionMessagesAsync("session-1");
+
+        await _messageRepo.Received(1).GetAllBySessionAsync("session-1", Arg.Any<CancellationToken>());
+        await _messageRepo.DidNotReceive().GetRecentBySessionAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task SearchMessagesAsync_DelegatesToRepositoryAndStripsScores()
     {
         var message = CreateMessage("msg-1");

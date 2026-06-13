@@ -59,7 +59,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             var record = await cursor.SingleAsync();
             var node = record["p"].As<INode>();
 
-            if (preference.Embedding is not null)
+            // Only persist a real (non-empty) vector so a degraded empty embedding leaves `embedding`
+            // NULL and re-queueable for the back-fill (mirrors the entity/fact repos).
+            if (preference.Embedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     PreferenceQueries.SetEmbedding,
@@ -325,6 +327,14 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         float[] embedding,
         CancellationToken cancellationToken = default)
     {
+        // Never overwrite with a zero-length vector — keep `embedding` NULL so the node stays
+        // re-queueable for the back-fill rather than being poisoned with `[]`.
+        if (embedding.Length == 0)
+        {
+            _logger.LogDebug("Skipping empty embedding update for preference {Id}.", preferenceId);
+            return;
+        }
+
         _logger.LogDebug("Updating embedding for preference {Id}", preferenceId);
 
         await _tx.WriteAsync(async runner =>
