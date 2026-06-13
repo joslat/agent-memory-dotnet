@@ -1,10 +1,12 @@
 namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
-/// Cypher queries for temporal (point-in-time) memory retrieval.
-/// All queries filter nodes that existed at a given <c>$asOf</c> timestamp,
-/// meaning they were created on or before <c>$asOf</c> and had not yet been
-/// invalidated/superseded at that time.
+/// Cypher queries for temporal (point-in-time) memory retrieval. The vector AsOf searches are
+/// <b>bitemporal</b> (D6): the <b>transaction-time</b> clock (<c>$systemAsOf</c>) binds
+/// <c>created_at</c>/<c>invalidated_at</c> ("what the system believed at that time"), and the
+/// <b>valid-time</b> clock (<c>$validAsOf</c>) binds a fact's <c>valid_from</c>/<c>valid_until</c>
+/// ("what was true in the world at that time"). A single-clock caller passes both equal. The by-id AsOf
+/// constants remain single-clock (<c>$asOf</c>) — a direct handle lookup has no need for two clocks.
 /// </summary>
 public static class TemporalQueries
 {
@@ -17,15 +19,16 @@ public static class TemporalQueries
     // ── Entities ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Vector similarity search on entities that existed at <c>$asOf</c>, with an optional owner/shared
-    /// filter (R1). Over-fetches <paramref name="topK"/> then LIMITs to <c>$limit</c> after filtering.
+    /// Vector similarity search on entities the system believed at <c>$systemAsOf</c> (entities have no
+    /// valid-time window, so only the transaction clock applies), with an optional owner/shared filter
+    /// (R1). Over-fetches <paramref name="topK"/> then LIMITs to <c>$limit</c> after filtering.
     /// </summary>
     public static string SearchEntitiesAsOf(bool hasOwnerFilter, bool includeShared, int topK) => $@"
             CALL db.index.vector.queryNodes('entity_embedding_idx', {topK}, $embedding)
             YIELD node, score
             WHERE score >= $minScore
-              AND node.created_at <= datetime($asOf)
-              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($asOf)){OwnerAnd(hasOwnerFilter, includeShared)}
+              AND node.created_at <= datetime($systemAsOf)
+              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf)){OwnerAnd(hasOwnerFilter, includeShared)}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
@@ -40,17 +43,19 @@ public static class TemporalQueries
     // ── Facts ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Vector similarity search on facts that existed at <c>$asOf</c>.
-    /// Also respects the fact's temporal validity window (<c>valid_from</c> / <c>valid_until</c>).
+    /// Bitemporal vector similarity search on facts (D6): the transaction clock (<c>$systemAsOf</c>)
+    /// filters <c>created_at</c>/<c>invalidated_at</c> ("what we believed"), and the valid-time clock
+    /// (<c>$validAsOf</c>) filters the fact's validity window <c>valid_from</c>/<c>valid_until</c> ("what
+    /// was true"). Pass both equal for ordinary single-clock point-in-time recall.
     /// </summary>
     public static string SearchFactsAsOf(bool hasOwnerFilter, bool includeShared, int topK) => $@"
             CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
             YIELD node, score
             WHERE score >= $minScore
-              AND node.created_at <= datetime($asOf)
-              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($asOf))
-              AND (node.valid_from IS NULL OR node.valid_from <= datetime($asOf))
-              AND (node.valid_until IS NULL OR node.valid_until > datetime($asOf)){OwnerAnd(hasOwnerFilter, includeShared)}
+              AND node.created_at <= datetime($systemAsOf)
+              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf))
+              AND (node.valid_from IS NULL OR node.valid_from <= datetime($validAsOf))
+              AND (node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)){OwnerAnd(hasOwnerFilter, includeShared)}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";
@@ -67,14 +72,15 @@ public static class TemporalQueries
     // ── Preferences ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Vector similarity search on preferences that existed at <c>$asOf</c>.
+    /// Vector similarity search on preferences the system believed at <c>$systemAsOf</c> (preferences
+    /// have no valid-time window, so only the transaction clock applies).
     /// </summary>
     public static string SearchPreferencesAsOf(bool hasOwnerFilter, bool includeShared, int topK) => $@"
             CALL db.index.vector.queryNodes('preference_embedding_idx', {topK}, $embedding)
             YIELD node, score
             WHERE score >= $minScore
-              AND node.created_at <= datetime($asOf)
-              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($asOf)){OwnerAnd(hasOwnerFilter, includeShared)}
+              AND node.created_at <= datetime($systemAsOf)
+              AND (node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf)){OwnerAnd(hasOwnerFilter, includeShared)}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";

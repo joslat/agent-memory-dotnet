@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -16,11 +18,22 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jPreferenceRepository> _logger;
+    private readonly MemoryRankingOptions _ranking;
+    private readonly MemoryDecayOptions _decay;
+    private readonly IMemoryRankingContext? _rankingContext;
 
-    public Neo4jPreferenceRepository(INeo4jTransactionRunner tx, ILogger<Neo4jPreferenceRepository> logger)
+    public Neo4jPreferenceRepository(
+        INeo4jTransactionRunner tx,
+        ILogger<Neo4jPreferenceRepository> logger,
+        IOptions<MemoryRankingOptions>? ranking = null,
+        IOptions<MemoryDecayOptions>? decay = null,
+        IMemoryRankingContext? rankingContext = null)
     {
         _tx = tx;
         _logger = logger;
+        _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
+        _decay = decay?.Value ?? MemoryDecayOptions.Default;
+        _rankingContext = rankingContext;
     }
 
     public async Task<Preference> UpsertAsync(Preference preference, CancellationToken cancellationToken = default)
@@ -114,7 +127,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
         _logger.LogDebug("Vector search preferences, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
-        var cypher = PreferenceQueries.SearchByVector(hasOwner, includeShared, topK);
+        var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
+        bool recencyRerank = ranking.RecencyRerankEnabled;
+        var cypher = PreferenceQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"] = queryEmbedding.ToList(),
@@ -122,6 +137,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             ["minScore"] = minScore,
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -187,6 +203,42 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
                 await runner.RunAsync(cypher, new Dictionary<string, object> { ["id"] = preferenceId, ["ownerId"] = scope!.OwnerId! });
             else
                 await runner.RunAsync(cypher, new { id = preferenceId });
+        }, cancellationToken);
+    }
+
+    public async Task<bool> InvalidateAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Invalidating preference {Id}, owner={Owner}", preferenceId, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.Invalidate(hasOwner);
+        string now = DateTimeOffset.UtcNow.ToString("O");
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?> { ["id"] = preferenceId, ["now"] = now };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["invalidated"].As<bool>();
+        }, cancellationToken);
+    }
+
+    public async Task<bool> SupersedeAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Superseding preference {Loser} with {Winner}, owner={Owner}", loserPreferenceId, winnerPreferenceId, scope?.OwnerId);
+
+        var cypher = PreferenceQueries.Supersede(hasOwner);
+        string now = DateTimeOffset.UtcNow.ToString("O");
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?> { ["loserId"] = loserPreferenceId, ["winnerId"] = winnerPreferenceId, ["now"] = now };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["superseded"].As<bool>();
         }, cancellationToken);
     }
 
@@ -299,10 +351,11 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         var cypher = TemporalQueries.SearchPreferencesAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"] = queryEmbedding.ToList(),
-            ["limit"]     = limit,
-            ["minScore"]  = minScore,
-            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+            ["embedding"]  = queryEmbedding.ToList(),
+            ["limit"]      = limit,
+            ["minScore"]   = minScore,
+            // D6: preferences have only the transaction clock, so the AsOf timestamp binds $systemAsOf.
+            ["systemAsOf"] = asOf.UtcDateTime.ToString("O")
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 

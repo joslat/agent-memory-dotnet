@@ -295,9 +295,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken);
+        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, systemAsOf, cancellationToken);
         return scored.Select(r => r.Fact).ToList();
     }
 

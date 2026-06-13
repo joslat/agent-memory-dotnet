@@ -32,6 +32,15 @@ public sealed record MemoryDecayOptions
     /// </summary>
     public bool EnableAutoPrune { get; init; }
 
+    /// <summary>
+    /// When <c>true</c> (the default, D4), decay pruning is <b>non-destructive</b>: low-score nodes are
+    /// soft-invalidated (their <c>invalidated_at</c> is stamped) — kept, recoverable, and still visible to
+    /// as-of recall — rather than deleted, so forgetting is reversible and auditable. Set <c>false</c> for
+    /// a hard <c>DETACH DELETE</c> purge (storage reclamation / GDPR erasure). Either way, pruning only
+    /// runs when invoked — it is not automatic unless <see cref="EnableAutoPrune"/> is set.
+    /// </summary>
+    public bool NonDestructive { get; init; } = true;
+
     /// <summary>Default instance with standard values.</summary>
     public static MemoryDecayOptions Default { get; } = new();
 }

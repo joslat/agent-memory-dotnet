@@ -47,6 +47,24 @@ public interface IPreferenceRepository
     /// </summary>
     Task DeleteAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Soft-invalidates a preference by id (D5 transaction clock): stamps <c>invalidated_at</c> so it
+    /// leaves live recall but is retained (auditable, recoverable, visible to as-of recall before
+    /// invalidation). Owner-scoped (R1) when <paramref name="scope"/> is set. Idempotent. Returns true if
+    /// a matching preference existed in scope.
+    /// </summary>
+    Task<bool> InvalidateAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Supersedes the <paramref name="loserPreferenceId"/> with the <paramref name="winnerPreferenceId"/>
+    /// (D7): soft-invalidates the loser (stamps <c>invalidated_at</c> so it drops from live recall but is
+    /// kept and stays as-of-recallable before supersession) and links
+    /// <c>(loser)-[:SUPERSEDED_BY]-&gt;(winner)</c>. Mirrors upstream <c>supersede_preference</c>
+    /// (non-destructive). Owner-scoped (R1) when <paramref name="scope"/> is set: both preferences must
+    /// belong to the owner. Idempotent. Returns true if a matching loser+winner existed in scope.
+    /// </summary>
+    Task<bool> SupersedeAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
     /// <summary>Creates an EXTRACTED_FROM relationship from a preference to a source message.</summary>
     Task CreateExtractedFromRelationshipAsync(string preferenceId, string messageId, CancellationToken cancellationToken = default);
 

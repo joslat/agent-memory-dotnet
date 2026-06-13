@@ -1,6 +1,7 @@
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Schema.Parity;
 
 namespace AgentMemory.Cli.Commands;
 
@@ -72,8 +73,10 @@ public sealed class ConflictsCommand(IConflictDetectionService service, TextWrit
 }
 
 /// <summary>
-/// Prunes decayed memories. With <c>--owner &lt;id&gt;</c> the prune is owner-scoped (the owner's own
-/// nodes only — never another owner's, never shared/global). Without it the prune is global (admin).
+/// Decay-prunes memories: by default (<see cref="MemoryDecayOptions.NonDestructive"/>) it soft-invalidates
+/// low-score nodes (kept, recoverable, dropped from live recall); set <c>MemoryDecay:NonDestructive=false</c>
+/// to hard-delete. With <c>--owner &lt;id&gt;</c> the prune is owner-scoped (the owner's own nodes only —
+/// never another owner's, never shared/global). Without it the prune is global (admin).
 /// </summary>
 public sealed class DecayCommand(IMemoryDecayService service, TextWriter output)
 {
@@ -85,5 +88,35 @@ public sealed class DecayCommand(IMemoryDecayService service, TextWriter output)
         var target = scope is null ? "all owners (global)" : $"owner '{ownerId}'";
         output.WriteLine($"Pruned {pruned} expired memory node(s) for {target}.");
         return 0;
+    }
+}
+
+/// <summary>
+/// Self-verifies the .NET schema against an embedded upstream snapshot (the parity compatibility kit).
+/// Pure static analysis — needs no Neo4j connection — so it is safe to run in CI as a regression gate.
+/// Exit 0 = compatible, 1 = a compatibility break (or an unknown/absent version).
+/// </summary>
+public sealed class SchemaParityCommand(TextWriter output)
+{
+    public int Execute(string? upstreamVersion)
+    {
+        var registry = new UpstreamSchemaRegistry();
+        var available = registry.AvailableVersions;
+        if (available.Count == 0)
+        {
+            output.WriteLine("error: no upstream schema snapshots are embedded.");
+            return 1;
+        }
+
+        var target = string.IsNullOrWhiteSpace(upstreamVersion) ? available[^1] : upstreamVersion;
+        if (!available.Contains(target))
+        {
+            output.WriteLine($"error: unknown upstream version '{target}'. Available: {string.Join(", ", available)}.");
+            return 1;
+        }
+
+        var report = SchemaParityVerifier.VerifyDotNet(target, registry);
+        output.WriteLine(report.Summary());
+        return report.IsCompatible ? 0 : 1;
     }
 }

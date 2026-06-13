@@ -58,7 +58,7 @@ public sealed class TemporalRecallTests
         var context = CreateEmptyContext("session-1");
 
         _assembler
-            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, Arg.Any<CancellationToken>())
+            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, asOf, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(context));
 
         var sut = CreateSut();
@@ -68,7 +68,8 @@ public sealed class TemporalRecallTests
 
         result.Should().NotBeNull();
         result.Context.SessionId.Should().Be("session-1");
-        await _assembler.Received(1).AssembleContextAsOfAsync(request, asOf, Arg.Any<CancellationToken>());
+        // Single-clock recall delegates to the bitemporal overload with both clocks equal (D6).
+        await _assembler.Received(1).AssembleContextAsOfAsync(request, asOf, asOf, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -98,7 +99,7 @@ public sealed class TemporalRecallTests
         };
 
         _assembler
-            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, Arg.Any<CancellationToken>())
+            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, asOf, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(context));
 
         var sut = CreateSut();
@@ -113,7 +114,7 @@ public sealed class TemporalRecallTests
     {
         var asOf = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
         _assembler
-            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, Arg.Any<CancellationToken>())
+            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, asOf, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(CreateEmptyContext("s1")));
 
         var sut = CreateSut();
@@ -129,7 +130,7 @@ public sealed class TemporalRecallTests
     {
         var asOf = _fixedTime.AddDays(-5);
         _assembler
-            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, Arg.Any<CancellationToken>())
+            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), asOf, asOf, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(CreateEmptyContext("s1")));
 
         var sut = CreateSut();
@@ -139,6 +140,46 @@ public sealed class TemporalRecallTests
         // Temporal recall is read-only; should NOT update access timestamps.
         await _decayService.DidNotReceive()
             .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── RecallAsOfAsync (bitemporal, two-clock — D6) ─────────────────────
+
+    [Fact]
+    public async Task RecallAsOfAsync_TwoClock_PassesBothClocksToAssembler()
+    {
+        var validAsOf = new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var systemAsOf = new DateTimeOffset(2025, 4, 1, 0, 0, 0, TimeSpan.Zero);
+        _assembler
+            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), validAsOf, systemAsOf, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(CreateEmptyContext("s1")));
+
+        var sut = CreateSut();
+        var request = new RecallRequest { SessionId = "s1", Query = "q" };
+
+        await sut.RecallAsOfAsync(request, validAsOf, systemAsOf);
+
+        // The two clocks must reach the assembler distinctly — not collapsed to one.
+        await _assembler.Received(1)
+            .AssembleContextAsOfAsync(request, validAsOf, systemAsOf, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecallAsOfAsync_TwoClock_RecordsBothClocksInMetadata()
+    {
+        var validAsOf = new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var systemAsOf = new DateTimeOffset(2025, 4, 1, 0, 0, 0, TimeSpan.Zero);
+        _assembler
+            .AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), validAsOf, systemAsOf, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(CreateEmptyContext("s1")));
+
+        var sut = CreateSut();
+        var result = await sut.RecallAsOfAsync(
+            new RecallRequest { SessionId = "s1", Query = "q" }, validAsOf, systemAsOf);
+
+        result.Metadata.Should().ContainKey("validAsOf").WhoseValue.Should().Be(validAsOf);
+        result.Metadata.Should().ContainKey("systemAsOf").WhoseValue.Should().Be(systemAsOf);
+        // "asOf" is the backward-compatible valid-time alias.
+        result.Metadata["asOf"].Should().Be(validAsOf);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

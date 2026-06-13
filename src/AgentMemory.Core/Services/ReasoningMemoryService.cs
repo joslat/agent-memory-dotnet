@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 
@@ -193,9 +194,10 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
     public Task<IReadOnlyList<ReasoningTrace>> ListTracesAsync(
         string sessionId,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _traceRepo.ListBySessionAsync(sessionId, limit, cancellationToken);
+        return _traceRepo.ListBySessionAsync(sessionId, limit, scope, cancellationToken);
     }
 
     /// <inheritdoc/>

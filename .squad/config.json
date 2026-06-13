@@ -2,17 +2,17 @@
   "version": 1,
   "defaultModel": "claude-sonnet-4.6",
   "agentModelOverrides": {
-    "deckard": "claude-opus-4.7"
+    "deckard": "claude-sonnet-4.6"
   },
-  "analysisModel": "claude-opus-4.7",
+  "analysisModel": "claude-sonnet-4.6",
   "modelPolicy": {
     "implementation": "claude-sonnet-4.6",
-    "deepAnalysis": "claude-opus-4.7",
-    "heavyCodegen": "gpt-5.5",
+    "deepAnalysis": "claude-sonnet-4.6",
+    "heavyCodegen": "gpt-5.3-codex",
     "mechanical": "claude-haiku-4.5"
   },
   "fallbackChains": {
-    "premium": ["claude-opus-4.7", "gpt-5.5", "claude-sonnet-4.6"],
+    "premium": ["claude-opus-4.6", "claude-opus-4.5", "claude-sonnet-4.6"],
     "standard": ["claude-sonnet-4.6", "claude-sonnet-4.5", "gpt-5.4"],
     "fast": ["claude-haiku-4.5", "gpt-5.4-mini", "gpt-4.1"]
   }

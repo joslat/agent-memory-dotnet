@@ -116,7 +116,11 @@ public class ConsolidationIntegrationTests : IAsyncLifetime
 
         (await CountAsync("MATCH (c:Conversation {id:'c-old'}) WHERE c.archived = true RETURN count(c) AS c")).Should().Be(1);
         (await CountAsync("MATCH (c:Conversation {id:'c-new'}) WHERE coalesce(c.archived,false) = false RETURN count(c) AS c")).Should().Be(1);
-        (await CountAsync("MATCH (p:Preference) RETURN count(p) AS c")).Should().Be(2); // one duplicate removed
+        // D7: duplicate collapse is non-destructive — all three nodes are KEPT; the older duplicate is
+        // soft-invalidated (dropped from live recall) and linked to the survivor, not deleted.
+        (await CountAsync("MATCH (p:Preference) RETURN count(p) AS c")).Should().Be(3); // nothing deleted
+        (await CountAsync("MATCH (p:Preference) WHERE p.invalidated_at IS NULL RETURN count(p) AS c")).Should().Be(2); // one duplicate closed → 2 live
+        (await CountAsync("MATCH (:Preference)-[:SUPERSEDED_BY]->(:Preference) RETURN count(*) AS c")).Should().Be(1); // dup linked to survivor
         (await CountAsync("MATCH (p:Preference {id:'p-3'}) RETURN count(p) AS c")).Should().Be(1); // distinct kept
         (await CountAsync($"MATCH (r:ConsolidationRun {{id:'{report.RunId}'}}) RETURN count(r) AS c")).Should().Be(1);
     }

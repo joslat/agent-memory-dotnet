@@ -11,9 +11,11 @@ namespace AgentMemory.Neo4j.Services;
 /// <summary>
 /// Neo4j-backed <see cref="IMemoryDecayService"/>. Runs the retention/decay formula server-side as Cypher:
 /// <c>confidence × e^(−λ × daysSinceLastAccess) + boostFactor × accessCount</c> where
-/// <c>λ = ln(2) / halfLifeDays</c>. Pruning removes Entity/Fact/Preference nodes whose score falls below the
-/// configured minimum. When a <see cref="MemoryScope"/> with an owner is supplied (R1) the prune is owner-scoped
-/// (own nodes only — never another owner's, never shared/global); a null scope prunes globally (admin).
+/// <c>λ = ln(2) / halfLifeDays</c>. Pruning targets Entity/Fact/Preference nodes whose score falls below the
+/// configured minimum: by default (<see cref="MemoryDecayOptions.NonDestructive"/>) it <b>soft-invalidates</b>
+/// them (stamps <c>invalidated_at</c> — kept, recoverable, auditable, dropped from live recall), or hard-deletes
+/// when non-destructive is disabled. When a <see cref="MemoryScope"/> with an owner is supplied (R1) the prune is
+/// owner-scoped (own nodes only — never another owner's, never shared/global); a null scope prunes globally (admin).
 /// </summary>
 public sealed class Neo4jMemoryDecayService : IMemoryDecayService
 {
@@ -53,18 +55,19 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
         MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
+        bool nonDestructive = _options.NonDestructive;
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
         string now = _clock.UtcNow.ToString("O");
 
         _logger.LogDebug(
-            "Pruning expired memories (minScore={MinScore}, halfLifeDays={HalfLife}, owner={Owner})",
-            _options.MinRetentionScore, _options.DecayHalfLifeDays, scope?.OwnerId);
+            "Pruning expired memories (minScore={MinScore}, halfLifeDays={HalfLife}, owner={Owner}, nonDestructive={NonDestructive})",
+            _options.MinRetentionScore, _options.DecayHalfLifeDays, scope?.OwnerId, nonDestructive);
 
         var queries = new[]
         {
-            DecayQueries.PruneEntities(hasOwner),
-            DecayQueries.PruneFacts(hasOwner),
-            DecayQueries.PrunePreferences(hasOwner),
+            DecayQueries.PruneEntities(hasOwner, nonDestructive),
+            DecayQueries.PruneFacts(hasOwner, nonDestructive),
+            DecayQueries.PrunePreferences(hasOwner, nonDestructive),
         };
 
         return await _tx.WriteAsync(async runner =>
@@ -87,7 +90,9 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
                     total += Convert.ToInt32(records[0]["pruned"]);
             }
 
-            _logger.LogInformation("Pruned {Count} expired memory node(s), owner={Owner}", total, scope?.OwnerId);
+            _logger.LogInformation(
+                "{Mode} {Count} expired memory node(s), owner={Owner}",
+                nonDestructive ? "Soft-invalidated" : "Pruned", total, scope?.OwnerId);
             return total;
         }, cancellationToken);
     }

@@ -117,14 +117,25 @@ public sealed class MemoryService : IMemoryService
     }
 
     /// <inheritdoc/>
-    public async Task<RecallResult> RecallAsOfAsync(
+    public Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
         CancellationToken cancellationToken = default)
+        // Single-clock recall == bitemporal recall with both clocks equal (D6).
+        => RecallAsOfAsync(request, asOf, asOf, cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<RecallResult> RecallAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        _logger.LogDebug("Recalling memory for session {SessionId} as of {AsOf}", request.SessionId, asOf);
-        var context = await _assembler.AssembleContextAsOfAsync(request, asOf, cancellationToken);
+        _logger.LogDebug(
+            "Recalling memory for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
+            request.SessionId, validAsOf, systemAsOf);
+        var context = await _assembler.AssembleContextAsOfAsync(request, validAsOf, systemAsOf, cancellationToken);
 
         int totalItems = context.RecentMessages.Items.Count
             + context.RelevantEntities.Items.Count
@@ -135,7 +146,13 @@ public sealed class MemoryService : IMemoryService
         {
             Context = context,
             TotalItemsRetrieved = totalItems,
-            Metadata = new Dictionary<string, object> { ["asOf"] = asOf }
+            // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.
+            Metadata = new Dictionary<string, object>
+            {
+                ["asOf"] = validAsOf,
+                ["validAsOf"] = validAsOf,
+                ["systemAsOf"] = systemAsOf
+            }
         };
     }
 

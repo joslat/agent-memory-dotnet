@@ -176,7 +176,7 @@ public sealed class ReasoningMemoryServiceTests
     public async Task ListTracesAsync_DelegatesToRepository()
     {
         _traceRepo
-            .ListBySessionAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ListBySessionAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
         var sut = CreateSut();
 
@@ -184,7 +184,7 @@ public sealed class ReasoningMemoryServiceTests
 
         await _traceRepo
             .Received(1)
-            .ListBySessionAsync("session-1", 5, Arg.Any<CancellationToken>());
+            .ListBySessionAsync("session-1", 5, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

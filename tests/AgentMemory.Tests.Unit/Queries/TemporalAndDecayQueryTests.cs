@@ -21,6 +21,7 @@ public sealed class TemporalQueryTests
     }
 
     // The scoped vector AsOf searches are now methods (IC5): they over-fetch + filter by owner.
+    // They are bitemporal (D6): the transaction clock binds created_at/invalidated_at via $systemAsOf.
     [Fact]
     public void TemporalSearchMethods_ContainAsOfFilterAndEmbeddingIndex()
     {
@@ -31,7 +32,7 @@ public sealed class TemporalQueryTests
             TemporalQueries.SearchPreferencesAsOf(hasOwnerFilter: false, includeShared: true, topK: 10),
         })
         {
-            q.Should().Contain("datetime($asOf)");
+            q.Should().Contain("datetime($systemAsOf)");
             q.Should().Contain("db.index.vector.queryNodes");
         }
     }
@@ -40,8 +41,8 @@ public sealed class TemporalQueryTests
     public void SearchEntitiesAsOf_FiltersCreatedAtAndInvalidatedAt()
     {
         TemporalQueries.SearchEntitiesAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
-            .Should().Contain("node.created_at <= datetime($asOf)")
-            .And.Contain("node.invalidated_at IS NULL OR node.invalidated_at > datetime($asOf)");
+            .Should().Contain("node.created_at <= datetime($systemAsOf)")
+            .And.Contain("node.invalidated_at IS NULL OR node.invalidated_at > datetime($systemAsOf)");
     }
 
     [Fact]
@@ -56,9 +57,11 @@ public sealed class TemporalQueryTests
     [Fact]
     public void SearchFactsAsOf_FiltersValidityWindow()
     {
+        // D6: the fact's validity window is bound by the valid-time clock ($validAsOf), distinct from the
+        // transaction clock ($systemAsOf) that binds created_at/invalidated_at.
         TemporalQueries.SearchFactsAsOf(hasOwnerFilter: false, includeShared: true, topK: 10)
-            .Should().Contain("node.valid_from IS NULL OR node.valid_from <= datetime($asOf)")
-            .And.Contain("node.valid_until IS NULL OR node.valid_until > datetime($asOf)");
+            .Should().Contain("node.valid_from IS NULL OR node.valid_from <= datetime($validAsOf)")
+            .And.Contain("node.valid_until IS NULL OR node.valid_until > datetime($validAsOf)");
     }
 
     [Fact]
@@ -136,6 +139,37 @@ public sealed class DecayQueryTests
             .Should().Contain($"{alias}.owner_id = $ownerId");
         DecayQueries.PruneEntities(hasOwnerFilter: false)
             .Should().NotContain("owner_id");
+    }
+
+    // ── D4: non-destructive prune (soft-invalidate) ────────────────────
+
+    public static IEnumerable<object[]> AllPrune()
+    {
+        yield return new object[] { "Entity", (Func<bool, bool, string>)DecayQueries.PruneEntities };
+        yield return new object[] { "Fact", (Func<bool, bool, string>)DecayQueries.PruneFacts };
+        yield return new object[] { "Preference", (Func<bool, bool, string>)DecayQueries.PrunePreferences };
+    }
+
+    [Theory]
+    [MemberData(nameof(AllPrune))]
+    public void Prune_NonDestructive_SoftInvalidates_AndSkipsAlreadyInvalidated(string label, Func<bool, bool, string> build)
+    {
+        var cypher = build(/*hasOwnerFilter*/ false, /*nonDestructive*/ true);
+
+        cypher.Should().Contain("SET").And.Contain("invalidated_at = datetime($now)");
+        cypher.Should().NotContain("DETACH DELETE", $"{label} non-destructive prune must not delete");
+        cypher.Should().Contain("invalidated_at IS NULL",
+            $"{label} non-destructive prune must skip already-invalidated nodes so a re-run does not re-count them");
+    }
+
+    [Theory]
+    [MemberData(nameof(AllPrune))]
+    public void Prune_Destructive_HardDeletes(string label, Func<bool, bool, string> build)
+    {
+        var cypher = build(/*hasOwnerFilter*/ false, /*nonDestructive*/ false);
+
+        cypher.Should().Contain("DETACH DELETE", $"{label} destructive prune hard-deletes");
+        cypher.Should().NotContain("invalidated_at");
     }
 
     [Fact]

@@ -19,6 +19,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly MemoryOptions _options;
+    private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly ILogger<MemoryContextAssembler> _logger;
 
     /// <summary>
@@ -32,7 +33,8 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IOptions<MemoryOptions> options,
-        ILogger<MemoryContextAssembler> logger)
+        ILogger<MemoryContextAssembler> logger,
+        IWritableMemoryRankingContext? rankingContext = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -41,6 +43,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         _embeddingOrchestrator = embeddingOrchestrator;
         _clock = clock;
         _options = options.Value;
+        _rankingContext = rankingContext;
         _logger = logger;
     }
 
@@ -108,6 +111,13 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                 ? _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken)
                 : Empty<Message>();
 
+            // D3 — apply the per-request query intent (latest/analog) as an ambient ranking override for
+            // the long-term vector searches below. The long-term repositories read it synchronously while
+            // each task is *created* (before their first await), so we reset it immediately after creating
+            // them — there is no await in this region, so the override never leaks past this recall.
+            bool overrideRanking = _rankingContext is not null && recallOpts.Intent != RankingIntent.Default;
+            if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
+
             var entitiesTask = hasEmbedding
                 ? _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
                 : Empty<Entity>();
@@ -123,6 +133,8 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             var tracesTask = hasEmbedding
                 ? _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
                 : Empty<ReasoningTrace>();
+
+            if (overrideRanking) _rankingContext!.Current = null;
 
             await Task.WhenAll(
                 recentTask, relevantTask, entitiesTask,
@@ -187,12 +199,24 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
     }
 
     /// <inheritdoc/>
-    public async Task<MemoryContext> AssembleContextAsOfAsync(
+    public Task<MemoryContext> AssembleContextAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
         CancellationToken cancellationToken = default)
+        // Single-clock recall is the bitemporal recall with both clocks equal (D6): identical behaviour
+        // to before — validAsOf == systemAsOf binds every filter to the same instant.
+        => AssembleContextAsOfAsync(request, asOf, asOf, cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<MemoryContext> AssembleContextAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
+        CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Assembling temporal memory context for session {SessionId} as of {AsOf}", request.SessionId, asOf);
+        _logger.LogDebug(
+            "Assembling bitemporal memory context for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
+            request.SessionId, validAsOf, systemAsOf);
 
         var recallOpts = request.Options;
         var minScore = recallOpts.MinSimilarityScore;
@@ -204,20 +228,24 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var queryEmbedding = request.QueryEmbedding
             ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
 
+        // D6 clock mapping: the transaction clock ($systemAsOf) bounds every record's existence, so
+        // messages, entities, preferences, and traces — which have no valid-time window — observe only
+        // systemAsOf. Facts additionally observe the valid-time clock ($validAsOf) for their validity
+        // window. When the clocks are equal (single-clock recall) this is byte-for-byte the old behaviour.
         var recentTask = _shortTerm.GetRecentMessagesAsOfAsync(
-            request.SessionId, asOf, recallOpts.MaxRecentMessages, cancellationToken);
+            request.SessionId, systemAsOf, recallOpts.MaxRecentMessages, cancellationToken);
 
         var entitiesTask = _longTerm.SearchEntitiesAsOfAsync(
-            queryEmbedding, asOf, recallOpts.MaxEntities, minScore, scope, cancellationToken);
+            queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken);
 
         var preferencesTask = _longTerm.SearchPreferencesAsOfAsync(
-            queryEmbedding, asOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken);
+            queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken);
 
         var factsTask = _longTerm.SearchFactsAsOfAsync(
-            queryEmbedding, asOf, recallOpts.MaxFacts, minScore, scope, cancellationToken);
+            queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken);
 
         var tracesTask = _reasoning.SearchSimilarTracesAsOfAsync(
-            queryEmbedding, asOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken);
+            queryEmbedding, systemAsOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken);
 
         await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask, tracesTask);
 
@@ -253,12 +281,18 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
-            Metadata = new Dictionary<string, object> { ["asOf"] = asOf }
+            // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.
+            Metadata = new Dictionary<string, object>
+            {
+                ["asOf"] = validAsOf,
+                ["validAsOf"] = validAsOf,
+                ["systemAsOf"] = systemAsOf
+            }
         };
 
         _logger.LogDebug(
-            "Assembled temporal context for session {SessionId} as of {AsOf}: {Entities} entities, {Facts} facts, {Prefs} preferences, {Traces} traces",
-            request.SessionId, asOf, entities.Count, facts.Count, preferences.Count, traces.Count);
+            "Assembled bitemporal context for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}: {Entities} entities, {Facts} facts, {Prefs} preferences, {Traces} traces",
+            request.SessionId, validAsOf, systemAsOf, entities.Count, facts.Count, preferences.Count, traces.Count);
 
         return context;
     }

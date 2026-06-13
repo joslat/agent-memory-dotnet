@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -22,11 +24,22 @@ public sealed class Neo4jFactRepository : IFactRepository
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jFactRepository> _logger;
+    private readonly MemoryRankingOptions _ranking;
+    private readonly MemoryDecayOptions _decay;
+    private readonly IMemoryRankingContext? _rankingContext;
 
-    public Neo4jFactRepository(INeo4jTransactionRunner tx, ILogger<Neo4jFactRepository> logger)
+    public Neo4jFactRepository(
+        INeo4jTransactionRunner tx,
+        ILogger<Neo4jFactRepository> logger,
+        IOptions<MemoryRankingOptions>? ranking = null,
+        IOptions<MemoryDecayOptions>? decay = null,
+        IMemoryRankingContext? rankingContext = null)
     {
         _tx = tx;
         _logger = logger;
+        _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
+        _decay = decay?.Value ?? MemoryDecayOptions.Default;
+        _rankingContext = rankingContext;
     }
 
     public async Task<Fact> UpsertAsync(Fact fact, CancellationToken cancellationToken = default)
@@ -183,7 +196,9 @@ public sealed class Neo4jFactRepository : IFactRepository
         int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
         _logger.LogDebug("Vector search facts, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
-        var cypher = FactQueries.SearchByVector(hasOwner, includeShared, topK);
+        var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
+        bool recencyRerank = ranking.RecencyRerankEnabled;
+        var cypher = FactQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"] = queryEmbedding.ToList(),
@@ -191,6 +206,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             ["minScore"] = minScore,
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -362,6 +378,42 @@ public sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken);
     }
 
+    public async Task<bool> InvalidateAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Invalidating fact {Id}, owner={Owner}", factId, scope?.OwnerId);
+
+        var cypher = FactQueries.Invalidate(hasOwner);
+        string now = DateTimeOffset.UtcNow.ToString("O");
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?> { ["id"] = factId, ["now"] = now };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["invalidated"].As<bool>();
+        }, cancellationToken);
+    }
+
+    public async Task<bool> SupersedeAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Superseding fact {Loser} with {Winner}, owner={Owner}", loserFactId, winnerFactId, scope?.OwnerId);
+
+        var cypher = FactQueries.Supersede(hasOwner);
+        string now = DateTimeOffset.UtcNow.ToString("O");
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?> { ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["superseded"].As<bool>();
+        }, cancellationToken);
+    }
+
     public async Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
@@ -388,20 +440,25 @@ public sealed class Neo4jFactRepository : IFactRepository
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
-        _logger.LogDebug("Temporal vector search facts as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
+        // D6 bitemporal: asOf is the valid-time clock; systemAsOf is the transaction clock (defaults to asOf
+        // for ordinary single-clock recall — identical to the previous behaviour).
+        _logger.LogDebug("Temporal vector search facts valid@{ValidAsOf} system@{SystemAsOf}, limit={Limit}, owner={Owner}",
+            asOf, systemAsOf ?? asOf, limit, scope?.OwnerId);
 
         var cypher = TemporalQueries.SearchFactsAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"] = queryEmbedding.ToList(),
-            ["limit"]     = limit,
-            ["minScore"]  = minScore,
-            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+            ["embedding"]  = queryEmbedding.ToList(),
+            ["limit"]      = limit,
+            ["minScore"]   = minScore,
+            ["validAsOf"]  = asOf.UtcDateTime.ToString("O"),
+            ["systemAsOf"] = (systemAsOf ?? asOf).UtcDateTime.ToString("O")
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 

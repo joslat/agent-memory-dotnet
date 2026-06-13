@@ -81,11 +81,14 @@ public interface IReasoningMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Lists traces for a session.
+    /// Lists traces for a session, optionally scoped to an owner (R1). When <paramref name="scope"/> is
+    /// set, returns only the owner's own (and optionally shared) traces — a session id is not a private
+    /// handle, so a multi-row list keyed by it is owner-filtered.
     /// </summary>
     Task<IReadOnlyList<ReasoningTrace>> ListTracesAsync(
         string sessionId,
         int limit = 10,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

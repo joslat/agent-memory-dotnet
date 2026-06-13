@@ -97,6 +97,45 @@ public sealed class GraphRetrieverTests
         // Real vector-seed + traversal, not a vector-only query.
         cypher.Should().Contain("db.index.vector.queryNodes");
         cypher.Should().Contain("MATCH path = (seed)-[:RELATED_TO");
+        // Default γ = 1.0 ⇒ no structural decay ⇒ today's ordering (raw score, hops as tiebreaker).
+        cypher.Should().NotContain("structScore");
+        cypher.Should().NotContain("$gamma");
+        cypher.Should().Contain("ORDER BY score DESC, hops ASC");
+    }
+
+    // ---- D2: structural hop decay (score · γ^hops) ----
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void BuildTraversalCypher_AppliesStructuralDecay_WhenGammaBelowOne(int hops)
+    {
+        var cypher = GraphRetriever.BuildTraversalCypher(hops, scoped: false, gamma: 0.7);
+
+        cypher.Should().Contain("score * ($gamma ^ hops) AS structScore",
+            "γ < 1 must decay the seed score per hop");
+        cypher.Should().Contain("ORDER BY structScore DESC, hops ASC");
+        cypher.Should().Contain($"RELATED_TO*1..{hops}");
+        cypher.Should().NotContain("$hops");
+    }
+
+    [Fact]
+    public void BuildTraversalCypher_GammaOne_IsByteForByteTheOffPath()
+    {
+        GraphRetriever.BuildTraversalCypher(2, scoped: false, gamma: 1.0)
+            .Should().Be(GraphRetriever.BuildTraversalCypher(2, scoped: false));
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(2.0)]
+    public void Ctor_ToleratesOutOfRangeGamma_TreatsAsOff(double gamma)
+    {
+        // γ outside (0,1] is meaningless for the power; the retriever treats it as off rather than throwing.
+        var act = () => new GraphRetriever(Driver, "idx", Generator, 2, gamma);
+        act.Should().NotThrow();
     }
 
     // ---- Record formatting ----

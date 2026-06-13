@@ -17,6 +17,12 @@ public sealed class InstrumentedGraphRagContextSourceTests : IDisposable
     private readonly ActivityListener _listener;
     private readonly List<Activity> _capturedActivities = new();
 
+    // The ActivityListener is process-global, so it can observe memory.graphrag.query activities emitted by
+    // OTHER test classes running in parallel (collections run concurrently). Every request in this class
+    // carries this unique session id and assertions correlate on it, so a foreign activity can neither
+    // satisfy nor break a ContainSingle. (Fixes a cross-collection flake.)
+    private readonly string _sessionId = Guid.NewGuid().ToString("N");
+
     public InstrumentedGraphRagContextSourceTests()
     {
         _inner = Substitute.For<IGraphRagContextSource>();
@@ -27,7 +33,7 @@ public sealed class InstrumentedGraphRagContextSourceTests : IDisposable
         {
             ShouldListenTo = source => source.Name == MemoryActivitySource.Name,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStarted = activity => _capturedActivities.Add(activity)
+            ActivityStarted = activity => { lock (_capturedActivities) _capturedActivities.Add(activity); }
         };
         ActivitySource.AddActivityListener(_listener);
     }
@@ -37,12 +43,24 @@ public sealed class InstrumentedGraphRagContextSourceTests : IDisposable
         _listener.Dispose();
     }
 
+    /// <summary>This test's own graphrag activities, correlated by the unique session id.</summary>
+    private Activity SingleGraphRagActivity()
+    {
+        lock (_capturedActivities)
+        {
+            return _capturedActivities
+                .Where(a => a.OperationName == "memory.graphrag.query"
+                         && (string?)a.GetTagItem("memory.session_id") == _sessionId)
+                .Should().ContainSingle().Subject;
+        }
+    }
+
     [Fact]
     public async Task GetContext_CreatesActivity_WithSearchModeTag()
     {
         var request = new GraphRagContextRequest
         {
-            SessionId = "s1",
+            SessionId = _sessionId,
             Query = "test",
             SearchMode = GraphRagSearchMode.Hybrid,
             TopK = 10
@@ -52,39 +70,36 @@ public sealed class InstrumentedGraphRagContextSourceTests : IDisposable
 
         await _sut.GetContextAsync(request);
 
-        var activity = _capturedActivities.Should().ContainSingle(
-            a => a.OperationName == "memory.graphrag.query").Subject;
+        var activity = SingleGraphRagActivity();
         activity.GetTagItem("memory.graphrag.search_mode").Should().Be("Hybrid");
         activity.GetTagItem("memory.graphrag.top_k").Should().Be(10);
-        activity.GetTagItem("memory.session_id").Should().Be("s1");
+        activity.GetTagItem("memory.session_id").Should().Be(_sessionId);
     }
 
     [Fact]
     public async Task GetContext_RecordsGraphRagDuration()
     {
-        var request = new GraphRagContextRequest { SessionId = "s1", Query = "test" };
+        var request = new GraphRagContextRequest { SessionId = _sessionId, Query = "test" };
         _inner.GetContextAsync(request, Arg.Any<CancellationToken>())
             .Returns(CreateResult());
 
         var result = await _sut.GetContextAsync(request);
 
         result.Should().NotBeNull();
-        _capturedActivities.Should().ContainSingle(
-            a => a.OperationName == "memory.graphrag.query");
+        SingleGraphRagActivity().Should().NotBeNull();
     }
 
     [Fact]
     public async Task GetContext_OnError_SetsErrorStatus()
     {
-        var request = new GraphRagContextRequest { SessionId = "s1", Query = "test" };
+        var request = new GraphRagContextRequest { SessionId = _sessionId, Query = "test" };
         _inner.GetContextAsync(request, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("graph failed"));
 
         var act = () => _sut.GetContextAsync(request);
         await act.Should().ThrowAsync<InvalidOperationException>();
 
-        var activity = _capturedActivities.Should().ContainSingle(
-            a => a.OperationName == "memory.graphrag.query").Subject;
+        var activity = SingleGraphRagActivity();
         activity.Status.Should().Be(ActivityStatusCode.Error);
         activity.StatusDescription.Should().Be("graph failed");
     }
@@ -92,7 +107,7 @@ public sealed class InstrumentedGraphRagContextSourceTests : IDisposable
     [Fact]
     public async Task GetContext_IncrementsQueryCounter()
     {
-        var request = new GraphRagContextRequest { SessionId = "s1", Query = "test" };
+        var request = new GraphRagContextRequest { SessionId = _sessionId, Query = "test" };
         _inner.GetContextAsync(request, Arg.Any<CancellationToken>())
             .Returns(CreateResult());
 
@@ -100,15 +115,13 @@ public sealed class InstrumentedGraphRagContextSourceTests : IDisposable
 
         // Verify the inner was called and activity recorded result count
         await _inner.Received(1).GetContextAsync(request, Arg.Any<CancellationToken>());
-        var activity = _capturedActivities.Should().ContainSingle(
-            a => a.OperationName == "memory.graphrag.query").Subject;
-        activity.GetTagItem("memory.graphrag.result_count").Should().Be(1);
+        SingleGraphRagActivity().GetTagItem("memory.graphrag.result_count").Should().Be(1);
     }
 
     [Fact]
     public async Task GetContext_DelegatesToInner()
     {
-        var request = new GraphRagContextRequest { SessionId = "s1", Query = "test" };
+        var request = new GraphRagContextRequest { SessionId = _sessionId, Query = "test" };
         var expected = CreateResult();
         _inner.GetContextAsync(request, Arg.Any<CancellationToken>())
             .Returns(expected);

@@ -31,4 +31,10 @@ public sealed record MemoryOptions
 
     /// <summary>Memory decay and forgetting configuration.</summary>
     public MemoryDecayOptions MemoryDecay { get; init; } = MemoryDecayOptions.Default;
+
+    /// <summary>
+    /// Retrieval-ranking configuration (recency / structural re-ranking). Opt-in and schema-neutral;
+    /// defaults to <see cref="MemoryProfile.Parity"/> (semantic-only ranking — today's behaviour).
+    /// </summary>
+    public MemoryRankingOptions Ranking { get; init; } = MemoryRankingOptions.Default;
 }

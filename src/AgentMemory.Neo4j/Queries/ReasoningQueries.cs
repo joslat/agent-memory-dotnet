@@ -40,12 +40,24 @@ public static class ReasoningQueries
     /// <summary>Get a ReasoningTrace by id.</summary>
     public const string GetTraceById = "MATCH (t:ReasoningTrace {id: $id}) RETURN t";
 
-    /// <summary>List ReasoningTraces for a session, ordered by most recent.</summary>
-    public const string ListTracesBySession = @"
+    /// <summary>
+    /// List a session's ReasoningTraces newest-first, with an optional owner/shared filter (R1). Unlike a
+    /// by-id handle, a <c>session_id</c> can be shared or guessable, so this multi-row list keyed by it
+    /// must be scopeable — a scoped caller sees only its own (and optionally shared) traces, never another
+    /// owner's.
+    /// </summary>
+    public static string ListTracesBySession(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (t.owner_id = $ownerId OR t.owner_id IS NULL)"
+                            : " AND t.owner_id = $ownerId";
+        return @"
             MATCH (t:ReasoningTrace {session_id: $sessionId})
+            WHERE true" + owner + @"
             RETURN t
             ORDER BY t.started_at DESC
             LIMIT $limit";
+    }
 
     /// <summary>
     /// Delete all ReasoningTrace nodes for a session, including their child ReasoningStep nodes.

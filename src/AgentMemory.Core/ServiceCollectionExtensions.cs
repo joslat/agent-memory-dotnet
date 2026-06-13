@@ -54,6 +54,12 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DefaultMemoryOwnerContext>();
         services.TryAddSingleton<IMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
         services.TryAddSingleton<IWritableMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
+
+        // Per-request ranking override (D3 query-intent presets). AsyncLocal-backed singleton, set by the
+        // context assembler from RecallOptions.Intent and read by the long-term repositories' vector search.
+        services.TryAddSingleton<DefaultMemoryRankingContext>();
+        services.TryAddSingleton<IMemoryRankingContext>(sp => sp.GetRequiredService<DefaultMemoryRankingContext>());
+        services.TryAddSingleton<IWritableMemoryRankingContext>(sp => sp.GetRequiredService<DefaultMemoryRankingContext>());
         services.TryAddScoped<IShortTermMemoryService, ShortTermMemoryService>();
         services.TryAddScoped<ILongTermMemoryService, LongTermMemoryService>();
         services.TryAddScoped<IReasoningMemoryService, ReasoningMemoryService>();
@@ -113,6 +119,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IOptions<MemoryDecayOptions>>(sp =>
             Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.MemoryDecay));
         services.TryAddScoped<IMemoryDecayService, MemoryDecayService>();
+
+        // Retrieval-ranking options (recency re-ranker / structural decay; opt-in, schema-neutral).
+        // Consumed by the long-term repositories' SearchByVector and the GraphRAG traversal.
+        services.TryAddSingleton<IOptions<MemoryRankingOptions>>(sp =>
+            Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Ranking));
 
         // Stub extractors as no-op defaults; replaced when AddLlmExtraction() is called.
         services.TryAddScoped<IEntityExtractor, StubEntityExtractor>();

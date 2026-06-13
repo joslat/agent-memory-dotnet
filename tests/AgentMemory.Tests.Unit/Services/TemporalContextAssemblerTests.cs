@@ -45,7 +45,7 @@ public sealed class TemporalContextAssemblerTests
             .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
         _longTerm
-            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
         _longTerm
             .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
@@ -110,7 +110,7 @@ public sealed class TemporalContextAssemblerTests
         await sut.AssembleContextAsOfAsync(request, asOf);
 
         await _longTerm.Received(1).SearchFactsAsOfAsync(
-            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -124,6 +124,32 @@ public sealed class TemporalContextAssemblerTests
 
         await _longTerm.Received(1).SearchPreferencesAsOfAsync(
             Arg.Any<float[]>(), asOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AssembleContextAsOfAsync_TwoClock_MapsValidAndSystemClocksToCorrectSources()
+    {
+        // D6 clock mapping: facts observe BOTH clocks (valid window + existence); messages, entities,
+        // preferences, and traces have no valid-time window, so they observe only the transaction clock.
+        var validAsOf = new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var systemAsOf = new DateTimeOffset(2025, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        var sut = CreateSut();
+        var request = new RecallRequest { SessionId = "s1", Query = "test" };
+
+        await sut.AssembleContextAsOfAsync(request, validAsOf, systemAsOf);
+
+        // Facts: valid-time clock in the asOf slot, transaction clock in the systemAsOf slot.
+        await _longTerm.Received(1).SearchFactsAsOfAsync(
+            Arg.Any<float[]>(), validAsOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), systemAsOf, Arg.Any<CancellationToken>());
+        // Everything else observes only the transaction clock.
+        await _shortTerm.Received(1).GetRecentMessagesAsOfAsync(
+            "s1", systemAsOf, Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _longTerm.Received(1).SearchEntitiesAsOfAsync(
+            Arg.Any<float[]>(), systemAsOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _longTerm.Received(1).SearchPreferencesAsOfAsync(
+            Arg.Any<float[]>(), systemAsOf, Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _reasoning.Received(1).SearchSimilarTracesAsOfAsync(
+            Arg.Any<float[]>(), systemAsOf, Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

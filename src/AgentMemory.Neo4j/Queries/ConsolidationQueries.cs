@@ -23,25 +23,38 @@ public static class ConsolidationQueries
 
     // ── Remove duplicate preferences (exact owner+category+text) ─────────
 
-    /// <summary>Counts redundant preferences (per owner+category+text group, all but one).</summary>
+    /// <summary>
+    /// Counts redundant preferences (per owner+category+text group, all but one). Only live (not
+    /// already-invalidated) preferences are considered, so the count matches what a non-destructive
+    /// collapse would close and re-runs after a collapse report zero.
+    /// </summary>
     public const string CountDuplicatePreferences = @"
             MATCH (p:Preference)
+            WHERE p.invalidated_at IS NULL
             WITH coalesce(p.owner_id, '*') AS ownerKey, p.category AS category, toLower(p.preference) AS text, collect(p) AS grp
             WHERE size(grp) >= $minGroupSize
             RETURN coalesce(sum(size(grp) - 1), 0) AS count";
 
     /// <summary>
-    /// Deletes redundant preferences, keeping the newest per owner+category+text group. The group is
-    /// ordered newest-first before collecting, so <c>grp[1..]</c> are the older duplicates.
+    /// Collapses redundant preferences <b>non-destructively</b> (D7), keeping the newest per
+    /// owner+category+text group: the older duplicates are soft-invalidated (stamp <c>invalidated_at</c>
+    /// so they drop from live recall but are kept and auditable) and linked
+    /// <c>(dup)-[:SUPERSEDED_BY]-&gt;(keep)</c>, rather than <c>DETACH DELETE</c>d. Only live preferences
+    /// are grouped (<c>invalidated_at IS NULL</c>), so the operation is idempotent — a re-run finds nothing
+    /// new. The group is ordered newest-first, so <c>grp[0]</c> is the keeper and <c>grp[1..]</c> the
+    /// duplicates.
     /// </summary>
     public const string RemoveDuplicatePreferences = @"
             MATCH (p:Preference)
+            WHERE p.invalidated_at IS NULL
             WITH coalesce(p.owner_id, '*') AS ownerKey, p.category AS category, toLower(p.preference) AS text, p
             ORDER BY p.created_at DESC
             WITH ownerKey, category, text, collect(p) AS grp
             WHERE size(grp) >= $minGroupSize
-            UNWIND grp[1..] AS dup
-            DETACH DELETE dup
+            WITH grp[0] AS keep, grp[1..] AS dups
+            UNWIND dups AS dup
+            SET dup.invalidated_at = coalesce(dup.invalidated_at, datetime())
+            MERGE (dup)-[:SUPERSEDED_BY]->(keep)
             RETURN count(dup) AS count";
 
     // ── Detect duplicate entities (report only) ──────────────────────────

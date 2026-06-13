@@ -4,6 +4,11 @@ namespace AgentMemory.Abstractions.Repositories;
 
 /// <summary>
 /// Repository for reasoning step persistence.
+/// <para><b>R1 scoping note:</b> steps are children of a <c>ReasoningTrace</c> and carry no owner of their
+/// own. Every read is keyed by a random parent handle (a trace id or step id) that a caller can only
+/// obtain through an owner-scoped trace search, so these reads are <i>by-handle</i> — the same intentional
+/// exemption applied to every <c>GetByIdAsync</c> in the codebase. Owner isolation is enforced at the
+/// trace tier (see <c>IReasoningTraceRepository</c>); steps inherit it transitively.</para>
 /// </summary>
 public interface IReasoningStepRepository
 {

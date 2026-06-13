@@ -7,6 +7,9 @@ using NSubstitute.ExceptionExtensions;
 
 namespace AgentMemory.Tests.Unit.Observability;
 
+// Emits on the process-global MemoryActivitySource — must serialize with the other observability tests so
+// a concurrently-active listener can't capture this class's activities (shared-state race).
+[Collection("Observability")]
 public sealed class InstrumentedEnrichmentServiceTests
 {
     private readonly IEnrichmentService _inner = Substitute.For<IEnrichmentService>();

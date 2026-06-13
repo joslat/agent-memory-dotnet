@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "project": "neo4j-labs/agent-memory (Python SDK: neo4j-agent-memory)",
+    "version": "0.5.0",
+    "commit": "f29ae8dd8",
+    "commit_date": "2026-06-03",
+    "captured": "2026-06-07",
+    "backend": "bolt / direct-Neo4j (NAMS hosted backend does not expose Cypher schema)",
+    "vector_dimensions_default": 1536,
+    "vector_similarity": "cosine",
+    "sources": [
+      "src/neo4j_agent_memory/graph/schema.py",
+      "src/neo4j_agent_memory/graph/queries.py",
+      "src/neo4j_agent_memory/schema/models.py",
+      "src/neo4j_agent_memory/schema/persistence.py"
+    ],
+    "notes": "No transaction-time axis exists (no invalidated_at / expired_at). v0.5 as_of point-in-time recall is valid-time only and currently wired for Preferences."
+  },
+
+  "nodes": [
+    { "label": "Conversation", "unique": "id", "properties": ["id", "session_id", "title", "created_at", "updated_at", "archived", "archived_at"], "indexed": ["session_id", "archived"], "since": "0.1", "notes": "archived/archived_at added by v0.5 consolidation (archive_expired_conversations)." },
+    { "label": "Message", "unique": "id", "properties": ["id", "role", "content", "embedding", "timestamp", "metadata"], "indexed": ["timestamp", "role"], "vector": "embedding", "since": "0.1" },
+    { "label": "Entity", "unique": "id", "merge_key": ["name", "type"], "properties": ["id", "name", "type", "subtype", "canonical_name", "aliases", "description", "embedding", "confidence", "location", "merged_into", "merged_at", "created_at", "updated_at", "metadata"], "indexed": ["type", "name", "canonical_name"], "vector": "embedding", "point": "location", "since": "0.1", "notes": "Actual creation uses build_create_entity_query() which adds DYNAMIC labels (:Entity:TYPE:SUBTYPE), e.g. (:Entity:OBJECT:VEHICLE); the static CREATE_ENTITY is reference-only. type is a POLE+O value or custom. location is a Neo4j Point (geospatial). merged_into/merged_at + aliases written by MERGE_ENTITIES dedup." },
+    { "label": "Preference", "unique": "id", "properties": ["id", "category", "preference", "context", "confidence", "embedding", "valid_from", "valid_until", "created_at", "metadata"], "indexed": ["category"], "vector": "embedding", "since": "0.1", "notes": "valid_from/valid_until written by add_preference/supersede_preference (v0.5); enable as_of recall + :SUPERSEDED_BY. Not set by the legacy CREATE_PREFERENCE constant." },
+    { "label": "Fact", "unique": "id", "properties": ["id", "subject", "predicate", "object", "confidence", "embedding", "valid_from", "valid_until", "created_at", "metadata"], "vector": "embedding", "since": "0.1", "notes": "Stores valid_from/valid_until but recall does NOT filter on them (plain vector search); no as_of path for Facts yet." },
+    { "label": "ReasoningTrace", "unique": "id", "properties": ["id", "session_id", "task", "task_embedding", "outcome", "success", "error_kind", "started_at", "completed_at", "metadata"], "indexed": ["session_id", "success", "error_kind"], "vector": "task_embedding", "since": "0.1", "notes": "error_kind from TraceOutcome (v0.3+), indexed for fast failure filtering / case-based retrieval." },
+    { "label": "ReasoningStep", "unique": "id", "properties": ["id", "step_number", "thought", "action", "observation", "embedding", "timestamp", "metadata"], "vector": "embedding", "since": "0.1" },
+    { "label": "Tool", "unique": "name", "properties": ["name", "created_at", "total_calls", "successful_calls", "failed_calls", "total_duration_ms", "last_used_at", "description"], "since": "0.1", "notes": "Aggregate counters maintained on each ToolCall create; last_used_at bumped per call. description is read by GET_TOOL_STATS but set elsewhere." },
+    { "label": "Extractor", "unique": null, "merge_key": ["name"], "properties": ["name", "id", "version", "config", "created_at"], "since": "0.1", "notes": "Provenance node (CREATE_EXTRACTOR MERGE on name). No managed unique constraint in setup_constraints — keyed by name via MERGE only." },
+    { "label": "ToolCall", "unique": "id", "properties": ["id", "tool_name", "arguments", "result", "status", "duration_ms", "error", "timestamp"], "indexed": ["status"], "since": "0.1", "notes": "status in {success, error, timeout, ...}." },
+    { "label": "User", "unique": "identifier", "properties": ["id", "identifier", "attributes"], "indexed": ["identifier"], "since": "0.4", "notes": "First-class multi-tenant identity (identifier commonly an email). Scope writes/reads via user_identifier=." },
+    { "label": "ConsolidationRun", "unique": "id", "properties": ["id", "kind", "ran_at", "dry_run", "candidate_count", "actions_taken"], "indexed": ["kind"], "since": "0.5", "notes": "Audit node written when a consolidation primitive runs with dry_run=False." },
+    { "label": "MemoryReadAudit", "unique": "id", "properties": ["id", "kind"], "indexed": ["kind"], "since": "0.5", "notes": "Privacy/audit node for memory reads." },
+    { "label": "Schema", "unique": null, "properties": ["id", "name", "version", "description", "config", "is_active", "created_at", "created_by"], "indexed": ["name", "id"], "since": "0.1", "notes": "Versioned persistence of an EntitySchemaConfig (ontology) as JSON in config. Index via ensure_schema_index()." }
+  ],
+
+  "relationships": [
+    { "type": "HAS_MESSAGE",   "from": "Conversation",  "to": "Message",        "properties": [] },
+    { "type": "FIRST_MESSAGE", "from": "Conversation",  "to": "Message",        "properties": [] },
+    { "type": "NEXT_MESSAGE",  "from": "Message",        "to": "Message",        "properties": [] },
+    { "type": "MENTIONS",      "from": "Message",        "to": "Entity",         "properties": ["confidence", "start_pos", "end_pos"] },
+    { "type": "ABOUT",         "from": "Preference",     "to": "Entity",         "properties": [] },
+    { "type": "EXTRACTED_FROM","from": "Entity",         "to": "Message",        "properties": ["confidence", "start_pos", "end_pos", "context", "created_at"], "notes": "Provenance: entity mention origin." },
+    { "type": "EXTRACTED_BY",  "from": "Entity",         "to": "Extractor",      "properties": ["confidence", "extraction_time_ms", "created_at"], "notes": "Provenance: which extractor produced the entity." },
+    { "type": "RELATED_TO",    "from": "Entity",         "to": "Entity",         "merge_key": ["type"], "properties": ["id", "type", "relation_type", "description", "confidence", "valid_from", "valid_until", "created_at", "updated_at"], "notes": "Generic entity-entity edge. The semantic relation (KNOWS/OWNS/...) is stored as the `type` PROPERTY, not a distinct Neo4j relationship type. Property naming is inconsistent across creation paths: CREATE_ENTITY_RELATIONSHIP uses `type` + valid_from/valid_until; CREATE_ENTITY_RELATION_BY_NAME/BY_ID use `relation_type` + updated_at (no valid window). A given edge has only the subset its creating path wrote." },
+    { "type": "HAS_STEP",      "from": "ReasoningTrace", "to": "ReasoningStep",  "properties": ["order"] },
+    { "type": "USES_TOOL",     "from": "ReasoningStep",  "to": "ToolCall",       "properties": [] },
+    { "type": "INSTANCE_OF",   "from": "ToolCall",       "to": "Tool",           "properties": [] },
+    { "type": "HAS_TRACE",     "from": "Conversation",   "to": "ReasoningTrace", "properties": [] },
+    { "type": "INITIATED_BY",  "from": "ReasoningTrace", "to": "Message",        "properties": [] },
+    { "type": "TRIGGERED_BY",  "from": "ToolCall",       "to": "Message",        "properties": [] },
+    { "type": "TOUCHED",       "from": "ReasoningStep",  "to": "Entity",         "properties": ["recorded_at"], "since": "0.2", "notes": "Audit/provenance edge: which entities a reasoning step read/acted on." },
+    { "type": "SAME_AS",       "from": "Entity",         "to": "Entity",         "properties": ["confidence", "match_type", "status", "created_at"], "since": "0.2", "notes": "Non-destructive dedup link from consolidation (dedupe_entities); both nodes kept." },
+    { "type": "SUPERSEDED_BY", "from": "Preference",     "to": "Preference",     "properties": [], "since": "0.5", "notes": "supersede_preference() closes old.valid_until and links old->new; old kept (invalidate-not-delete). Written by inline Cypher in memory/long_term.py — NOT in graph/queries.py (so a queries.py-only scan reports it absent)." }
+  ],
+
+  "constraints": [
+    { "name": "conversation_id", "label": "Conversation", "property": "id", "kind": "UNIQUE" },
+    { "name": "message_id", "label": "Message", "property": "id", "kind": "UNIQUE" },
+    { "name": "entity_id", "label": "Entity", "property": "id", "kind": "UNIQUE" },
+    { "name": "preference_id", "label": "Preference", "property": "id", "kind": "UNIQUE" },
+    { "name": "fact_id", "label": "Fact", "property": "id", "kind": "UNIQUE" },
+    { "name": "reasoning_trace_id", "label": "ReasoningTrace", "property": "id", "kind": "UNIQUE" },
+    { "name": "reasoning_step_id", "label": "ReasoningStep", "property": "id", "kind": "UNIQUE" },
+    { "name": "tool_name", "label": "Tool", "property": "name", "kind": "UNIQUE" },
+    { "name": "tool_call_id", "label": "ToolCall", "property": "id", "kind": "UNIQUE" },
+    { "name": "user_identifier", "label": "User", "property": "identifier", "kind": "UNIQUE", "since": "0.4" },
+    { "name": "consolidation_run_id", "label": "ConsolidationRun", "property": "id", "kind": "UNIQUE", "since": "0.5" },
+    { "name": "memory_read_audit_id", "label": "MemoryReadAudit", "property": "id", "kind": "UNIQUE", "since": "0.5" }
+  ],
+
+  "indexes": {
+    "range": [
+      { "name": "conversation_session_idx", "label": "Conversation", "property": "session_id" },
+      { "name": "message_timestamp_idx", "label": "Message", "property": "timestamp" },
+      { "name": "message_role_idx", "label": "Message", "property": "role" },
+      { "name": "entity_type_idx", "label": "Entity", "property": "type" },
+      { "name": "entity_name_idx", "label": "Entity", "property": "name" },
+      { "name": "entity_canonical_idx", "label": "Entity", "property": "canonical_name" },
+      { "name": "preference_category_idx", "label": "Preference", "property": "category" },
+      { "name": "trace_session_idx", "label": "ReasoningTrace", "property": "session_id" },
+      { "name": "trace_success_idx", "label": "ReasoningTrace", "property": "success" },
+      { "name": "trace_error_kind_idx", "label": "ReasoningTrace", "property": "error_kind" },
+      { "name": "tool_call_status_idx", "label": "ToolCall", "property": "status" },
+      { "name": "conversation_archived_idx", "label": "Conversation", "property": "archived", "since": "0.5" },
+      { "name": "consolidation_run_kind_idx", "label": "ConsolidationRun", "property": "kind", "since": "0.5" },
+      { "name": "memory_read_audit_kind_idx", "label": "MemoryReadAudit", "property": "kind", "since": "0.5" },
+      { "name": "schema_name_idx", "label": "Schema", "property": "name" },
+      { "name": "schema_id_idx", "label": "Schema", "property": "id" }
+    ],
+    "vector": [
+      { "name": "message_embedding_idx", "label": "Message", "property": "embedding", "dimensions": 1536, "similarity": "cosine" },
+      { "name": "entity_embedding_idx", "label": "Entity", "property": "embedding", "dimensions": 1536, "similarity": "cosine" },
+      { "name": "preference_embedding_idx", "label": "Preference", "property": "embedding", "dimensions": 1536, "similarity": "cosine" },
+      { "name": "fact_embedding_idx", "label": "Fact", "property": "embedding", "dimensions": 1536, "similarity": "cosine" },
+      { "name": "task_embedding_idx", "label": "ReasoningTrace", "property": "task_embedding", "dimensions": 1536, "similarity": "cosine" },
+      { "name": "step_embedding_idx", "label": "ReasoningStep", "property": "embedding", "dimensions": 1536, "similarity": "cosine" }
+    ],
+    "point": [
+      { "name": "entity_location_idx", "label": "Entity", "property": "location" }
+    ]
+  },
+
+  "ontology": {
+    "model": "POLE+O",
+    "entity_types": [
+      { "name": "PERSON", "subtypes": ["INDIVIDUAL", "ALIAS", "PERSONA", "SUSPECT", "WITNESS", "VICTIM"] },
+      { "name": "OBJECT", "subtypes": ["VEHICLE", "PHONE", "EMAIL", "DOCUMENT", "DEVICE", "WEAPON", "MONEY", "DRUG", "EVIDENCE", "SOFTWARE"] },
+      { "name": "LOCATION", "subtypes": ["ADDRESS", "CITY", "REGION", "COUNTRY", "LANDMARK", "COORDINATES"] },
+      { "name": "EVENT", "subtypes": ["INCIDENT", "MEETING", "TRANSACTION", "COMMUNICATION", "CRIME", "TRAVEL", "EMPLOYMENT", "OBSERVATION"] },
+      { "name": "ORGANIZATION", "subtypes": ["COMPANY", "NONPROFIT", "GOVERNMENT", "EDUCATIONAL", "CRIMINAL", "POLITICAL", "RELIGIOUS", "MILITARY"] }
+    ],
+    "relation_types": [
+      { "name": "KNOWS", "source": ["PERSON"], "target": ["PERSON"] },
+      { "name": "ALIAS_OF", "source": ["PERSON"], "target": ["PERSON"] },
+      { "name": "MEMBER_OF", "source": ["PERSON"], "target": ["ORGANIZATION"], "properties": ["role", "start_date", "end_date"] },
+      { "name": "EMPLOYED_BY", "source": ["PERSON"], "target": ["ORGANIZATION"], "properties": ["position", "start_date", "end_date"] },
+      { "name": "OWNS", "source": ["PERSON", "ORGANIZATION"], "target": ["OBJECT"], "properties": ["acquisition_date", "status"] },
+      { "name": "USES", "source": ["PERSON"], "target": ["OBJECT"] },
+      { "name": "LOCATED_AT", "source": ["PERSON", "OBJECT", "ORGANIZATION", "EVENT"], "target": ["LOCATION"], "properties": ["from_date", "to_date", "status"] },
+      { "name": "RESIDES_AT", "source": ["PERSON"], "target": ["LOCATION"], "properties": ["from_date", "to_date"] },
+      { "name": "HEADQUARTERS_AT", "source": ["ORGANIZATION"], "target": ["LOCATION"] },
+      { "name": "PARTICIPATED_IN", "source": ["PERSON", "ORGANIZATION"], "target": ["EVENT"], "properties": ["role"] },
+      { "name": "OCCURRED_AT", "source": ["EVENT"], "target": ["LOCATION"] },
+      { "name": "INVOLVED", "source": ["EVENT"], "target": ["OBJECT"], "properties": ["role"] },
+      { "name": "SUBSIDIARY_OF", "source": ["ORGANIZATION"], "target": ["ORGANIZATION"] },
+      { "name": "PARTNER_WITH", "source": ["ORGANIZATION"], "target": ["ORGANIZATION"] },
+      { "name": "RELATED_TO", "source": ["PERSON", "OBJECT", "LOCATION", "EVENT", "ORGANIZATION"], "target": ["PERSON", "OBJECT", "LOCATION", "EVENT", "ORGANIZATION"], "properties": ["type", "description", "confidence"] },
+      { "name": "MENTIONS", "source": ["*"], "target": ["*"] }
+    ],
+    "notes": "Ontology relation types are stored as the `type` PROPERTY on the physical (:Entity)-[:RELATED_TO]->(:Entity) edge, not as distinct Neo4j relationship types. The ontology is configurable (poleo | legacy | custom) and can be persisted/versioned as :Schema nodes."
+  }
+}

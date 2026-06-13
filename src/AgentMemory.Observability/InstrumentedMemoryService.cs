@@ -45,19 +45,28 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         }
     }
 
-    public async Task<RecallResult> RecallAsOfAsync(
+    public Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
+        CancellationToken cancellationToken = default)
+        // Single-clock recall == bitemporal recall with both clocks equal (D6).
+        => RecallAsOfAsync(request, asOf, asOf, cancellationToken);
+
+    public async Task<RecallResult> RecallAsOfAsync(
+        RecallRequest request,
+        DateTimeOffset validAsOf,
+        DateTimeOffset systemAsOf,
         CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.recall_as_of");
         activity?.SetTag("memory.session_id", request.SessionId);
-        activity?.SetTag("memory.as_of", asOf.ToString("O"));
+        activity?.SetTag("memory.valid_as_of", validAsOf.ToString("O"));
+        activity?.SetTag("memory.system_as_of", systemAsOf.ToString("O"));
 
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.RecallAsOfAsync(request, asOf, cancellationToken);
+            var result = await _inner.RecallAsOfAsync(request, validAsOf, systemAsOf, cancellationToken);
             _metrics.RecallRequests.Add(1);
             activity?.SetTag("memory.recall.total_items", result.TotalItemsRetrieved);
             return result;

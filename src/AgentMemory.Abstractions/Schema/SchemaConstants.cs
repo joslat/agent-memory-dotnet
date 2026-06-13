@@ -31,6 +31,14 @@ public static class SchemaConstants
         /// <summary>Entity equivalence (deduplication) relationship.</summary>
         public const string SameAs = "SAME_AS";
 
+        /// <summary>
+        /// Supersession edge (D7): <c>(loser)-[:SUPERSEDED_BY]-&gt;(winner)</c> for Fact→Fact and
+        /// Preference→Preference. Written when a contradiction is resolved or a duplicate is collapsed;
+        /// the loser is soft-invalidated (kept, not deleted) and points to the winner. Mirrors the
+        /// upstream <c>supersede_preference</c> <c>:SUPERSEDED_BY</c> link (non-destructive, both kept).
+        /// </summary>
+        public const string SupersededBy = "SUPERSEDED_BY";
+
         /// <summary>Generic entity-to-entity relationship.</summary>
         public const string RelatedTo = "RELATED_TO";
 
@@ -222,8 +230,16 @@ public static class SchemaConstants
         /// <summary>Validity start timestamp property.</summary>
         public const string ValidFrom = "valid_from";
 
-        /// <summary>Validity end timestamp property.</summary>
+        /// <summary>Validity end timestamp property (valid-time axis — when a fact stopped being true).</summary>
         public const string ValidUntil = "valid_until";
+
+        /// <summary>
+        /// Transaction-time axis (D5): the moment the system stopped believing a record — set by
+        /// soft-invalidation / non-destructive decay / supersession. <c>null</c> = currently believed.
+        /// Live recall excludes nodes with a non-null value; as-of recall includes them when
+        /// <c>asOf &lt; invalidated_at</c> (i.e. they were still believed at that past time).
+        /// </summary>
+        public const string InvalidatedAt = "invalidated_at";
 
         /// <summary>Category classification property.</summary>
         public const string Category = "category";
