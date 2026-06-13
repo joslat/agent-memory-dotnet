@@ -46,6 +46,7 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, Stu
 builder.Services.AddAgentMemoryFramework(_ => { });
 
 var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the async-only Neo4j driver factory on exit
 await RunAsync(host.Services);
 
 static async Task RunAsync(IServiceProvider root)

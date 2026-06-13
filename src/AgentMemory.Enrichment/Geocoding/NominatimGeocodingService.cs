@@ -83,7 +83,15 @@ public sealed class NominatimGeocodingService : IGeocodingService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;
+            throw; // genuine caller cancellation
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient.Timeout fired (the caller's ct was NOT cancelled). Surface it as a distinct,
+            // operationally-visible timeout rather than a generic failure indistinguishable from
+            // "location not found"; keep the graceful null contract.
+            _logger.LogWarning(ex, "Geocoding request for '{LocationText}' timed out", locationText);
+            return null;
         }
         catch (Exception ex)
         {

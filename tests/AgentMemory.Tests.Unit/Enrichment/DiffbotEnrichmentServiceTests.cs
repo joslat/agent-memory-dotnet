@@ -225,17 +225,48 @@ public sealed class DiffbotEnrichmentServiceTests
     }
 
     [Fact]
-    public async Task EnrichEntity_Timeout_ReturnsError()
+    public async Task EnrichEntity_Timeout_ThrowsTimeoutException_ForRetryability()
     {
+        // cycle-6: an HttpClient.Timeout arrives as a TaskCanceledException with the caller's ct NOT
+        // cancelled. It must be treated as TRANSIENT — thrown, not returned as a terminal Error — so the
+        // background queue retries it and the cache doesn't store a poison Error that suppresses re-enrichment.
         var handler = new ThrowingHttpMessageHandler(new TaskCanceledException("Request timed out"));
         var opts = new DiffbotEnrichmentOptions { ApiKey = "key", RateLimitSeconds = 0 };
         var sut = CreateSut(handler, opts);
 
-        var result = await sut.EnrichEntityAsync("Tesla", "ORGANIZATION");
+        var act = () => sut.EnrichEntityAsync("Tesla", "ORGANIZATION");
 
-        result.Should().NotBeNull();
-        result!.Status.Should().Be(EnrichmentStatus.Error);
-        result.ErrorMessage.Should().Contain("timed out");
+        await act.Should().ThrowAsync<TimeoutException>();
+    }
+
+    [Fact]
+    public async Task EnrichEntity_GenuineCancellation_StillThrowsOperationCanceled()
+    {
+        // A genuinely-cancelled caller token must still propagate as cancellation (not a timeout/Error).
+        var handler = new ThrowingHttpMessageHandler(new OperationCanceledException());
+        var opts = new DiffbotEnrichmentOptions { ApiKey = "key", RateLimitSeconds = 0 };
+        var sut = CreateSut(handler, opts);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = () => sut.EnrichEntityAsync("Tesla", "ORGANIZATION", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task EnrichEntity_NameWithQuotes_EscapesDqlStringLiteral()
+    {
+        // cycle-6: a name containing double quotes must be backslash-escaped so the DQL query is well-formed
+        // (otherwise it is malformed and silently returns nothing).
+        var handler = new MockHttpMessageHandler(EmptyResponse);
+        var opts = new DiffbotEnrichmentOptions { ApiKey = "key", RateLimitSeconds = 0 };
+        var sut = CreateSut(handler, opts);
+
+        await sut.EnrichEntityAsync("John \"Jack\" Doe", "PERSON");
+
+        var decodedQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        decodedQuery.Should().Contain("\\\"Jack\\\"", "inner quotes must be backslash-escaped in the DQL literal");
     }
 
     [Fact]

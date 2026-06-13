@@ -81,7 +81,14 @@ public sealed class WikimediaEnrichmentService : IEnrichmentService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;
+            throw; // genuine caller cancellation
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient.Timeout fired (caller's ct not cancelled). Surface a distinct timeout log; keep
+            // the graceful null contract.
+            _logger.LogWarning(ex, "Enrichment request for entity '{EntityName}' timed out", entityName);
+            return null;
         }
         catch (Exception ex)
         {

@@ -89,7 +89,10 @@ public sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
         try
         {
             var diffbotType = TypeMapping[entityType];
-            var query = $"name:\"{entityName}\" type:{diffbotType}";
+            // Escape DQL string-literal metacharacters (backslash FIRST, then the double quote) so a name
+            // like John "Jack" Doe doesn't produce a malformed query that silently returns nothing.
+            var escapedName = entityName.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            var query = $"name:\"{escapedName}\" type:{diffbotType}";
             // The API key is sent via the Authorization header (Diffbot supports "Authorization: token <key>")
             // rather than the query string, so it cannot leak into proxy/access logs.
             var url = $"{_options.BaseUrl}/dql?type=query&query={Uri.EscapeDataString(query)}&size=1";
@@ -149,7 +152,17 @@ public sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;
+            throw; // genuine caller cancellation
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient.Timeout fired (caller's ct not cancelled). A timeout is TRANSIENT, so throw rather
+            // than returning a terminal Error result — otherwise the background queue would count it as a
+            // (non-null) success and skip the retry, and the cache would store the poison Error and suppress
+            // re-enrichment for the whole cache window. Throwing a non-OCE makes the queue's generic catch
+            // retry it, and the result is never cached. (Genuine cancellation is rethrown above.)
+            _logger.LogWarning(ex, "Diffbot enrichment for entity '{EntityName}' timed out", entityName);
+            throw new TimeoutException($"Diffbot enrichment for '{entityName}' timed out.", ex);
         }
         catch (Exception ex)
         {
