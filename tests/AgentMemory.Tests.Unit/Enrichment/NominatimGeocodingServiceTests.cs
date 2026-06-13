@@ -149,6 +149,23 @@ public sealed class NominatimGeocodingServiceTests
     }
 
     [Fact]
+    public async Task Geocode_Timeout_ReturnsNull_DoesNotThrow()
+    {
+        // cycle-6: an HttpClient.Timeout (TaskCanceledException with the caller's ct NOT cancelled) must
+        // degrade gracefully to null — NOT propagate as an exception, and NOT be confused with a genuine
+        // caller cancellation (which still throws, see Geocode_CancellationToken_Honored).
+        var httpClient = new HttpClient(new ThrowingHandler(new TaskCanceledException("timed out")));
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(Arg.Any<string>()).Returns(httpClient);
+        var sut = new NominatimGeocodingService(
+            factory, Options.Create(new GeocodingOptions()), NullLogger<NominatimGeocodingService>.Instance);
+
+        var result = await sut.GeocodeAsync("London"); // default (uncancelled) token
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Geocode_NullOrWhitespace_ReturnsNull()
     {
         var handler = new MockHttpMessageHandler(ValidNominatimResponse);
@@ -159,5 +176,11 @@ public sealed class NominatimGeocodingServiceTests
 
         result1.Should().BeNull();
         result2.Should().BeNull();
+    }
+
+    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromException<HttpResponseMessage>(exception);
     }
 }

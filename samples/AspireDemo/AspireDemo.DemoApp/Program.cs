@@ -24,7 +24,8 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, Stu
 builder.Services.AddSingleton<IGraphRagContextSource, DisabledGraphRagContextSource>();
 builder.Services.AddSingleton<IMemoryExtractionPipeline, DisabledMemoryExtractionPipeline>();
 
-using var host = builder.Build();
+var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the async-only Neo4j driver factory on exit
 await using var scope = host.Services.CreateAsyncScope();
 
 var services = scope.ServiceProvider;

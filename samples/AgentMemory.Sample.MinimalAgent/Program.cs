@@ -67,6 +67,7 @@ builder.Services.AddScoped<AgentTraceRecorder>();
 builder.Services.AddScoped<MemoryToolFactory>();
 
 var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the async-only Neo4j driver factory on exit
 
 // ── Demo run ──────────────────────────────────────────────────────────────────
 await RunDemoAsync(host.Services);

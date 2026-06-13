@@ -52,6 +52,7 @@ builder.Services.AddAgentMemoryFramework(options =>
 });
 
 var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the async-only Neo4j driver factory on exit
 
 // ── OpenTelemetry: a console ActivityListener for the agent's spans ──────────
 // UseOpenTelemetry() below emits MAF agent activities; in production add a real exporter.

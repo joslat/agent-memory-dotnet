@@ -56,6 +56,7 @@ builder.Services.AddAgentMemoryFramework(options =>
 });
 
 var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the async-only Neo4j driver factory on exit
 await RunAsync(host.Services);
 
 static async Task RunAsync(IServiceProvider root)

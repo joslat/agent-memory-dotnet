@@ -101,6 +101,7 @@ builder.Services.AddScoped<MemoryToolFactory>();
 builder.Services.AddAgentMemoryObservability();
 
 var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the async-only Neo4j driver factory on exit
 
 // ── Observability: wire up a console ActivityListener for demo purposes ────────
 // In production, configure a real OpenTelemetry exporter (e.g. AddOtlpExporter).
