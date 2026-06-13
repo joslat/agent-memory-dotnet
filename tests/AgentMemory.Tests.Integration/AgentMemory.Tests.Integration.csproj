@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Analytics\AgentMemory.Analytics.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />

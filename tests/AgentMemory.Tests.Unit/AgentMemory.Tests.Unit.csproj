@@ -27,6 +27,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Analytics\AgentMemory.Analytics.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Observability\AgentMemory.Observability.csproj" />

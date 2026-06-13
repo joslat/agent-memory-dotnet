@@ -15,6 +15,7 @@
     <Project Path="src/AgentMemory.AgentFramework/AgentMemory.AgentFramework.csproj" />
     <Project Path="src/AgentMemory.Core/AgentMemory.Core.csproj" />
     <Project Path="src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
+    <Project Path="src/AgentMemory.Analytics/AgentMemory.Analytics.csproj" />
     <Project Path="src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj" />
     <Project Path="src/AgentMemory.Extraction.AzureLanguage/AgentMemory.Extraction.AzureLanguage.csproj" />
     <Project Path="src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj" />
