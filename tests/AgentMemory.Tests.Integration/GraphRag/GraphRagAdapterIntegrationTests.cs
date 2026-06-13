@@ -85,6 +85,33 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
         texts.Should().Contain("bob private knowledge");
     }
 
+    [Fact]
+    public async Task GraphMode_OwnerScoped_DoesNotRouteThroughAnotherOwnersNode()
+    {
+        // Cross-owner bridge: alice-a1 → bob-x → alice-a2. Plus a legitimate owned edge: alice-a1 → alice-a3.
+        // A scoped graph walk must surface the owned path but never route through bob's bridge node.
+        await SeedOwnedAsync(
+            ("a1", "alice one", AxisX, "alice"),
+            ("a3", "alice three", AxisX, "alice"),
+            ("x", "bob bridge", AxisX, "bob"),
+            ("a2", "alice two", AxisX, "alice"));
+        await LinkRelatedAsync("a1", "a3"); // legitimate owned 1-hop
+        await LinkRelatedAsync("a1", "x");  // cross-owner
+        await LinkRelatedAsync("x", "a2");  // would bridge a1 → x → a2
+
+        var source = CreateSource(GraphRagSearchMode.Graph, queryVector: AxisX);
+        var result = await source.GetContextAsync(
+            new GraphRagContextRequest { SessionId = "s1", Query = "node", TopK = 25, UserId = "alice" });
+
+        var texts = result.Items.Select(i => i.Text).ToList();
+        texts.Should().Contain(t => t.Contains("alice one") && t.Contains("alice three"),
+            "a fully-owned RELATED_TO path is still surfaced");
+        texts.Should().NotContain(t => t.Contains("bob bridge"),
+            "another owner's node must never appear in a scoped walk");
+        texts.Should().NotContain(t => t.Contains("alice one") && t.Contains("alice two"),
+            "a scoped walk must not bridge two owned nodes via another owner's node");
+    }
+
     // ── Retrieval mode selection + provider wiring ─────────────────────────────
 
     [Fact]

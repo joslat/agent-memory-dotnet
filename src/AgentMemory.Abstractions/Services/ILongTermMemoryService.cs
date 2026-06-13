@@ -6,6 +6,20 @@ namespace AgentMemory.Abstractions.Services;
 /// <summary>
 /// Service for long-term (structured knowledge) memory operations.
 /// </summary>
+/// <remarks>
+/// <para><b>Lifecycle surface (intentionally asymmetric).</b> The library follows an
+/// <i>invalidate-not-delete</i> philosophy, so the canonical way to close any long-term node is
+/// <c>Invalidate*</c> (non-destructive, reversible, owner-scoped) — available for entities, facts, and
+/// preferences alike.</para>
+/// <list type="bullet">
+///   <item><b>Supersession</b> (<c>Supersede*</c>) is offered for <b>facts and preferences only</b>,
+///   mirroring the <c>:SUPERSEDED_BY</c> edge (Fact→Fact / Preference→Preference). Entities are closed via
+///   <c>InvalidateEntityAsync</c>, not superseded.</item>
+///   <item><b>Hard delete</b> is exposed here only as <c>DeletePreferenceAsync</c>; destructive removal is
+///   deliberately kept off this service for facts/entities. For an explicit policy delete (GDPR / TTL),
+///   call the repository <c>DeleteAsync</c> directly — but prefer <c>Invalidate*</c> in normal use.</item>
+/// </list>
+/// </remarks>
 public interface ILongTermMemoryService
 {
     /// <summary>
