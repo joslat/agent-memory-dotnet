@@ -302,6 +302,64 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GenerateEmbeddingsBatchAsync_ActivitySpansTheAwaitedWork()
+    {
+        // cycle-4: the method must be async/await so the `using` activity stays open across the inner
+        // async work. A synchronous body would dispose the span the instant it returned the pending Task,
+        // yielding a ~0-duration span. We assert the captured span's duration reflects the inner delay.
+        _inner.GenerateEmbeddingsBatchAsync("Entity", 100, Arg.Any<CancellationToken>())
+            .Returns(async _ => { await Task.Delay(60); return 7; });
+
+        var result = await _sut.GenerateEmbeddingsBatchAsync("Entity", 100);
+
+        result.Should().Be(7);
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.generate_embeddings_batch").Subject;
+        activity.GetTagItem("memory.node_label").Should().Be("Entity");
+        activity.Duration.Should().BeGreaterThan(TimeSpan.FromMilliseconds(20),
+            "the span must enclose the awaited work, not close at ~0ms before it runs");
+    }
+
+    [Fact]
+    public async Task ExtractFromSessionAsync_WithUserId_TagsOwner()
+    {
+        _inner.ExtractFromSessionAsync("s1", "alice", Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromSessionAsync("s1", "alice");
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_session").Subject;
+        activity.GetTagItem("memory.user_id").Should().Be("alice");
+    }
+
+    [Fact]
+    public async Task ExtractFromSessionAsync_WithoutUserId_NoOwnerTag()
+    {
+        _inner.ExtractFromSessionAsync("s1", null, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromSessionAsync("s1");
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_session").Subject;
+        activity.GetTagItem("memory.user_id").Should().BeNull("a shared/global turn must not emit an owner tag");
+    }
+
+    [Fact]
+    public async Task ExtractFromConversationAsync_WithUserId_TagsOwner()
+    {
+        _inner.ExtractFromConversationAsync("c1", "bob", Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        await _sut.ExtractFromConversationAsync("c1", "bob");
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_from_conversation").Subject;
+        activity.GetTagItem("memory.user_id").Should().Be("bob");
+    }
+
+    [Fact]
     public async Task AllMethods_DelegateToInner()
     {
         var recallRequest = new RecallRequest { SessionId = "s1", Query = "q" };

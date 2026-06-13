@@ -185,6 +185,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_session");
         activity?.SetTag("memory.session_id", sessionId);
+        if (userId is not null) activity?.SetTag("memory.user_id", userId);
 
         var sw = Stopwatch.StartNew();
         try
@@ -210,6 +211,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_conversation");
         activity?.SetTag("memory.conversation_id", conversationId);
+        if (userId is not null) activity?.SetTag("memory.user_id", userId);
 
         var sw = Stopwatch.StartNew();
         try
@@ -228,14 +230,16 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         }
     }
 
-    public Task<int> GenerateEmbeddingsBatchAsync(
+    public async Task<int> GenerateEmbeddingsBatchAsync(
         string nodeLabel,
         int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
+        // Must be async/await: a synchronous method would dispose the activity the moment it returns the
+        // still-pending Task, so the span would close with ~0 duration, disconnected from the actual work.
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.generate_embeddings_batch");
         activity?.SetTag("memory.node_label", nodeLabel);
         activity?.SetTag("memory.batch_size", batchSize);
-        return _inner.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken);
+        return await _inner.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken);
     }
 }
