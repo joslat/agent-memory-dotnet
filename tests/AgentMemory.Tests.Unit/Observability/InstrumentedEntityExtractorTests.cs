@@ -7,6 +7,8 @@ using NSubstitute.ExceptionExtensions;
 
 namespace AgentMemory.Tests.Unit.Observability;
 
+// Emits on the process-global MemoryActivitySource — must serialize with the other observability tests.
+[Collection("Observability")]
 public sealed class InstrumentedEntityExtractorTests
 {
     private readonly IEntityExtractor _inner = Substitute.For<IEntityExtractor>();
