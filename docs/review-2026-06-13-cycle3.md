@@ -98,8 +98,19 @@ mid-turn would recall across **all** owners and `remember_*` writes would store 
 > when a **scoped** owner context is registered and each turn runs in its own DI scope (provider + tools then
 > share one instance). For the AsyncLocal-singleton default, **the host must establish the owner context around
 > the agent run** (set `IWritableMemoryOwnerContext.UserId` before `RunAsync`). This is documented in the
-> providers' `ApplyOwnerContext` comments. *Follow-up candidate:* offer a first-class "owner scope" helper /
-> per-run scope so multi-tenant scoping is correct-by-default without host wiring.
+> providers' `ApplyOwnerContext` comments.
+>
+> **Follow-up landed (post-merge):** `IWritableMemoryOwnerContext.BeginOwnerScope(userId)` — a host-facing
+> `IDisposable` owner scope. Because `AsyncLocal` flows *down* into awaited work, wrapping the run closes the
+> gap reliably:
+> ```csharp
+> using (ownerContext.BeginOwnerScope(userId))
+>     await agent.RunAsync(message, session); // RunAsync + its tool calls inherit the owner
+> ```
+> Unit-tested end-to-end (`MemoryOwnerContextExtensionsTests`): the owner is visible to async work awaited
+> inside the scope (a simulated tool call after an `await`), nested scopes restore the outer owner, and the
+> previous value is restored on dispose. This is the recommended multi-tenant pattern for the
+> AsyncLocal-singleton default.
 
 ### 5 — MAF chat-history surfaces feed the conversation reverse-chronological
 **Medium · `Neo4jChatHistoryProvider`, `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`**
@@ -173,6 +184,8 @@ asymmetry is tracked rather than lost.
 added), so the abstractions contract-guard counts are unaffected.
 
 ## Follow-ups (not blocking)
-- **#4 correct-by-default owner scoping** (High value): a first-class per-run owner scope so multi-tenant
-  facade-tool scoping works without host wiring (see the AsyncLocal nuance above).
+- **#4 correct-by-default owner scoping** — ✅ addressed post-merge with
+  `IWritableMemoryOwnerContext.BeginOwnerScope(userId)` (host wraps the run; AsyncLocal flows down into the
+  tool calls). A fully zero-host-wiring default would still require a per-run DI scope or MAF middleware hook;
+  the helper is the pragmatic, tested closure.
 - **#7**: revisit if `GetContextForRunAsync` is extended to surface long-term owner-scoped sections.
