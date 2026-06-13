@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-preview.3] - 2026-06-13
+
 ### Added
 
 - **`IWritableMemoryOwnerContext.BeginOwnerScope(userId)` — host-facing ambient owner scope.** A small `IDisposable` that sets the ambient memory owner (IC8) for the current async flow and restores it on dispose. This is the reliable way to make the LLM-invokable MAF facade tools (`search_memory` / `remember_*`) owner-scoped: because the owner context is `AsyncLocal`-backed, a value set in an *enclosing* scope flows down into the awaited agent run and its tool calls — `using (ownerContext.BeginOwnerScope(userId)) await agent.RunAsync(...)`. (The MAF providers set the owner per turn, but a value set inside their awaited pre-run hook does not propagate back to the framework's later tool calls under the AsyncLocal-singleton default — so the host scope is the correct closure; see `docs/review-2026-06-13-cycle3.md` finding #4.) Unit-tested end-to-end (flows into nested async work, nested scopes restore the outer owner, restored on dispose).
