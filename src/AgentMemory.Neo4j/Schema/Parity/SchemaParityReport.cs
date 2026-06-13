@@ -12,6 +12,7 @@ public sealed record SchemaParityReport(
     string UpstreamVersion,
     IReadOnlyList<string> MissingLabels,
     IReadOnlyList<string> MissingRelationshipTypes,
+    IReadOnlyList<string> MissingProperties,
     IReadOnlyList<string> UndocumentedNetOnlyLabels,
     IReadOnlyList<string> UndocumentedNetOnlyRelationshipTypes,
     IReadOnlyList<string> InteropPropertyDrift,
@@ -22,6 +23,7 @@ public sealed record SchemaParityReport(
     public bool IsCompatible =>
         MissingLabels.Count == 0
         && MissingRelationshipTypes.Count == 0
+        && MissingProperties.Count == 0
         && UndocumentedNetOnlyLabels.Count == 0
         && UndocumentedNetOnlyRelationshipTypes.Count == 0
         && InteropPropertyDrift.Count == 0
@@ -35,6 +37,7 @@ public sealed record SchemaParityReport(
             var b = new List<string>();
             foreach (var x in MissingLabels) b.Add($"missing upstream node label: {x}");
             foreach (var x in MissingRelationshipTypes) b.Add($"missing upstream relationship type: {x}");
+            foreach (var x in MissingProperties) b.Add($"upstream property absent in .NET (renamed/dropped?): {x}");
             foreach (var x in UndocumentedNetOnlyLabels) b.Add($"undocumented .NET-only node label: {x}");
             foreach (var x in UndocumentedNetOnlyRelationshipTypes) b.Add($"undocumented .NET-only relationship type: {x}");
             foreach (var x in InteropPropertyDrift) b.Add($"interop property drift (missing/renamed in .NET): {x}");

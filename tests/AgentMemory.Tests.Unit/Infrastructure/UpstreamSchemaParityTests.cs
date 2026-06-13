@@ -121,4 +121,35 @@ public sealed class UpstreamSchemaParityTests
         report.IsCompatible.Should().BeFalse();
         report.SupersetsUpstreamCaughtUpTo.Should().Contain("invalidated_at");
     }
+
+    [Fact]
+    public void Verifier_StructuralGate_CatchesRenameOfASharedProperty_OutsideTheInteropAllowlist()
+    {
+        // "subtype" is shared with upstream but is NOT in InteropCriticalProperties. The structural gate
+        // (mirroring labels/rels) must still catch its rename — otherwise a silent interop break ships.
+        var net = NetWith(props: DotNetSchema.Describe().Properties.Where(p => p != "subtype").Append("subType"));
+        var report = SchemaParityVerifier.Verify(net, Upstream(), Policy);
+
+        report.IsCompatible.Should().BeFalse();
+        report.MissingProperties.Should().Contain("subtype",
+            "renaming any shared property away from upstream's spelling must be flagged, allowlisted or not");
+    }
+
+    // ── Version ordering (default-to-newest must be semver, not ordinal) ─────
+
+    [Fact]
+    public void OrderByVersion_OrdersBySemver_NotOrdinalString()
+    {
+        var ordered = UpstreamSchemaRegistry.OrderByVersion(new[] { "0.5.0", "0.10.0", "0.5.1", "1.0.0", "0.9.0" });
+
+        ordered.Should().ContainInOrder("0.5.0", "0.5.1", "0.9.0", "0.10.0", "1.0.0");
+        ordered[^1].Should().Be("1.0.0", "default-to-newest ([^1]) must resolve to the true latest semver");
+    }
+
+    [Fact]
+    public void OrderByVersion_PicksTenPointZeroOverFivePointZero_AsNewest()
+    {
+        // The exact regression: ordinal sort places "0.10.0" before "0.5.0" and would pick 0.5.0 as newest.
+        UpstreamSchemaRegistry.OrderByVersion(new[] { "0.5.0", "0.10.0" })[^1].Should().Be("0.10.0");
+    }
 }

@@ -21,13 +21,26 @@ public sealed class UpstreamSchemaRegistry
 
     internal UpstreamSchemaRegistry(Assembly assembly) => _assembly = assembly;
 
-    /// <summary>The upstream versions for which a snapshot is embedded (e.g. "0.5.0").</summary>
+    /// <summary>
+    /// The upstream versions for which a snapshot is embedded (e.g. "0.5.0"), ordered oldest → newest by
+    /// <b>semantic</b> version (so the CLI default-to-newest <c>[^1]</c> picks the true latest — ordinal
+    /// string sort would misorder "0.10.0" before "0.5.0").
+    /// </summary>
     public IReadOnlyList<string> AvailableVersions =>
-        _assembly.GetManifestResourceNames()
-            .Where(n => n.StartsWith(ResourcePrefix, StringComparison.Ordinal) && n.EndsWith(ResourceSuffix, StringComparison.Ordinal))
-            .Select(n => n[ResourcePrefix.Length..^ResourceSuffix.Length])
-            .OrderBy(v => v, StringComparer.Ordinal)
+        OrderByVersion(
+            _assembly.GetManifestResourceNames()
+                .Where(n => n.StartsWith(ResourcePrefix, StringComparison.Ordinal) && n.EndsWith(ResourceSuffix, StringComparison.Ordinal))
+                .Select(n => n[ResourcePrefix.Length..^ResourceSuffix.Length]));
+
+    /// <summary>Orders version strings oldest → newest by parsed semantic version (ties / unparseable fall back to ordinal).</summary>
+    public static IReadOnlyList<string> OrderByVersion(IEnumerable<string> versions) =>
+        versions
+            .OrderBy(ParseVersion)
+            .ThenBy(v => v, StringComparer.Ordinal)
             .ToList();
+
+    private static Version ParseVersion(string v) =>
+        Version.TryParse(v, out var parsed) ? parsed : new Version(0, 0, 0);
 
     /// <summary>Loads and parses the snapshot for <paramref name="version"/>, or throws if it is not embedded.</summary>
     public SchemaDescriptor Load(string version)

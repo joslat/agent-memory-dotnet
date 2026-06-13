@@ -34,6 +34,15 @@ public static class SchemaParityVerifier
             .Except(net.RelationshipTypes)
             .OrderBy(x => x, StringComparer.Ordinal).ToList();
 
+        // Structural rename guard (mirrors the label/rel gates): every upstream property must be present in
+        // .NET, except the documented ones .NET intentionally doesn't model. A renamed .NET property
+        // (e.g. "subtype" -> "subType") leaves the old upstream spelling absent here, so it is caught —
+        // without hand-maintaining a per-property allowlist of what's interop-critical.
+        var missingProps = upstream.Properties
+            .Except(net.Properties)
+            .Except(policy.UpstreamOnlyProperties)
+            .OrderBy(x => x, StringComparer.Ordinal).ToList();
+
         // .NET-only labels/rels that aren't on the documented extension allowlist.
         var undocumentedNetLabels = net.NodeLabels
             .Except(upstream.NodeLabels)
@@ -68,6 +77,7 @@ public static class SchemaParityVerifier
             UpstreamVersion: policy.UpstreamVersion,
             MissingLabels: missingLabels,
             MissingRelationshipTypes: missingRels,
+            MissingProperties: missingProps,
             UndocumentedNetOnlyLabels: undocumentedNetLabels,
             UndocumentedNetOnlyRelationshipTypes: undocumentedNetRels,
             InteropPropertyDrift: interopDrift,

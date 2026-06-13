@@ -12,6 +12,7 @@ public sealed record SchemaParityPolicy(
     IReadOnlySet<string> NetOnlyLabels,
     IReadOnlySet<string> NetOnlyRelationshipTypes,
     IReadOnlySet<string> NetSupersetProperties,
+    IReadOnlySet<string> UpstreamOnlyProperties,
     IReadOnlySet<string> InteropCriticalProperties)
 {
     private static IReadOnlySet<string> Set(params string[] items) =>
@@ -30,6 +31,13 @@ public sealed record SchemaParityPolicy(
         NetOnlyRelationshipTypes: Set("HAS_FACT", "HAS_PREFERENCE", "IN_SESSION"),
         // .NET property supersets absent upstream (owner scope + transaction-time clock).
         NetSupersetProperties: Set("owner_id", "owner_key", "invalidated_at"),
+        // Upstream properties the .NET port intentionally does not model as SchemaConstants (so the
+        // structural property gate doesn't flag them as missing). Anything NOT on this list that exists
+        // upstream but vanishes from .NET is a break — which is exactly how a silent rename is caught.
+        UpstreamOnlyProperties: Set(
+            "actions_taken", "archived", "archived_at", "attributes", "candidate_count", "config",
+            "created_by", "dry_run", "error_kind", "extraction_time_ms", "identifier", "is_active",
+            "kind", "ran_at", "recorded_at", "version"),
         // Property names that MUST be spelled identically on both sides (cross-impl read contract).
         InteropCriticalProperties: Set(
             "id", "name", "type", "embedding", "confidence", "metadata",
