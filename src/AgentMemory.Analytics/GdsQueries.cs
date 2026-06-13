@@ -37,9 +37,13 @@ internal static class GdsQueries
         var nf = includeShared ? "(e.owner_id = $ownerId OR e.owner_id IS NULL)" : "e.owner_id = $ownerId";
         var af = includeShared ? "(a.owner_id = $ownerId OR a.owner_id IS NULL)" : "a.owner_id = $ownerId";
         var bf = includeShared ? "(b.owner_id = $ownerId OR b.owner_id IS NULL)" : "b.owner_id = $ownerId";
+        // The edge itself carries owner_id; scope it the same way the rest of the library does
+        // (RelationshipQueries.OwnerAnd) so a foreign owner's edge between two visible (shared) nodes can't
+        // perturb a scoped owner's PageRank/community result.
+        var rf = includeShared ? "(r.owner_id = $ownerId OR r.owner_id IS NULL)" : "r.owner_id = $ownerId";
         return (
             $"MATCH (e:Entity) WHERE e.invalidated_at IS NULL AND {nf} RETURN id(e) AS id",
-            $"MATCH (a:Entity)-[:RELATED_TO]->(b:Entity) WHERE {af} AND {bf} RETURN id(a) AS source, id(b) AS target");
+            $"MATCH (a:Entity)-[r:RELATED_TO]->(b:Entity) WHERE {af} AND {bf} AND {rf} RETURN id(a) AS source, id(b) AS target");
     }
 
     /// <summary>

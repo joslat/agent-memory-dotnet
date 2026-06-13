@@ -23,6 +23,11 @@ internal static class GdsGraphScope
 
         await tx.WriteAsync(async runner =>
         {
+            // Defensive drop first: ExecuteWriteAsync auto-retries this lambda on a transient error, and the
+            // graph name is fixed per call — without this, a retry after the catalog write would fail with
+            // "graph already exists" and leak the partial graph. Drop is a no-op when the graph is absent.
+            await (await runner.RunAsync(GdsQueries.DropGraph, new { graphName })).ConsumeAsync();
+
             var parameters = new Dictionary<string, object?>
             {
                 ["graphName"] = graphName,
@@ -35,7 +40,9 @@ internal static class GdsGraphScope
 
         try
         {
-            return await tx.ReadAsync(algorithm, cancellationToken);
+            // Run the stream under a WRITE session too: under a routing (cluster/Aura) URI this pins it to
+            // the same member (the leader) that holds the just-created, member-local GDS catalog graph.
+            return await tx.WriteAsync(algorithm, cancellationToken);
         }
         finally
         {

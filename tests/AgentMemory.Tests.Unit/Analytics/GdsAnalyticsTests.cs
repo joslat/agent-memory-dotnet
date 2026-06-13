@@ -19,9 +19,12 @@ public sealed class GdsAnalyticsTests
 
         node.Should().Contain("e.invalidated_at IS NULL")
             .And.Contain("(e.owner_id = $ownerId OR e.owner_id IS NULL)");
-        // A relationship is projected only when BOTH endpoints are in scope (no cross-owner edges).
+        // A relationship is projected only when BOTH endpoints are in scope (no cross-owner edges)...
         rel.Should().Contain("(a.owner_id = $ownerId OR a.owner_id IS NULL)")
             .And.Contain("(b.owner_id = $ownerId OR b.owner_id IS NULL)");
+        // ...and the edge's OWN owner_id is scoped too, so a foreign edge between two shared nodes can't
+        // perturb a scoped owner's analytics.
+        rel.Should().Contain("(r.owner_id = $ownerId OR r.owner_id IS NULL)");
     }
 
     [Fact]

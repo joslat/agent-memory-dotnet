@@ -78,6 +78,16 @@ public sealed class SupersedeQueryTests
         build(false).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')");
     }
 
+    [Theory]
+    [MemberData(nameof(AllSupersede))]
+    public void Supersede_RejectsSelfSupersede(string label, Func<bool, string> build)
+    {
+        // `loser <> winner` makes a same-id supersede match zero rows (returns false) rather than
+        // invalidating a live node and creating a :SUPERSEDED_BY self-loop.
+        build(true).Should().Contain("loser <> winner", $"{label} scoped supersede must reject self-supersede");
+        build(false).Should().Contain("loser <> winner", $"{label} unscoped supersede must reject self-supersede");
+    }
+
     [Fact]
     public void RemoveDuplicatePreferences_IsNonDestructive_AndIdempotent()
     {

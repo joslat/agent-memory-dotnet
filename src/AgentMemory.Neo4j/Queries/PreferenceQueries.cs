@@ -131,13 +131,16 @@ public static class PreferenceQueries
         var loserOwner = hasOwnerFilter ? " AND loser.owner_id = $ownerId" : string.Empty;
         var winnerOwner = hasOwnerFilter ? " AND winner.owner_id = $ownerId" : string.Empty;
         // Same-owner guard (R1): loser and winner must belong to the same owner — even on the unscoped
-        // (admin) path — so a cross-owner :SUPERSEDED_BY link can never be created.
+        // (admin) path — so a cross-owner :SUPERSEDED_BY link can never be created. `loser <> winner`
+        // rejects a self-supersede (same id), which would otherwise invalidate a live node and create a
+        // :SUPERSEDED_BY self-loop while reporting success.
         return @"
             MATCH (loser:Preference {id: $loserId})
             WHERE true" + loserOwner + @"
             MATCH (winner:Preference {id: $winnerId})
             WHERE true" + winnerOwner + @"
               AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+              AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now))
             MERGE (loser)-[:SUPERSEDED_BY]->(winner)
             RETURN count(loser) > 0 AS superseded";

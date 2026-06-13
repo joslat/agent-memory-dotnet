@@ -204,13 +204,16 @@ public static class FactQueries
         var loserOwner = hasOwnerFilter ? " AND loser.owner_id = $ownerId" : string.Empty;
         var winnerOwner = hasOwnerFilter ? " AND winner.owner_id = $ownerId" : string.Empty;
         // Same-owner guard (R1): loser and winner must belong to the same owner — even on the unscoped
-        // (admin) path — so a cross-owner :SUPERSEDED_BY link can never be created.
+        // (admin) path — so a cross-owner :SUPERSEDED_BY link can never be created. `loser <> winner`
+        // rejects a self-supersede (same id), which would otherwise invalidate a live node and create a
+        // :SUPERSEDED_BY self-loop while reporting success.
         return @"
             MATCH (loser:Fact {id: $loserId})
             WHERE true" + loserOwner + @"
             MATCH (winner:Fact {id: $winnerId})
             WHERE true" + winnerOwner + @"
               AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+              AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
                 loser.valid_until    = coalesce(loser.valid_until, datetime($now))
             MERGE (loser)-[:SUPERSEDED_BY]->(winner)
