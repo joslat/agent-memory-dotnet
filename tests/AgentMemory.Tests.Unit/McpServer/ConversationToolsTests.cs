@@ -26,7 +26,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
-        await ConversationTools.MemoryGetConversation(_shortTermMemory, "conv-1");
+        await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, "conv-1");
 
         await _shortTermMemory.Received(1).GetConversationMessagesAsync("conv-1", Arg.Any<CancellationToken>());
     }
@@ -58,7 +58,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(messages);
 
-        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, "conv-1");
+        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -73,11 +73,72 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
-        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, "conv-1");
+        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
         doc.RootElement.GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task MemoryGetConversation_ScopedToOtherOwner_ReturnsEmpty_WithoutReadingMessages()
+    {
+        // cycle-5 R1: a scoped caller must not read another owner's conversation by guessing its id.
+        _conversationRepo.GetByIdAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new Conversation
+            {
+                ConversationId = "conv-1", SessionId = "ses-1", UserId = "alice",
+                CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime
+            });
+
+        var result = await ConversationTools.MemoryGetConversation(
+            _shortTermMemory, _conversationRepo, "conv-1", userId: "bob");
+
+        JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(0);
+        await _shortTermMemory.DidNotReceive().GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryGetConversation_ScopedToOwner_ReturnsMessages()
+    {
+        _conversationRepo.GetByIdAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new Conversation
+            {
+                ConversationId = "conv-1", SessionId = "ses-1", UserId = "alice",
+                CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime
+            });
+        _shortTermMemory.GetConversationMessagesAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new List<Message>
+            {
+                new() { MessageId = "m1", ConversationId = "conv-1", SessionId = "ses-1", Role = "user", Content = "hi", TimestampUtc = FixedTime }
+            });
+
+        var result = await ConversationTools.MemoryGetConversation(
+            _shortTermMemory, _conversationRepo, "conv-1", userId: "alice");
+
+        JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task MemoryGetConversation_ScopedToSharedConversation_IsAllowed()
+    {
+        // An un-attributed (UserId == null) conversation is shared/global — visible to any scoped owner.
+        _conversationRepo.GetByIdAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new Conversation
+            {
+                ConversationId = "conv-1", SessionId = "ses-1", UserId = null,
+                CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime
+            });
+        _shortTermMemory.GetConversationMessagesAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new List<Message>
+            {
+                new() { MessageId = "m1", ConversationId = "conv-1", SessionId = "ses-1", Role = "user", Content = "hi", TimestampUtc = FixedTime }
+            });
+
+        var result = await ConversationTools.MemoryGetConversation(
+            _shortTermMemory, _conversationRepo, "conv-1", userId: "bob");
+
+        JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
     }
 
     // ── memory_list_sessions ──
@@ -128,5 +189,25 @@ public sealed class ConversationToolsTests
         doc.RootElement.GetArrayLength().Should().Be(1);
         doc.RootElement[0].GetProperty("conversationId").GetString().Should().Be("conv-1");
         doc.RootElement[0].GetProperty("sessionId").GetString().Should().Be("ses-1");
+    }
+
+    [Fact]
+    public async Task MemoryListSessions_ScopedToOwner_ExcludesOtherOwnersAndKeepsShared()
+    {
+        // cycle-5 R1: a scoped caller sees only their own + un-attributed conversations, never another owner's.
+        _conversationRepo.GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Conversation>
+            {
+                new() { ConversationId = "mine",   SessionId = "ses-1", UserId = "alice", CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime },
+                new() { ConversationId = "theirs", SessionId = "ses-1", UserId = "bob",   CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime },
+                new() { ConversationId = "shared", SessionId = "ses-1", UserId = null,    CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime },
+            });
+
+        var result = await ConversationTools.MemoryListSessions(_conversationRepo, _options, "ses-1", userId: "alice");
+
+        var ids = JsonDocument.Parse(result).RootElement.EnumerateArray()
+            .Select(e => e.GetProperty("conversationId").GetString()).ToList();
+        ids.Should().BeEquivalentTo(new[] { "mine", "shared" });
+        ids.Should().NotContain("theirs");
     }
 }

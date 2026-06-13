@@ -21,6 +21,11 @@ public sealed class EntityListResource
         [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) entities; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        // Clamp pagination: a negative SKIP/LIMIT is a Neo4j error and a huge limit is a resource-exhaustion
+        // vector. Clamping is friendlier than throwing for a list endpoint.
+        limit = Math.Clamp(limit, 1, 1000);
+        offset = Math.Max(0, offset);
+
         // R1: owner-scope the listing so a multi-tenant client can't read other owners' entities.
         // null userId ⇒ unscoped (admin/single-tenant), matching the rest of the MCP surface.
         var conditions = new List<string>();

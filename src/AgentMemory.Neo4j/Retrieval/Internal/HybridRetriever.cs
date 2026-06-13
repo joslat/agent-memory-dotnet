@@ -4,11 +4,15 @@ using Neo4j.Driver;
 namespace AgentMemory.Neo4j.Retrieval.Internal;
 
 /// <summary>
-/// Combined vector + fulltext retriever. Runs both searches concurrently and
-/// merges results, taking the highest score for duplicate content.
+/// Combined vector + fulltext retriever. Runs both searches concurrently and fuses the two ranked lists
+/// with Reciprocal Rank Fusion (RRF) — a scale-free combiner that avoids comparing raw cosine ([0,1]) and
+/// BM25 (unbounded) scores directly (which would let keyword frequency dominate semantic relevance).
 /// </summary>
 internal sealed class HybridRetriever : IRetriever
 {
+    // RRF rank-bias constant (Cormack et al. 2009). Larger k flattens the contribution of top ranks.
+    private const int RrfK = 60;
+
     private readonly VectorRetriever _vector;
     private readonly FulltextRetriever _fulltext;
 
@@ -35,33 +39,43 @@ internal sealed class HybridRetriever : IRetriever
         var vectorResults = await vectorTask.ConfigureAwait(false);
         var fulltextResults = await fulltextTask.ConfigureAwait(false);
 
-        var merged = new Dictionary<string, RetrieverResultItem>();
-        foreach (var item in vectorResults.Items.Concat(fulltextResults.Items))
-        {
-            var key = item.Content;
-            if (merged.TryGetValue(key, out var existing))
-            {
-                if (GetScore(item) > GetScore(existing))
-                    merged[key] = item;
-            }
-            else
-            {
-                merged[key] = item;
-            }
-        }
-
-        var items = merged.Values
-            .OrderByDescending(GetScore)
-            .Take(topK)
-            .ToList();
-
+        var items = FuseReciprocalRank(vectorResults.Items, fulltextResults.Items, topK);
         return new RetrieverResult(items);
     }
 
-    private static double GetScore(RetrieverResultItem item)
+    /// <summary>
+    /// Fuses two already-ranked result lists with Reciprocal Rank Fusion: each item contributes
+    /// <c>1 / (k + rank)</c> (1-based rank within its own list) to its content's combined score, and the
+    /// items are ordered by the summed score. Items appearing in both lists are reinforced. This compares
+    /// the lists by RANK, not by their incomparable raw score scales.
+    /// </summary>
+    internal static List<RetrieverResultItem> FuseReciprocalRank(
+        IReadOnlyList<RetrieverResultItem> vectorItems,
+        IReadOnlyList<RetrieverResultItem> fulltextItems,
+        int topK)
     {
-        if (item.Metadata?.TryGetValue("score", out var score) == true && score is double d)
-            return d;
-        return 0;
+        var scores = new Dictionary<string, double>();
+        var representative = new Dictionary<string, RetrieverResultItem>();
+
+        void Accumulate(IReadOnlyList<RetrieverResultItem> items)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                var key = item.Content;
+                var rrf = 1.0 / (RrfK + i + 1); // i is 0-based ⇒ rank = i + 1
+                scores[key] = scores.TryGetValue(key, out var prev) ? prev + rrf : rrf;
+                representative.TryAdd(key, item); // first occurrence (vector before fulltext) wins as representative
+            }
+        }
+
+        Accumulate(vectorItems);
+        Accumulate(fulltextItems);
+
+        return scores
+            .OrderByDescending(kv => kv.Value)
+            .Take(topK)
+            .Select(kv => representative[kv.Key])
+            .ToList();
     }
 }

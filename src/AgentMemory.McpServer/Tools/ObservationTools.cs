@@ -28,6 +28,7 @@ public sealed class ObservationTools
         CancellationToken cancellationToken = default)
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
+        maxTokens = Math.Clamp(maxTokens, 256, 100_000); // a non-positive/absurd budget would break compression
 
         var messages = await shortTermMemory.GetRecentMessagesAsync(sid, limit: 100, cancellationToken);
 

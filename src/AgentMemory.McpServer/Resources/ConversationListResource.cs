@@ -19,6 +19,8 @@ public sealed class ConversationListResource
         [Description("Owner/user identifier (optional). When set, returns only that user's (plus un-attributed) conversations; null = all users (unscoped/admin). Set it in multi-tenant deployments to avoid leaking other users' session ids (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
+
         // Conversations carry user_id (not owner_id). Scope to the user's own + un-attributed rows.
         var hasOwner = !string.IsNullOrEmpty(userId);
         var whereClause = hasOwner ? "WHERE (c.user_id = $userId OR c.user_id IS NULL)" : "";

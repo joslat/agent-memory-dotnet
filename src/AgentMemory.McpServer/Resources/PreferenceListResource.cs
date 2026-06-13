@@ -20,6 +20,8 @@ public sealed class PreferenceListResource
         [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) preferences; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads of preference text (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
+
         // R1: owner-scope the listing so a multi-tenant client can't read other owners' preferences
         // (the free-text 'context' is sensitive). null userId ⇒ unscoped (admin/single-tenant).
         var conditions = new List<string>();

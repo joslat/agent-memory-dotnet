@@ -55,6 +55,8 @@ public sealed class AdvancedMemoryTools
         if (!options.Value.EnableGraphQuery)
             throw new McpException("memory_export_graph requires EnableGraphQuery = true in McpServerOptions.");
 
+        limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
+
         // The stored schema uses snake_case `session_id` for the session key and `id` for a node's
         // logical id (there is no `sessionId`/`entityId` property). A Cypher reference to a missing
         // property silently evaluates to null, so the previous camelCase names made a session-scoped
@@ -112,6 +114,8 @@ public sealed class AdvancedMemoryTools
     {
         if (!options.Value.EnableGraphQuery)
             throw new McpException("memory_find_duplicates requires EnableGraphQuery = true in McpServerOptions.");
+
+        limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
         // Entities store their logical id under `id` (not `entityId`). `elementId(a) < elementId(b)`
         // already guarantees the two nodes are distinct, so no separate inequality on the id is needed.
