@@ -95,6 +95,30 @@ public class GdsAnalyticsIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ScopedProjection_IgnoresForeignEdgeBetweenSharedNodes()
+    {
+        // Two SHARED nodes (x, y) connected only by a BOB-owned edge; an alice-owned edge connects az→x.
+        // For alice's scoped projection the nodes are all visible, but bob's edge must be excluded — so y
+        // stays disconnected from x. (Without the edge-owner filter, bob's x→y edge would join them.)
+        await using (var session = _fixture.Driver.AsyncSession())
+        {
+            await session.RunAsync(@"
+                CREATE (x:Entity  {id:'x',  owner_id:null}),
+                       (y:Entity  {id:'y',  owner_id:null}),
+                       (az:Entity {id:'az', owner_id:'alice'})
+                CREATE (x)-[:RELATED_TO {owner_id:'bob'}]->(y),
+                       (az)-[:RELATED_TO {owner_id:'alice'}]->(x)");
+        }
+
+        var communities = await _community.DetectCommunitiesAsync(MemoryScope.For("alice"));
+
+        var byEntity = communities.ToDictionary(c => c.EntityId, c => c.CommunityId);
+        byEntity.Keys.Should().Contain(new[] { "x", "y", "az" });
+        byEntity["x"].Should().Be(byEntity["az"], "the alice-owned edge connects az and x");
+        byEntity["y"].Should().NotBe(byEntity["x"], "bob's edge must not connect y to x in alice's scoped projection");
+    }
+
+    [Fact]
     public async Task Community_Unscoped_SeparatesDisconnectedOwners()
     {
         await SeedAsync();

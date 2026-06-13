@@ -280,6 +280,20 @@ public class SupersessionIntegrationTests : IAsyncLifetime
             .Should().Be(1);
     }
 
+    [Fact]
+    public async Task SupersedeAsync_SelfSupersede_IsRejected_AndLeavesNodeLive()
+    {
+        await SeedFactAsync("self", "k", "v", "a", owner: null, confidence: 0.8);
+
+        // Superseding a node with itself must be a no-op — not invalidate the live node nor self-loop.
+        (await _facts.SupersedeAsync("self", "self")).Should().BeFalse("a self-supersede must match zero rows");
+
+        (await ScalarAsync("MATCH (f:Fact {id:'self'}) WHERE f.invalidated_at IS NULL RETURN count(f) AS c"))
+            .Should().Be(1, "the node stays live");
+        (await ScalarAsync("MATCH (:Fact {id:'self'})-[:SUPERSEDED_BY]->() RETURN count(*) AS c"))
+            .Should().Be(0, "no :SUPERSEDED_BY self-loop is created");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private Task SeedFactAsync(string id, string subject, string predicate, string obj, string? owner, double confidence) =>
