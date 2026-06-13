@@ -17,8 +17,12 @@ public interface IReasoningTraceRepository
     /// <summary>Gets a trace by identifier.</summary>
     Task<ReasoningTrace?> GetByIdAsync(string traceId, CancellationToken cancellationToken = default);
 
-    /// <summary>Lists traces for a session.</summary>
-    Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Lists traces for a session, optionally scoped to an owner (R1). A <c>session_id</c> is not a random
+    /// handle (it can be shared/guessable), so when <paramref name="scope"/> is set this returns only the
+    /// owner's own (and, if <c>IncludeShared</c>, shared/global) traces — never another owner's.
+    /// </summary>
+    Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>Searches traces by task embedding similarity, optionally scoped to an owner (R1).</summary>
     Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(

@@ -79,13 +79,19 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Listing reasoning traces for session {SessionId}, limit={Limit}", sessionId, limit);
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Listing reasoning traces for session {SessionId}, limit={Limit}, owner={Owner}", sessionId, limit, scope?.OwnerId);
+
+        var cypher = ReasoningQueries.ListTracesBySession(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object> { ["sessionId"] = sessionId, ["limit"] = limit };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ReasoningQueries.ListTracesBySession, new { sessionId, limit });
+            var cursor = await runner.RunAsync(cypher, parameters);
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {
