@@ -75,6 +75,10 @@ public static class CliHelp
               conflicts              Detect fact contradictions (detect-only).
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
+              schema-parity [--upstream-version <v>]
+                                     Verify the .NET schema is compatible with an embedded upstream
+                                     neo4j-agent-memory snapshot (default: newest). No DB needed; exit 1
+                                     on a break. CI-friendly self-check.
               help                   Show this help.
 
             CONNECTION (precedence: CLI option > Neo4j:* config > NEO4J_* env > default):
