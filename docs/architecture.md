@@ -130,7 +130,7 @@ graph TD
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.4.1 (approved, D-AR2-1) — .NET 9 BCL otherwise |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 45 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall, etc.), 29 service interfaces, 11 repository interfaces, 14 configuration types, 9 enums (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
+| **Key types** | 45 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall, etc.), 37 service interfaces, 11 repository interfaces, 15 configuration types (incl. `MemoryRankingOptions`), 11 enums (incl. `MemoryProfile`, `RankingIntent`) (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
 
 **Namespace structure:**
 ```

@@ -135,7 +135,9 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Searches facts semantically, returning only those valid at <paramref name="asOf"/>.
+    /// Bitemporal fact search (D6): <paramref name="asOf"/> is the valid-time clock ("what was true");
+    /// <paramref name="systemAsOf"/> is the transaction-time clock ("what we believed"), defaulting to
+    /// <paramref name="asOf"/> for ordinary single-clock point-in-time recall.
     /// </summary>
     Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
         float[] queryEmbedding,
@@ -143,6 +145,7 @@ public interface ILongTermMemoryService
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

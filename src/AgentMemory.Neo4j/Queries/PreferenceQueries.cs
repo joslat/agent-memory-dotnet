@@ -52,17 +52,18 @@ public static class PreferenceQueries
 
     /// <summary>
     /// Vector similarity search over Preference embeddings, with an optional owner/shared filter (R1).
-    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering.
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering. When
+    /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
+    /// order key; when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
-    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
-        new CypherBuilder()
-            .WithVectorSearch("preference_embedding_idx", "$embedding", "node", topK)
-            .Where("score >= $minScore")
-            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
-            .Return("node, score")
-            .OrderBy("score DESC")
-            .Limit("$limit")
-            .Build();
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false) =>
+        VectorRerank.Finish(
+            new CypherBuilder()
+                .WithVectorSearch("preference_embedding_idx", "$embedding", "node", topK)
+                .Where("score >= $minScore")
+                .And("node.invalidated_at IS NULL")
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+            recencyRerank);
 
     // ── Dedup-on-create ────────────────────────────────────────────────
 
@@ -96,6 +97,50 @@ public static class PreferenceQueries
     {
         var owner = hasOwnerFilter ? " AND p.owner_id = $ownerId" : string.Empty;
         return "MATCH (p:Preference {id: $id}) WHERE true" + owner + " DETACH DELETE p";
+    }
+
+    // ── InvalidateAsync (D5 — transaction clock) ───────────────────────
+
+    /// <summary>
+    /// Soft-invalidate a preference by id: stamp <c>invalidated_at</c> so it drops out of live recall but
+    /// is kept (auditable, recoverable, visible to as-of recall before invalidation). Owner-scoped (R1);
+    /// idempotent (<c>coalesce</c> preserves the first invalidation time).
+    /// </summary>
+    public static string Invalidate(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND p.owner_id = $ownerId" : string.Empty;
+        return @"
+            MATCH (p:Preference {id: $id})
+            WHERE true" + owner + @"
+            SET p.invalidated_at = coalesce(p.invalidated_at, datetime($now))
+            RETURN count(p) > 0 AS invalidated";
+    }
+
+    // ── SupersedeAsync (D7 — supersession) ─────────────────────────────
+
+    /// <summary>
+    /// Supersede a loser preference with a winner: soft-invalidate the loser (stamp <c>invalidated_at</c>
+    /// — the only temporal clock preferences carry in this schema — so it drops from live recall but is
+    /// kept and stays visible to as-of recall before supersession) and link
+    /// <c>(loser)-[:SUPERSEDED_BY]-&gt;(winner)</c>. Mirrors upstream <c>supersede_preference</c>
+    /// (non-destructive, both kept). Owner-scoped (R1): both preferences must belong to the owner.
+    /// Idempotent (<c>coalesce</c> + <c>MERGE</c>).
+    /// </summary>
+    public static string Supersede(bool hasOwnerFilter)
+    {
+        var loserOwner = hasOwnerFilter ? " AND loser.owner_id = $ownerId" : string.Empty;
+        var winnerOwner = hasOwnerFilter ? " AND winner.owner_id = $ownerId" : string.Empty;
+        // Same-owner guard (R1): loser and winner must belong to the same owner — even on the unscoped
+        // (admin) path — so a cross-owner :SUPERSEDED_BY link can never be created.
+        return @"
+            MATCH (loser:Preference {id: $loserId})
+            WHERE true" + loserOwner + @"
+            MATCH (winner:Preference {id: $winnerId})
+            WHERE true" + winnerOwner + @"
+              AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+            SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now))
+            MERGE (loser)-[:SUPERSEDED_BY]->(winner)
+            RETURN count(loser) > 0 AS superseded";
     }
 
     /// <summary>Create an EXTRACTED_FROM relationship between a Preference and a Message.</summary>

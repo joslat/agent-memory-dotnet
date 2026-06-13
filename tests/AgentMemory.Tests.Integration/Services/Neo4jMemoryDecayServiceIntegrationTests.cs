@@ -42,7 +42,7 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task PruneExpiredMemoriesAsync_RemovesStaleNodes_AndKeepsFreshOnes()
+    public async Task PruneExpiredMemoriesAsync_SoftInvalidatesStale_AndKeepsFreshActive()
     {
         var staleEntity = await SeedAsync("Entity", confidence: 0.5, daysOld: 400);
         var staleFact = await SeedAsync("Fact", confidence: 0.4, daysOld: 400);
@@ -53,15 +53,26 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
         var pruned = await _service.PruneExpiredMemoriesAsync();
 
         pruned.Should().Be(3);
-        (await ExistsAsync(staleEntity)).Should().BeFalse();
-        (await ExistsAsync(staleFact)).Should().BeFalse();
-        (await ExistsAsync(stalePref)).Should().BeFalse();
-        (await ExistsAsync(freshEntity)).Should().BeTrue();
-        (await ExistsAsync(freshFact)).Should().BeTrue();
+        // Non-destructive by default (D4): stale nodes are kept but invalidated; fresh ones stay active.
+        (await ExistsAsync(staleEntity)).Should().BeTrue("non-destructive decay keeps the node, not deletes it");
+        (await IsInvalidatedAsync(staleEntity)).Should().BeTrue();
+        (await IsInvalidatedAsync(staleFact)).Should().BeTrue();
+        (await IsInvalidatedAsync(stalePref)).Should().BeTrue();
+        (await IsInvalidatedAsync(freshEntity)).Should().BeFalse("a fresh node is not invalidated");
+        (await IsInvalidatedAsync(freshFact)).Should().BeFalse();
     }
 
     [Fact]
-    public async Task PruneExpiredMemoriesAsync_Scoped_OnlyPrunesOwnNodes()
+    public async Task PruneExpiredMemoriesAsync_Idempotent_DoesNotReCountInvalidated()
+    {
+        await SeedAsync("Fact", confidence: 0.3, daysOld: 400);
+
+        (await _service.PruneExpiredMemoriesAsync()).Should().Be(1, "first run invalidates the stale fact");
+        (await _service.PruneExpiredMemoriesAsync()).Should().Be(0, "a re-run must skip already-invalidated nodes");
+    }
+
+    [Fact]
+    public async Task PruneExpiredMemoriesAsync_Scoped_OnlyInvalidatesOwnNodes()
     {
         var ownStale = await SeedAsync("Entity", confidence: 0.5, daysOld: 400, ownerId: "user-A");
         var otherStale = await SeedAsync("Entity", confidence: 0.5, daysOld: 400, ownerId: "user-B");
@@ -70,9 +81,27 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
         var pruned = await _service.PruneExpiredMemoriesAsync(MemoryScope.For("user-A"));
 
         pruned.Should().Be(1);
-        (await ExistsAsync(ownStale)).Should().BeFalse("owner's own stale node is pruned");
-        (await ExistsAsync(otherStale)).Should().BeTrue("another owner's node must never be pruned");
-        (await ExistsAsync(sharedStale)).Should().BeTrue("shared/global nodes must never be pruned in a scoped prune");
+        (await IsInvalidatedAsync(ownStale)).Should().BeTrue("owner's own stale node is invalidated");
+        (await IsInvalidatedAsync(otherStale)).Should().BeFalse("another owner's node must never be touched");
+        (await IsInvalidatedAsync(sharedStale)).Should().BeFalse("shared/global nodes must never be touched in a scoped prune");
+    }
+
+    [Fact]
+    public async Task PruneExpiredMemoriesAsync_Destructive_HardDeletes_WhenOptedIn()
+    {
+        var clock = Substitute.For<IClock>();
+        clock.UtcNow.Returns(_now);
+        var destructive = new Neo4jMemoryDecayService(
+            _fixture.TransactionRunner, clock,
+            Options.Create(new MemoryDecayOptions { NonDestructive = false }), // explicit hard purge
+            NullLogger<Neo4jMemoryDecayService>.Instance);
+
+        var stale = await SeedAsync("Fact", confidence: 0.3, daysOld: 400);
+
+        var pruned = await destructive.PruneExpiredMemoriesAsync();
+
+        pruned.Should().BeGreaterThan(0);
+        (await ExistsAsync(stale)).Should().BeFalse("opt-in destructive prune hard-deletes for storage reclamation / GDPR");
     }
 
     [Fact]
@@ -152,7 +181,7 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
         var pruned = await _service.PruneExpiredMemoriesAsync();
 
         pruned.Should().BeGreaterThan(0);
-        (await ExistsAsync(id)).Should().BeFalse("a repository-written stale entity must be prunable");
+        (await IsInvalidatedAsync(id)).Should().BeTrue("a repository-written stale entity must be prunable (soft-invalidated)");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -182,5 +211,15 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
         var cursor = await session.RunAsync("MATCH (n {id:$id}) RETURN count(n) AS c", new { id });
         var record = await cursor.SingleAsync();
         return global::Neo4j.Driver.ValueExtensions.As<long>(record["c"]) > 0;
+    }
+
+    /// <summary>Whether a node exists AND has been soft-invalidated (invalidated_at stamped).</summary>
+    private async Task<bool> IsInvalidatedAsync(string id)
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync(
+            "MATCH (n {id:$id}) RETURN n.invalidated_at IS NOT NULL AS inv", new { id });
+        var records = await cursor.ToListAsync();
+        return records.Count > 0 && global::Neo4j.Driver.ValueExtensions.As<bool>(records[0]["inv"]);
     }
 }

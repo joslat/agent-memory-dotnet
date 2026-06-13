@@ -18,12 +18,14 @@ internal sealed class GraphRetriever : IRetriever
     private readonly string _indexName;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly int _maxTraversalHops;
+    private readonly double _structuralDecayGamma;
 
     internal GraphRetriever(
         IDriver driver,
         string indexName,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-        int maxTraversalHops = 2)
+        int maxTraversalHops = 2,
+        double structuralDecayGamma = 1.0)
     {
         ArgumentNullException.ThrowIfNull(driver);
         ArgumentException.ThrowIfNullOrWhiteSpace(indexName);
@@ -39,6 +41,9 @@ internal sealed class GraphRetriever : IRetriever
         _indexName = indexName;
         _embeddingGenerator = embeddingGenerator;
         _maxTraversalHops = maxTraversalHops;
+        // D2 — structural hop decay (score·γ^hops). γ outside (0,1] is meaningless for the power, so it is
+        // treated as 1.0 (off) rather than throwing, keeping the retriever forgiving of misconfiguration.
+        _structuralDecayGamma = structuralDecayGamma is > 0 and <= 1.0 ? structuralDecayGamma : 1.0;
     }
 
     public async Task<RetrieverResult> SearchAsync(
@@ -49,7 +54,8 @@ internal sealed class GraphRetriever : IRetriever
             .ConfigureAwait(false);
 
         bool scoped = RetrieverScope.IsScoped(ownerId);
-        string cypher = BuildTraversalCypher(_maxTraversalHops, scoped);
+        bool structuralDecay = _structuralDecayGamma < 1.0;
+        string cypher = BuildTraversalCypher(_maxTraversalHops, scoped, _structuralDecayGamma);
 
         var parameters = new Dictionary<string, object?>
         {
@@ -59,6 +65,7 @@ internal sealed class GraphRetriever : IRetriever
             ["embedding"] = embedding.ToArray()
         };
         if (scoped) parameters["owner_id"] = ownerId;
+        if (structuralDecay) parameters["gamma"] = _structuralDecayGamma;
 
         var (records, _, _) = await _driver.ExecutableQuery(cypher)
             .WithParameters(parameters)
@@ -76,13 +83,37 @@ internal sealed class GraphRetriever : IRetriever
     /// to a small constant range in the constructor and is never derived from caller-supplied text,
     /// so this interpolation cannot be an injection vector.
     /// </summary>
-    internal static string BuildTraversalCypher(int maxTraversalHops, bool scoped = false)
+    internal static string BuildTraversalCypher(int maxTraversalHops, bool scoped = false, double gamma = 1.0)
     {
         // Owner-scope (R1): filter the vector-seeded nodes AND the traversed neighbours to the owner
         // (plus shared/global) so the graph walk cannot surface another user's connected nodes. Blank
         // lines when unscoped, so the query is byte-for-byte today's behavior. Over-fetch via $fetchK.
         var seedWhere = scoped ? "WHERE (seed.owner_id = $owner_id OR seed.owner_id IS NULL)" : string.Empty;
         var relatedWhere = scoped ? "WHERE (related.owner_id = $owner_id OR related.owner_id IS NULL)" : string.Empty;
+
+        // D2 — structural hop decay: a neighbour at h hops is scored seedScore·γ^h (spreading-activation
+        // lite). γ = 1.0 ⇒ no decay ⇒ emit today's exact query (rank by raw score, hops as tiebreaker).
+        if (gamma >= 1.0)
+        {
+            return $$"""
+            CALL db.index.vector.queryNodes($index, $fetchK, $embedding)
+            YIELD node AS seed, score
+            {{seedWhere}}
+            WITH seed, score
+            ORDER BY score DESC
+            LIMIT $k
+            MATCH path = (seed)-[:RELATED_TO*1..{{maxTraversalHops}}]-(related)
+            {{relatedWhere}}
+            WITH seed, related, score, length(path) AS hops
+            RETURN
+              coalesce(seed.text, seed.content, seed.name, '') AS seedText,
+              coalesce(related.text, related.content, related.name, '') AS relatedText,
+              score,
+              hops
+            ORDER BY score DESC, hops ASC
+            LIMIT $k
+            """;
+        }
 
         return $$"""
         CALL db.index.vector.queryNodes($index, $fetchK, $embedding)
@@ -94,12 +125,13 @@ internal sealed class GraphRetriever : IRetriever
         MATCH path = (seed)-[:RELATED_TO*1..{{maxTraversalHops}}]-(related)
         {{relatedWhere}}
         WITH seed, related, score, length(path) AS hops
+        WITH seed, related, score, hops, score * ($gamma ^ hops) AS structScore
         RETURN
           coalesce(seed.text, seed.content, seed.name, '') AS seedText,
           coalesce(related.text, related.content, related.name, '') AS relatedText,
-          score,
+          structScore AS score,
           hops
-        ORDER BY score DESC, hops ASC
+        ORDER BY structScore DESC, hops ASC
         LIMIT $k
         """;
     }

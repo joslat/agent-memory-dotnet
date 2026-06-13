@@ -43,6 +43,87 @@ public sealed class Neo4jConflictDetectionService : IConflictDetectionService
         return new ConflictReport { RanAtUtc = ranAt, FactConflicts = factConflicts };
     }
 
+    /// <inheritdoc/>
+    public async Task<ConflictResolutionResult> ResolveFactContradictionsAsync(
+        ConflictResolutionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var opts = options ?? new ConflictResolutionOptions();
+        var ranAt = _clock.UtcNow;
+
+        // Re-use the detection query, then act on each group. Resolution is the opt-in mutating path;
+        // DetectConflictsAsync stays the non-mutating default.
+        // Do NOT gate group membership by confidence here: gating members could hide the genuine
+        // highest-confidence assertion and promote a weaker fact to "winner". Detection sees the full
+        // (live) group; MinConfidence is applied below as a floor on the chosen winner.
+        var conflicts = await DetectFactContradictionsAsync(
+            new ConflictDetectionOptions
+            {
+                DetectFactContradictions = true,
+                MinConfidence = null,
+                MaxConflicts = opts.MaxConflicts,
+            },
+            cancellationToken);
+
+        int groupsResolved = 0;
+        int factsSuperseded = 0;
+        string now = ranAt.UtcDateTime.ToString("O");
+
+        foreach (var conflict in conflicts)
+        {
+            // Winner = highest-confidence assertion; ties broken deterministically by fact id.
+            var ordered = conflict.Values
+                .OrderByDescending(v => v.Confidence)
+                .ThenBy(v => v.FactId, StringComparer.Ordinal)
+                .ToList();
+            var winner = ordered[0];
+            var losers = ordered.Skip(1).ToList();
+            if (losers.Count == 0) continue;
+
+            // Winner floor: don't auto-resolve a contradiction whose best assertion is itself weak.
+            if (opts.MinConfidence is double floor && winner.Confidence < floor) continue;
+
+            bool hasOwner = conflict.OwnerId is not null;
+            var cypher = FactQueries.Supersede(hasOwner);
+
+            int closedInGroup = await _tx.WriteAsync(async runner =>
+            {
+                int closed = 0;
+                foreach (var loser in losers)
+                {
+                    var parameters = new Dictionary<string, object?>
+                    {
+                        ["loserId"] = loser.FactId,
+                        ["winnerId"] = winner.FactId,
+                        ["now"] = now,
+                    };
+                    if (hasOwner) parameters["ownerId"] = conflict.OwnerId;
+                    var cursor = await runner.RunAsync(cypher, parameters);
+                    var records = await cursor.ToListAsync();
+                    if (records.Count > 0 && records[0]["superseded"].As<bool>()) closed++;
+                }
+                return closed;
+            }, cancellationToken);
+
+            if (closedInGroup > 0)
+            {
+                groupsResolved++;
+                factsSuperseded += closedInGroup;
+            }
+        }
+
+        _logger.LogInformation(
+            "Conflict resolution complete: {Groups} group(s) resolved, {Facts} fact(s) superseded.",
+            groupsResolved, factsSuperseded);
+
+        return new ConflictResolutionResult
+        {
+            RanAtUtc = ranAt,
+            ConflictsResolved = groupsResolved,
+            FactsSuperseded = factsSuperseded,
+        };
+    }
+
     private Task<IReadOnlyList<FactConflict>> DetectFactContradictionsAsync(
         ConflictDetectionOptions opts, CancellationToken ct) =>
         _tx.ReadAsync(async runner =>

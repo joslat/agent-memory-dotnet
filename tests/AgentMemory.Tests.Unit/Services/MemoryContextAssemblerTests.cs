@@ -88,6 +88,60 @@ public sealed class MemoryContextAssemblerTests
             }));
 
     [Fact]
+    public async Task AssembleContextAsync_AppliesQueryIntent_AsAmbientRankingOverride_DuringLongTermSearch()
+    {
+        // D3: the assembler must publish a per-request MemoryRankingOptions (derived from the intent) for
+        // the long-term searches, then reset it so it never leaks past the recall.
+        var ctx = new DefaultMemoryRankingContext();
+        MemoryRankingOptions? capturedDuringSearch = null;
+        _longTerm
+            .SearchFactsAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                capturedDuringSearch = ctx.Current;
+                return Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+            });
+
+        var sut = new MemoryContextAssembler(
+            _shortTerm, _longTerm, _reasoning, null, _embeddingOrchestrator, _clock,
+            Options.Create(new MemoryOptions()), NullLogger<MemoryContextAssembler>.Instance, ctx);
+
+        await sut.AssembleContextAsync(new RecallRequest
+        {
+            SessionId = "s",
+            Query = "q",
+            QueryEmbedding = new float[] { 1f },   // non-empty ⇒ the long-term searches run
+            Options = new RecallOptions { Intent = RankingIntent.Latest }
+        });
+
+        capturedDuringSearch.Should().NotBeNull("the assembler must publish a per-request ranking for the intent");
+        capturedDuringSearch!.EffectiveRecencyWeight.Should().BeGreaterThan(0, "Latest raises the recency weight");
+        ctx.Current.Should().BeNull("the override must be reset after the long-term searches, never leaking");
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_DefaultIntent_DoesNotTouchRankingContext()
+    {
+        var ctx = new DefaultMemoryRankingContext();
+        MemoryRankingOptions? capturedDuringSearch = new MemoryRankingOptions { RecencyWeight = 0.42 };
+        _longTerm
+            .SearchFactsAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(_ => { capturedDuringSearch = ctx.Current; return Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()); });
+
+        var sut = new MemoryContextAssembler(
+            _shortTerm, _longTerm, _reasoning, null, _embeddingOrchestrator, _clock,
+            Options.Create(new MemoryOptions()), NullLogger<MemoryContextAssembler>.Instance, ctx);
+
+        await sut.AssembleContextAsync(new RecallRequest
+        {
+            SessionId = "s", Query = "q", QueryEmbedding = new float[] { 1f },
+            Options = RecallOptions.Default   // Intent = Default
+        });
+
+        capturedDuringSearch.Should().BeNull("Default intent must not publish any override");
+    }
+
+    [Fact]
     public async Task AssembleContextAsync_MemoryOnly_SkipsGraphRagEvenWhenEnabled()
     {
         var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
@@ -453,7 +507,7 @@ public sealed class MemoryContextAssemblerTests
             .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
         _longTerm
-            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
 
         var options = Options.Create(new MemoryOptions

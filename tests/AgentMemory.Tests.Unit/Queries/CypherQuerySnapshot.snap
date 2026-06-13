@@ -4,7 +4,8 @@
 
 ## ConflictQueries.DetectFactContradictions
 MATCH (f:Fact)
-            WHERE ($minConfidence IS NULL OR f.confidence >= $minConfidence)
+            WHERE f.invalidated_at IS NULL
+              AND ($minConfidence IS NULL OR f.confidence >= $minConfidence)
             WITH f.subject AS subject, f.predicate AS predicate, coalesce(f.owner_id, '*') AS ownerKey,
                  collect(DISTINCT f.object) AS distinctObjects,
                  collect({ factId: f.id, object: f.object, confidence: f.confidence }) AS members
@@ -27,6 +28,7 @@ MATCH (e:Entity)
 
 ## ConsolidationQueries.CountDuplicatePreferences
 MATCH (p:Preference)
+            WHERE p.invalidated_at IS NULL
             WITH coalesce(p.owner_id, '*') AS ownerKey, p.category AS category, toLower(p.preference) AS text, collect(p) AS grp
             WHERE size(grp) >= $minGroupSize
             RETURN coalesce(sum(size(grp) - 1), 0) AS count
@@ -53,12 +55,15 @@ MERGE (r:ConsolidationRun {id: $id})
 
 ## ConsolidationQueries.RemoveDuplicatePreferences
 MATCH (p:Preference)
+            WHERE p.invalidated_at IS NULL
             WITH coalesce(p.owner_id, '*') AS ownerKey, p.category AS category, toLower(p.preference) AS text, p
             ORDER BY p.created_at DESC
             WITH ownerKey, category, text, collect(p) AS grp
             WHERE size(grp) >= $minGroupSize
-            UNWIND grp[1..] AS dup
-            DETACH DELETE dup
+            WITH grp[0] AS keep, grp[1..] AS dups
+            UNWIND dups AS dup
+            SET dup.invalidated_at = coalesce(dup.invalidated_at, datetime())
+            MERGE (dup)-[:SUPERSEDED_BY]->(keep)
             RETURN count(dup) AS count
 
 ## ConversationQueries.Delete

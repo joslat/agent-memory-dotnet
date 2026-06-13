@@ -91,17 +91,18 @@ public static class EntityQueries
 
     /// <summary>
     /// Vector similarity search on entity embeddings, with an optional owner/shared filter (R1).
-    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering.
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering. When
+    /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
+    /// order key; when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
-    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
-        new CypherBuilder()
-            .WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK)
-            .Where("score >= $minScore")
-            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
-            .Return("node, score")
-            .OrderBy("score DESC")
-            .Limit("$limit")
-            .Build();
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false) =>
+        VectorRerank.Finish(
+            new CypherBuilder()
+                .WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK)
+                .Where("score >= $minScore")
+                .And("node.invalidated_at IS NULL")
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+            recencyRerank);
 
     // ── GetByTypeAsync ─────────────────────────────────────────────────
 
@@ -334,6 +335,23 @@ public static class EntityQueries
             WHERE true" + owner + @"
             DETACH DELETE e
             RETURN count(e) > 0 AS deleted";
+    }
+
+    // ── InvalidateAsync (D5 — transaction clock) ───────────────────────
+
+    /// <summary>
+    /// Soft-invalidate an entity by id: stamp <c>invalidated_at</c> so it drops out of live recall but is
+    /// kept (auditable, recoverable, visible to as-of recall before invalidation). Owner-scoped (R1);
+    /// idempotent (<c>coalesce</c> preserves the first invalidation time).
+    /// </summary>
+    public static string Invalidate(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND e.owner_id = $ownerId" : string.Empty;
+        return @"
+            MATCH (e:Entity {id: $id})
+            WHERE true" + owner + @"
+            SET e.invalidated_at = coalesce(e.invalidated_at, datetime($now))
+            RETURN count(e) > 0 AS invalidated";
     }
 
     // ── FindSimilarByEmbeddingAsync ─────────────────────────────────

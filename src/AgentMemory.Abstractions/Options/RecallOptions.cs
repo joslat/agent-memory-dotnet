@@ -38,6 +38,14 @@ public sealed record RecallOptions
     /// </summary>
     public MemoryScope? Scope { get; init; }
 
+    /// <summary>
+    /// Per-request ranking intent (D3): <see cref="RankingIntent.Latest"/> favours fresh memories,
+    /// <see cref="RankingIntent.Analog"/> favours structurally/semantically similar memories regardless of
+    /// age (precedent retrieval). Applied over the configured <see cref="MemoryRankingOptions"/> for this
+    /// recall only. Default ⇒ the configured weights unchanged.
+    /// </summary>
+    public RankingIntent Intent { get; init; } = RankingIntent.Default;
+
     /// <summary>Default singleton instance.</summary>
     public static RecallOptions Default { get; } = new();
 }

@@ -70,6 +70,24 @@ public interface IFactRepository
     Task<bool> DeleteAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Soft-invalidates a fact by id (D5 transaction clock): stamps <c>invalidated_at</c> so it leaves
+    /// live recall but is retained — auditable, recoverable, and still visible to as-of recall for times
+    /// before invalidation. Owner-scoped (R1) when <paramref name="scope"/> is set (never another owner's,
+    /// never shared/global). Idempotent. Returns true if a matching fact existed in scope.
+    /// </summary>
+    Task<bool> InvalidateAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Supersedes the <paramref name="loserFactId"/> with the <paramref name="winnerFactId"/> (D7): closes
+    /// the loser non-destructively — stamps <c>invalidated_at</c> (drops it from live recall) and
+    /// <c>valid_until</c> (closes its real-world window) — and links
+    /// <c>(loser)-[:SUPERSEDED_BY]-&gt;(winner)</c>. Nothing is deleted; the loser stays visible to as-of
+    /// recall for times before supersession. Owner-scoped (R1) when <paramref name="scope"/> is set: both
+    /// facts must belong to the owner. Idempotent. Returns true if a matching loser+winner existed in scope.
+    /// </summary>
+    Task<bool> SupersedeAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Finds an existing fact matching the subject-predicate-object triple. When <paramref name="scope"/>
     /// is supplied (R1) the lookup is confined to the owner's own and (optionally) shared facts. Null
     /// scope ⇒ unscoped.
@@ -77,7 +95,10 @@ public interface IFactRepository
     Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Searches facts by vector similarity, returning only those valid at <paramref name="asOf"/>.
+    /// Bitemporal fact search (D6): <paramref name="asOf"/> is the <b>valid-time</b> clock (a fact's
+    /// <c>valid_from</c>/<c>valid_until</c> — "what was true"); <paramref name="systemAsOf"/> is the
+    /// <b>transaction-time</b> clock (<c>created_at</c>/<c>invalidated_at</c> — "what we believed"), and
+    /// defaults to <paramref name="asOf"/> for ordinary single-clock point-in-time recall.
     /// </summary>
     Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsOfAsync(
         float[] queryEmbedding,
@@ -85,5 +106,6 @@ public interface IFactRepository
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default);
 }

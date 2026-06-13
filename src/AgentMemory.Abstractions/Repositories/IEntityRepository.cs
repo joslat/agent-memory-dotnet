@@ -134,6 +134,14 @@ public interface IEntityRepository
     Task<bool> DeleteAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Soft-invalidates an entity by id (D5 transaction clock): stamps <c>invalidated_at</c> so it leaves
+    /// live recall but is retained (auditable, recoverable, visible to as-of recall before invalidation).
+    /// Owner-scoped (R1) when <paramref name="scope"/> is set. Idempotent. Returns true if a matching
+    /// entity existed in scope.
+    /// </summary>
+    Task<bool> InvalidateAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Refreshes the search-indexed fields (name, description, aliases) for an entity.
     /// Call after merge operations to ensure fulltext search returns current data.
     /// </summary>

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Neo4j.Retrieval;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Retrieval.Internal;
@@ -27,7 +28,8 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
         IDriver driver,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IOptions<GraphRagOptions> options,
-        ILogger<Neo4jGraphRagContextSource> logger)
+        ILogger<Neo4jGraphRagContextSource> logger,
+        IOptions<MemoryRankingOptions>? ranking = null)
     {
         ArgumentNullException.ThrowIfNull(driver);
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
@@ -36,7 +38,10 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
 
         _options = options.Value;
         _logger = logger;
-        _retriever = CreateRetriever(driver, embeddingGenerator, _options);
+        // D2 — structural hop decay γ for Graph mode (parity default 1.0 = off). Optional dep so the
+        // GraphRAG source still resolves when only the Neo4j package (no Core) is registered.
+        var gamma = (ranking?.Value ?? MemoryRankingOptions.Default).EffectiveStructuralDecayGamma;
+        _retriever = CreateRetriever(driver, embeddingGenerator, _options, gamma);
     }
 
     /// <summary>
@@ -112,7 +117,8 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
     internal static IRetriever CreateRetriever(
         IDriver driver,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-        GraphRagOptions options)
+        GraphRagOptions options,
+        double structuralDecayGamma = 1.0)
     {
         return options.SearchMode switch
         {
@@ -140,7 +146,8 @@ public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
                 driver,
                 options.IndexName,
                 embeddingGenerator,
-                options.MaxTraversalHops),
+                options.MaxTraversalHops,
+                structuralDecayGamma),
 
             _ => throw new ArgumentOutOfRangeException(nameof(options.SearchMode),
                      $"Unsupported search mode: {options.SearchMode}")

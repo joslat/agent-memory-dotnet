@@ -108,17 +108,18 @@ public static class FactQueries
     /// <summary>
     /// Vector similarity search on fact embeddings, with an optional owner/shared filter (R1).
     /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering, so
-    /// an owner filter is never starved by higher-scoring foreign rows.
+    /// an owner filter is never starved by higher-scoring foreign rows. When
+    /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
+    /// order key (<c>$tmpWeight</c>); when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
-    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
-        new CypherBuilder()
-            .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
-            .Where("score >= $minScore")
-            .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter)
-            .Return("node, score")
-            .OrderBy("score DESC")
-            .Limit("$limit")
-            .Build();
+    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false) =>
+        VectorRerank.Finish(
+            new CypherBuilder()
+                .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
+                .Where("score >= $minScore")
+                .And("node.invalidated_at IS NULL")
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+            recencyRerank);
 
     // ── CreateExtractedFromRelationshipAsync ────────────────────────────
 
@@ -167,6 +168,53 @@ public static class FactQueries
             WHERE true" + owner + @"
             DETACH DELETE f
             RETURN count(f) > 0 AS deleted";
+    }
+
+    // ── InvalidateAsync (D5 — transaction clock) ───────────────────────
+
+    /// <summary>
+    /// Soft-invalidate a fact by id: stamp <c>invalidated_at</c> so it drops out of live recall but is
+    /// kept — auditable, recoverable, and still visible to as-of recall for times before invalidation.
+    /// Owner-scoped (R1): when set, only the owner's own fact is invalidated, never another owner's,
+    /// never shared/global. Idempotent — <c>coalesce</c> preserves the first invalidation time.
+    /// </summary>
+    public static string Invalidate(bool hasOwnerFilter)
+    {
+        var owner = hasOwnerFilter ? " AND f.owner_id = $ownerId" : string.Empty;
+        return @"
+            MATCH (f:Fact {id: $id})
+            WHERE true" + owner + @"
+            SET f.invalidated_at = coalesce(f.invalidated_at, datetime($now))
+            RETURN count(f) > 0 AS invalidated";
+    }
+
+    // ── SupersedeAsync (D7 — contradiction → supersession) ─────────────
+
+    /// <summary>
+    /// Supersede a loser fact with a winner: close the loser non-destructively (stamp both
+    /// <c>invalidated_at</c> — transaction clock, drops it from live recall — and <c>valid_until</c> —
+    /// valid-time clock, closes its real-world window) and link <c>(loser)-[:SUPERSEDED_BY]-&gt;(winner)</c>.
+    /// Nothing is deleted: the loser stays visible to as-of recall for times before supersession.
+    /// Owner-scoped (R1): when set, <b>both</b> facts must belong to the owner — a scoped supersede can
+    /// neither read nor mutate another owner's facts. Idempotent — <c>coalesce</c> preserves the first
+    /// timestamps and <c>MERGE</c> keeps the edge unique.
+    /// </summary>
+    public static string Supersede(bool hasOwnerFilter)
+    {
+        var loserOwner = hasOwnerFilter ? " AND loser.owner_id = $ownerId" : string.Empty;
+        var winnerOwner = hasOwnerFilter ? " AND winner.owner_id = $ownerId" : string.Empty;
+        // Same-owner guard (R1): loser and winner must belong to the same owner — even on the unscoped
+        // (admin) path — so a cross-owner :SUPERSEDED_BY link can never be created.
+        return @"
+            MATCH (loser:Fact {id: $loserId})
+            WHERE true" + loserOwner + @"
+            MATCH (winner:Fact {id: $winnerId})
+            WHERE true" + winnerOwner + @"
+              AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+            SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
+                loser.valid_until    = coalesce(loser.valid_until, datetime($now))
+            MERGE (loser)-[:SUPERSEDED_BY]->(winner)
+            RETURN count(loser) > 0 AS superseded";
     }
 
     // ── FindByTripleAsync ──────────────────────────────────────────────

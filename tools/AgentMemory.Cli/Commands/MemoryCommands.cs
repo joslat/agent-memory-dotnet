@@ -72,8 +72,10 @@ public sealed class ConflictsCommand(IConflictDetectionService service, TextWrit
 }
 
 /// <summary>
-/// Prunes decayed memories. With <c>--owner &lt;id&gt;</c> the prune is owner-scoped (the owner's own
-/// nodes only — never another owner's, never shared/global). Without it the prune is global (admin).
+/// Decay-prunes memories: by default (<see cref="MemoryDecayOptions.NonDestructive"/>) it soft-invalidates
+/// low-score nodes (kept, recoverable, dropped from live recall); set <c>MemoryDecay:NonDestructive=false</c>
+/// to hard-delete. With <c>--owner &lt;id&gt;</c> the prune is owner-scoped (the owner's own nodes only —
+/// never another owner's, never shared/global). Without it the prune is global (admin).
 /// </summary>
 public sealed class DecayCommand(IMemoryDecayService service, TextWriter output)
 {

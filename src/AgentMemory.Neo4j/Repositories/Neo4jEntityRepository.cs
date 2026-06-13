@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -16,11 +18,22 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jEntityRepository> _logger;
+    private readonly MemoryRankingOptions _ranking;
+    private readonly MemoryDecayOptions _decay;
+    private readonly IMemoryRankingContext? _rankingContext;
 
-    public Neo4jEntityRepository(INeo4jTransactionRunner tx, ILogger<Neo4jEntityRepository> logger)
+    public Neo4jEntityRepository(
+        INeo4jTransactionRunner tx,
+        ILogger<Neo4jEntityRepository> logger,
+        IOptions<MemoryRankingOptions>? ranking = null,
+        IOptions<MemoryDecayOptions>? decay = null,
+        IMemoryRankingContext? rankingContext = null)
     {
         _tx = tx;
         _logger = logger;
+        _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
+        _decay = decay?.Value ?? MemoryDecayOptions.Default;
+        _rankingContext = rankingContext;
     }
 
     public async Task<Entity> UpsertAsync(Entity entity, CancellationToken cancellationToken = default)
@@ -135,7 +148,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
         _logger.LogDebug("Vector search entities, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
-        var cypher = EntityQueries.SearchByVector(hasOwner, includeShared, topK);
+        var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
+        bool recencyRerank = ranking.RecencyRerankEnabled;
+        var cypher = EntityQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"] = queryEmbedding.ToList(),
@@ -143,6 +158,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             ["minScore"] = minScore,
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
         return await _tx.ReadAsync(async runner =>
         {
@@ -545,6 +561,24 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken);
     }
 
+    public async Task<bool> InvalidateAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        _logger.LogDebug("Invalidating entity {Id}, owner={Owner}", entityId, scope?.OwnerId);
+
+        var cypher = EntityQueries.Invalidate(hasOwner);
+        string now = DateTimeOffset.UtcNow.ToString("O");
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?> { ["id"] = entityId, ["now"] = now };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && records[0]["invalidated"].As<bool>();
+        }, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
         string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken ct = default)
     {
@@ -645,10 +679,11 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         var cypher = TemporalQueries.SearchEntitiesAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"] = queryEmbedding.ToList(),
-            ["limit"]     = limit,
-            ["minScore"]  = minScore,
-            ["asOf"]      = asOf.UtcDateTime.ToString("O")
+            ["embedding"]  = queryEmbedding.ToList(),
+            ["limit"]      = limit,
+            ["minScore"]   = minScore,
+            // D6: entities have only the transaction clock, so the AsOf timestamp binds $systemAsOf.
+            ["systemAsOf"] = asOf.UtcDateTime.ToString("O")
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 

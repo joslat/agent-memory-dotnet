@@ -146,6 +146,25 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
         traversed.Metadata.Should().ContainKey("hops");
     }
 
+    [Fact]
+    public async Task GraphMode_StructuralDecay_ScalesNeighbourScoreByGammaPerHop()
+    {
+        // D2: a 1-hop neighbour's score is seedScore·γ^1. With γ=1 (parity) the traversed score equals
+        // the raw seed score; with γ=0.5 it is halved — proving the structural decay is applied.
+        await SeedAsync(("seed", "seed node", AxisX), ("neighbour", "neighbour node", AxisY));
+        await LinkRelatedAsync("seed", "neighbour");
+
+        var off = await CreateSource(GraphRagSearchMode.Graph, AxisX, gamma: 1.0).GetContextAsync(Request("seed"));
+        var on = await CreateSource(GraphRagSearchMode.Graph, AxisX, gamma: 0.5).GetContextAsync(Request("seed"));
+
+        var offItem = off.Items.First(i => i.Text == "seed node → neighbour node");
+        var onItem = on.Items.First(i => i.Text == "seed node → neighbour node");
+
+        onItem.Score.Should().BeLessThan(offItem.Score, "γ<1 must decay a neighbour's score");
+        onItem.Score.Should().BeApproximately(offItem.Score * 0.5, 1e-6,
+            "a 1-hop neighbour is scored seedScore·γ^1 (γ=0.5 ⇒ half)");
+    }
+
     // ── Result normalization (RetrieverResultItem → GraphRagContextItem) ────────
 
     [Fact]
@@ -195,7 +214,7 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
     private static GraphRagContextRequest Request(string query, int topK = 5) =>
         new() { SessionId = "s1", Query = query, TopK = topK };
 
-    private Neo4jGraphRagContextSource CreateSource(GraphRagSearchMode mode, float[] queryVector)
+    private Neo4jGraphRagContextSource CreateSource(GraphRagSearchMode mode, float[] queryVector, double gamma = 1.0)
     {
         var options = Options.Create(new GraphRagOptions
         {
@@ -206,11 +225,13 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
             FilterStopWords = false,
             MaxTraversalHops = 2
         });
+        var ranking = Options.Create(new MemoryRankingOptions { StructuralDecayGamma = gamma });
         return new Neo4jGraphRagContextSource(
             _fixture.Driver,
             new FixedVectorEmbeddingGenerator(queryVector),
             options,
-            NullLogger<Neo4jGraphRagContextSource>.Instance);
+            NullLogger<Neo4jGraphRagContextSource>.Instance,
+            ranking);
     }
 
     private async Task SeedAsync(params (string Id, string Text, float[] Embedding)[] nodes)
