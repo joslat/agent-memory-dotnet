@@ -24,6 +24,7 @@ public static class ServiceCollectionExtensions
             .WithTools<ReasoningTools>()
             .WithTools<GraphQueryTools>()
             .WithTools<AdvancedMemoryTools>()
+            .WithTools<MaintenanceTools>()
             .WithTools<ObservationTools>();
     }
 

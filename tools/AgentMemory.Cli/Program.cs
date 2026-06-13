@@ -1,4 +1,5 @@
 using AgentMemory;                          // meta AddNeo4jAgentMemory
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Cli;
 using AgentMemory.Cli.Commands;
@@ -15,7 +16,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity" };
+var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "invalidate", "supersede" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -80,6 +81,15 @@ try
             sp.GetRequiredService<IMemoryDecayService>(), output).ExecuteAsync(cli.Get("owner")),
         "conflicts" => await new ConflictsCommand(
             sp.GetRequiredService<IConflictDetectionService>(), output).ExecuteAsync(),
+        "invalidate" => await new InvalidateCommand(
+            sp.GetRequiredService<IFactRepository>(),
+            sp.GetRequiredService<IEntityRepository>(),
+            sp.GetRequiredService<IPreferenceRepository>(), output)
+            .ExecuteAsync(cli.Get("type"), cli.Get("id"), cli.Get("owner")),
+        "supersede" => await new SupersedeCommand(
+            sp.GetRequiredService<IFactRepository>(),
+            sp.GetRequiredService<IPreferenceRepository>(), output)
+            .ExecuteAsync(cli.Get("type"), cli.Get("loser"), cli.Get("winner"), cli.Get("owner")),
         _ => 1,
     };
 }

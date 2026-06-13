@@ -158,4 +158,30 @@ public interface ILongTermMemoryService
         double minScore = 0.0,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
+
+    // ── Invalidation & supersession (D5 / D7) ───────────────────────────
+
+    /// <summary>
+    /// Soft-invalidates a fact by id (D5 transaction clock): it leaves live recall but is retained and
+    /// stays visible to as-of recall for times before invalidation. Owner-scoped (R1) when
+    /// <paramref name="scope"/> is set. Idempotent. Returns true if a matching fact existed in scope.
+    /// </summary>
+    Task<bool> InvalidateFactAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Soft-invalidates an entity by id (D5). See <see cref="InvalidateFactAsync"/>.</summary>
+    Task<bool> InvalidateEntityAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Soft-invalidates a preference by id (D5). See <see cref="InvalidateFactAsync"/>.</summary>
+    Task<bool> InvalidatePreferenceAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Supersedes the <paramref name="loserFactId"/> with the <paramref name="winnerFactId"/> (D7): closes
+    /// the loser non-destructively (<c>invalidated_at</c> + <c>valid_until</c>) and links
+    /// <c>(loser)-[:SUPERSEDED_BY]-&gt;(winner)</c>. Owner-scoped (R1) — both facts must belong to the
+    /// owner. Idempotent. Returns true if a matching loser+winner existed in scope.
+    /// </summary>
+    Task<bool> SupersedeFactAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Supersedes the loser preference with the winner (D7). See <see cref="SupersedeFactAsync"/>.</summary>
+    Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 }

@@ -22,7 +22,7 @@ It is designed to support:
 - **Neo4j-backed persistent memory** with vector, fulltext, and hybrid search
 - **Graph-native retrieval** with relationship traversal and entity resolution
 - **GraphRAG interoperability** for blended retrieval and knowledge graph enrichment
-- **MCP Server** for external clients and tools (21 tools, 6 resources, 3 prompts)
+- **MCP Server** for external clients and tools (25 tools, 6 resources, 3 prompts)
 
 ## Why this exists
 
@@ -195,7 +195,7 @@ Long-term knowledge is **owner-scoped** so one user cannot recall another user's
 
 ## Project status
 
-R1/R1b multi-user isolation (above) plus 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, Semantic Kernel adapter, GraphRAG blended retrieval (built into the Neo4j package), OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 21 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
+R1/R1b multi-user isolation (above) plus 6 implementation phases complete, plus a gap-closure sprint (Waves A–C) bringing Python parity to ~99%. Foundation memory engine fully implemented with Neo4j persistence, extraction pipeline with LLM and Azure Language backends, Microsoft Agent Framework adapter, Semantic Kernel adapter, GraphRAG blended retrieval (built into the Neo4j package), OpenTelemetry observability, geocoding and entity enrichment services, and MCP Server with 25 tools, 6 resources, and 3 prompts — all ready for deployment. All timestamps use native Neo4j `datetime()` storage. Session ID generation supports 3 strategies (PerConversation, PerDay, PersistentPerUser). MetadataFilterBuilder provides 5 operators ($eq, $ne, $contains, $in, $exists).
 
 The solution ships these packages:
 
@@ -210,7 +210,7 @@ The solution ships these packages:
 | `AgentMemory.SemanticKernel` | 6 | Semantic Kernel adapter — memory plugin with native SK integration |
 | `AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
 | `AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory operations |
-| `AgentMemory.McpServer` | 6 | MCP Server — 21 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
+| `AgentMemory.McpServer` | 6 | MCP Server — 25 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
 | `AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
 
 Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation.

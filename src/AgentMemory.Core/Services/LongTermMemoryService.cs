@@ -314,4 +314,26 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken);
         return scored.Select(r => r.Preference).ToList();
     }
+
+    // ── Invalidation & supersession (D5 / D7) — thin owner-scoped delegations ──
+
+    /// <inheritdoc/>
+    public Task<bool> InvalidateFactAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => _factRepo.InvalidateAsync(factId, scope, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<bool> InvalidateEntityAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => _entityRepo.InvalidateAsync(entityId, scope, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<bool> InvalidatePreferenceAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => _prefRepo.InvalidateAsync(preferenceId, scope, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<bool> SupersedeFactAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => _factRepo.SupersedeAsync(loserFactId, winnerFactId, scope, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+        => _prefRepo.SupersedeAsync(loserPreferenceId, winnerPreferenceId, scope, cancellationToken);
 }
