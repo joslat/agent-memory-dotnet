@@ -437,4 +437,58 @@ public sealed class LongTermMemoryServiceTests
 
         await _prefRepo.Received(1).DeleteAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
+
+    // ── Invalidation & supersession (D5 / D7) delegation ─────────────────
+
+    [Fact]
+    public async Task InvalidateFactAsync_DelegatesToFactRepo_WithScope_AndReturnsResult()
+    {
+        var scope = MemoryScope.For("alice");
+        _factRepo.InvalidateAsync("f1", scope, Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        var sut = CreateSut();
+
+        (await sut.InvalidateFactAsync("f1", scope)).Should().BeTrue();
+        await _factRepo.Received(1).InvalidateAsync("f1", scope, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateEntityAsync_DelegatesToEntityRepo()
+    {
+        _entityRepo.InvalidateAsync("e1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        var sut = CreateSut();
+
+        (await sut.InvalidateEntityAsync("e1")).Should().BeTrue();
+        await _entityRepo.Received(1).InvalidateAsync("e1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidatePreferenceAsync_DelegatesToPreferenceRepo()
+    {
+        _prefRepo.InvalidateAsync("p1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(false));
+        var sut = CreateSut();
+
+        (await sut.InvalidatePreferenceAsync("p1")).Should().BeFalse();
+        await _prefRepo.Received(1).InvalidateAsync("p1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SupersedeFactAsync_DelegatesToFactRepo_WithBothIdsAndScope()
+    {
+        var scope = MemoryScope.For("alice");
+        _factRepo.SupersedeAsync("loser", "winner", scope, Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        var sut = CreateSut();
+
+        (await sut.SupersedeFactAsync("loser", "winner", scope)).Should().BeTrue();
+        await _factRepo.Received(1).SupersedeAsync("loser", "winner", scope, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SupersedePreferenceAsync_DelegatesToPreferenceRepo()
+    {
+        _prefRepo.SupersedeAsync("loser", "winner", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        var sut = CreateSut();
+
+        (await sut.SupersedePreferenceAsync("loser", "winner")).Should().BeTrue();
+        await _prefRepo.Received(1).SupersedeAsync("loser", "winner", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
 }

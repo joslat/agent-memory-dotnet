@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Schema.Parity;
@@ -118,5 +119,90 @@ public sealed class SchemaParityCommand(TextWriter output)
         var report = SchemaParityVerifier.VerifyDotNet(target, registry);
         output.WriteLine(report.Summary());
         return report.IsCompatible ? 0 : 1;
+    }
+}
+
+/// <summary>
+/// Soft-invalidates a long-term node by id (D5): it leaves live recall but is kept and stays visible to
+/// as-of recall before invalidation. Owner-scoped when <c>--owner</c> is given. Exit 0 if a node was
+/// invalidated, 1 if nothing matched in scope or on a usage error.
+/// <para>Resolves the repositories directly (not <see cref="ILongTermMemoryService"/>) so this ops command
+/// needs no embedding backend — invalidation is a pure id-based write.</para>
+/// </summary>
+public sealed class InvalidateCommand(
+    IFactRepository facts, IEntityRepository entities, IPreferenceRepository preferences, TextWriter output)
+{
+    public async Task<int> ExecuteAsync(string? type, string? id, string? owner, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(id))
+        {
+            output.WriteLine("error: invalidate requires --type <fact|entity|preference> and --id <id>.");
+            return 1;
+        }
+
+        var scope = string.IsNullOrWhiteSpace(owner) ? null : MemoryScope.For(owner);
+        var kind = type.Trim().ToLowerInvariant();
+        Task<bool>? op = kind switch
+        {
+            "fact" => facts.InvalidateAsync(id, scope, cancellationToken),
+            "entity" => entities.InvalidateAsync(id, scope, cancellationToken),
+            "preference" or "pref" => preferences.InvalidateAsync(id, scope, cancellationToken),
+            _ => null,
+        };
+        if (op is null)
+        {
+            output.WriteLine($"error: unknown --type '{type}' (expected fact|entity|preference).");
+            return 1;
+        }
+
+        var ownerNote = scope is null ? string.Empty : $" (owner '{owner}')";
+        if (await op)
+        {
+            output.WriteLine($"Invalidated {kind} '{id}'{ownerNote}.");
+            return 0;
+        }
+        output.WriteLine($"No matching {kind} '{id}'{ownerNote} to invalidate.");
+        return 1;
+    }
+}
+
+/// <summary>
+/// Supersedes a loser long-term node with a winner (D7): closes the loser non-destructively and links
+/// <c>:SUPERSEDED_BY</c>. Owner-scoped when <c>--owner</c> is given (both nodes must belong to the owner).
+/// Exit 0 if superseded, 1 if nothing matched in scope or on a usage error. Resolves repositories directly
+/// (no embedding backend needed).
+/// </summary>
+public sealed class SupersedeCommand(IFactRepository facts, IPreferenceRepository preferences, TextWriter output)
+{
+    public async Task<int> ExecuteAsync(string? type, string? loser, string? winner, string? owner, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(loser) || string.IsNullOrWhiteSpace(winner))
+        {
+            output.WriteLine("error: supersede requires --type <fact|preference>, --loser <id>, and --winner <id>.");
+            return 1;
+        }
+
+        var scope = string.IsNullOrWhiteSpace(owner) ? null : MemoryScope.For(owner);
+        var kind = type.Trim().ToLowerInvariant();
+        Task<bool>? op = kind switch
+        {
+            "fact" => facts.SupersedeAsync(loser, winner, scope, cancellationToken),
+            "preference" or "pref" => preferences.SupersedeAsync(loser, winner, scope, cancellationToken),
+            _ => null,
+        };
+        if (op is null)
+        {
+            output.WriteLine($"error: unknown --type '{type}' (expected fact|preference).");
+            return 1;
+        }
+
+        var ownerNote = scope is null ? string.Empty : $" (owner '{owner}')";
+        if (await op)
+        {
+            output.WriteLine($"Superseded {kind} '{loser}' with '{winner}'{ownerNote}.");
+            return 0;
+        }
+        output.WriteLine($"No matching {kind} loser+winner in scope{ownerNote}; nothing superseded.");
+        return 1;
     }
 }

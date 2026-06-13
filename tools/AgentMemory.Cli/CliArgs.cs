@@ -73,6 +73,10 @@ public static class CliHelp
               bootstrap              Create schema constraints and indexes.
               consolidate [--apply]  Run the memory-hygiene pass (dry-run unless --apply).
               conflicts              Detect fact contradictions (detect-only).
+              invalidate --type <fact|entity|preference> --id <id> [--owner <id>]
+                                     Soft-invalidate a node (D5): drops from live recall, kept + as-of-recallable.
+              supersede --type <fact|preference> --loser <id> --winner <id> [--owner <id>]
+                                     Supersede a loser with a winner (D7): non-destructive, links :SUPERSEDED_BY.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
               schema-parity [--upstream-version <v>]

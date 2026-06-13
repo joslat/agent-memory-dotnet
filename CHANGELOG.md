@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Public invalidate/supersede surface (completes D5/D7).** The non-destructive soft-invalidate (D5) and supersession (D7) writers, previously only on the repositories, are now reachable through the public API. New on `ILongTermMemoryService`: `InvalidateFactAsync` / `InvalidateEntityAsync` / `InvalidatePreferenceAsync` and `SupersedeFactAsync` / `SupersedePreferenceAsync` (owner-scoped via `MemoryScope`, thin delegations to the repos). New `agentmemory` CLI verbs: `invalidate --type <fact|entity|preference> --id <id> [--owner <id>]` and `supersede --type <fact|preference> --loser <id> --winner <id> [--owner <id>]`. New MCP tools: `memory_invalidate` and `memory_supersede` (owner-scoped via `userId`). All non-destructive (kept + as-of-recallable) and R1 owner-scoped. Unit-tested at every layer (service delegation, CLI routing/exit codes, MCP routing/scoping); the underlying repo writers already have live-Neo4j coverage from D5/D7.
+
 ## [0.1.0-preview.2] - 2026-06-13
 
 ### Added

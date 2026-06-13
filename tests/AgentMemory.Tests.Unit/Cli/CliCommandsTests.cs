@@ -1,5 +1,6 @@
 using FluentAssertions;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Cli.Commands;
 using AgentMemory.Neo4j.Infrastructure;
@@ -131,6 +132,97 @@ public sealed class CliCommandsTests
         await svc.Received(1).PruneExpiredMemoriesAsync(
             Arg.Is<MemoryScope?>(s => s == null), Arg.Any<CancellationToken>());
     }
+
+    // ── invalidate ───────────────────────────────────────────────────────
+
+    private static InvalidateCommand NewInvalidate(IFactRepository f, IEntityRepository e, IPreferenceRepository p, TextWriter o)
+        => new(f, e, p, o);
+
+    [Fact]
+    public async Task InvalidateCommand_Fact_Scoped_Invalidates_AndReturnsZero()
+    {
+        var (facts, entities, prefs) = LongTermRepos();
+        facts.InvalidateAsync("f1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var exit = await NewInvalidate(facts, entities, prefs, _output).ExecuteAsync("fact", "f1", "alice");
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("Invalidated fact 'f1'").And.Contain("alice");
+        await facts.Received(1).InvalidateAsync(
+            "f1", Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateCommand_Entity_Unscoped_RoutesToEntityRepo()
+    {
+        var (facts, entities, prefs) = LongTermRepos();
+        entities.InvalidateAsync("e1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var exit = await NewInvalidate(facts, entities, prefs, _output).ExecuteAsync("entity", "e1", owner: null);
+
+        exit.Should().Be(0);
+        await entities.Received(1).InvalidateAsync("e1", Arg.Is<MemoryScope?>(s => s == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvalidateCommand_NotFound_ReturnsOne()
+    {
+        var (facts, entities, prefs) = LongTermRepos();
+        prefs.InvalidateAsync("p1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        var exit = await NewInvalidate(facts, entities, prefs, _output).ExecuteAsync("preference", "p1", owner: null);
+
+        exit.Should().Be(1);
+        _output.ToString().Should().Contain("No matching preference 'p1'");
+    }
+
+    [Theory]
+    [InlineData(null, "id")]
+    [InlineData("fact", null)]
+    [InlineData("widget", "id")]
+    public async Task InvalidateCommand_BadArgs_ReturnsOne_WithoutCallingRepo(string? type, string? id)
+    {
+        var (facts, entities, prefs) = LongTermRepos();
+
+        var exit = await NewInvalidate(facts, entities, prefs, _output).ExecuteAsync(type, id, owner: null);
+
+        exit.Should().Be(1);
+        await facts.DidNotReceive().InvalidateAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── supersede ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task SupersedeCommand_Fact_Scoped_Supersedes_AndReturnsZero()
+    {
+        var (facts, _, prefs) = LongTermRepos();
+        facts.SupersedeAsync("loser", "winner", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var exit = await new SupersedeCommand(facts, prefs, _output).ExecuteAsync("fact", "loser", "winner", "alice");
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("Superseded fact 'loser' with 'winner'").And.Contain("alice");
+        await facts.Received(1).SupersedeAsync(
+            "loser", "winner", Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null, "l", "w")]
+    [InlineData("fact", null, "w")]
+    [InlineData("fact", "l", null)]
+    [InlineData("entity", "l", "w")] // entity is not supersedable
+    public async Task SupersedeCommand_BadArgs_ReturnsOne(string? type, string? loser, string? winner)
+    {
+        var (facts, _, prefs) = LongTermRepos();
+
+        var exit = await new SupersedeCommand(facts, prefs, _output).ExecuteAsync(type, loser, winner, owner: null);
+
+        exit.Should().Be(1);
+        await facts.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    private static (IFactRepository Facts, IEntityRepository Entities, IPreferenceRepository Preferences) LongTermRepos()
+        => (Substitute.For<IFactRepository>(), Substitute.For<IEntityRepository>(), Substitute.For<IPreferenceRepository>());
 
     private static ConsolidationReport Report(bool dryRun) => new()
     {

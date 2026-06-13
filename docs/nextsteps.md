@@ -56,7 +56,7 @@ Concretely:
 - **Persistence:** Native Neo4j `datetime()` for all timestamps, 145+ centralised Cypher constants, MigrationRunner with versioned `.cypher` files.
 - **Search:** Vector (5 indexes + reasoning-step index), fulltext BM25 (3 indexes), hybrid (vector + BM25), and graph multi-hop traversal.
 - **Memory features:** Temporal point-in-time recall (`RecallAsOfAsync`), exponential memory decay (`MemoryDecayService`), multi-extractor merge strategies (five modes), batch UNWIND upserts.
-- **Agent integrations:** Microsoft Agent Framework, Semantic Kernel, MCP server (21 tools, 6 resources, 3 prompts).
+- **Agent integrations:** Microsoft Agent Framework, Semantic Kernel, MCP server (25 tools, 6 resources, 3 prompts).
 - **Observability:** OpenTelemetry ActivitySource + Meter, instrumented decorators for all extraction and enrichment services.
 
 What is **not** done yet: NuGet release artifacts (CHANGELOG, CONTRIBUTING, package versioning), streaming extraction for long documents, an Aspire demo application for developer onboarding, and an optional GDS analytics package. Package rename is complete (merged 2026-04-30).
