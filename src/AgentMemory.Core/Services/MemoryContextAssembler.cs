@@ -518,17 +518,27 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var trimmedFacts = TrimToRatio(facts, EstimateChars(facts), ratio);
         var trimmedTraces = TrimToRatio(traces, EstimateChars(traces), ratio);
 
-        string? trimmedGraphRag = graphRag;
-        if (graphRag != null)
-        {
-            int graphRagBudget = (int)(graphRag.Length * ratio);
-            trimmedGraphRag = graphRag.Length > graphRagBudget
-                ? graphRag[..graphRagBudget]
-                : graphRag;
-        }
+        string? trimmedGraphRag = graphRag is null
+            ? null
+            : TruncateToCharBudget(graphRag, (int)(graphRag.Length * ratio));
 
         return new AssembledSections(trimmedRecent, trimmedRelevant, trimmedEntities,
             trimmedPreferences, trimmedFacts, trimmedTraces, trimmedGraphRag, true);
+    }
+
+    /// <summary>
+    /// Truncates <paramref name="text"/> to at most <paramref name="budget"/> UTF-16 char units without
+    /// splitting a surrogate pair (a non-BMP character such as an emoji occupies 2 char units; slicing
+    /// between them would emit an orphaned surrogate). Backs the cut off by one when it lands on a low
+    /// surrogate.
+    /// </summary>
+    internal static string TruncateToCharBudget(string text, int budget)
+    {
+        if (budget >= text.Length) return text;
+        if (budget <= 0) return string.Empty;
+        // If the cut index sits on the low (second) half of a surrogate pair, back off so the pair stays whole.
+        if (char.IsLowSurrogate(text[budget])) budget--;
+        return text[..budget];
     }
 
     private static IReadOnlyList<T> TrimToRatio<T>(IReadOnlyList<T> items, int currentChars, double ratio)

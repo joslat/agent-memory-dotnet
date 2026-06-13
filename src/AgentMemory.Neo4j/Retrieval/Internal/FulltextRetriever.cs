@@ -27,9 +27,12 @@ internal sealed class FulltextRetriever : IRetriever
     public async Task<RetrieverResult> SearchAsync(
         string queryText, int topK, string? ownerId = null, CancellationToken cancellationToken = default)
     {
+        // Stop-word path tokenizes to \w+ (already strips all Lucene metacharacters). The raw path must
+        // escape them so a free-text query is matched literally instead of throwing a Lucene parse error
+        // or silently changing recall via stray operators.
         var searchText = _filterStopWords
             ? StopWordFilter.ExtractKeywords(queryText)
-            : queryText;
+            : LuceneQueryEscaper.Escape(queryText);
 
         if (string.IsNullOrWhiteSpace(searchText))
             return new RetrieverResult([]);
