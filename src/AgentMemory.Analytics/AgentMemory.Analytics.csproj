@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Optional Neo4j Graph Data Science (GDS) analytics for AgentMemory for .NET — PageRank (memory importance) and Louvain community detection (topic clustering) over the entity graph. Opt-in; degrades to a graceful no-op when the GDS plugin is not installed.</Description>
+    <PackageTags>agent-memory;neo4j;gds;graph-data-science;pagerank;community-detection;ai;memory</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="..\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
+  </ItemGroup>
+</Project>

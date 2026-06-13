@@ -211,6 +211,7 @@ The solution ships these packages:
 | `AgentMemory.Enrichment` | 5 | Geocoding (Nominatim) + entity enrichment (Wikimedia) with caching and rate limiting |
 | `AgentMemory.Observability` | 4 | OpenTelemetry decorators — tracing spans and metrics for all memory operations |
 | `AgentMemory.McpServer` | 6 | MCP Server — 25 tools, 6 resources, 3 prompts (search, context, store, entities, facts, preferences, reasoning traces, observations, graph query, export, extract) |
+| `AgentMemory.Analytics` | Opt-in | Optional Neo4j GDS analytics — PageRank (memory importance) + Louvain community detection, owner-scoped, graceful no-op without the GDS plugin. Not in the meta-package. |
 | `AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
 
 Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation.
