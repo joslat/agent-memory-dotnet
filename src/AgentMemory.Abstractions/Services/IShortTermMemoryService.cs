@@ -32,11 +32,22 @@ public interface IShortTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets recent messages for a session.
+    /// Gets recent messages for a session. The result is capped at the configured
+    /// <c>MaxMessagesPerQuery</c> and ordered newest-first; use it for recall/context, not for
+    /// whole-session operations.
     /// </summary>
     Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         string sessionId,
         int limit = 10,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets ALL messages for a session in chronological (oldest-first) order, with no cap. Intended for
+    /// whole-session operations such as retroactive extraction, which must see every message — unlike
+    /// <see cref="GetRecentMessagesAsync"/>, which is intentionally capped.
+    /// </summary>
+    Task<IReadOnlyList<Message>> GetAllSessionMessagesAsync(
+        string sessionId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

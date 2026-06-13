@@ -123,6 +123,46 @@ public sealed class SemanticMatchEntityMatcherTests
     }
 
     [Fact]
+    public async Task TryMatchAsync_EmptyCandidateEmbedding_ReturnsNull_WithoutThrowing()
+    {
+        // cycle-3: the orchestrator degrades to an empty vector on a generation failure. The matcher must
+        // treat that as "no signal" and return null (so resolution falls through to CreateNew) rather than
+        // throwing a dimension-mismatch that silently drops the entity and its relationships.
+        var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
+        orchestrator
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Array.Empty<float>()));
+
+        var existing = new[] { MakeEntityWithEmbedding("Alice", UnitVector(4, 0)) };
+
+        var sut = new SemanticMatchEntityMatcher(orchestrator,
+            new EntityResolutionOptions { SemanticMatchThreshold = 0.0 });
+
+        var act = async () => await sut.TryMatchAsync(MakeCandidate("Alice"), existing);
+
+        (await act.Should().NotThrowAsync()).Subject.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TryMatchAsync_ExistingWithMismatchedDimension_IsSkipped_WithoutThrowing()
+    {
+        var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
+        orchestrator
+            .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(UnitVector(4, 0)));
+
+        // Existing entity embedded with a different dimensionality (3 vs 4) — must be skipped, not compared.
+        var existing = new[] { MakeEntityWithEmbedding("Alice", new float[] { 1f, 0f, 0f }) };
+
+        var sut = new SemanticMatchEntityMatcher(orchestrator,
+            new EntityResolutionOptions { SemanticMatchThreshold = 0.0 });
+
+        var act = async () => await sut.TryMatchAsync(MakeCandidate("Alice"), existing);
+
+        (await act.Should().NotThrowAsync()).Subject.Should().BeNull();
+    }
+
+    [Fact]
     public void CosineSimilarity_IdenticalVectors_ReturnsOne()
     {
         var v = new float[] { 1.0f, 2.0f, 3.0f };

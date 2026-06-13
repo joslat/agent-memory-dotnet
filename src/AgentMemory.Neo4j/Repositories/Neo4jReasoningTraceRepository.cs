@@ -32,7 +32,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             var record = await cursor.SingleAsync();
             var node = record["t"].As<INode>();
 
-            if (trace.TaskEmbedding is not null)
+            // Only persist a real (non-empty) vector; a degraded empty embedding leaves it NULL.
+            if (trace.TaskEmbedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     ReasoningQueries.SetTraceTaskEmbedding,
@@ -54,7 +55,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             var record = await cursor.SingleAsync();
             var node = record["t"].As<INode>();
 
-            if (trace.TaskEmbedding is not null)
+            // Only persist a real (non-empty) vector; a degraded empty embedding leaves it NULL.
+            if (trace.TaskEmbedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     ReasoningQueries.SetTraceTaskEmbedding,

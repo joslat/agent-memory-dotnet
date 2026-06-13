@@ -222,7 +222,10 @@ public sealed class MemoryService : IMemoryService
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         _logger.LogDebug("Retroactive extraction for session {SessionId}, owner={Owner}", sessionId, userId);
 
-        var messages = await _shortTerm.GetRecentMessagesAsync(sessionId, int.MaxValue, cancellationToken);
+        // Must use the uncapped, chronological session fetch: routing this through GetRecentMessagesAsync
+        // would silently clamp to MaxMessagesPerQuery (default 100) and drop the oldest messages of a long
+        // session, so the bulk of its knowledge would never be extracted.
+        var messages = await _shortTerm.GetAllSessionMessagesAsync(sessionId, cancellationToken);
         if (messages.Count == 0)
         {
             _logger.LogDebug("No messages found for session {SessionId} — skipping extraction.", sessionId);

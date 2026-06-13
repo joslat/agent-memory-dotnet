@@ -107,6 +107,16 @@ public static class MessageQueries
             ORDER BY m.timestamp DESC
             LIMIT $limit";
 
+    // ── GetAllBySessionAsync ───────────────────────────────────────────
+
+    /// <summary>Get ALL messages for a session in chronological (oldest-first) order, with no cap.
+    /// Used by retroactive whole-session extraction, which must see every message — unlike the recall
+    /// path (<see cref="GetRecentBySession"/>), which is intentionally capped and newest-first.</summary>
+    public const string GetAllBySession = @"
+            MATCH (m:Message {session_id: $sessionId})
+            RETURN m
+            ORDER BY m.timestamp";
+
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
     /// <summary>

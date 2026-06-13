@@ -44,6 +44,15 @@ public interface IMessageRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets ALL messages for a session in chronological (oldest-first) order, with no cap.
+    /// Intended for whole-session operations such as retroactive extraction; the recall path should use
+    /// the capped <see cref="GetRecentBySessionAsync"/> instead.
+    /// </summary>
+    Task<IReadOnlyList<Message>> GetAllBySessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Searches messages by vector similarity.
     /// </summary>
     Task<IReadOnlyList<(Message Message, double Score)>> SearchByVectorAsync(

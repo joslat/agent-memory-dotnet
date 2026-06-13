@@ -77,7 +77,10 @@ public sealed class Neo4jChatMessageStore
                     Options = new Abstractions.Options.RecallOptions { MaxRecentMessages = limit }
                 }, ct).ConfigureAwait(false);
 
+            // RecentMessages is newest-first (recall orders DESC); return chat history chronologically
+            // (oldest-first) so the agent reads the conversation in the order it happened.
             return recallResult.Context.RecentMessages.Items
+                .Reverse()
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }

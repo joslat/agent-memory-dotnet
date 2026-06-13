@@ -42,7 +42,8 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             var record = await cursor.SingleAsync();
             var node = record["m"].As<INode>();
 
-            if (message.Embedding is not null)
+            // Only persist a real (non-empty) vector; a degraded empty embedding leaves `embedding` NULL.
+            if (message.Embedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     SharedFragments.SetMessageEmbedding,
@@ -86,8 +87,8 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             // consume result
             await cursor.ConsumeAsync();
 
-            // Set embeddings
-            foreach (var msg in ordered.Where(m => m.Embedding is not null))
+            // Set embeddings — only for messages with a real (non-empty) vector.
+            foreach (var msg in ordered.Where(m => m.Embedding is { Length: > 0 }))
             {
                 await runner.RunAsync(
                     SharedFragments.SetMessageEmbedding,
@@ -168,6 +169,22 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(MessageQueries.GetRecentBySession, new { sessionId, limit });
+            var records = await cursor.ToListAsync();
+            return records.Select(r =>
+            {
+                var node = r["m"].As<INode>();
+                return MapToMessage(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Message>> GetAllBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Getting ALL messages for session {SessionId} (uncapped, chronological)", sessionId);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(MessageQueries.GetAllBySession, new { sessionId });
             var records = await cursor.ToListAsync();
             return records.Select(r =>
             {

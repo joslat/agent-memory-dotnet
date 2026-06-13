@@ -55,13 +55,20 @@ public sealed class AdvancedMemoryTools
         if (!options.Value.EnableGraphQuery)
             throw new McpException("memory_export_graph requires EnableGraphQuery = true in McpServerOptions.");
 
+        // The stored schema uses snake_case `session_id` for the session key and `id` for a node's
+        // logical id (there is no `sessionId`/`entityId` property). A Cypher reference to a missing
+        // property silently evaluates to null, so the previous camelCase names made a session-scoped
+        // export return zero rows and every relationship endpoint id come back null. Note: only
+        // session-bearing nodes (Message/Conversation/ReasoningTrace) carry `session_id`, so a
+        // session-scoped export surfaces those node types, not Entity/Fact/Preference. Endpoint ids fall
+        // back to elementId() so mixed node types without an `id` still return a stable identifier.
         var nodeQuery = sessionId is null
             ? "MATCH (n) RETURN labels(n) AS labels, properties(n) AS props LIMIT $limit"
-            : "MATCH (n) WHERE n.sessionId = $sessionId RETURN labels(n) AS labels, properties(n) AS props LIMIT $limit";
+            : "MATCH (n) WHERE n.session_id = $sessionId RETURN labels(n) AS labels, properties(n) AS props LIMIT $limit";
 
         var relQuery = sessionId is null
-            ? "MATCH (a)-[r]->(b) RETURN a.entityId AS fromId, type(r) AS relType, b.entityId AS toId, properties(r) AS relProps LIMIT $limit"
-            : "MATCH (a)-[r]->(b) WHERE a.sessionId = $sessionId AND b.sessionId = $sessionId RETURN a.entityId AS fromId, type(r) AS relType, b.entityId AS toId, properties(r) AS relProps LIMIT $limit";
+            ? "MATCH (a)-[r]->(b) RETURN coalesce(a.id, elementId(a)) AS fromId, type(r) AS relType, coalesce(b.id, elementId(b)) AS toId, properties(r) AS relProps LIMIT $limit"
+            : "MATCH (a)-[r]->(b) WHERE a.session_id = $sessionId AND b.session_id = $sessionId RETURN coalesce(a.id, elementId(a)) AS fromId, type(r) AS relType, coalesce(b.id, elementId(b)) AS toId, properties(r) AS relProps LIMIT $limit";
 
         var parameters = new Dictionary<string, object?>
         {
@@ -106,10 +113,11 @@ public sealed class AdvancedMemoryTools
         if (!options.Value.EnableGraphQuery)
             throw new McpException("memory_find_duplicates requires EnableGraphQuery = true in McpServerOptions.");
 
+        // Entities store their logical id under `id` (not `entityId`). `elementId(a) < elementId(b)`
+        // already guarantees the two nodes are distinct, so no separate inequality on the id is needed.
         const string query = """
             MATCH (a:Entity), (b:Entity)
             WHERE elementId(a) < elementId(b)
-              AND a.entityId <> b.entityId
               AND NOT (a)-[:SAME_AS]-(b)
               AND (toLower(a.name) CONTAINS toLower(b.name)
                    OR toLower(b.name) CONTAINS toLower(a.name))
@@ -119,8 +127,8 @@ public sealed class AdvancedMemoryTools
                       ELSE toFloat(size(a.name)) / size(b.name)
                  END AS similarity
             WHERE similarity >= $threshold
-            RETURN a.entityId AS entityAId, a.name AS nameA, a.type AS typeA,
-                   b.entityId AS entityBId, b.name AS nameB, b.type AS typeB,
+            RETURN a.id AS entityAId, a.name AS nameA, a.type AS typeA,
+                   b.id AS entityBId, b.name AS nameB, b.type AS typeB,
                    similarity
             ORDER BY similarity DESC
             LIMIT $limit

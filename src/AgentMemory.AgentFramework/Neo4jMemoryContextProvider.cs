@@ -18,6 +18,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     private readonly ContextFormatOptions _formatOptions;
     private readonly AgentFrameworkOptions _agentOptions;
     private readonly IMemoryStoreContext? _storeContext;
+    private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
     public Neo4jMemoryContextProvider(
@@ -26,7 +27,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IOptions<ContextFormatOptions> formatOptions,
         IOptions<AgentFrameworkOptions> agentOptions,
         ILogger<Neo4jMemoryContextProvider> logger,
-        IMemoryStoreContext? storeContext = null)
+        IMemoryStoreContext? storeContext = null,
+        IWritableMemoryOwnerContext? ownerContext = null)
         // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
         // All three are passed as null: we supply our own ILogger via constructor injection,
         // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
@@ -37,6 +39,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
         _storeContext = storeContext;
+        _ownerContext = ownerContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -64,6 +67,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken,
         string? userId = null)
     {
+        // Set the ambient owner BEFORE recall so the LLM-invokable facade tools the agent calls mid-turn
+        // (search_memory / remember_* etc.) scope to this owner instead of running unscoped.
+        ApplyOwnerContext(userId);
         try
         {
             var userMessages = messages
@@ -152,6 +158,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken,
         string? userId = null)
     {
+        ApplyOwnerContext(userId);
         try
         {
             var storedMessages = new List<Message>();
@@ -240,5 +247,20 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     {
         if (applicationId is not null && _storeContext is IWritableMemoryStoreContext writable)
             writable.ApplicationId = applicationId;
+    }
+
+    // Pushes the turn's owner (IC8) into the ambient context so the LLM-invokable facade tools (built
+    // from IMemoryQueryFacade) scope recall by owner and owner-stamp writes — without trusting the model
+    // to pass a user id. Set unconditionally (incl. null = shared) so a previous turn's owner can't bleed
+    // through. NOTE: the default DefaultMemoryOwnerContext is AsyncLocal-backed, and a value set inside
+    // this awaited hook does NOT propagate back to the framework's caller, so it will not, on its own,
+    // reach tool calls that run after the hook returns. For guaranteed multi-tenant scoping the host must
+    // either set IWritableMemoryOwnerContext around the agent run, or register a *scoped* owner context
+    // and run each turn in its own DI scope (then provider + tools share the same instance). See
+    // docs/review-2026-06-13-cycle3.md (finding #4).
+    private void ApplyOwnerContext(string? userId)
+    {
+        if (_ownerContext is not null)
+            _ownerContext.UserId = userId;
     }
 }
