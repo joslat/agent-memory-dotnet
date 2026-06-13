@@ -64,8 +64,15 @@ try
             o.EmbeddingDimensions = dims;
         });
 
-    using var host = builder.Build();
-    using var scope = host.Services.CreateScope();
+    // Must dispose the host via DisposeAsync, not the synchronous Dispose(): the Neo4j driver factory is
+    // registered as an IAsyncDisposable-ONLY singleton on the root provider, and a synchronous
+    // ServiceProvider.Dispose() over an async-only disposable THROWS InvalidOperationException — which the
+    // catch below would turn every successful command into a spurious "error: ..." + exit code 1.
+    // IHost (the static type) only exposes IDisposable, but the generic-host implementation is
+    // IAsyncDisposable, so cast for the `await using`.
+    var host = builder.Build();
+    await using var hostAsync = (IAsyncDisposable)host;
+    await using var scope = host.Services.CreateAsyncScope();
     var sp = scope.ServiceProvider;
     var output = Console.Out;
 

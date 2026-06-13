@@ -31,7 +31,6 @@ public sealed class Neo4jMemoryPlugin
     public async Task<string> RecallAsync(
         [Description("The user query or topic to recall memories for")] string query,
         [Description("Session identifier")] string sessionId,
-        [Description("Optional conversation identifier to narrow recall scope")] string? conversationId = null,
         [Description("Optional owner/user identifier. Null recalls across all owners (no owner filter); set it to recall only that user's plus shared/global memories. Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {

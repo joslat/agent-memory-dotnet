@@ -118,6 +118,21 @@ public sealed class Neo4jMemoryPluginTests
     }
 
     [Fact]
+    public async Task RecallAsync_ThirdPositionalArg_ScopesByOwner()
+    {
+        // cycle-4: the dead `conversationId` param was removed, so userId is now the 3rd positional
+        // parameter and a positional caller's owner id correctly reaches RecallRequest.UserId
+        // (previously it landed in the ignored conversationId slot and recall ran unscoped).
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
+
+        await _sut.RecallAsync("what is neo4j", "s1", "alice");
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.SessionId == "s1" && r.UserId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task RecallAsync_EmptyResult_ReturnsEmptyString()
     {
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
