@@ -57,12 +57,8 @@ The library has been adversarially reviewed end-to-end — **vertically** (per-a
 
 ## Pending work
 
-Nothing here is a bug or regression — it is scoped/deferred work, tracked accurately in
-[`nextsteps.md`](nextsteps.md).
-
-| Item | State | Notes |
-|------|-------|-------|
-| **BenchmarkDotNet harness** | ⏸️ deferred (post-v1) | Perf benchmarks (batch upsert, vector search, decay, hybrid). Hardware-sensitive; intentionally out of CI gating. |
+The previously-deferred v1 items are all now done (see the roadmap below). Nothing tracked here is a bug
+or regression; ongoing scoped work lives in [`nextsteps.md`](nextsteps.md).
 
 ---
 
@@ -71,8 +67,8 @@ Nothing here is a bug or regression — it is scoped/deferred work, tracked accu
 1. ✅ **`schema-check` CLI** — *done* (closed the one half-done v1 item; runtime DB conformance check).
 2. ✅ **S9 — truncation-strategy refactor** — *done* (`ITruncationStrategy` extracted from `MemoryContextAssembler`).
 3. ✅ **G4 — schema-node persistence** — *done* (`ISchemaManager` implemented over versioned `:Schema` nodes).
-4. **Real-world feedback on the preview** — validate the install/usage path; iterate on ergonomics.
-5. **Deferred items as demand warrants** — pick up the benchmark harness if a concrete need surfaces.
+4. ✅ **BenchmarkDotNet harness** — *done* (`benchmarks/AgentMemory.Benchmarks`: batch upsert, vector search, decay, hybrid retrieval against a Testcontainers Neo4j; intentionally out of CI gating and the meta-package).
+5. **Real-world feedback on the preview** — validate the install/usage path; iterate on ergonomics.
 6. **API stabilization → `1.0`** — lock the public surface under SemVer once the preview has soaked.
 
 ---
