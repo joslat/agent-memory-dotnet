@@ -34,7 +34,7 @@ The browser UI is available at `http://localhost:7474`.
 dotnet add package AgentMemory
 ```
 
-This pulls in `Abstractions`, `Core`, `Neo4j`, and `Extraction.Llm` in one reference.
+This pulls in `Abstractions`, `Core`, `Neo4j`, `Extraction.Llm`, `Observability`, `Enrichment`, and `Extraction.AzureLanguage` in one reference (the last three are inert until wired via the opt-in `WithObservability`, `WithEnrichment`, and `WithAzureLanguageExtraction` registration methods).
 
 ### Option B — Individual packages
 

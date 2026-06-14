@@ -3,6 +3,8 @@
 > **Status:** Design / discussion document. **No code is changed by this document.**
 > **Date:** 2026-06-07 (revised after live-upstream re-verification + the decay-vs-deletion debate)
 > **Scope:** (1) Does agent-memory-dotnet have *full bitemporal* support? (2) What would "full bitemporal" add? (3) The harder question raised by upstream issue #42 and the moltbook post: is **decay/forgetting** actually *better* than bitemporal — and is forgetting **dangerous**? (4) What I would do, and what I'd want *my* memory to do. (5) A ready-to-file upstream issue.
+>
+> **✅ UPDATE (shipped since this draft):** The transaction-time clock is **no longer dead**. `InvalidateAsync` (soft-invalidate) and `SupersedeAsync` (contradiction→supersession) now **write** `invalidated_at` (+ `valid_until` for facts) and link `(loser)-[:SUPERSEDED_BY]->(winner)`, with `SchemaConstants.Properties.InvalidatedAt` declared and two-clock `RecallAsOfAsync` live. Decay is **non-destructive by default** (no `DETACH DELETE`). Implemented + verified live 2026-06-13 (D5/D7). The "transaction clock is dead / written by nothing" statements below (§1, §3, §9, §12) are the **pre-implementation problem statement** — kept for historical context; see the CHANGELOG and `review-2026-06-13-cycle*.md` for the shipped surface.
 
 ---
 
@@ -200,6 +202,8 @@ In one line: **I'd want decay as a dial on *recall*, bitemporal as the *ledger*,
 ---
 
 ## 12. Phased plan
+
+> **✅ All phases below shipped (D1–D7, verified live 2026-06-13).** Phase 1 = D1 recency re-ranker; Phase 2 = non-destructive decay-by-default; Phase 3 = `InvalidateAsync`/`SupersedeAsync` transaction-clock writer; Phase 4 = two-clock `RecallAsOfAsync(validAsOf, systemAsOf)`; Phase 5 = opt-in contradiction→supersession. The table is the original plan, kept for context.
 
 | Phase | Scope | Risk | Parity |
 |---|---|---|---|

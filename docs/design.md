@@ -9,7 +9,7 @@
 
 ## 1. Domain Model Overview
 
-The domain model comprises **31 domain types** organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, and configuration. All domain types are defined in `AgentMemory.Abstractions`.
+The domain model comprises **45 domain records** (plus 11 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
 
 ### Key Design Decisions
 
@@ -322,7 +322,7 @@ LLM-based extraction is implemented via `AgentMemory.Extraction.Llm`:
 All service interfaces are defined in `AgentMemory.Abstractions.Services`.
 
 This catalog is authoritative: it lists every interface in `AgentMemory.Abstractions.Services`
-(**29 total**), which is the count `architecture.md §3.1` refers to.
+(**37 total**), which is the count `architecture.md §3.1` and `AbstractionsContractGuardTests` enforce.
 
 | # | Interface | Purpose | Key Methods |
 |---|---|---|---|
@@ -331,7 +331,7 @@ This catalog is authoritative: it lists every interface in `AgentMemory.Abstract
 | 3 | `IMemoryIngestion` | Write role: add messages, extract & persist | `AddMessageAsync`, `AddMessagesAsync`, `ExtractAndPersistAsync`, `ExtractFromSessionAsync`, `ExtractFromConversationAsync` |
 | 4 | `IMemoryMaintenance` | Upkeep role: clear sessions, backfill embeddings | `ClearSessionAsync`, `GenerateEmbeddingsBatchAsync` |
 | 5 | `IShortTermMemoryService` | Conversation and message operations | `AddConversationAsync`, `AddMessageAsync`, `AddMessagesAsync`, `GetRecentMessagesAsync`, `GetRecentMessagesAsOfAsync`, `GetConversationMessagesAsync`, `SearchMessagesAsync`, `ClearSessionAsync` |
-| 6 | `ILongTermMemoryService` | Entity, fact, preference, relationship operations (incl. point-in-time search) | `AddEntityAsync`, `GetEntitiesByNameAsync`, `SearchEntitiesAsync`, `SearchEntitiesAsOfAsync`, `AddPreferenceAsync`, `GetPreferencesByCategoryAsync`, `SearchPreferencesAsync`, `SearchPreferencesAsOfAsync`, `DeletePreferenceAsync`, `AddFactAsync`, `GetFactsBySubjectAsync`, `SearchFactsAsync`, `SearchFactsAsOfAsync`, `AddRelationshipAsync`, `GetEntityRelationshipsAsync` |
+| 6 | `ILongTermMemoryService` | Entity, fact, preference, relationship operations (incl. point-in-time search + D5/D7 invalidate/supersede) | `AddEntityAsync`, `RecordEntityFeedbackAsync`, `GetEntitiesByNameAsync`, `SearchEntitiesAsync`, `SearchEntitiesAsOfAsync`, `InvalidateEntityAsync`, `AddPreferenceAsync`, `GetPreferencesByCategoryAsync`, `SearchPreferencesAsync`, `SearchPreferencesAsOfAsync`, `DeletePreferenceAsync`, `InvalidatePreferenceAsync`, `SupersedePreferenceAsync`, `AddFactAsync`, `GetFactsBySubjectAsync`, `SearchFactsAsync`, `SearchFactsAsOfAsync`, `InvalidateFactAsync`, `SupersedeFactAsync`, `AddRelationshipAsync`, `GetEntityRelationshipsAsync` |
 | 7 | `IReasoningMemoryService` | Trace, step, and tool call operations | `StartTraceAsync`, `AddStepAsync`, `RecordToolCallAsync`, `CompleteTraceAsync`, `GetTraceWithStepsAsync`, `ListTracesAsync`, `SearchSimilarTracesAsync` |
 | 8 | `IMemoryContextAssembler` | Context orchestration across all layers | `AssembleContextAsync`, `AssembleContextAsOfAsync` |
 | 9 | `IMemoryQueryFacade` | Render-ready search/command facade for adapters (tools, SK plugin) | `SearchMemoryAsync`, `RememberPreferenceAsync`, `RememberFactAsync`, `RecallPreferencesAsync`, `SearchKnowledgeAsync`, `FindSimilarTasksAsync` |
@@ -355,6 +355,14 @@ This catalog is authoritative: it lists every interface in `AgentMemory.Abstract
 | 27 | `ISessionIdGenerator` | Session-id strategy (per-conversation/day/user) | `GenerateSessionId` |
 | 28 | `IClock` | Testable time abstraction | `UtcNow` |
 | 29 | `IIdGenerator` | Testable ID generation | `GenerateId` |
+| 30 | `IConsolidationService` | Memory-hygiene consolidation (dedup/collapse), dry-run by default (PR #113) | `ConsolidateAsync` |
+| 31 | `IConflictDetectionService` | Detect (and optionally resolve) contradicting facts | `DetectFactContradictionsAsync`, `ResolveFactContradictionsAsync` |
+| 32 | `IMemoryOwnerContext` | Ambient owner/user id for the current scope (IC8, read) | `UserId` |
+| 33 | `IWritableMemoryOwnerContext` | Writable owner context — adapters set it per request/agent run | `UserId` (set) |
+| 34 | `IMemoryStoreContext` | Ambient application/memory-store id (R1b store tier, read) | `ApplicationId` |
+| 35 | `IWritableMemoryStoreContext` | Writable store context — route the store per scope | `ApplicationId` (set) |
+| 36 | `IMemoryRankingContext` | Ambient per-request ranking intent (D3, read) | `Intent` |
+| 37 | `IWritableMemoryRankingContext` | Writable ranking context — set by the assembler per recall | `Intent` (set) |
 
 ---
 
