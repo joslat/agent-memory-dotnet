@@ -1,9 +1,11 @@
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Cli.Commands;
 using AgentMemory.Neo4j.Infrastructure;
+using Neo4j.Driver;
 using NSubstitute;
 
 namespace AgentMemory.Tests.Unit.Cli;
@@ -33,6 +35,44 @@ public sealed class CliCommandsTests
 
         exit.Should().Be(0);
         await bootstrapper.Received(1).BootstrapAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SchemaCheckCommand_AllObjectsPresent_ReturnsZero()
+    {
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+
+        var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("OK").And.Contain("neo4j");
+    }
+
+    [Fact]
+    public async Task SchemaCheckCommand_MissingObjects_ReturnsOne_AndListsThem()
+    {
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        // The live database is missing two of the expected objects.
+        var present = new HashSet<string>(
+            SchemaConformance.ExpectedObjectNames(1536)
+                .Where(n => n != "entity_location_idx" && n != "fact_owner_idx"),
+            StringComparer.Ordinal);
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+
+        var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
+
+        exit.Should().Be(1);
+        _output.ToString().Should()
+            .Contain("FAILED")
+            .And.Contain("entity_location_idx")
+            .And.Contain("fact_owner_idx")
+            .And.Contain("bootstrap");
     }
 
     [Fact]

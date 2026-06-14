@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`agentmemory schema-check` CLI command — runtime schema conformance.** Verifies that the live Neo4j database actually has every constraint and index the bootstrapper creates: it reads `SHOW CONSTRAINTS` / `SHOW INDEXES`, diffs them against the expected baseline (parsed from `SchemaQueries`, parameterized by the configured embedding dimensions), prints any missing objects, and exits `0` when conformant / `1` otherwise — the runtime counterpart to `bootstrap`, and CI-friendly. This is distinct from `schema-parity` (a *static* check that the .NET schema is compatible with the embedded upstream Python snapshot). New `SchemaConformance` helper (`ExpectedObjectNames`/`ParseObjectName`/`MissingObjects`) + `SchemaQueries.ShowConstraintNames`/`ShowIndexNames`; unit-tested.
+
 - **Meta-package `AddNeo4jAgentMemory` now forwards a `configureStore` delegate.** The one-line `AgentMemory` registration gained an optional 4th parameter, `Action<MemoryStoreOptions>? configureStore`, so the application/memory-store isolation tier (R1b) — e.g. `MemoryStorageStrategy.DatabasePerApplication`, which routes each `ApplicationId` to its own auto-provisioned Neo4j database (Enterprise/AuraDB) — can be configured without dropping down to the `AgentMemory.Neo4j` registration. Backward-compatible (optional, appended last; `SharedDatabase` default unchanged). Documented in `docs/getting-started.md` §3.4 ("Multiple databases & instances"), with a new `deploy/docker-compose.enterprise.yml` (Enterprise + APOC + GDS) for local multi-store/analytics testing.
 
 ## [0.1.0-preview.3] - 2026-06-14

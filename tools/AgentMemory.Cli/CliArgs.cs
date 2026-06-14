@@ -71,6 +71,8 @@ public static class CliHelp
             COMMANDS:
               migrate                Apply pending Cypher migrations.
               bootstrap              Create schema constraints and indexes.
+              schema-check           Verify the LIVE database has every constraint/index the bootstrap
+                                     creates (runtime conformance). Exit 1 listing any missing objects.
               consolidate [--apply]  Run the memory-hygiene pass (dry-run unless --apply).
               conflicts              Detect fact contradictions (detect-only).
               invalidate --type <fact|entity|preference> --id <id> [--owner <id>]

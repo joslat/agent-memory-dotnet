@@ -15,7 +15,7 @@
 | **Maturity** | Feature-complete; in public preview, stabilizing toward `1.0` |
 | **Tests** | 2476 unit + Semantic Kernel + live-Neo4j integration — all green; CI (build-test) on every PR |
 | **Hardening** | 6 adversarial review cycles + a cross-cutting capstone, all merged (see [`reviews/`](reviews/)) |
-| **Open work** | One half-done item (`schema-check` CLI) + three intentionally-deferred items — see [Pending](#pending-work) |
+| **Open work** | Three intentionally-deferred items (no bugs/regressions) — see [Pending](#pending-work) |
 
 **What it is:** a native .NET 9 implementation of graph-native persistent memory for AI agents, backed by
 Neo4j, with GraphRAG interop and first-class adapters for the Microsoft Agent Framework, Semantic Kernel,
@@ -35,7 +35,7 @@ documented superset schema.
 | **GraphRAG retrieval** | Vector, Fulltext (BM25, Lucene-escaped), Hybrid (scale-free Reciprocal Rank Fusion), and multi-hop Graph traversal |
 | **Analytics (optional)** | `AgentMemory.Analytics` — GDS PageRank + Louvain community detection over an owner-scoped projection; graceful no-op without the GDS plugin |
 | **Adapters** | **MAF** (context + chat-history providers, `MemoryToolFactory`, facade, trace recorder); **SK** (`Neo4jMemoryPlugin` + text search); **MCP** (25 tools, 6 resources, 3 prompts; stdio + HTTP) |
-| **CLI** | `agentmemory`: `migrate`, `bootstrap`, `consolidate`, `decay`, `conflicts`, `schema-parity`, `invalidate`, `supersede` |
+| **CLI** | `agentmemory`: `migrate`, `bootstrap`, `schema-check`, `consolidate`, `decay`, `conflicts`, `schema-parity`, `invalidate`, `supersede` |
 | **Cross-cutting** | Observability (OpenTelemetry decorators), Enrichment (Nominatim geocoding + Wikimedia/Diffbot, rate-limited + cached), schema-parity compatibility kit, consolidation/hygiene, conflict detection |
 
 ---
@@ -62,7 +62,6 @@ Nothing here is a bug or regression — it is scoped/deferred work, tracked accu
 
 | Item | State | Notes |
 |------|-------|-------|
-| **`schema-check` CLI command** | 🟡 half-done / next | The v1 CLI spec called for `migrate` + `schema-check`. The CLI shipped 8 commands but **not** `schema-check` — a *runtime* check that the live database's indexes/constraints match what the bootstrapper creates. (`schema-parity` is a different, **static** upstream-compatibility check.) Small (~half day): open a session, `SHOW INDEXES`/`SHOW CONSTRAINTS`, assert conformance, exit 0/1. |
 | **Schema-node CRUD repository (G4)** | ⏸️ deferred (P2) | Persisting custom entity schemas as `:Schema` nodes. .NET uses fixed schema types instead; a conscious omission (see [`schema.md`](schema.md)). |
 | **BenchmarkDotNet harness** | ⏸️ deferred (post-v1) | Perf benchmarks (batch upsert, vector search, decay, hybrid). Hardware-sensitive; intentionally out of CI gating. |
 | **S9 — truncation-strategy refactor** | ⏸️ deferred | Extract `ITruncationStrategy` out of `MemoryContextAssembler`. Pure cleanup; truncation works — no active pain point. |
@@ -71,8 +70,8 @@ Nothing here is a bug or regression — it is scoped/deferred work, tracked accu
 
 ## Roadmap to `1.0`
 
-1. **`schema-check` CLI** *(in progress)* — close the one half-done v1 item.
-2. **Real-world feedback on `0.1.0-preview.3`** — validate the install/usage path; iterate on ergonomics.
+1. ✅ **`schema-check` CLI** — *done* (closed the one half-done v1 item; runtime DB conformance check).
+2. **Real-world feedback on the preview** — validate the install/usage path; iterate on ergonomics.
 3. **Deferred items as demand warrants** — pick up G4 / benchmarks / S9 only if a concrete need surfaces.
 4. **API stabilization → `1.0`** — lock the public surface under SemVer once the preview has soaked.
 
