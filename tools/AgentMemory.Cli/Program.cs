@@ -7,6 +7,7 @@ using AgentMemory.Neo4j.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 var cli = CliArgs.Parse(args);
 
@@ -16,7 +17,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "invalidate", "supersede" };
+var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -82,6 +83,9 @@ try
             sp.GetRequiredService<IMigrationRunner>(), output).ExecuteAsync(),
         "bootstrap" => await new BootstrapCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(), output).ExecuteAsync(),
+        "schema-check" => await new SchemaCheckCommand(
+            sp.GetRequiredService<INeo4jTransactionRunner>(),
+            sp.GetRequiredService<IOptions<Neo4jOptions>>(), output).ExecuteAsync(),
         "consolidate" => await new ConsolidateCommand(
             sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(cli.HasFlag("apply")),
         "decay" => await new DecayCommand(

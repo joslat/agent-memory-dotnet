@@ -216,6 +216,14 @@ public static class SchemaQueries
         "SHOW VECTOR INDEXES YIELD name, options " +
         "RETURN name AS name, options['indexConfig']['vector.dimensions'] AS dimensions";
 
+    // ── Schema-conformance introspection (CLI `schema-check`) ────
+
+    /// <summary>Lists the names of all constraints in the current database.</summary>
+    public const string ShowConstraintNames = "SHOW CONSTRAINTS YIELD name RETURN name";
+
+    /// <summary>Lists the names of all indexes (range/fulltext/vector/point) in the current database.</summary>
+    public const string ShowIndexNames = "SHOW INDEXES YIELD name RETURN name";
+
     // ── Migration ───────────────────────────────────────────────
 
     /// <summary>Unique constraint on Migration.version for tracking applied migrations.</summary>

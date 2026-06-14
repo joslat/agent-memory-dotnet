@@ -1,8 +1,11 @@
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Queries;
 using AgentMemory.Neo4j.Schema.Parity;
+using Neo4j.Driver;
 
 namespace AgentMemory.Cli.Commands;
 
@@ -31,6 +34,55 @@ public sealed class BootstrapCommand(ISchemaBootstrapper bootstrapper, TextWrite
         await bootstrapper.BootstrapAsync(cancellationToken);
         output.WriteLine("Schema bootstrap complete.");
         return 0;
+    }
+}
+
+/// <summary>
+/// Verifies that the LIVE database has every constraint and index the bootstrap creates (runtime
+/// conformance). Exit 0 when conformant, 1 (listing the missing objects) otherwise. This is the runtime
+/// counterpart to <c>bootstrap</c> — distinct from <c>schema-parity</c>, which is a static check that the
+/// .NET schema is compatible with the embedded upstream snapshot.
+/// </summary>
+public sealed class SchemaCheckCommand(
+    INeo4jTransactionRunner txRunner,
+    IOptions<Neo4jOptions> options,
+    TextWriter output)
+{
+    public async Task<int> ExecuteAsync(CancellationToken cancellationToken = default)
+    {
+        var database = options.Value.Database;
+        var expected = SchemaConformance.ExpectedObjectNames(options.Value.EmbeddingDimensions);
+
+        var existing = await txRunner.ReadAsync(async runner =>
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var query in new[] { SchemaQueries.ShowConstraintNames, SchemaQueries.ShowIndexNames })
+            {
+                var cursor = await runner.RunAsync(query);
+                var records = await cursor.ToListAsync();
+                foreach (var record in records)
+                {
+                    var name = record["name"].As<string>();
+                    if (!string.IsNullOrEmpty(name)) names.Add(name);
+                }
+            }
+            return names;
+        }, cancellationToken) ?? new HashSet<string>(StringComparer.Ordinal);
+
+        var missing = SchemaConformance.MissingObjects(expected, existing);
+        if (missing.Count == 0)
+        {
+            output.WriteLine(
+                $"schema-check: OK — all {expected.Count} expected constraints/indexes are present in database '{database}'.");
+            return 0;
+        }
+
+        output.WriteLine(
+            $"schema-check: FAILED — {missing.Count} of {expected.Count} expected schema objects are missing from database '{database}':");
+        foreach (var name in missing)
+            output.WriteLine($"  - {name}");
+        output.WriteLine("Run 'agentmemory bootstrap' (or 'migrate') to create them.");
+        return 1;
     }
 }
 
