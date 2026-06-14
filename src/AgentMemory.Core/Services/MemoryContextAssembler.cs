@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
-using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services.Budgeting;
 
 namespace AgentMemory.Core.Services;
 
@@ -20,10 +20,12 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IClock _clock;
     private readonly MemoryOptions _options;
     private readonly IWritableMemoryRankingContext? _rankingContext;
+    private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MemoryContextAssembler"/> class.
+    /// Initializes a new instance of the <see cref="MemoryContextAssembler"/> class with the built-in
+    /// context-budget truncation strategies.
     /// </summary>
     public MemoryContextAssembler(
         IShortTermMemoryService shortTerm,
@@ -35,6 +37,29 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
         IWritableMemoryRankingContext? rankingContext = null)
+        : this(shortTerm, longTerm, reasoning, graphRag, embeddingOrchestrator, clock, options, logger,
+            rankingContext, truncationStrategies: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance with a custom set of <see cref="ITruncationStrategy"/> implementations
+    /// (the DI path). Any supplied strategy overrides the built-in default for its
+    /// <see cref="ITruncationStrategy.Strategy"/> value; the four built-ins always remain present as a
+    /// fallback (so <see cref="TruncationStrategy.OldestFirst"/> is guaranteed for the unknown-strategy
+    /// default). <paramref name="truncationStrategies"/> null ⇒ built-ins only.
+    /// </summary>
+    internal MemoryContextAssembler(
+        IShortTermMemoryService shortTerm,
+        ILongTermMemoryService longTerm,
+        IReasoningMemoryService reasoning,
+        IGraphRagContextSource? graphRag,
+        IEmbeddingOrchestrator embeddingOrchestrator,
+        IClock clock,
+        IOptions<MemoryOptions> options,
+        ILogger<MemoryContextAssembler> logger,
+        IWritableMemoryRankingContext? rankingContext,
+        IEnumerable<ITruncationStrategy>? truncationStrategies)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -44,7 +69,28 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         _clock = clock;
         _options = options.Value;
         _rankingContext = rankingContext;
+        _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
+    }
+
+    // Start from the four built-in strategies (so the OldestFirst fallback is always available even when
+    // DI passes an empty enumerable), then let any injected strategy override the default for its key.
+    private static IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> BuildStrategyMap(
+        IEnumerable<ITruncationStrategy>? injected)
+    {
+        var map = new Dictionary<TruncationStrategy, ITruncationStrategy>
+        {
+            [TruncationStrategy.OldestFirst] = new OldestFirstTruncationStrategy(),
+            [TruncationStrategy.LowestScoreFirst] = new LowestScoreFirstTruncationStrategy(),
+            [TruncationStrategy.Proportional] = new ProportionalTruncationStrategy(),
+            [TruncationStrategy.Fail] = new FailTruncationStrategy(),
+        };
+
+        if (injected is not null)
+            foreach (var strategy in injected)
+                map[strategy.Strategy] = strategy;
+
+        return map;
     }
 
     /// <inheritdoc/>
@@ -169,12 +215,12 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                 ApplyBudget(budget, recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext);
         }
 
-        int estimatedChars = EstimateChars(recentMessages)
-            + EstimateChars(relevantMessages)
-            + EstimateChars(entities)
-            + EstimateChars(preferences)
-            + EstimateChars(facts)
-            + EstimateChars(traces)
+        int estimatedChars = ContextBudgetEstimator.EstimateChars(recentMessages)
+            + ContextBudgetEstimator.EstimateChars(relevantMessages)
+            + ContextBudgetEstimator.EstimateChars(entities)
+            + ContextBudgetEstimator.EstimateChars(preferences)
+            + ContextBudgetEstimator.EstimateChars(facts)
+            + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
         var context = new MemoryContext
@@ -343,233 +389,27 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         int maxChars = budget.MaxCharacters
             ?? (budget.MaxTokens.HasValue ? budget.MaxTokens.Value * 4 : int.MaxValue);
 
-        int totalChars = EstimateChars(recent) + EstimateChars(relevant)
-            + EstimateChars(entities) + EstimateChars(preferences)
-            + EstimateChars(facts) + EstimateChars(traces)
+        int totalChars = ContextBudgetEstimator.EstimateChars(recent) + ContextBudgetEstimator.EstimateChars(relevant)
+            + ContextBudgetEstimator.EstimateChars(entities) + ContextBudgetEstimator.EstimateChars(preferences)
+            + ContextBudgetEstimator.EstimateChars(facts) + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
         if (totalChars <= maxChars)
             return new AssembledSections(recent, relevant, entities, preferences, facts, traces, graphRagContext, false);
 
-        return budget.TruncationStrategy switch
-        {
-            TruncationStrategy.Fail =>
-                throw MemoryError.Create($"Context budget exceeded: {totalChars} chars (limit {maxChars}).")
-                    .WithCode(MemoryErrorCodes.ContextBudgetExceeded)
-                    .WithMetadata("totalChars", totalChars)
-                    .WithMetadata("maxChars", maxChars)
-                    .Build(),
+        var strategy = ResolveStrategy(budget.TruncationStrategy);
+        var result = strategy.Truncate(new TruncationInput(
+            maxChars, totalChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
 
-            TruncationStrategy.OldestFirst =>
-                FitByVictim(maxChars, BudgetVictimStrategy.OldestFirst, recent, relevant, entities, preferences, facts, traces, graphRagContext),
-
-            TruncationStrategy.LowestScoreFirst =>
-                FitByVictim(maxChars, BudgetVictimStrategy.LowestScoreFirst, recent, relevant, entities, preferences, facts, traces, graphRagContext),
-
-            TruncationStrategy.Proportional =>
-                TruncateProportional(maxChars, totalChars, recent, relevant, entities, preferences, facts, traces, graphRagContext),
-
-            _ => FitByVictim(maxChars, BudgetVictimStrategy.OldestFirst, recent, relevant, entities, preferences, facts, traces, graphRagContext)
-        };
+        return new AssembledSections(
+            result.Recent, result.Relevant, result.Entities, result.Preferences,
+            result.Facts, result.Traces, result.GraphRag, Truncated: true);
     }
 
-    private enum BudgetVictimStrategy
-    {
-        /// <summary>Remove the globally oldest item (by timestamp) across all sections first.</summary>
-        OldestFirst,
-
-        /// <summary>Remove the globally lowest-relevance item first, using each item's rank within its
-        /// repo-sorted (best-score-first) section as the score proxy — repositories return scored results
-        /// sorted by descending similarity, so trailing positions correspond to the lowest scores.</summary>
-        LowestScoreFirst
-    }
-
-    /// <summary>A removal candidate: identifies one item in one section plus the keys used to rank it.</summary>
-    private readonly record struct Victim(int Section, int Index, int Chars, DateTimeOffset Timestamp, double ScoreRank);
-
-    /// <summary>
-    /// Fit the assembled sections within <paramref name="maxChars"/> by repeatedly removing the single
-    /// "worst" item according to <paramref name="strategy"/> until within budget. GraphRAG (a single
-    /// opaque string) is dropped only once every section item has been removed.
-    /// </summary>
-    private static AssembledSections FitByVictim(
-        int maxChars,
-        BudgetVictimStrategy strategy,
-        IReadOnlyList<Message> recent,
-        IReadOnlyList<Message> relevant,
-        IReadOnlyList<Entity> entities,
-        IReadOnlyList<Preference> preferences,
-        IReadOnlyList<Fact> facts,
-        IReadOnlyList<ReasoningTrace> traces,
-        string? graphRag)
-    {
-        var recentList = recent.ToList();
-        var relevantList = relevant.ToList();
-        var entityList = entities.ToList();
-        var prefList = preferences.ToList();
-        var factList = facts.ToList();
-        var traceList = traces.ToList();
-
-        int totalChars = EstimateChars(recentList) + EstimateChars(relevantList)
-            + EstimateChars(entityList) + EstimateChars(prefList)
-            + EstimateChars(factList) + EstimateChars(traceList)
-            + (graphRag?.Length ?? 0);
-
-        while (totalChars > maxChars)
-        {
-            var victim = SelectVictim(strategy, recentList, relevantList, entityList, prefList, factList, traceList);
-            if (victim is null)
-            {
-                // No section items remain — drop the GraphRAG block last.
-                if (graphRag != null) { totalChars -= graphRag.Length; graphRag = null; continue; }
-                break;
-            }
-
-            totalChars -= victim.Value.Chars;
-            RemoveVictim(victim.Value, recentList, relevantList, entityList, prefList, factList, traceList);
-        }
-
-        return new AssembledSections(recentList, relevantList, entityList, prefList, factList, traceList, graphRag, true);
-    }
-
-    private static Victim? SelectVictim(
-        BudgetVictimStrategy strategy,
-        List<Message> recent,
-        List<Message> relevant,
-        List<Entity> entities,
-        List<Preference> preferences,
-        List<Fact> facts,
-        List<ReasoningTrace> traces)
-    {
-        Victim? worst = null;
-
-        void Consider(int section, int index, int count, int chars, DateTimeOffset timestamp)
-        {
-            // Sections arrive best-score-first; map position to a [0,1] relevance proxy
-            // (1.0 = best in section, 0.0 = worst). A singleton is treated as best-in-section.
-            double scoreRank = count <= 1 ? 1.0 : (double)(count - 1 - index) / (count - 1);
-            var candidate = new Victim(section, index, chars, timestamp, scoreRank);
-            if (worst is null || IsWorse(strategy, candidate, worst.Value))
-                worst = candidate;
-        }
-
-        for (int i = 0; i < recent.Count; i++) Consider(0, i, recent.Count, EstimateItemChars(recent[i]), recent[i].TimestampUtc);
-        for (int i = 0; i < relevant.Count; i++) Consider(1, i, relevant.Count, EstimateItemChars(relevant[i]), relevant[i].TimestampUtc);
-        for (int i = 0; i < entities.Count; i++) Consider(2, i, entities.Count, EstimateItemChars(entities[i]), entities[i].CreatedAtUtc);
-        for (int i = 0; i < preferences.Count; i++) Consider(3, i, preferences.Count, EstimateItemChars(preferences[i]), preferences[i].CreatedAtUtc);
-        for (int i = 0; i < facts.Count; i++) Consider(4, i, facts.Count, EstimateItemChars(facts[i]), facts[i].CreatedAtUtc);
-        for (int i = 0; i < traces.Count; i++) Consider(5, i, traces.Count, EstimateItemChars(traces[i]), traces[i].StartedAtUtc);
-
-        return worst;
-    }
-
-    private static bool IsWorse(BudgetVictimStrategy strategy, Victim candidate, Victim current) => strategy switch
-    {
-        // Oldest timestamp loses first; ties broken by lowest relevance.
-        BudgetVictimStrategy.OldestFirst =>
-            candidate.Timestamp < current.Timestamp
-            || (candidate.Timestamp == current.Timestamp && candidate.ScoreRank < current.ScoreRank),
-
-        // Lowest relevance loses first; ties broken by oldest timestamp.
-        BudgetVictimStrategy.LowestScoreFirst =>
-            candidate.ScoreRank < current.ScoreRank
-            || (candidate.ScoreRank == current.ScoreRank && candidate.Timestamp < current.Timestamp),
-
-        _ => false
-    };
-
-    private static void RemoveVictim(
-        Victim victim,
-        List<Message> recent,
-        List<Message> relevant,
-        List<Entity> entities,
-        List<Preference> preferences,
-        List<Fact> facts,
-        List<ReasoningTrace> traces)
-    {
-        switch (victim.Section)
-        {
-            case 0: recent.RemoveAt(victim.Index); break;
-            case 1: relevant.RemoveAt(victim.Index); break;
-            case 2: entities.RemoveAt(victim.Index); break;
-            case 3: preferences.RemoveAt(victim.Index); break;
-            case 4: facts.RemoveAt(victim.Index); break;
-            case 5: traces.RemoveAt(victim.Index); break;
-        }
-    }
-
-    private static AssembledSections TruncateProportional(
-        int maxChars,
-        int totalChars,
-        IReadOnlyList<Message> recent,
-        IReadOnlyList<Message> relevant,
-        IReadOnlyList<Entity> entities,
-        IReadOnlyList<Preference> preferences,
-        IReadOnlyList<Fact> facts,
-        IReadOnlyList<ReasoningTrace> traces,
-        string? graphRag)
-    {
-        double ratio = (double)maxChars / totalChars;
-
-        var trimmedRecent = TrimToRatio(recent, EstimateChars(recent), ratio);
-        var trimmedRelevant = TrimToRatio(relevant, EstimateChars(relevant), ratio);
-        var trimmedEntities = TrimToRatio(entities, EstimateChars(entities), ratio);
-        var trimmedPreferences = TrimToRatio(preferences, EstimateChars(preferences), ratio);
-        var trimmedFacts = TrimToRatio(facts, EstimateChars(facts), ratio);
-        var trimmedTraces = TrimToRatio(traces, EstimateChars(traces), ratio);
-
-        string? trimmedGraphRag = graphRag is null
-            ? null
-            : TruncateToCharBudget(graphRag, (int)(graphRag.Length * ratio));
-
-        return new AssembledSections(trimmedRecent, trimmedRelevant, trimmedEntities,
-            trimmedPreferences, trimmedFacts, trimmedTraces, trimmedGraphRag, true);
-    }
-
-    /// <summary>
-    /// Truncates <paramref name="text"/> to at most <paramref name="budget"/> UTF-16 char units without
-    /// splitting a surrogate pair (a non-BMP character such as an emoji occupies 2 char units; slicing
-    /// between them would emit an orphaned surrogate). Backs the cut off by one when it lands on a low
-    /// surrogate.
-    /// </summary>
-    internal static string TruncateToCharBudget(string text, int budget)
-    {
-        if (budget >= text.Length) return text;
-        if (budget <= 0) return string.Empty;
-        // If the cut index sits on the low (second) half of a surrogate pair, back off so the pair stays whole.
-        if (char.IsLowSurrogate(text[budget])) budget--;
-        return text[..budget];
-    }
-
-    private static IReadOnlyList<T> TrimToRatio<T>(IReadOnlyList<T> items, int currentChars, double ratio)
-    {
-        if (items.Count == 0) return items;
-        int targetChars = (int)(currentChars * ratio);
-        int runningChars = 0;
-        int keepCount = 0;
-        foreach (var item in items)
-        {
-            int itemChars = EstimateItemChars(item);
-            if (runningChars + itemChars > targetChars) break;
-            runningChars += itemChars;
-            keepCount++;
-        }
-        return items.Take(keepCount).ToList();
-    }
-
-    private static int EstimateChars<T>(IReadOnlyList<T> items) =>
-        items.Sum(EstimateItemChars);
-
-    private static int EstimateItemChars<T>(T item) => item switch
-    {
-        // Every item costs at least 1 char so that budget truncation always makes forward progress —
-        // an empty-content message/preference must still reduce the running total when removed,
-        // otherwise the victim loop could churn through zero-cost items without nearing the budget.
-        Message m => Math.Max(1, m.Content.Length),
-        Entity e => (e.Name?.Length ?? 0) + (e.Description?.Length ?? 0) + 10,
-        Fact f => f.Subject.Length + f.Predicate.Length + f.Object.Length + 4,
-        Preference p => Math.Max(1, p.PreferenceText.Length),
-        ReasoningTrace t => t.Task.Length + (t.Outcome?.Length ?? 0) + 10,
-        _ => 50
-    };
+    // Dispatch to the requested strategy, falling back to OldestFirst for any value without a registered
+    // strategy — preserving the original switch's default arm. OldestFirst is always present (BuildStrategyMap).
+    private ITruncationStrategy ResolveStrategy(TruncationStrategy strategy) =>
+        _truncationStrategies.TryGetValue(strategy, out var resolved)
+            ? resolved
+            : _truncationStrategies[TruncationStrategy.OldestFirst];
 }

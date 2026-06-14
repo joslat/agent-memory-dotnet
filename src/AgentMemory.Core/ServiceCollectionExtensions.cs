@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Core.Resolution;
 using AgentMemory.Core.Services;
+using AgentMemory.Core.Services.Budgeting;
 using AgentMemory.Core.Stubs;
 
 namespace AgentMemory.Core;
@@ -63,6 +64,15 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IShortTermMemoryService, ShortTermMemoryService>();
         services.TryAddScoped<ILongTermMemoryService, LongTermMemoryService>();
         services.TryAddScoped<IReasoningMemoryService, ReasoningMemoryService>();
+
+        // Context-budget truncation strategies (S9). Registered as an enumerable so a consumer can add or
+        // replace a strategy for a given TruncationStrategy value; the assembler always falls back to its
+        // four built-ins, so these registrations are an override surface rather than a requirement.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ITruncationStrategy, OldestFirstTruncationStrategy>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ITruncationStrategy, LowestScoreFirstTruncationStrategy>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ITruncationStrategy, ProportionalTruncationStrategy>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ITruncationStrategy, FailTruncationStrategy>());
+
         // GraphRAG is an optional source: resolve it with GetService so memory-only consumers
         // (who never call AddGraphRagAdapter) don't fail to construct the assembler. When the
         // GraphRAG adapter IS registered, that instance (incl. any observability decorator) is used.
@@ -74,7 +84,9 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IEmbeddingOrchestrator>(),
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IOptions<MemoryOptions>>(),
-            sp.GetRequiredService<ILogger<MemoryContextAssembler>>()));
+            sp.GetRequiredService<ILogger<MemoryContextAssembler>>(),
+            rankingContext: null,
+            truncationStrategies: sp.GetServices<ITruncationStrategy>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
 
         // Role interfaces (ISP): bind each to the same scoped IMemoryService instance so consumers
