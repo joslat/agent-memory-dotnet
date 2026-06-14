@@ -10,7 +10,7 @@
 | 4 – HIGH | S | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 80% | — | — | CHANGELOG + CONTRIBUTING exist; shared packaging metadata (v0.1.0-preview.1, MIT, README, SourceLink) + tag-gated `squad-release.yml` pack/push added 2026-06-05. Remaining: add `NUGET_API_KEY` secret and push a `v*` tag to publish. |
 | 1 – HIGH | F | Multi-user / multi-store isolation (R1/R1b) | owner_id + MemoryScope (optional shared) across all recall/lookup/GraphRAG/trace/relationship/AsOf paths; MAF/MCP/SK identity; owner indexes + migrations 0002/0003; per-application store tier (AsyncLocal context). | 100% | — | Memory_Review_and_Implementation_Plan.md | I1–I9 + IC1–IC6 on `remediation/analysis-review-hardening`; verified by Neo4j integration tests. Deferred (tracked in plan): entity-resolution sharing, IMemoryQueryFacade tool surface (IC8), session-clear owner-scoping. |
 | 5 – MED | F | Streaming Extraction | IStreamingExtractor (chunk/overlap/cross-chunk dedup) — built + unit-tested + **now DI-registered** in AddAgentMemoryCore (2026-06-06). Pure text→entities helper; owner stamping via PersistenceStage/ExtractionRequest.UserId. | 100% | — | — | Was held until R1 isolation landed; interface name IStreamingExtractor is final (not IStreamingExtractionPipeline). |
-| 6 – MED |  | CLI Tool | `dotnet tool` with `migrate` + `schema-check` commands | 0% | — | — | v1 scope only |
+| 6 – MED | F | CLI Tool | `agentmemory` dotnet tool: migrate, bootstrap, consolidate, decay, conflicts, schema-parity, invalidate, supersede | 100% | — | Memory_Review_and_Implementation_Plan.md | Shipped 2026-06-13 (`tools/AgentMemory.Cli`); verified end-to-end vs live Neo4j. The v1-spec `schema-check` (runtime DB conformance) was *not* shipped — `schema-parity` (static upstream-snapshot compatibility) is the closest; see the open item below. |
 | 7 – MED | F | GDS Support | Optional AgentMemory.Analytics package, GDS PageRank + community detection | 100% | — | — | Shipped 2026-06-13. `AddGdsMemoryAnalytics()`; `IMemoryPageRankService` + `IMemoryCommunityService` over an owner-scoped Cypher projection; graceful no-op without the GDS plugin. Validated by unit + live GDS-enabled integration tests. Not in the meta-package (opt-in). |
 | 8 – MED |  | BenchmarkDotNet Harness | Perf benchmarks for batch ops, vector search, decay, hybrid retrieval | 0% | — | — | — |
 | 9 – MED |  | S9 Truncation Refactor | Extract truncation strategies from MemoryContextAssembler | 0% | — | — | Low priority architectural cleanup |
@@ -51,9 +51,9 @@ All six implementation phases are complete. The gap-closure sprint (Waves A–C)
 
 Concretely:
 
-- **Packages:** `AgentMemory.Abstractions`, `.Core`, `.Neo4j`, `.AgentFramework`, `.Extraction.Llm`, `.Extraction.AzureLanguage`, `.Enrichment`, `.Observability`, `.McpServer`, `.SemanticKernel`, plus the `AgentMemory` meta-package.
+- **Packages:** `AgentMemory.Abstractions`, `.Core`, `.Neo4j`, `.AgentFramework`, `.Extraction.Llm`, `.Extraction.AzureLanguage`, `.Enrichment`, `.Observability`, `.McpServer`, `.SemanticKernel`, `.Analytics` (opt-in GDS), plus the `AgentMemory` meta-package.
 - **Architecture:** Strict ports-and-adapters layering, zero boundary violations, zero circular dependencies.
-- **Persistence:** Native Neo4j `datetime()` for all timestamps, 145+ centralised Cypher constants, MigrationRunner with versioned `.cypher` files.
+- **Persistence:** Native Neo4j `datetime()` for all timestamps, 133 centralised Cypher constants, MigrationRunner with versioned `.cypher` files.
 - **Search:** Vector (5 indexes + reasoning-step index), fulltext BM25 (3 indexes), hybrid (vector + BM25), and graph multi-hop traversal.
 - **Memory features:** Temporal point-in-time recall (`RecallAsOfAsync`), exponential memory decay (`MemoryDecayService`), multi-extractor merge strategies (five modes), batch UNWIND upserts.
 - **Agent integrations:** Microsoft Agent Framework, Semantic Kernel, MCP server (25 tools, 6 resources, 3 prompts).
@@ -81,9 +81,9 @@ This is not a single-dimension result. The two codebases are competitive on diff
 | **Batch upsert** | UNWIND-based bulk entity and fact upsert. Python has no batch API. |
 | **Migration versioning** | `MigrationRunner` with versioned `.cypher` files tracks schema evolution. Python has no migration system. |
 | **Multi-extractor merge strategies** | Five modes (Union, Intersection, Confidence, Cascade, FirstSuccess). Python is single-extractor only. |
-| **Schema richness** | 14 extra node properties, three extra relationship types, three fulltext indexes, one extra vector index beyond Python's schema. |
-| **Architecture rigour** | Strict ports-and-adapters across eleven packages, verified zero-violation dependency graph. Python is monolithic (one package, fifteen modules, no enforced boundaries). |
-| **Cypher centralisation** | 145 typed constants in thirteen domain files. Python has 99 in a single `queries.py`. |
+| **Schema richness** | 14 extra node properties, five extra relationship types, three fulltext indexes, one extra vector index beyond Python's schema. |
+| **Architecture rigour** | Strict ports-and-adapters across twelve packages, verified zero-violation dependency graph. Python is monolithic (one package, fifteen modules, no enforced boundaries). |
+| **Cypher centralisation** | 133 typed constants in thirteen domain files. Python has 99 in a single `queries.py`. |
 
 ### 2b. Where .NET is at Parity
 
@@ -220,6 +220,8 @@ Priority is ordered by strategic execution dependencies. Publishing with incorre
 ---
 
 ### Step 6 — CLI Tool (scoped v1: `migrate` + `schema-check`) + GDS Support (parallel)
+
+> **✅ Both shipped (2026-06-13).** The CLI delivered well beyond the v1 scope — `agentmemory` ships migrate, bootstrap, consolidate, decay, conflicts, schema-parity, invalidate, supersede (the planned `schema-check` runtime-conformance command was *not* built; `schema-parity` is a static upstream-snapshot check instead). GDS shipped as the opt-in `AgentMemory.Analytics` package. See the status tracker (row 6 / row 7). The planning text below is the original plan, kept for context.
 
 These two items are additive and independent. Neither blocks the other or any release. They can be worked in parallel by different engineers.
 

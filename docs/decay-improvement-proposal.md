@@ -3,6 +3,8 @@
 > **Status:** Design proposal / discussion. **No code is changed by this document.**
 > **Date:** 2026-06-07
 > **Companions:** [`bitemporal-memory-assessment.md`](./bitemporal-memory-assessment.md) (the storage substrate — invalidate-not-delete) and [`upstream-issue-memory-decay-bitemporal.md`](./upstream-issue-memory-decay-bitemporal.md) (the upstream issue). This doc is about the **retrieval/relevance** side: *which kind of decay should we actually build?*
+>
+> **✅ UPDATE (shipped since this draft):** The D-series proposed here **landed and was verified live (2026-06-12/13)** — D1 recency re-ranker, D2 structural hop-decay (`structScore = score·γ^hops`), D3 query-intent presets, non-destructive decay-by-default, and the GDS `AgentMemory.Analytics` package. The §3 "reality check" table below is the **pre-implementation problem statement** — see §11 for the implemented design and the CHANGELOG for the shipped surface.
 
 ---
 
@@ -46,7 +48,7 @@ Seven families, two axes: **what** they down-weight, and **destructive vs non-de
 
 | Family | Current state in agent-memory-dotnet | Verdict |
 |---|---|---|
-| **Structural** | A `GraphRetriever` walks `MATCH path = (seed)-[:RELATED_TO*1..2]-(related)` and **computes `length(path) AS hops`** — but orders `score DESC, hops ASC` and applies **no per-hop decay**. Only `RELATED_TO` is traversed; `ABOUT`/`MENTIONS`/`SAME_AS`/`TOUCHED` are written but never walked multi-hop. No GDS/PageRank (deferred in docs). | 🟠 **Almost there — the hop distance is computed then discarded** |
+| **Structural** | **✅ Done (opt-in, D2).** `GraphRetriever.BuildTraversalCypher` now emits `structScore = score · γ^hops` and orders by it when `StructuralDecayGamma < 1.0`; off by default (γ=1.0, where `hops` remains a tiebreaker only). Only `RELATED_TO` is traversed; `ABOUT`/`MENTIONS`/`SAME_AS`/`TOUCHED` are written but not walked multi-hop. GDS/PageRank now ships as the opt-in `AgentMemory.Analytics` package. | ✅ **Done (opt-in) — see §11** |
 | **Retrieval (temporal)** | Search ranks **purely on vector cosine** (`ORDER BY score DESC`). The ACT-R retention score is computed but **never blended into ranking**. | 🔴 Missing |
 | **Importance** | `confidence` exists; not used as a retrieval modulator. | 🔴 Missing |
 | **Representation** | Long-trace summarization is **detect-only** (counts candidates, doesn't summarize). | ⚪ Not built (safe) |

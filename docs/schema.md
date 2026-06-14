@@ -19,7 +19,7 @@
 | Vector indexes | 5 | 6 (+reasoning_step_embedding_idx) | ✅ All 5 Python indexes present |
 | Point indexes | 1 | 1 | ✅ Match |
 | Fulltext indexes | 0 | 3 | 🔵 .NET extension |
-| Relationship types | 15 | 18 (+3 extras) | ✅ All 15 Python types present |
+| Relationship types | 15 | 20 (+5 extras) | ✅ All 15 Python types present (+SUPERSEDED_BY, +TOUCHED, +HAS_FACT, +HAS_PREFERENCE, +IN_SESSION) |
 | Relationship properties | 27 props | 27 of 27 | ✅ All 27 Python relationship properties written |
 | Property naming (snake_case) | — | All correct | ✅ Match |
 | Datetime storage | Native `datetime()` | Native `datetime()` | ✅ Match |
@@ -283,6 +283,8 @@ Not in Python. Used by .NET to track applied schema migrations.
 | 16 | `HAS_FACT` | → | `Conversation` | `Fact` | — | Conversation → Fact convenience link |
 | 17 | `HAS_PREFERENCE` | → | `Conversation` | `Preference` | — | Conversation → Preference convenience link |
 | 18 | `IN_SESSION` | → | `ReasoningTrace` | `Conversation` | — | Reverse of HAS_TRACE for bidirectional traversal |
+| 19 | `SUPERSEDED_BY` | → | `Fact`/`Preference` | `Fact`/`Preference` | — | D7 contradiction→supersession: links a soft-invalidated loser to its winner (non-destructive; mirrors upstream `supersede_preference`) |
+| 20 | `TOUCHED` | → | `ReasoningStep` | `Entity` | `recorded_at` (datetime) | Reasoning-step → Entity audit edge (matches Python `(:ReasoningStep)-[:TOUCHED]->(:Entity)`) |
 
 ### 2.7 RELATED_TO — .NET Extra Properties
 
@@ -757,7 +759,7 @@ C# Domain Model (PascalCase) → Repository Cypher (snake_case) → Neo4j (snake
 | Node labels | 11 | 12 | +1 | Migration (.NET infra) |
 | Node properties (Python set) | 73 | 73 of 73 | 0 | ✅ All properties written (G1, G2 resolved) |
 | Node properties (.NET extras) | — | +14 | +14 | See §8.1 |
-| Relationship types | 15 | 18 | +3 | HAS_FACT, HAS_PREFERENCE, IN_SESSION |
+| Relationship types | 15 | 20 | +5 | SUPERSEDED_BY, TOUCHED, HAS_FACT, HAS_PREFERENCE, IN_SESSION |
 | Relationship properties (Python set) | 27 | 27 of 27 | 0 | ✅ All properties written (G3 resolved) |
 | Relationship properties (.NET extras) | — | +5 | +5 | RELATED_TO extras (§8.3) |
 | Constraints | 9 | 10 | +1 | extractor_name |

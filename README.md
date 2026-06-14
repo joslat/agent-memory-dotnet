@@ -101,7 +101,7 @@ Internalized retrieval layer providing:
 - graph-enriched context retrieval with custom traversal patterns
 
 ### 6. MCP layer
-A .NET MCP server exposing 21 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
+A .NET MCP server exposing 25 memory tools, 6 resources, and 3 prompts to external MCP clients (Claude Desktop, etc.) via stdio and HTTP transports.
 
 ### 7. Observability layer
 OpenTelemetry decorators for:
