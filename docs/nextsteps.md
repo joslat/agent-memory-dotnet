@@ -254,8 +254,8 @@ See `docs/Improvement-Ideas-Backlog.md` for expanded descriptions and implementa
 
 | Document | Role | Status |
 |----------|------|--------|
-| `Agent-Memory-for-DotNet-Specification.md` | Canonical functional specification | Active — source of truth for any ambiguity |
-| `Agent-memory-for-dotnet-implementation-plan.md` | Historical phased build guide | Historical (all phases complete; banner added) |
+| `docs/specification.md` | Canonical functional specification | Active — source of truth for any ambiguity |
+| `docs/archive/full-implementation-plan.md` | Historical phased build guide | Historical (all phases complete) |
 | `docs/architecture.md` | Package topology, graph model, boundaries | Active |
 | `docs/design.md` | Domain model, context assembly, extraction pipeline | Active |
 | `docs/schema.md` | Neo4j schema reference | Active |

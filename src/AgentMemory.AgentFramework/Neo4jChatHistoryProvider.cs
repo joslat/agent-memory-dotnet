@@ -210,7 +210,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     // owner can't bleed through. NOTE: the default owner context is AsyncLocal-backed and a value set in
     // this awaited hook does not flow back to the framework caller; for guaranteed scoping the host must
     // set the owner context around the run (or register a scoped context). See
-    // docs/review-2026-06-13-cycle3.md (finding #4).
+    // docs/reviews/review-2026-06-13-cycle3.md (finding #4).
     private void ApplyOwnerContext(string? userId)
     {
         if (_ownerContext is not null)
