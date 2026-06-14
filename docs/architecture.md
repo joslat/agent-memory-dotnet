@@ -318,7 +318,7 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 | `:Tool` | *(aggregate)* | `name`, `created_at`, `total_calls` |
 | `:Extractor` | `ExtractorModel` | `id`, `name`, `version`, `config`, `created_at` — extraction provenance (upstream-parity node) |
 | `:ConsolidationRun` | *(audit)* | `id`, `kind`, `ran_at`, `dry_run`, `candidate_count`, `actions_taken` — memory-hygiene audit trail written when a consolidation run is applied (PR #113) |
-| `:Schema` | `SchemaModel` | `id`, `name`, `version`, `config` — custom-schema persistence; label + indexes declared by `SchemaBootstrapper` (the node-CRUD repository is a decided P2 omission, see `docs/schema.md`) |
+| `:Schema` | `SchemaModel` / `EntitySchemaConfig` | `id`, `name`, `version`, `description`, `config`, `is_active`, `created_at`, `created_by` — custom-schema persistence; label + indexes declared by `SchemaBootstrapper`; CRUD via `ISchemaManager` → `Neo4jSchemaManager` (G4, see `docs/schema.md`) |
 
 > **Note:** `SchemaConstants.NodeLabels` defines all 12 labels above. Entity-to-entity relationships use `RELATED_TO` via Neo4j native relationships (not a separate `:MemoryRelationship` node). The `Relationship` domain type maps to `RELATED_TO` relationship properties.
 

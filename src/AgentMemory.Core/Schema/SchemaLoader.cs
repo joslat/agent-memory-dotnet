@@ -40,6 +40,27 @@ public static class SchemaLoader
     }
 
     /// <summary>
+    /// Serializes an <see cref="EntitySchemaConfig"/> to a JSON string. Used to persist a schema in the
+    /// <c>config</c> property of a <c>:Schema</c> node (the inverse of <see cref="Deserialize"/>).
+    /// </summary>
+    public static string Serialize(EntitySchemaConfig config)
+        => JsonSerializer.Serialize(config, _jsonOptions);
+
+    /// <summary>
+    /// Deserializes an <see cref="EntitySchemaConfig"/> from a JSON string produced by
+    /// <see cref="Serialize"/> (or any compatible JSON). Routes through the same DTO mapping as
+    /// <see cref="LoadFromJson(Stream)"/> so required-member and default handling are identical.
+    /// </summary>
+    /// <exception cref="JsonException">When the JSON is malformed or cannot be deserialized.</exception>
+    public static EntitySchemaConfig Deserialize(string json)
+    {
+        var dto = JsonSerializer.Deserialize<EntitySchemaConfigDto>(json, _jsonOptions)
+                  ?? throw new JsonException("Deserialized schema config was null.");
+
+        return MapFromDto(dto);
+    }
+
+    /// <summary>
     /// Creates a minimal custom schema containing only the specified entity types.
     /// The first type in the list becomes the default entity type.
     /// </summary>

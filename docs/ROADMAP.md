@@ -62,18 +62,18 @@ Nothing here is a bug or regression — it is scoped/deferred work, tracked accu
 
 | Item | State | Notes |
 |------|-------|-------|
-| **Schema-node CRUD repository (G4)** | ⏸️ deferred (P2) | Persisting custom entity schemas as `:Schema` nodes. .NET uses fixed schema types instead; a conscious omission (see [`schema.md`](schema.md)). |
 | **BenchmarkDotNet harness** | ⏸️ deferred (post-v1) | Perf benchmarks (batch upsert, vector search, decay, hybrid). Hardware-sensitive; intentionally out of CI gating. |
-| **S9 — truncation-strategy refactor** | ⏸️ deferred | Extract `ITruncationStrategy` out of `MemoryContextAssembler`. Pure cleanup; truncation works — no active pain point. |
 
 ---
 
 ## Roadmap to `1.0`
 
 1. ✅ **`schema-check` CLI** — *done* (closed the one half-done v1 item; runtime DB conformance check).
-2. **Real-world feedback on the preview** — validate the install/usage path; iterate on ergonomics.
-3. **Deferred items as demand warrants** — pick up G4 / benchmarks / S9 only if a concrete need surfaces.
-4. **API stabilization → `1.0`** — lock the public surface under SemVer once the preview has soaked.
+2. ✅ **S9 — truncation-strategy refactor** — *done* (`ITruncationStrategy` extracted from `MemoryContextAssembler`).
+3. ✅ **G4 — schema-node persistence** — *done* (`ISchemaManager` implemented over versioned `:Schema` nodes).
+4. **Real-world feedback on the preview** — validate the install/usage path; iterate on ergonomics.
+5. **Deferred items as demand warrants** — pick up the benchmark harness if a concrete need surfaces.
+6. **API stabilization → `1.0`** — lock the public surface under SemVer once the preview has soaked.
 
 ---
 
