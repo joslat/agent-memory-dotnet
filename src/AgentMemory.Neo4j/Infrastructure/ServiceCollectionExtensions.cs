@@ -56,6 +56,9 @@ public static class ServiceCollectionExtensions
         // Provenance
         services.TryAddTransient<IExtractorRepository, Neo4jExtractorRepository>();
 
+        // Custom entity-schema persistence (G4) — versioned :Schema nodes, global (not owner-scoped).
+        services.TryAddTransient<ISchemaManager, Neo4jSchemaManager>();
+
         // Reasoning memory repositories
         services.TryAddTransient<IReasoningTraceRepository, Neo4jReasoningTraceRepository>();
         services.TryAddTransient<IReasoningStepRepository, Neo4jReasoningStepRepository>();

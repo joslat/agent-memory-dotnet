@@ -146,6 +146,53 @@ public sealed class SchemaLoaderTests : IDisposable
         SchemaLoader.GetLegacySchema().DefaultEntityType.Should().Be("CONCEPT");
     }
 
+    // ── Serialize / Deserialize round-trip (backs :Schema node persistence, G4) ──
+
+    [Fact]
+    public void SerializeDeserialize_DefaultPoleO_RoundTrips()
+    {
+        var original = SchemaLoader.GetDefaultSchema();
+
+        var restored = SchemaLoader.Deserialize(SchemaLoader.Serialize(original));
+
+        restored.Name.Should().Be(original.Name);
+        restored.Version.Should().Be(original.Version);
+        restored.Description.Should().Be(original.Description);
+        restored.DefaultEntityType.Should().Be(original.DefaultEntityType);
+        restored.EnableSubtypes.Should().Be(original.EnableSubtypes);
+        restored.StrictTypes.Should().Be(original.StrictTypes);
+        restored.EntityTypes.Should().BeEquivalentTo(original.EntityTypes);
+        restored.RelationTypes.Should().BeEquivalentTo(original.RelationTypes);
+    }
+
+    [Fact]
+    public void SerializeDeserialize_CustomSchema_PreservesEntityTypesAndFlags()
+    {
+        var original = SchemaLoader.CreateForTypes(["PATIENT", "DRUG", "DIAGNOSIS"], enableSubtypes: true) with
+        {
+            Name = "medical",
+            Version = "3.1",
+            Description = "Custom medical ontology",
+            StrictTypes = true
+        };
+
+        var restored = SchemaLoader.Deserialize(SchemaLoader.Serialize(original));
+
+        restored.Name.Should().Be("medical");
+        restored.Version.Should().Be("3.1");
+        restored.Description.Should().Be("Custom medical ontology");
+        restored.StrictTypes.Should().BeTrue();
+        restored.EnableSubtypes.Should().BeTrue();
+        restored.GetEntityTypeNames().Should().BeEquivalentTo(["PATIENT", "DRUG", "DIAGNOSIS"]);
+    }
+
+    [Fact]
+    public void Deserialize_InvalidJson_ThrowsJsonException()
+    {
+        var action = () => SchemaLoader.Deserialize("{ broken");
+        action.Should().Throw<JsonException>();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────
 
     private static string BuildMinimalSchemaJson(string name, string version) =>

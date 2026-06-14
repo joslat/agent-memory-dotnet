@@ -24,8 +24,8 @@
 | Property naming (snake_case) | — | All correct | ✅ Match |
 | Datetime storage | Native `datetime()` | Native `datetime()` | ✅ Match |
 | Tool aggregate stats | 6 props | 7 (+description) | ✅ All Python props present |
-| Schema node repository | ✅ CRUD | ❌ No repository | 🔵 Decided omission (P2) |
-| **Weighted overall** | | | **~99.7%** |
+| Schema node repository | ✅ CRUD | ✅ `ISchemaManager` (`Neo4jSchemaManager`) | ✅ Match (G4 implemented) |
+| **Weighted overall** | | | **~100%** |
 
 ### Summary of Gaps
 
@@ -34,7 +34,7 @@
 | G1 | `ReasoningStep.timestamp` | ~~❌ HIGH~~ | ✅ **RESOLVED** | `ReasoningQueries.AddStep` includes `timestamp: datetime()`. Index now correctly populated. Resolved in Wave 3 (Cypher centralization). |
 | G2 | `ToolCall.timestamp` | ~~❌ HIGH~~ | ✅ **RESOLVED** | `ToolCallQueries.Add` includes `timestamp: datetime()`. Resolved in Wave 3 (Cypher centralization). |
 | G3 | `MENTIONS.context` and `MENTIONS.created_at` | ~~❌ MEDIUM~~ | ✅ **RESOLVED** | `EntityQueries.AddMention` sets all 5 properties: `confidence`, `start_pos`, `end_pos`, `context`, `created_at`. `AddMentionsBatch` intentionally omits per-entity `context`/`start_pos`/`end_pos` (batch design trade-off). Resolved in Wave 3. |
-| G4 | `Schema` node has no repository implementation | 🔵 LOW | 🔵 **Decided omission** | Indexes exist (`schema_name_idx`, `schema_version_idx`). Domain model (`SchemaModel`) exists. .NET uses `SchemaBootstrapper` with static DDL. No CRUD needed unless custom schema support is required. |
+| G4 | `Schema` node has no repository implementation | ~~🔵 LOW~~ | ✅ **RESOLVED** | `ISchemaManager` is implemented by `Neo4jSchemaManager` (`SchemaPersistenceQueries`): versioned save/load/load-version/list/exists/delete over `:Schema` nodes, with one active version per name. Config persisted as JSON via `SchemaLoader`. Schema nodes are global (not owner-scoped). |
 
 ---
 
@@ -223,7 +223,7 @@
 | `created_at` | datetime | ✅ | 🔵 Declared | ✅ | `datetime()` | Auto-set |
 | `created_by` | string | ✅ | 🔵 Declared | ❌ | — | Creator identifier |
 
-> 🔵 **Note:** Schema node is declared in `SchemaConstants` and `SchemaModel` domain class. Indexes `schema_name_idx` and `schema_version_idx` are created by `SchemaBootstrapper`. However, **no Neo4j repository implementation exists** (no CRUD). Python uses this for custom entity schema persistence. .NET uses fixed types. This is a decided P2 omission.
+> ✅ **Note:** Schema node is declared in `SchemaConstants` and the `SchemaModel` domain class; indexes `schema_name_idx` and `schema_version_idx` are created by `SchemaBootstrapper`. CRUD persistence is implemented (G4) by `ISchemaManager` → `Neo4jSchemaManager` (`SchemaPersistenceQueries`): versioned save/load/list/delete over `:Schema` nodes, used for custom entity-schema persistence as in Python.
 
 ### `Migration` — .NET-only Infrastructure
 
@@ -572,39 +572,27 @@ await runner.RunAsync(EntityQueries.AddMention, new { messageId, entityId, confi
 
 ---
 
-### G4 — Schema Node Repository (P2 — Low Priority)
+### G4 — Schema Node Persistence ✅ IMPLEMENTED
 
-**File:** New `src/AgentMemory.Neo4j/Repositories/Neo4jSchemaRepository.cs`
+**Service:** `ISchemaManager` → `src/AgentMemory.Neo4j/Services/Neo4jSchemaManager.cs`
+**Cypher:** `src/AgentMemory.Neo4j/Queries/SchemaPersistenceQueries.cs`
 
-Python uses the Schema node for custom entity schema persistence (defining entity types, subtypes, relationship types via YAML/JSON config). .NET currently uses fixed types defined in `DefaultSchemas.cs`.
+Custom entity-schema configurations (`EntitySchemaConfig`: entity types, subtypes, relation types, validation flags) are persisted as versioned `:Schema` nodes. The full config is JSON-serialized into the node's `config` property via `SchemaLoader.Serialize`/`Deserialize`; `name`/`version`/`description` are mirrored as top-level properties for indexed lookup. Schema nodes are **global** — not owner-scoped — like `:Extractor` and `:Tool`.
 
-**Required operations (from Python):**
-```cypher
--- Create schema
-CREATE (s:Schema {
-    id:          $id,
-    name:        $name,
-    version:     $version,
-    description: $description,
-    config:      $config,
-    is_active:   $isActive,
-    created_at:  datetime(),
-    created_by:  $createdBy
-})
+**`ISchemaManager` operations → Cypher:**
 
--- Get active schema
-MATCH (s:Schema {is_active: true}) RETURN s
+| Method | Query | Behaviour |
+|--------|-------|-----------|
+| `SaveSchemaAsync` | `DeactivateByName` (if `setActive`) + `Save` (MERGE by name+version) | Upsert a revision; one transaction keeps the "one active version per name" invariant atomic. Idempotent per (name, version). |
+| `LoadSchemaAsync(name)` | `LoadActiveByName` | The active revision of a name (null if none active). |
+| `LoadSchemaVersionAsync(name, version)` | `LoadByNameVersion` | A specific revision. |
+| `ListSchemasAsync(nameFilter?)` | `List` | One `SchemaListItem` per name: newest version, description, version count, any-active. Optional name-prefix filter. |
+| `SchemaExistsAsync(name)` | `Exists` | True if any revision exists. |
+| `DeleteSchemaAsync(schemaId)` | `DeleteById` | Delete one revision by id; returns whether a node was removed. |
 
--- List schemas
-MATCH (s:Schema) RETURN s ORDER BY s.created_at DESC
+> **Note:** the existing `schema_name_idx` / `schema_version_idx` indexes back these lookups; no uniqueness constraint was added (ids are GUIDs; this matches Python's index-not-constraint approach and keeps the bootstrap surface unchanged). Covered by `Neo4jSchemaManagerIntegrationTests` (live Neo4j) and `SchemaLoaderTests` (serialization round-trip).
 
--- Deactivate all then activate one
-MATCH (s:Schema) SET s.is_active = false
-WITH 1 AS dummy
-MATCH (s:Schema {id: $id}) SET s.is_active = true RETURN s
-```
-
-**Status:** 🔵 Decided omission. Indexes (`schema_name_idx`, `schema_version_idx`) exist. Domain model (`SchemaModel`) exists. Only the repository implementation is missing. Low priority unless custom schema support is needed.
+**Status:** ✅ Implemented (G4). This closes the last parity gap — `:Schema` CRUD now has a first-class .NET service.
 
 ---
 
@@ -775,8 +763,7 @@ C# Domain Model (PascalCase) → Repository Cypher (snake_case) → Neo4j (snake
 | 1 | **G1**: `timestamp: datetime()` in ReasoningStep CREATE | ✅ **RESOLVED** | Written in `ReasoningQueries.AddStep` |
 | 2 | **G2**: `timestamp: datetime()` in ToolCall CREATE | ✅ **RESOLVED** | Written in `ToolCallQueries.Add` |
 | 3 | **G3**: `context`, `created_at` in MENTIONS ON CREATE SET | ✅ **RESOLVED** | Written in `EntityQueries.AddMention` |
-| 4 | **G4**: Schema node repository | 🔵 **Decided omission (P2)** | Only needed for custom schema support |
+| 4 | **G4**: Schema node repository | ✅ **RESOLVED** | `ISchemaManager` / `Neo4jSchemaManager` over versioned `:Schema` nodes |
 
-After G1–G3: **99.7% parity** (all Python properties written, only Schema repo missing).
-G1–G3 are now resolved. Current parity: **~99.7%**. Only G4 (Schema CRUD) separates us from 100%.
-G4 is a low-priority decided omission — .NET's `SchemaBootstrapper` approach is a valid architectural alternative.
+G1–G4 are now all resolved. Current parity: **~100%** — every Python node label, property, and the `:Schema`
+CRUD surface is present in .NET.
