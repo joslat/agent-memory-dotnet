@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Schema;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Tests.Integration.Fixtures;
@@ -96,6 +97,8 @@ public sealed class ShakedownEndToEndTests : IAsyncLifetime
         sp.GetRequiredService<IMigrationRunner>().Should().NotBeNull();
         sp.GetRequiredService<ISchemaBootstrapper>().Should().NotBeNull();
         sp.GetRequiredService<IMemoryExtractionPipeline>().Should().NotBeNull();
+        // G4: custom entity-schema persistence is wired through the meta container too.
+        sp.GetRequiredService<ISchemaManager>().Should().NotBeNull();
     }
 
     [Fact]
@@ -155,6 +158,29 @@ public sealed class ShakedownEndToEndTests : IAsyncLifetime
         await facts.UpsertAsync(NewFact("Alice", "works_at", "Globex"));
         var conflictReport = await conflicts.DetectConflictsAsync();
         conflictReport.FactConflicts.Should().Contain(c => c.Subject == "Alice" && c.Predicate == "works_at");
+    }
+
+    [Fact]
+    public async Task CustomSchema_SavesAndLoadsActiveVersion_ThroughTheMetaContainer()
+    {
+        // G4 end-to-end through the real meta DI: persist a custom entity schema and read the active
+        // version back, exercising Neo4jSchemaManager + SchemaPersistenceQueries against the live DB.
+        using var scope = _provider.CreateScope();
+        var schemas = scope.ServiceProvider.GetRequiredService<ISchemaManager>();
+
+        var schema = SchemaLoader.CreateForTypes(["PATIENT", "DRUG"]) with
+        {
+            Name = "shakedown-medical",
+            Version = "1.0",
+            Description = "Shakedown custom schema"
+        };
+        await schemas.SaveSchemaAsync(schema);
+
+        (await schemas.SchemaExistsAsync("shakedown-medical")).Should().BeTrue();
+        var loaded = await schemas.LoadSchemaAsync("shakedown-medical");
+        loaded.Should().NotBeNull();
+        loaded!.Version.Should().Be("1.0");
+        loaded.GetEntityTypeNames().Should().BeEquivalentTo(["PATIENT", "DRUG"]);
     }
 
     private static Fact NewFact(string subject, string predicate, string obj) => new()

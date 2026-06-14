@@ -49,6 +49,7 @@ public sealed class ScopedVectorSearchQueryTests
     {
         var cypher = build(/*hasOwnerFilter*/ true, /*includeShared*/ false, /*topK*/ 50, /*recencyRerank*/ false);
 
+        cypher.Should().Contain(indexName, $"{label} searches its own vector index");
         cypher.Should().Contain("node.owner_id = $ownerId");
         cypher.Should().NotContain("owner_id IS NULL",
             $"{label} owner-only search must exclude shared/global (owner_id IS NULL) rows");
@@ -62,7 +63,9 @@ public sealed class ScopedVectorSearchQueryTests
         // (no node has invalidated_at set) but it is what makes a soft-invalidate disappear from recall.
         foreach (var (scoped, shared, rerank) in new[] { (false, true, false), (true, true, false), (true, false, true) })
         {
-            build(scoped, shared, 50, rerank).Should().Contain("node.invalidated_at IS NULL",
+            var cypher = build(scoped, shared, 50, rerank);
+            cypher.Should().Contain(indexName, $"{label} searches its own vector index");
+            cypher.Should().Contain("node.invalidated_at IS NULL",
                 $"{label} live recall must exclude invalidated nodes (scoped={scoped}, rerank={rerank})");
         }
     }
@@ -87,6 +90,7 @@ public sealed class ScopedVectorSearchQueryTests
     {
         var cypher = build(false, true, 10, /*recencyRerank*/ false);
 
+        cypher.Should().Contain(indexName, $"{label} searches its own vector index");
         cypher.Should().NotContain("$tmpWeight", $"{label} off-path must not blend the recency term");
         cypher.Should().NotContain("sTmp");
         cypher.Should().NotContain("$lambda");
@@ -118,6 +122,7 @@ public sealed class ScopedVectorSearchQueryTests
         // `owner_id IS NULL` clause (which would leak shared/global rows into a private recall).
         var cypher = build(/*hasOwnerFilter*/ true, /*includeShared*/ false, /*topK*/ 50, /*recencyRerank*/ true);
 
+        cypher.Should().Contain(indexName, $"{label} searches its own vector index");
         cypher.Should().Contain("node.owner_id = $ownerId");
         cypher.Should().NotContain("owner_id IS NULL",
             $"{label} owner-only + recency-rerank must exclude shared/global rows");
