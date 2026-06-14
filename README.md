@@ -214,9 +214,13 @@ The solution ships these packages:
 | `AgentMemory.Analytics` | Opt-in | Optional Neo4j GDS analytics — PageRank (memory importance) + Louvain community detection, owner-scoped, graceful no-op without the GDS plugin. Not in the meta-package. |
 | `AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
 
-Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation.
+Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation. Published to NuGet as `0.1.0-preview.3`.
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
+
+## Documentation
+
+Full docs live in [`docs/`](docs/) — start with the **[Roadmap & Status](docs/ROADMAP.md)** (overarching plan, what's shipped, what's pending) or **[Getting Started](docs/getting-started.md)**. See the [docs index](docs/README.md) for the architecture/design/schema references, the completed [review records](docs/reviews/), and the [archive](docs/archive/).
 
 ## Contributing
 

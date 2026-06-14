@@ -2,8 +2,8 @@
 
 **Last Updated:** 2026-04-14 (Phase 6 — Complete)  
 **Author:** Deckard (Lead Architect)  
-**Canonical Specification:** [Agent-Memory-for-DotNet-Specification.md](../Agent-Memory-for-DotNet-Specification.md)
-**Implementation Plan:** [Agent-memory-for-dotnet-implementation-plan.md](../Agent-memory-for-dotnet-implementation-plan.md)
+**Canonical Specification:** [specification.md](specification.md)
+**Implementation Plan (historical):** [archive/full-implementation-plan.md](archive/full-implementation-plan.md)
 
 ---
 

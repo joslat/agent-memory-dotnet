@@ -181,7 +181,7 @@ public sealed class Neo4jMemoryContextProviderTests
     // (cross-owner read leak) and writes are stored shared/global. We assert the WIRING via a substitute:
     // DefaultMemoryOwnerContext is AsyncLocal-backed, and a value set inside an awaited async method is not
     // observable by the caller afterwards — so the host must own the enclosing scope for the value to reach
-    // the tools (documented in docs/review-2026-06-13-cycle3.md). Here we verify the provider sets it.
+    // the tools (documented in docs/reviews/review-2026-06-13-cycle3.md). Here we verify the provider sets it.
 
     [Fact]
     public async Task BuildContextAsync_WithUserId_PushesOwnerIntoAmbientContext()

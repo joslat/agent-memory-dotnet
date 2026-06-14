@@ -13,6 +13,10 @@ This folder holds documents that were active planning or analysis artifacts duri
 | `aspire-demo-plan.md` | Plan for the Aspire demo (`samples/AspireDemo`). Demo shipped. *(archived 2026-06-07)* |
 | `delete-session-gap-plan.md` | Plan for the `DELETE_SESSION_DATA` parity gap. Shipped + integration-tested. *(archived 2026-06-07)* |
 | `maf-1.9.0-migration.md` | Microsoft Agent Framework 1.1.0→1.9.0 migration plan. Migration landed. *(archived 2026-06-07)* |
+| `full-implementation-plan.md` | The full 6-phase implementation plan (was `Agent-memory-for-dotnet-implementation-plan.md` at repo root). All phases complete. *(archived 2026-06-14)* |
+| `bitemporal-memory-assessment.md` | Design/discussion for bitemporal storage + invalidate-not-delete. **Implemented** (D5/D7, verified live 2026-06-13) — kept for design rationale. *(archived 2026-06-14)* |
+| `decay-improvement-proposal.md` | Structure-first decay proposal (recency re-ranker, hop-decay, intent presets). **Implemented** (D1–D3) — kept for design rationale. *(archived 2026-06-14)* |
+| `upstream-issue-memory-decay-bitemporal.md` | Ready-to-file upstream issue companion to the two design docs above. *(archived 2026-06-14)* |
 
 > These documents are read-only history. Do not update them with new status — open a new doc instead.
 > The table above is not exhaustive of every file in this folder; it indexes the most recently archived sets.

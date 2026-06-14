@@ -257,7 +257,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     // reach tool calls that run after the hook returns. For guaranteed multi-tenant scoping the host must
     // either set IWritableMemoryOwnerContext around the agent run, or register a *scoped* owner context
     // and run each turn in its own DI scope (then provider + tools share the same instance). See
-    // docs/review-2026-06-13-cycle3.md (finding #4).
+    // docs/reviews/review-2026-06-13-cycle3.md (finding #4).
     private void ApplyOwnerContext(string? userId)
     {
         if (_ownerContext is not null)
