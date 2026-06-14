@@ -21,18 +21,25 @@ public static class ServiceCollectionExtensions
     /// <param name="configureMemory">Configures core memory options.</param>
     /// <param name="configureNeo4j">Configures Neo4j connection options.</param>
     /// <param name="configureLlm">Optional: configures LLM extraction options.</param>
+    /// <param name="configureStore">
+    /// Optional: configures the application / memory-store isolation tier (R1b) — e.g.
+    /// <c>MemoryStorageStrategy.DatabasePerApplication</c> to route each <c>ApplicationId</c> to its own
+    /// Neo4j database (requires Enterprise/AuraDB). Defaults to <c>SharedDatabase</c> (single database,
+    /// owner-scoped), which reproduces the original single-store behavior.
+    /// </param>
     public static IServiceCollection AddNeo4jAgentMemory(
         this IServiceCollection services,
         Action<MemoryOptions> configureMemory,
         Action<NeoInfra.Neo4jOptions> configureNeo4j,
-        Action<LlmExtractionOptions>? configureLlm = null)
+        Action<LlmExtractionOptions>? configureLlm = null,
+        Action<NeoInfra.MemoryStoreOptions>? configureStore = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configureMemory);
         ArgumentNullException.ThrowIfNull(configureNeo4j);
 
         services.AddAgentMemoryCore(configureMemory);
-        NeoInfra.ServiceCollectionExtensions.AddNeo4jAgentMemory(services, configureNeo4j);
+        NeoInfra.ServiceCollectionExtensions.AddNeo4jAgentMemory(services, configureNeo4j, configureStore);
         services.AddLlmExtraction(configureLlm);
 
         return services;

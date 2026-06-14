@@ -127,6 +127,54 @@ await bootstrapper.BootstrapAsync();
 
 `ISchemaBootstrapper` is registered by `AddNeo4jAgentMemory()` — resolve it from the DI container rather than instantiating it directly.
 
+### 3.4 Multiple databases & instances (multi-tenant)
+
+The data model is three tiers — **store ⊃ owner ⊃ session**. How you isolate tenants depends on whether you want *logical* or *physical* separation, and whether your tenants share one Neo4j or live on different ones.
+
+#### Default — one database, logical isolation (Neo4j Community)
+Out of the box the strategy is `SharedDatabase`: a single database, with tenants isolated by `owner_id` / `MemoryScope`. Pass a `userId` on recall/extraction (or set the ambient owner context) and a tenant only sees their own + shared memories. **No extra setup — this is the recommended starting point** and works on Community Edition.
+
+#### A database per application (Neo4j Enterprise / AuraDB)
+For *physical* isolation, switch to `DatabasePerApplication`: each `ApplicationId` routes to its **own** Neo4j database (`<prefix><appId>`, default prefix `mem-`), which the library **creates and schema-bootstraps automatically on first use** — you never run `CREATE DATABASE` by hand. (Requires Enterprise or AuraDB; Community supports a single user database.)
+
+```csharp
+using AgentMemory.Neo4j.Infrastructure;
+
+builder.Services.AddNeo4jAgentMemory(
+    configureMemory: _ => { },
+    configureNeo4j: neo4j =>
+    {
+        neo4j.Uri = "neo4j+s://xxxx.databases.neo4j.io"; // or bolt://localhost:7687
+        neo4j.Username = "neo4j";
+        neo4j.Password = "...";
+    },
+    configureStore: store =>
+    {
+        store.Strategy       = MemoryStorageStrategy.DatabasePerApplication;
+        store.DatabasePrefix = "mem-";   // database name = mem-<sanitized-appId>
+        store.AutoProvision  = true;     // CREATE DATABASE + bootstrap on first touch
+    });
+```
+
+> The meta-package `AddNeo4jAgentMemory(configureMemory, configureNeo4j, configureLlm, configureStore)` forwards `configureStore`; the `AgentMemory.Neo4j` registration `AddNeo4jAgentMemory(configureNeo4j, configureStore)` accepts it directly.
+
+**Route per request** by setting the ambient store context — it's `AsyncLocal`-backed, so concurrent requests don't cross:
+
+```csharp
+var storeCtx = sp.GetRequiredService<IWritableMemoryStoreContext>();
+storeCtx.ApplicationId = "tenant-acme";   // → database "mem-tenant-acme"; null → the default database
+```
+
+The Microsoft Agent Framework providers do this for you automatically from the agent session's `application_id` state key.
+
+#### Separate Neo4j *instances* (different servers/clusters)
+The store tier routes across **databases within one instance**, not across instances — a DI container binds one `Neo4jOptions` (one URI/driver). To target genuinely separate servers (e.g. dev vs prod, or a dedicated cluster per large tenant):
+
+- **Run separate host processes / DI containers**, one `AddNeo4jAgentMemory` each — simplest for environment separation or one-Neo4j-per-tenant; or
+- **Register your own `INeo4jSessionFactory` / `INeo4jDriverFactory`** (both are `TryAdd`, so yours wins) to pick the driver/URI per `ApplicationId` — for routing a single app across multiple instances.
+
+> Local Enterprise for testing `DatabasePerApplication`: use [`deploy/docker-compose.enterprise.yml`](../deploy/docker-compose.enterprise.yml) (Enterprise image + accepted eval license + APOC & GDS plugins).
+
 ---
 
 ## 4. First Memory Store

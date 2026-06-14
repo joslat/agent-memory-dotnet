@@ -15,7 +15,8 @@ public sealed class MetaPackageDiRegistrationTests
     private static IServiceCollection BuildServices(
         Action<MemoryOptions>? configureMemory = null,
         Action<Neo4jOptions>? configureNeo4j = null,
-        Action<LlmExtractionOptions>? configureLlm = null)
+        Action<LlmExtractionOptions>? configureLlm = null,
+        Action<MemoryStoreOptions>? configureStore = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -23,7 +24,8 @@ public sealed class MetaPackageDiRegistrationTests
         services.AddNeo4jAgentMemory(
             configureMemory ?? (_ => { }),
             configureNeo4j  ?? (_ => { }),
-            configureLlm);
+            configureLlm,
+            configureStore);
 
         return services;
     }
@@ -110,6 +112,23 @@ public sealed class MetaPackageDiRegistrationTests
         var opts = provider.GetRequiredService<IOptions<MemoryStoreOptions>>();
         opts.Value.Strategy.Should().Be(MemoryStorageStrategy.SharedDatabase);
         opts.Value.DefaultDatabase.Should().BeEmpty(); // empty ⇒ inherit Neo4jOptions.Database
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_ConfigureStore_ForwardsToStoreOptions()
+    {
+        // The meta one-liner must forward the store delegate so DatabasePerApplication can be configured
+        // without dropping down to the AgentMemory.Neo4j registration directly.
+        var services = BuildServices(configureStore: o =>
+        {
+            o.Strategy = MemoryStorageStrategy.DatabasePerApplication;
+            o.DatabasePrefix = "tenant-";
+        });
+        var provider = services.BuildServiceProvider();
+
+        var opts = provider.GetRequiredService<IOptions<MemoryStoreOptions>>();
+        opts.Value.Strategy.Should().Be(MemoryStorageStrategy.DatabasePerApplication);
+        opts.Value.DatabasePrefix.Should().Be("tenant-");
     }
 
     [Fact]

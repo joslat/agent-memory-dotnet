@@ -1,0 +1,34 @@
+# Neo4j 5 ENTERPRISE for local multi-store / analytics development.
+#
+# Use this (instead of docker-compose.dev.yml) when you want to exercise:
+#   - MemoryStorageStrategy.DatabasePerApplication  (CREATE DATABASE per ApplicationId — Enterprise only)
+#   - the optional AgentMemory.Analytics package     (PageRank / Louvain — needs the GDS plugin)
+#
+# By setting NEO4J_ACCEPT_LICENSE_AGREEMENT=eval you accept the Neo4j Enterprise *evaluation* licence
+# (dev/test only). For production use a commercial licence or Neo4j AuraDB.
+#
+#   docker compose -f deploy/docker-compose.enterprise.yml up -d
+#   # Browser: http://localhost:7474   Bolt: bolt://localhost:7687   auth: neo4j / devpassword
+
+services:
+  neo4j:
+    image: neo4j:5.26-enterprise
+    container_name: agent-memory-neo4j-enterprise
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: "eval"
+      NEO4J_AUTH: neo4j/devpassword
+      # APOC (general procedures) + Graph Data Science (required by AgentMemory.Analytics).
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
+      # GDS procedures must be allow-listed and unrestricted to run.
+      NEO4J_dbms_security_procedures_unrestricted: "gds.*,apoc.*"
+      NEO4J_dbms_security_procedures_allowlist: "gds.*,apoc.*"
+    volumes:
+      - neo4j-enterprise-data:/data
+      - neo4j-enterprise-logs:/logs
+
+volumes:
+  neo4j-enterprise-data:
+  neo4j-enterprise-logs:
