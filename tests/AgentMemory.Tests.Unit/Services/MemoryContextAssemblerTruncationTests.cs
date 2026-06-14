@@ -1,11 +1,12 @@
 using FluentAssertions;
-using AgentMemory.Core.Services;
+using AgentMemory.Core.Services.Budgeting;
 
 namespace AgentMemory.Tests.Unit.Services;
 
 /// <summary>
 /// cycle-5 #5 — proportional GraphRAG truncation must not split a UTF-16 surrogate pair (e.g. an emoji),
-/// which would emit an orphaned surrogate.
+/// which would emit an orphaned surrogate. The logic now lives in <see cref="ContextBudgetEstimator"/>
+/// (S9 extraction).
 /// </summary>
 public sealed class MemoryContextAssemblerTruncationTests
 {
@@ -16,7 +17,7 @@ public sealed class MemoryContextAssemblerTruncationTests
     [InlineData("hello", -5, "")]
     public void TruncateToCharBudget_Ascii(string input, int budget, string expected)
     {
-        MemoryContextAssembler.TruncateToCharBudget(input, budget).Should().Be(expected);
+        ContextBudgetEstimator.TruncateToCharBudget(input, budget).Should().Be(expected);
     }
 
     [Fact]
@@ -26,9 +27,9 @@ public sealed class MemoryContextAssemblerTruncationTests
         const string text = "😀world";
 
         // Cutting at 2 keeps the whole emoji.
-        MemoryContextAssembler.TruncateToCharBudget(text, 2).Should().Be("😀");
+        ContextBudgetEstimator.TruncateToCharBudget(text, 2).Should().Be("😀");
         // Cutting at 1 would split the pair — must back off to 0 (drop the half-emoji) rather than orphan it.
-        MemoryContextAssembler.TruncateToCharBudget(text, 1).Should().Be("");
+        ContextBudgetEstimator.TruncateToCharBudget(text, 1).Should().Be("");
     }
 
     [Fact]
@@ -38,7 +39,7 @@ public sealed class MemoryContextAssemblerTruncationTests
 
         for (int budget = 0; budget <= text.Length + 1; budget++)
         {
-            var result = MemoryContextAssembler.TruncateToCharBudget(text, budget);
+            var result = ContextBudgetEstimator.TruncateToCharBudget(text, budget);
             // A well-formed UTF-16 string has no high surrogate that isn't immediately followed by a low one,
             // and no low surrogate that isn't immediately preceded by a high one.
             for (int i = 0; i < result.Length; i++)
