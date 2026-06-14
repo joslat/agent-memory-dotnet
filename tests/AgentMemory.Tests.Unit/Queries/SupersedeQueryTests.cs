@@ -74,8 +74,10 @@ public sealed class SupersedeQueryTests
     public void Supersede_AlwaysGuardsSameOwner(string label, Func<bool, string> build)
     {
         // The same-owner guard is unconditional — present in BOTH the scoped and unscoped query shapes.
-        build(true).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')");
-        build(false).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')");
+        build(true).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')",
+            $"{label} scoped supersession must guard against crossing owners");
+        build(false).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')",
+            $"{label} unscoped supersession must still guard against crossing owners");
     }
 
     [Theory]
