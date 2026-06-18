@@ -1,10 +1,32 @@
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using ModelContextProtocol.Server;
 using AgentMemory.McpServer;
+using McpServerOptions = AgentMemory.McpServer.McpServerOptions;
 
 namespace AgentMemory.Tests.Unit.McpServer;
 
 public sealed class McpServerOptionsTests
 {
+    [Fact]
+    public void AddAgentMemoryMcpTools_ProjectsServerNameAndVersion_IntoMcpServerInfo()
+    {
+        var services = new ServiceCollection();
+        services.AddMcpServer().AddAgentMemoryMcpTools(o =>
+        {
+            o.ServerName = "custom-mem";
+            o.ServerVersion = "9.9.9";
+        });
+
+        using var sp = services.BuildServiceProvider();
+        var sdkOptions = sp.GetRequiredService<IOptions<ModelContextProtocol.Server.McpServerOptions>>().Value;
+
+        sdkOptions.ServerInfo.Should().NotBeNull("ServerName/ServerVersion must be reported to MCP clients");
+        sdkOptions.ServerInfo!.Name.Should().Be("custom-mem");
+        sdkOptions.ServerInfo.Version.Should().Be("9.9.9");
+    }
+
     [Fact]
     public void DefaultServerName_IsNeo4jAgentMemory()
     {
