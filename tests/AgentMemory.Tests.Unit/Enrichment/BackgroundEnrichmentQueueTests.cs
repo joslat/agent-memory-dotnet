@@ -564,6 +564,38 @@ public sealed class BackgroundEnrichmentQueueTests
     }
 
     [Fact]
+    public async Task RepositoryThrowsOnOneItem_WorkerSurvivesAndProcessesNextItem()
+    {
+        // A transient (non-OCE) fault on a repo call must NOT kill the worker. Before the fix the only
+        // worker-level catch was for OperationCanceledException, so a GetByIdAsync fault faulted the worker
+        // task permanently and every later item went unprocessed (queue silently dies). With MaxConcurrency=1
+        // there is exactly one worker, so if it dies on "bad", "good" is never processed and this times out.
+        var goodProcessed = new TaskCompletionSource();
+
+        var service = Substitute.For<IEnrichmentService>();
+        // "good" succeeds (a real result) so it is not retried — keeps the call count deterministic.
+        service.EnrichEntityAsync("Entity-good", Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(_ => { goodProcessed.TrySetResult(); return Task.FromResult<EnrichmentResult?>(CreateResult("Entity-good")); });
+
+        var repo = Substitute.For<IEntityRepository>();
+        repo.GetByIdAsync("bad", Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("transient db fault"));
+        repo.GetByIdAsync("good", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Entity?>(CreateEntity("good")));
+        repo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(ci.Arg<Entity>()));
+
+        var opts = new EnrichmentQueueOptions { MaxConcurrency = 1, RetryDelay = TimeSpan.Zero };
+        await using var sut = CreateSut(service, repo, opts);
+
+        await sut.EnqueueAsync("bad");
+        await sut.EnqueueAsync("good");
+
+        await goodProcessed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.Received(1).EnrichEntityAsync("Entity-good", "PLACE", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task EnqueueAsync_UpdatesEntityDescription_FromEnrichmentSummary()
     {
         var enrichmentResult = new EnrichmentResult
