@@ -221,20 +221,21 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
-    public async Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    public async Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, string? ownerId = null, CancellationToken cancellationToken = default)
     {
-        bool hasOwner = scope?.HasOwnerFilter == true;
-        bool includeShared = scope?.IncludeShared ?? true;
+        // null ownerId = the shared/global bucket ONLY (owner_id IS NULL), never "all owners" — a destructive
+        // prune must confine to exactly one R1 bucket (mirrors the FindDuplicate ownerIsShared idiom).
+        bool ownerIsShared = string.IsNullOrEmpty(ownerId);
         _logger.LogDebug("Pruning reasoning traces for session {SessionId} to newest {Keep}, owner={Owner}",
-            sessionId, maxToKeep, scope?.OwnerId);
+            sessionId, maxToKeep, ownerId);
 
-        var cypher = ReasoningQueries.PruneSessionTraces(hasOwner, includeShared);
+        var cypher = ReasoningQueries.PruneSessionTraces(ownerIsShared);
         var parameters = new Dictionary<string, object>
         {
             ["sessionId"] = sessionId,
             ["keep"] = maxToKeep
         };
-        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+        if (!ownerIsShared) parameters["ownerId"] = ownerId!;
 
         return await _tx.WriteAsync(async runner =>
         {

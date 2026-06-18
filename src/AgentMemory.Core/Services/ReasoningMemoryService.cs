@@ -79,14 +79,14 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         var added = await _traceRepo.AddAsync(trace, cancellationToken);
 
         // Retention cap (H): when MaxTracesPerSession is configured, prune older traces beyond the cap so a
-        // session's reasoning history cannot grow without bound. The prune is owner-scoped (R1) when an owner
-        // is present — own-only, so one owner's traces can never evict another owner's (or shared) traces.
+        // session's reasoning history cannot grow without bound. The prune confines to exactly the just-added
+        // trace's R1 bucket — its own owner when present, or the shared/global bucket (owner_id IS NULL) when
+        // null — so it can never evict another owner's (or, when owned, shared) traces.
         if (_options.MaxTracesPerSession is { } cap && cap > 0)
         {
-            var scope = ownerId is null ? null : MemoryScope.For(ownerId, includeShared: false);
             try
             {
-                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, scope, cancellationToken);
+                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, ownerId, cancellationToken);
                 if (pruned > 0)
                     _logger.LogDebug("Pruned {Pruned} trace(s) beyond MaxTracesPerSession={Cap} for session {SessionId}.",
                         pruned, cap, sessionId);

@@ -86,31 +86,30 @@ public sealed class ReasoningMemoryServiceTests
         await sut.StartTraceAsync("session-1", "Test task");
 
         await _traceRepo.DidNotReceive().PruneSessionTracesAsync(
-            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task StartTraceAsync_MaxTracesConfigured_PrunesUnscopedWhenNoOwner()
+    public async Task StartTraceAsync_MaxTracesConfigured_NullOwner_PrunesSharedBucket()
     {
         var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 5 });
 
         await sut.StartTraceAsync("session-1", "Test task");
 
+        // null ownerId now means "the shared bucket only", never "all owners".
         await _traceRepo.Received(1).PruneSessionTracesAsync(
-            "session-1", 5, null, Arg.Any<CancellationToken>());
+            "session-1", 5, (string?)null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task StartTraceAsync_MaxTracesConfiguredWithOwner_PrunesOwnerScopedOwnOnly()
+    public async Task StartTraceAsync_MaxTracesConfiguredWithOwner_PrunesOwnBucketOnly()
     {
         var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 3 });
 
         await sut.StartTraceAsync("session-1", "Test task", ownerId: "alice");
 
         await _traceRepo.Received(1).PruneSessionTracesAsync(
-            "session-1", 3,
-            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice" && s.IncludeShared == false),
-            Arg.Any<CancellationToken>());
+            "session-1", 3, "alice", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -121,13 +120,13 @@ public sealed class ReasoningMemoryServiceTests
         await sut.StartTraceAsync("session-1", "Test task");
 
         await _traceRepo.DidNotReceive().PruneSessionTracesAsync(
-            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task StartTraceAsync_PruneFailure_DoesNotFailStartTrace()
     {
-        _traceRepo.PruneSessionTracesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+        _traceRepo.PruneSessionTracesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns<Task<int>>(_ => throw new InvalidOperationException("boom"));
         var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 2 });
 

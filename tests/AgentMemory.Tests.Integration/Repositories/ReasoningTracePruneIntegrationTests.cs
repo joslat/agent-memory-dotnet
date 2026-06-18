@@ -128,9 +128,8 @@ public class ReasoningTracePruneIntegrationTests : IAsyncLifetime
         await _traceRepo.AddAsync(bob2);
         await _traceRepo.AddAsync(shared);
 
-        // Prune Alice own-only to keep 1 → 2 of Alice's pruned; Bob's + shared untouched.
-        var scope = MemoryScope.For("alice", includeShared: false);
-        var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, maxToKeep: 1, scope: scope);
+        // Prune Alice's own bucket to keep 1 → 2 of Alice's pruned; Bob's + shared untouched.
+        var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, maxToKeep: 1, ownerId: "alice");
 
         pruned.Should().Be(2);
 
@@ -142,5 +141,36 @@ public class ReasoningTracePruneIntegrationTests : IAsyncLifetime
             "Bob's traces are never touched by Alice's prune");
 
         (await _traceRepo.GetByIdAsync(shared.TraceId)).Should().NotBeNull("shared trace is never evicted by an own-only prune");
+    }
+
+    [Fact]
+    public async Task PruneSessionTracesAsync_NullOwner_PrunesSharedBucketOnly_NeverEvictsOwnedTraces()
+    {
+        // R5 regression of #40: a null-owner (shared/MCP) prune must NOT cross-evict owner-tagged traces in
+        // the same (guessable) session. Before the fix, null owner collapsed to "all owners" and the
+        // destructive prune DETACH-DELETEd Bob's and Alice's traces.
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var shared = new List<ReasoningTrace>();
+        for (var day = 0; day < 3; day++)
+        {
+            var t = MakeTrace(sessionId, day, ownerId: null);
+            await _traceRepo.AddAsync(t);
+            shared.Add(t);
+        }
+        var bob1 = MakeTrace(sessionId, 0, ownerId: "bob");
+        var bob2 = MakeTrace(sessionId, 1, ownerId: "bob");
+        var alice1 = MakeTrace(sessionId, 0, ownerId: "alice");
+        await _traceRepo.AddAsync(bob1);
+        await _traceRepo.AddAsync(bob2);
+        await _traceRepo.AddAsync(alice1);
+
+        // Prune the shared bucket to keep 1 → 2 shared pruned; every OWNED trace must survive.
+        var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, maxToKeep: 1, ownerId: null);
+
+        pruned.Should().Be(2);
+        (await _traceRepo.GetByIdAsync(shared[2].TraceId)).Should().NotBeNull("the newest shared trace survives");
+        foreach (var owned in new[] { bob1.TraceId, bob2.TraceId, alice1.TraceId })
+            (await _traceRepo.GetByIdAsync(owned)).Should().NotBeNull(
+                "a shared-bucket prune must never evict another owner's traces (the #40 cross-eviction)");
     }
 }
