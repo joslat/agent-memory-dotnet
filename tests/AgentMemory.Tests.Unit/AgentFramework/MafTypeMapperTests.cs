@@ -277,6 +277,44 @@ public sealed class MafTypeMapperTests
         result.Should().HaveCount(5);
     }
 
+    [Fact]
+    public void ToContextMessages_MemoryItemsSurviveBudget_WhenChatMessagesExceedIt()
+    {
+        // The whole point of the provider is to inject long-term memory. Even when chat messages exceed
+        // MaxContextMessages, the entity/fact/preference system messages must NOT be truncated away (the
+        // bug: memory was appended after chat, so Take() dropped it first).
+        var messages = Enumerable.Range(1, 20)
+            .Select(i => new Message
+            {
+                MessageId = $"m{i}", SessionId = "s1", ConversationId = "c1",
+                Role = "user", Content = $"msg {i}", TimestampUtc = DateTimeOffset.UtcNow
+            })
+            .ToList();
+
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = messages },
+            RelevantEntities = new MemoryContextSection<Entity>
+            {
+                Items = [new Entity { EntityId = "e1", Name = "Alice", Type = "PERSON", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow }]
+            },
+            RelevantFacts = new MemoryContextSection<Fact>
+            {
+                Items = [new Fact { FactId = "f1", Subject = "Alice", Predicate = "works_at", Object = "Acme", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow }]
+            }
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context,
+            new ContextFormatOptions { MaxContextMessages = 5, ContextPrefix = "ctx" });
+
+        result.Any(m => m.Text != null && m.Text.Contains("Relevant entities") && m.Text.Contains("Alice")).Should().BeTrue("the entity block must survive the budget");
+        result.Any(m => m.Text != null && m.Text.Contains("Known facts") && m.Text.Contains("works_at")).Should().BeTrue("the fact block must survive the budget");
+        // prefix(1) + entities(1) + facts(1) + the 2 most-recent chat messages = 5.
+        result.Should().HaveCount(5);
+    }
+
     // ── Role mapping helpers ───────────────────────────────────────────────
 
     [Theory]
