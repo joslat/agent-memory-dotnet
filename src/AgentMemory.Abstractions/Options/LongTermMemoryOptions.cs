@@ -17,8 +17,9 @@ public sealed record LongTermMemoryOptions
     /// <summary>Minimum confidence threshold for persisting extracted items.</summary>
     public double MinConfidenceThreshold { get; init; } = 0.5;
 
-    /// <summary>Whether to enable entity resolution and deduplication.</summary>
-    public bool EnableEntityResolution { get; init; } = true;
+    // NOTE: extraction-time entity resolution is configured by
+    // ExtractionOptions.EntityResolution.Enable{Exact,Fuzzy,Semantic}Match (which the resolver honors).
+    // The former EnableEntityResolution flag here was a duplicate that nothing read, so it was removed.
 
     /// <summary>
     /// When true, <c>AddFactAsync</c>/<c>AddPreferenceAsync</c> reinforce an existing near-duplicate

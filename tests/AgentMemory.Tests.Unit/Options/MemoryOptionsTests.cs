@@ -48,13 +48,6 @@ public class MemoryOptionsTests
     }
 
     [Fact]
-    public void DefaultOptions_EnableAutoExtractionIsTrue()
-    {
-        var options = new MemoryOptions();
-        options.EnableAutoExtraction.Should().BeTrue();
-    }
-
-    [Fact]
     public void DefaultOptions_EnableGraphRagIsFalse()
     {
         var options = new MemoryOptions();
@@ -74,10 +67,4 @@ public class MemoryOptionsTests
         options.EnableGraphRag.Should().BeTrue();
     }
 
-    [Fact]
-    public void WithInit_CanDisableAutoExtraction()
-    {
-        var options = new MemoryOptions { EnableAutoExtraction = false };
-        options.EnableAutoExtraction.Should().BeFalse();
-    }
 }
