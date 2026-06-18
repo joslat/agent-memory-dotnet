@@ -58,4 +58,13 @@ public interface IReasoningTraceRepository
     /// Deletes all ReasoningTrace and child ReasoningStep nodes for a session.
     /// </summary>
     Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enforces a per-session retention cap (H): keeps the newest <paramref name="maxToKeep"/> traces for
+    /// the session and hard-deletes older traces together with their child ReasoningStep nodes. Returns the
+    /// number of traces pruned. When <paramref name="scope"/> carries an owner (R1), the prune only considers
+    /// that owner's traces — it never evicts another owner's (and, with <c>IncludeShared=false</c>, never
+    /// shared/global) traces. Ordering is newest-first, so a just-added trace is always retained.
+    /// </summary>
+    Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 }

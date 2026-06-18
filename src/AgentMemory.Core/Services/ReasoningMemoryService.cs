@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
@@ -17,6 +18,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
     private readonly IToolCallRepository _toolCallRepo;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
+    private readonly ReasoningMemoryOptions _options;
     private readonly ILogger<ReasoningMemoryService> _logger;
 
     /// <summary>
@@ -28,13 +30,16 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         IToolCallRepository toolCallRepo,
         IClock clock,
         IIdGenerator idGenerator,
+        IOptions<ReasoningMemoryOptions> options,
         ILogger<ReasoningMemoryService> logger)
     {
+        ArgumentNullException.ThrowIfNull(options);
         _traceRepo = traceRepo;
         _stepRepo = stepRepo;
         _toolCallRepo = toolCallRepo;
         _clock = clock;
         _idGenerator = idGenerator;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -59,7 +64,30 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         };
 
         _logger.LogDebug("Starting trace {TraceId} for session {SessionId}", trace.TraceId, sessionId);
-        return await _traceRepo.AddAsync(trace, cancellationToken);
+        var added = await _traceRepo.AddAsync(trace, cancellationToken);
+
+        // Retention cap (H): when MaxTracesPerSession is configured, prune older traces beyond the cap so a
+        // session's reasoning history cannot grow without bound. The prune is owner-scoped (R1) when an owner
+        // is present — own-only, so one owner's traces can never evict another owner's (or shared) traces.
+        if (_options.MaxTracesPerSession is { } cap && cap > 0)
+        {
+            var scope = ownerId is null ? null : MemoryScope.For(ownerId, includeShared: false);
+            try
+            {
+                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, scope, cancellationToken);
+                if (pruned > 0)
+                    _logger.LogDebug("Pruned {Pruned} trace(s) beyond MaxTracesPerSession={Cap} for session {SessionId}.",
+                        pruned, cap, sessionId);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                // Retention is best-effort housekeeping; never fail the StartTrace call because a prune failed.
+                _logger.LogWarning(ex, "Failed to prune traces for session {SessionId} (cap {Cap}).", sessionId, cap);
+            }
+        }
+
+        return added;
     }
 
     /// <inheritdoc/>
