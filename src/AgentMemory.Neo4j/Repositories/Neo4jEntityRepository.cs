@@ -152,6 +152,9 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) query embedding has no semantic signal and
+        // would throw a dimension mismatch at db.index.vector.queryNodes — short-circuit to an empty result.
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Entity, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
@@ -694,6 +697,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) query embedding short-circuits to empty.
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Entity, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor) : limit;

@@ -111,6 +111,9 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) task embedding has no semantic signal and
+        // would throw a dimension mismatch at db.index.vector.queryNodes — short-circuit to an empty result.
+        if (taskEmbedding is not { Length: > 0 }) return Array.Empty<(ReasoningTrace, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner
@@ -153,6 +156,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) task embedding short-circuits to empty.
+        if (taskEmbedding is not { Length: > 0 }) return Array.Empty<(ReasoningTrace, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner

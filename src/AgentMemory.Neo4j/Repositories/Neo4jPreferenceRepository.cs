@@ -124,6 +124,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) query embedding has no semantic signal and
+        // would throw a dimension mismatch at db.index.vector.queryNodes — short-circuit to an empty result.
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Preference, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
@@ -160,6 +163,9 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         string category, float[] embedding, string? ownerId, double threshold,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) embedding can't address the vector index;
+        // there is no duplicate to find, so short-circuit (caller then creates a new node).
+        if (embedding is not { Length: > 0 }) return null;
         bool ownerIsShared = string.IsNullOrEmpty(ownerId);
         var cypher = PreferenceQueries.FindDuplicate(DedupOverFetch, ownerIsShared);
         var parameters = new Dictionary<string, object?>
@@ -356,6 +362,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) query embedding short-circuits to empty.
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Preference, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = hasOwner ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor) : limit;

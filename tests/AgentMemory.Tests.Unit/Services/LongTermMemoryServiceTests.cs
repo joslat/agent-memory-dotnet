@@ -392,6 +392,40 @@ public sealed class LongTermMemoryServiceTests
         result.PreferenceId.Should().Be("p-new");
     }
 
+    // ---- degraded (empty) embedding skips dedup vector lookup ----
+
+    [Fact]
+    public async Task AddFactAsync_DegradedEmptyEmbedding_SkipsDuplicateLookup_AndStillCreates()
+    {
+        // A transient embed failure degrades to an empty vector; it must NOT be handed to the dedup vector
+        // index (which would throw a dimension mismatch and abort the add). Skip dedup, still create.
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Array.Empty<float>()));
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { GenerateFactEmbeddings = true, DeduplicateOnCreate = true }));
+
+        var result = await sut.AddFactAsync(CreateFact("f-new", withEmbedding: false));
+
+        await _factRepo.DidNotReceive().FindDuplicateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).UpsertAsync(Arg.Is<Fact>(f => f.FactId == "f-new"), Arg.Any<CancellationToken>());
+        result.FactId.Should().Be("f-new");
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_DegradedEmptyEmbedding_SkipsDuplicateLookup_AndStillCreates()
+    {
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Array.Empty<float>()));
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { GeneratePreferenceEmbeddings = true, DeduplicateOnCreate = true }));
+
+        var result = await sut.AddPreferenceAsync(CreatePreference("p-new", withEmbedding: false));
+
+        await _prefRepo.DidNotReceive().FindDuplicateAsync(
+            Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        await _prefRepo.Received(1).UpsertAsync(Arg.Is<Preference>(p => p.PreferenceId == "p-new"), Arg.Any<CancellationToken>());
+        result.PreferenceId.Should().Be("p-new");
+    }
+
     // ---- MinConfidenceThreshold gating ----
 
     [Fact]

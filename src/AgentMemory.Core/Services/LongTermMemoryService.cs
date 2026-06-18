@@ -144,7 +144,11 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
 
         // Dedup-on-create: reinforce an existing same-category, same-owner near-duplicate instead of
         // creating a new node (preferences MERGE on id, so every add would otherwise be a fresh node).
-        if (_options.DeduplicateOnCreate && embedding is not null)
+        // Length-check (not just non-null): EmbeddingOrchestrator degrades a generation failure to an EMPTY
+        // (zero-dimension) vector, which would otherwise be handed to db.index.vector.queryNodes and throw a
+        // dimension mismatch — aborting the whole add. An empty embedding has no semantic signal, so skip
+        // dedup and fall through to a plain create (the node persists with a NULL, re-queueable embedding).
+        if (_options.DeduplicateOnCreate && embedding is { Length: > 0 })
         {
             var dup = await _prefRepo.FindDuplicateAsync(
                 preference.Category, embedding, preference.OwnerId,
@@ -215,7 +219,11 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         // Dedup-on-create: reinforce an existing same-subject+predicate, same-owner near-duplicate
         // (e.g. the same fact phrased differently across sessions) instead of creating a new node.
         // Exact triples already collapse via the owner_key MERGE; this catches the near-duplicate case.
-        if (_options.DeduplicateOnCreate && embedding is not null)
+        // Length-check (not just non-null): EmbeddingOrchestrator degrades a generation failure to an EMPTY
+        // (zero-dimension) vector, which would otherwise be handed to db.index.vector.queryNodes and throw a
+        // dimension mismatch — aborting the whole add. An empty embedding has no semantic signal, so skip
+        // dedup and fall through to a plain create (the node persists with a NULL, re-queueable embedding).
+        if (_options.DeduplicateOnCreate && embedding is { Length: > 0 })
         {
             var dup = await _factRepo.FindDuplicateAsync(
                 fact.Subject, fact.Predicate, embedding, fact.OwnerId,
