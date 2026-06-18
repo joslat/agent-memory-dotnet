@@ -75,8 +75,27 @@ public class DedupOnCreateIntegrationTests : IAsyncLifetime
 
         var updated = await _facts.MarkDeduplicatedAsync(f.FactId, 0.85);
 
-        updated.Confidence.Should().Be(0.85);
+        updated.Should().NotBeNull("the node still exists, so the reinforce returns it");
+        updated!.Confidence.Should().Be(0.85);
         (await _facts.GetByIdAsync(f.FactId))!.Confidence.Should().Be(0.85);
+    }
+
+    [Fact]
+    public async Task FactMarkDeduplicated_NonexistentId_ReturnsNull_DoesNotThrow()
+    {
+        // The dedup target can be concurrently hard-deleted between find and reinforce; the reinforce must
+        // return null (empty result) rather than throwing, so the caller can fall through to create.
+        var result = await _facts.MarkDeduplicatedAsync($"f-does-not-exist-{Guid.NewGuid():N}", 0.9);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PreferenceMarkDeduplicated_NonexistentId_ReturnsNull_DoesNotThrow()
+    {
+        var result = await _prefs.MarkDeduplicatedAsync($"p-does-not-exist-{Guid.NewGuid():N}", 0.9);
+
+        result.Should().BeNull();
     }
 
     [Fact]

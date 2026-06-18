@@ -152,9 +152,16 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
             if (dup is not null)
             {
                 var reinforced = BumpConfidence(dup.Confidence, preference.Confidence);
-                _logger.LogDebug("Deduplicated preference in '{Category}' onto {Id} (confidence→{C}).",
-                    preference.Category, dup.PreferenceId, reinforced);
-                return await _prefRepo.MarkDeduplicatedAsync(dup.PreferenceId, reinforced, cancellationToken);
+                var marked = await _prefRepo.MarkDeduplicatedAsync(dup.PreferenceId, reinforced, cancellationToken);
+                if (marked is not null)
+                {
+                    _logger.LogDebug("Deduplicated preference in '{Category}' onto {Id} (confidence→{C}).",
+                        preference.Category, dup.PreferenceId, reinforced);
+                    return marked;
+                }
+                // The duplicate was concurrently hard-deleted between find and reinforce — fall through and
+                // create the new node instead of failing the add.
+                _logger.LogDebug("Dedup target preference {Id} vanished before reinforce; creating new node.", dup.PreferenceId);
             }
         }
 
@@ -216,9 +223,16 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
             if (dup is not null)
             {
                 var reinforced = BumpConfidence(dup.Confidence, fact.Confidence);
-                _logger.LogDebug("Deduplicated fact '{S} {P}' onto {Id} (confidence→{C}).",
-                    fact.Subject, fact.Predicate, dup.FactId, reinforced);
-                return await _factRepo.MarkDeduplicatedAsync(dup.FactId, reinforced, cancellationToken);
+                var marked = await _factRepo.MarkDeduplicatedAsync(dup.FactId, reinforced, cancellationToken);
+                if (marked is not null)
+                {
+                    _logger.LogDebug("Deduplicated fact '{S} {P}' onto {Id} (confidence→{C}).",
+                        fact.Subject, fact.Predicate, dup.FactId, reinforced);
+                    return marked;
+                }
+                // The duplicate was concurrently hard-deleted between find and reinforce — fall through and
+                // create the new node instead of failing the add.
+                _logger.LogDebug("Dedup target fact {Id} vanished before reinforce; creating new node.", dup.FactId);
             }
         }
 

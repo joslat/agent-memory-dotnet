@@ -360,6 +360,38 @@ public sealed class LongTermMemoryServiceTests
         result.PreferenceId.Should().Be("p-existing");
     }
 
+    [Fact]
+    public async Task AddFactAsync_WhenDuplicateVanishesBeforeReinforce_FallsThroughToCreate()
+    {
+        // FindDuplicate returns a dup, but the node is concurrently hard-deleted before reinforce, so
+        // MarkDeduplicatedAsync returns null. The add must NOT throw — it falls through to create the node.
+        var existing = CreateFact("f-existing");
+        _factRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(existing));
+        _factRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(null)); // vanished
+
+        var result = await CreateSut().AddFactAsync(CreateFact("f-new"));
+
+        await _factRepo.Received(1).UpsertAsync(Arg.Is<Fact>(f => f.FactId == "f-new"), Arg.Any<CancellationToken>());
+        result.FactId.Should().Be("f-new");
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_WhenDuplicateVanishesBeforeReinforce_FallsThroughToCreate()
+    {
+        var existing = CreatePreference("p-existing");
+        _prefRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Preference?>(existing));
+        _prefRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Preference?>(null)); // vanished
+
+        var result = await CreateSut().AddPreferenceAsync(CreatePreference("p-new"));
+
+        await _prefRepo.Received(1).UpsertAsync(Arg.Is<Preference>(p => p.PreferenceId == "p-new"), Arg.Any<CancellationToken>());
+        result.PreferenceId.Should().Be("p-new");
+    }
+
     // ---- MinConfidenceThreshold gating ----
 
     [Fact]

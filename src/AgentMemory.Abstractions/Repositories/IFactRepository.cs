@@ -20,8 +20,12 @@ public interface IFactRepository
         string subject, string predicate, float[] embedding, string? ownerId, double threshold,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Reinforces an existing fact reached by dedup: sets its confidence and returns it.</summary>
-    Task<Fact> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Reinforces an existing fact reached by dedup: sets its confidence and returns it. Returns <c>null</c>
+    /// if no fact with that id still exists (it may have been concurrently hard-deleted between the duplicate
+    /// lookup and this call) — the caller should then create the new node instead.
+    /// </summary>
+    Task<Fact?> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets a fact by identifier. Deliberately unscoped (R1): the id is itself an already-owned handle,
