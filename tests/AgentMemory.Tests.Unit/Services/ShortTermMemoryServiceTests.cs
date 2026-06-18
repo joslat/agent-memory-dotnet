@@ -171,6 +171,21 @@ public sealed class ShortTermMemoryServiceTests
     }
 
     [Fact]
+    public async Task GetRecentMessagesAsync_NullLimit_UsesConfiguredDefault()
+    {
+        _messageRepo
+            .GetRecentBySessionAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
+        var sut = CreateSut(Options.Create(new ShortTermMemoryOptions { DefaultRecentMessageLimit = 25, MaxMessagesPerQuery = 100 }));
+
+        await sut.GetRecentMessagesAsync("session-1"); // no explicit limit
+
+        await _messageRepo
+            .Received(1)
+            .GetRecentBySessionAsync("session-1", 25, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task GetRecentMessagesAsync_CapsAtMaxMessagesPerQuery()
     {
         const int maxPerQuery = 50;

@@ -110,10 +110,14 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         string sessionId,
-        int limit = 10,
+        int? limit = null,
         CancellationToken cancellationToken = default)
     {
-        var cappedLimit = Math.Min(limit, _options.MaxMessagesPerQuery);
+        // A null limit means "use the configured default"; the effective value is then capped by the
+        // per-query maximum. (A non-nullable `= 10` default could not distinguish "omitted" from "explicitly
+        // 10", which is why DefaultRecentMessageLimit was previously unreadable.)
+        var requested = limit ?? _options.DefaultRecentMessageLimit;
+        var cappedLimit = Math.Min(requested, _options.MaxMessagesPerQuery);
         return await _messageRepo.GetRecentBySessionAsync(sessionId, cappedLimit, cancellationToken);
     }
 

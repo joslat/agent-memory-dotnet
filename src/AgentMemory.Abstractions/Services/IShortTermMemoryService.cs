@@ -32,13 +32,14 @@ public interface IShortTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets recent messages for a session. The result is capped at the configured
-    /// <c>MaxMessagesPerQuery</c> and ordered newest-first; use it for recall/context, not for
-    /// whole-session operations.
+    /// Gets recent messages for a session, ordered newest-first; use it for recall/context, not for
+    /// whole-session operations. When <paramref name="limit"/> is null the configured
+    /// <c>ShortTermMemoryOptions.DefaultRecentMessageLimit</c> is used. The effective limit is always
+    /// capped at the configured <c>MaxMessagesPerQuery</c>.
     /// </summary>
     Task<IReadOnlyList<Message>> GetRecentMessagesAsync(
         string sessionId,
-        int limit = 10,
+        int? limit = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -29,7 +29,7 @@ public sealed class AssemblerRankingContextDiWiringTests
         // mocks so the assembler resolves; the embedding orchestrator returns a non-empty vector so the
         // long-term searches actually run.
         var shortTerm = Substitute.For<IShortTermMemoryService>();
-        shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
         var reasoning = Substitute.For<IReasoningMemoryService>();
         reasoning.SearchSimilarTracesAsync(Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
