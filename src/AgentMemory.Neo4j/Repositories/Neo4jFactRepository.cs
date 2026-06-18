@@ -251,14 +251,17 @@ public sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken);
     }
 
-    public async Task<Fact> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default)
+    public async Task<Fact?> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Reinforcing fact {FactId} via dedup (confidence={Confidence}).", factId, confidence);
-        return await _tx.WriteAsync(async runner =>
+        return await _tx.WriteAsync<Fact?>(async runner =>
         {
             var cursor = await runner.RunAsync(FactQueries.MarkDeduplicated, new { id = factId, confidence });
-            var record = await cursor.SingleAsync();
-            var node = record["f"].As<INode>();
+            // 0/1-row read (not SingleAsync): the node can be concurrently hard-deleted between the dedup
+            // lookup and this write (e.g. a destructive decay prune), leaving an empty result.
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["f"].As<INode>();
             return MapToFact(node, ReadEmbedding(node));
         }, cancellationToken);
     }

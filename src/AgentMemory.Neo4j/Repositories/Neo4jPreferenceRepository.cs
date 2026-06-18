@@ -180,14 +180,17 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken);
     }
 
-    public async Task<Preference> MarkDeduplicatedAsync(string preferenceId, double confidence, CancellationToken cancellationToken = default)
+    public async Task<Preference?> MarkDeduplicatedAsync(string preferenceId, double confidence, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Reinforcing preference {Id} via dedup (confidence={Confidence}).", preferenceId, confidence);
-        return await _tx.WriteAsync(async runner =>
+        return await _tx.WriteAsync<Preference?>(async runner =>
         {
             var cursor = await runner.RunAsync(PreferenceQueries.MarkDeduplicated, new { id = preferenceId, confidence });
-            var record = await cursor.SingleAsync();
-            var node = record["p"].As<INode>();
+            // 0/1-row read (not SingleAsync): the node can be concurrently hard-deleted between the dedup
+            // lookup and this write (e.g. a destructive decay prune), leaving an empty result.
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["p"].As<INode>();
             return MapToPreference(node, ReadEmbedding(node));
         }, cancellationToken);
     }
