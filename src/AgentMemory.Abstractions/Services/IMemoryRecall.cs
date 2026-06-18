@@ -16,10 +16,10 @@ public interface IMemoryRecall
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Recalls memory context as it existed at a specific point in time (single-clock).
-    /// Only entities, facts, and preferences that were created on or before <paramref name="asOf"/>
-    /// and had not been invalidated by that time are included. Equivalent to the bitemporal overload
-    /// with both clocks equal to <paramref name="asOf"/>.
+    /// Recalls memory context as it existed at a specific point in time (single-clock). Returns the recent
+    /// messages, entities, facts, preferences, and similar reasoning traces that existed at
+    /// <paramref name="asOf"/> — i.e. created on or before it and not yet invalidated by that time.
+    /// Equivalent to the bitemporal overload with both clocks equal to <paramref name="asOf"/>.
     /// </summary>
     Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
