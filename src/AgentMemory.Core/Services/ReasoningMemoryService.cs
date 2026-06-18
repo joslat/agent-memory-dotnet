@@ -16,6 +16,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
     private readonly IReasoningTraceRepository _traceRepo;
     private readonly IReasoningStepRepository _stepRepo;
     private readonly IToolCallRepository _toolCallRepo;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ReasoningMemoryOptions _options;
@@ -28,6 +29,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         IReasoningTraceRepository traceRepo,
         IReasoningStepRepository stepRepo,
         IToolCallRepository toolCallRepo,
+        IEmbeddingOrchestrator embeddingOrchestrator,
         IClock clock,
         IIdGenerator idGenerator,
         IOptions<ReasoningMemoryOptions> options,
@@ -37,6 +39,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         _traceRepo = traceRepo;
         _stepRepo = stepRepo;
         _toolCallRepo = toolCallRepo;
+        _embeddingOrchestrator = embeddingOrchestrator;
         _clock = clock;
         _idGenerator = idGenerator;
         _options = options.Value;
@@ -52,13 +55,22 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
+        // Auto-embed the task description so the trace is reachable by SearchSimilarTraces vector recall,
+        // unless the caller already supplied an embedding or auto-embedding is disabled.
+        var effectiveEmbedding = taskEmbedding;
+        if (effectiveEmbedding is null && _options.GenerateTaskEmbeddings && !string.IsNullOrWhiteSpace(task))
+        {
+            _logger.LogDebug("Generating task embedding for new trace in session {SessionId}", sessionId);
+            effectiveEmbedding = await _embeddingOrchestrator.EmbedAsync(task, cancellationToken);
+        }
+
         var trace = new ReasoningTrace
         {
             TraceId = _idGenerator.GenerateId(),
             SessionId = sessionId,
             OwnerId = ownerId,
             Task = task,
-            TaskEmbedding = taskEmbedding,
+            TaskEmbedding = effectiveEmbedding,
             StartedAtUtc = _clock.UtcNow,
             Metadata = metadata ?? new Dictionary<string, object>()
         };
@@ -141,6 +153,13 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
             Error = error,
             Metadata = metadata ?? new Dictionary<string, object>()
         };
+
+        if (!_options.StoreToolCalls)
+        {
+            // Tool-call persistence is disabled — return the (un-persisted) record without writing.
+            _logger.LogDebug("Skipping tool-call persistence for {ToolName} (StoreToolCalls=false).", toolName);
+            return toolCall;
+        }
 
         _logger.LogDebug("Recording tool call {ToolName} for step {StepId}", toolName, stepId);
         return await _toolCallRepo.AddAsync(toolCall, cancellationToken);
