@@ -235,11 +235,16 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
     {
         const double lat = 48.8566, lon = 2.3522; // Paris
         var id = $"entity-{Guid.NewGuid():N}";
-        await _repo.UpsertAsync(new Entity
+        var returned = await _repo.UpsertAsync(new Entity
         {
             EntityId = id, Name = "Paris HQ", Type = "Location",
             Confidence = 0.9, Latitude = lat, Longitude = lon, CreatedAtUtc = DateTimeOffset.UtcNow
         });
+
+        // The RETURNED object (not just a later re-read) must carry the coordinates that were persisted —
+        // the node is captured from the MERGE before the location is written, so this guards that regression.
+        returned.Latitude.Should().BeApproximately(lat, 1e-6);
+        returned.Longitude.Should().BeApproximately(lon, 1e-6);
 
         var read = await _repo.GetByIdAsync(id);
         read!.Latitude.Should().BeApproximately(lat, 1e-6);
@@ -256,11 +261,17 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         const double lat = 40.7128, lon = -74.0060; // New York
         var withLoc = $"entity-{Guid.NewGuid():N}";
         var withoutLoc = $"entity-{Guid.NewGuid():N}";
-        await _repo.UpsertBatchAsync(new[]
+        var returned = await _repo.UpsertBatchAsync(new[]
         {
             new Entity { EntityId = withLoc, Name = "NYC Office", Type = "Location", Confidence = 0.9, Latitude = lat, Longitude = lon, CreatedAtUtc = DateTimeOffset.UtcNow },
             new Entity { EntityId = withoutLoc, Name = "No Coords", Type = "Concept", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
         });
+
+        // The RETURNED objects must carry coords (with-loc) / null (without-loc), matching persisted state.
+        var returnedWithLoc = returned.Single(e => e.EntityId == withLoc);
+        returnedWithLoc.Latitude.Should().BeApproximately(lat, 1e-6);
+        returnedWithLoc.Longitude.Should().BeApproximately(lon, 1e-6);
+        returned.Single(e => e.EntityId == withoutLoc).Latitude.Should().BeNull();
 
         var read = await _repo.GetByIdAsync(withLoc);
         read!.Latitude.Should().BeApproximately(lat, 1e-6);

@@ -23,8 +23,21 @@ public sealed class AdvancedMemoryTools
         [Description("Status of the call: Pending, Success, Error, Failure, Timeout, or Cancelled (default: Success)")] string status = "Success",
         CancellationToken cancellationToken = default)
     {
-        if (!Enum.TryParse<ToolCallStatus>(status, ignoreCase: true, out var toolStatus))
+        // Only an OMITTED status defaults to Success. An unrecognized value (a typo like "failed", or a
+        // numeric string) must NOT be silently coerced to Success — that would invert the recorded outcome
+        // of a tool call in durable provenance. Return an error payload (matching MaintenanceTools' style).
+        ToolCallStatus toolStatus;
+        if (string.IsNullOrWhiteSpace(status))
+        {
             toolStatus = ToolCallStatus.Success;
+        }
+        else if (!Enum.TryParse(status, ignoreCase: true, out toolStatus) || !Enum.IsDefined(toolStatus))
+        {
+            return ToolJsonContext.Serialize(new
+            {
+                error = $"unknown status '{status}' (expected one of: Pending, Success, Error, Failure, Timeout, Cancelled)"
+            });
+        }
 
         var toolCall = await reasoningMemory.RecordToolCallAsync(
             stepId, toolName, input, output, toolStatus,
