@@ -70,13 +70,19 @@ public sealed class Neo4jFactRepository : IFactRepository
             var record = await cursor.SingleAsync();
             var node = record["f"].As<INode>();
 
+            // The MERGE is on the {subject,predicate,object,owner_key} triple and ON MATCH deliberately never
+            // rewrites f.id, so a re-extracted triple keeps its ORIGINAL node id while fact.FactId is a now-
+            // orphaned guid. The follow-up by-id sub-writes MUST target the surviving node, not the discarded
+            // caller id — otherwise on re-extraction they MATCH nothing and the embedding/provenance is lost.
+            var mergedId = node["id"].As<string>();
+
             // Only persist a real (non-empty) vector so a degraded empty embedding leaves `embedding`
             // NULL and re-queueable for the back-fill (mirrors the entity/preference repos).
             if (fact.Embedding is { Length: > 0 })
             {
                 await runner.RunAsync(
                     SharedFragments.SetFactEmbedding,
-                    new { id = fact.FactId, embedding = fact.Embedding.ToList() });
+                    new { id = mergedId, embedding = fact.Embedding.ToList() });
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
@@ -84,7 +90,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             {
                 await runner.RunAsync(
                     SharedFragments.LinkFactExtractedFrom,
-                    new { id = fact.FactId, sourceMessageIds = fact.SourceMessageIds.ToList() });
+                    new { id = mergedId, sourceMessageIds = fact.SourceMessageIds.ToList() });
             }
 
             return MapToFact(node, fact.Embedding);

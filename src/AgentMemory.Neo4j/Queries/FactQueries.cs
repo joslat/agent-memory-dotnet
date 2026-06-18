@@ -31,7 +31,8 @@ public static class FactQueries
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
                 f.source_message_ids = $sourceMessageIds,
                 f.updated_at         = datetime($updatedAtUtc),
-                f.metadata           = $metadata
+                f.metadata           = $metadata,
+                f.invalidated_at     = null
             RETURN f";
 
     // ── UpsertBatchAsync ───────────────────────────────────────────────
