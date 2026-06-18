@@ -212,6 +212,28 @@ public sealed class MemoryServiceBatchTests
     }
 
     [Fact]
+    public async Task GenerateEmbeddingsBatchAsync_PersistentEmbeddingFailure_StopsInsteadOfLoopingForever()
+    {
+        // The page query has no cursor: it re-selects `WHERE embedding IS NULL LIMIT n`, and the repo skips
+        // writing an empty embedding, so a persistently-failing page is re-returned every iteration with
+        // hasNextPage=true. Without the forward-progress guard this loops forever; this test must TERMINATE.
+        var entities = new List<Entity>
+        {
+            new() { EntityId = "e1", Name = "London", Type = "LOCATION", Confidence = 1.0, CreatedAtUtc = FixedTime }
+        };
+        _entityRepo.GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new PagedResult<Entity>(entities, hasNextPage: true)); // always "more", never advances
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Array.Empty<float>())); // persistent generation failure ⇒ empty vector
+
+        var sut = CreateSut();
+        var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
+
+        count.Should().Be(1, "the single stalled page is processed once, then the back-fill stops");
+        await _entityRepo.Received(1).GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task GenerateEmbeddingsBatchAsync_Fact_UsesSpoTripleAsEmbeddingText()
     {
         var fact = new Fact

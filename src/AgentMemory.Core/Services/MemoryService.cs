@@ -299,12 +299,16 @@ public sealed class MemoryService : IMemoryService
         do
         {
             page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            int embeddedThisPage = 0;
             foreach (var entity in page.Items)
             {
                 var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, ct);
                 await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct);
                 total++;
+                if (embedding.Length > 0) embeddedThisPage++;
             }
+
+            if (StalledOnPage(page.Items.Count, embeddedThisPage, "Entity")) break;
         } while (page.HasNextPage);
 
         _logger.LogInformation("Back-filled embeddings for {Count} Entity nodes.", total);
@@ -318,12 +322,16 @@ public sealed class MemoryService : IMemoryService
         do
         {
             page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            int embeddedThisPage = 0;
             foreach (var fact in page.Items)
             {
                 var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct);
                 await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct);
                 total++;
+                if (embedding.Length > 0) embeddedThisPage++;
             }
+
+            if (StalledOnPage(page.Items.Count, embeddedThisPage, "Fact")) break;
         } while (page.HasNextPage);
 
         _logger.LogInformation("Back-filled embeddings for {Count} Fact nodes.", total);
@@ -337,16 +345,39 @@ public sealed class MemoryService : IMemoryService
         do
         {
             page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            int embeddedThisPage = 0;
             foreach (var pref in page.Items)
             {
                 var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, ct);
                 await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct);
                 total++;
+                if (embedding.Length > 0) embeddedThisPage++;
             }
+
+            if (StalledOnPage(page.Items.Count, embeddedThisPage, "Preference")) break;
         } while (page.HasNextPage);
 
         _logger.LogInformation("Back-filled embeddings for {Count} Preference nodes.", total);
         return total;
+    }
+
+    // Forward-progress guard for the predicate-paged backfill loops (GetPageWithoutEmbedding has no cursor:
+    // it re-selects `WHERE embedding IS NULL LIMIT n`). A node only leaves that set once it acquires a
+    // non-empty embedding; the orchestrator degrades to an EMPTY vector on generation failure and the repo
+    // deliberately skips writing an empty embedding (keeping the node re-queueable). So if a page returns
+    // nodes but NONE were embedded, the remaining null nodes are un-embeddable this run (bad key / dimension
+    // mismatch / provider outage) — stop instead of looping forever on the identical page.
+    private bool StalledOnPage(int pageItemCount, int embeddedThisPage, string label)
+    {
+        if (pageItemCount > 0 && embeddedThisPage == 0)
+        {
+            _logger.LogWarning(
+                "Embedding back-fill for {Label} made no progress on a page of {Count} node(s) — embedding " +
+                "generation is failing; stopping the back-fill to avoid an unbounded retry loop.",
+                label, pageItemCount);
+            return true;
+        }
+        return false;
     }
 
     private async Task UpdateAccessTimestampsAsync(MemoryContext context, CancellationToken cancellationToken)
