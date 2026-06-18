@@ -279,7 +279,9 @@ public sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
         if (types is not null)
             props["types"] = types.ToJsonString();
 
-        SetPropIfPresent(props, "importance", importance.ToString("G"));
+        // InvariantCulture so the persisted value is machine-independent (a comma-decimal locale would
+        // otherwise store "85,5"); matches the InvariantCulture convention used everywhere else here.
+        SetPropIfPresent(props, "importance", importance.ToString("G", System.Globalization.CultureInfo.InvariantCulture));
 
         var nbEdges = entity["nbIncomingEdges"];
         if (nbEdges is not null)

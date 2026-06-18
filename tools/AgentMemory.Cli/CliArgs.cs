@@ -38,7 +38,12 @@ public sealed class CliArgs
                 {
                     options[body[..eq]] = body[(eq + 1)..];
                 }
-                else if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
+                // The next token is this option's VALUE unless it is itself a long option ("--..."). Only
+                // "--" is treated as a separate option, NOT any "-", so a dash-leading value like
+                // `--owner -42` or `--password -s3cret` is consumed correctly. (Treating any "-" as a new
+                // option silently dropped such values — e.g. `--owner -42` became a null owner, widening a
+                // scoped destructive prune to ALL owners.)
+                else if (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 {
                     options[body] = args[++i];
                 }

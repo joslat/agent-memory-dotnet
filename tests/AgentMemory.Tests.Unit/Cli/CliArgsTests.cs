@@ -44,6 +44,29 @@ public sealed class CliArgsTests
         cli.Get("uri").Should().Be("bolt://db:7687");
     }
 
+    [Theory]
+    [InlineData("-42")]       // owner id leading with '-'
+    [InlineData("-s3cret")]   // secret leading with '-'
+    public void Parse_SpaceSeparatedValue_LeadingDash_IsConsumedAsValue(string value)
+    {
+        // A value beginning with '-' must NOT be mistaken for a new option — otherwise `--owner -42` drops
+        // the value to null, silently widening a scoped destructive prune to ALL owners, and `--password
+        // -s3cret` discards the credential.
+        CliArgs.Parse(["decay", "--owner", value]).Get("owner").Should().Be(value);
+    }
+
+    [Fact]
+    public void Parse_NextLongOption_IsNotConsumedAsValue()
+    {
+        // A genuine following long option ("--...") is still treated as a separate option, so the first
+        // option remains a value-less bare flag.
+        var cli = CliArgs.Parse(["consolidate", "--apply", "--dry-run"]);
+
+        cli.HasFlag("apply").Should().BeTrue();
+        cli.Get("apply").Should().BeNull();
+        cli.HasFlag("dry-run").Should().BeTrue();
+    }
+
     [Fact]
     public void Parse_IsCaseInsensitiveOnOptionNames()
     {
