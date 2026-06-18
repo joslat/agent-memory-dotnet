@@ -294,7 +294,7 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
     private MemoryContextAssembler CreateAssemblerWithEmptyMemory(IGraphRagContextSource graphRag)
     {
         var shortTerm = Substitute.For<IShortTermMemoryService>();
-        shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
         shortTerm.SearchMessagesAsync(Arg.Any<string?>(), Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));

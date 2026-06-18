@@ -33,7 +33,7 @@ public sealed class ObservationToolsTests
     [Fact]
     public async Task MemoryGetObservations_ReturnsEmptyForSessionWithNoMessages()
     {
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
 
         var result = await ObservationTools.MemoryGetObservations(
@@ -49,7 +49,7 @@ public sealed class ObservationToolsTests
     [Fact]
     public async Task MemoryGetObservations_DoesNotCallCompressorForEmptySession()
     {
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
 
         await ObservationTools.MemoryGetObservations(
@@ -67,7 +67,7 @@ public sealed class ObservationToolsTests
     public async Task MemoryGetObservations_CallsCompressorWithMessagesAndOptions()
     {
         var messages = new[] { CreateMessage("m1", "Hello"), CreateMessage("m2", "World") };
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(messages);
 
         _compressor.CompressAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ContextCompressionOptions>(), Arg.Any<CancellationToken>())
@@ -93,7 +93,7 @@ public sealed class ObservationToolsTests
     public async Task MemoryGetObservations_ReturnsCompressedResultWithObservations()
     {
         var messages = new[] { CreateMessage("m1", "Hello") };
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(messages);
 
         _compressor.CompressAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ContextCompressionOptions>(), Arg.Any<CancellationToken>())
@@ -124,7 +124,7 @@ public sealed class ObservationToolsTests
     [Fact]
     public async Task MemoryGetObservations_RespectsIncludeFlags()
     {
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
 
         var result = await ObservationTools.MemoryGetObservations(
@@ -140,7 +140,7 @@ public sealed class ObservationToolsTests
     [Fact]
     public async Task MemoryGetObservations_AllIncludeFlagsTrue_IncludesAllSections()
     {
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
 
         var result = await ObservationTools.MemoryGetObservations(
@@ -157,7 +157,7 @@ public sealed class ObservationToolsTests
     [Fact]
     public async Task MemoryGetObservations_UsesDefaultSessionIdWhenNoneProvided()
     {
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
 
         var result = await ObservationTools.MemoryGetObservations(
@@ -176,7 +176,7 @@ public sealed class ObservationToolsTests
     public async Task MemoryGetObservations_IncludesFormattedSummaryWhenCompressed()
     {
         var messages = new[] { CreateMessage("m1", "Test message") };
-        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _shortTermMemory.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(messages);
 
         _compressor.CompressAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ContextCompressionOptions>(), Arg.Any<CancellationToken>())

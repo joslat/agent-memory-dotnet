@@ -43,7 +43,7 @@ public sealed class MemoryContextAssemblerTests
     private void SetupEmptyServiceReturns()
     {
         _shortTerm
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
         _shortTerm
             .SearchMessagesAsync(Arg.Any<string?>(), Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
@@ -153,7 +153,7 @@ public sealed class MemoryContextAssemblerTests
         await _graphRag.DidNotReceive()
             .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
         await _shortTerm.Received(1)
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         result.GraphRagContext.Should().BeNull();
         result.BlendMode.Should().Be(RetrievalBlendMode.MemoryOnly);
     }
@@ -172,7 +172,7 @@ public sealed class MemoryContextAssemblerTests
         await _embeddingOrchestrator.DidNotReceive()
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _shortTerm.DidNotReceive()
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         await _longTerm.DidNotReceive()
             .SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
         await _graphRag.Received(1)
@@ -195,7 +195,7 @@ public sealed class MemoryContextAssemblerTests
             CreateRequest(queryEmbedding: new float[1536], blendMode: RetrievalBlendMode.GraphRagThenMemory));
 
         await _shortTerm.Received(1)
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         await _graphRag.Received(1)
             .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
         result.GraphRagContext.Should().Contain("graph context");
@@ -314,7 +314,7 @@ public sealed class MemoryContextAssemblerTests
         var oldMsg = CreateMessage("old", "1234567890", _fixedTime.AddHours(-1));
         var newMsg = CreateMessage("new", "ABCDEFGHIJ", _fixedTime);
         _shortTerm
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(new[] { oldMsg, newMsg }));
 
         var options = Options.Create(new MemoryOptions
@@ -343,7 +343,7 @@ public sealed class MemoryContextAssemblerTests
         var oldMsg = CreateMessage("old", "1234567890", _fixedTime.AddHours(-1));
         var newMsg = CreateMessage("new", "ABCDEFGHIJ", _fixedTime);
         _shortTerm
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(new[] { oldMsg, newMsg }));
 
         var overBudget = await CreateSut(options: Options.Create(new MemoryOptions
@@ -366,7 +366,7 @@ public sealed class MemoryContextAssemblerTests
         var highScoreMsg = CreateMessage("high-score", "AAAAAAAAAA", _fixedTime);
         var lowScoreMsg = CreateMessage("low-score", "BBBBBBBBBB", _fixedTime.AddMinutes(-1));
         _shortTerm
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(new[] { highScoreMsg, lowScoreMsg }));
 
         var options = Options.Create(new MemoryOptions
@@ -400,7 +400,7 @@ public sealed class MemoryContextAssemblerTests
         var r0 = CreateMessage("R0", "AAAAAAAAAA", _fixedTime);                 // newest, best score (index 0)
         var r1 = CreateMessage("R1", "BBBBBBBBBB", _fixedTime.AddMinutes(-1));  // mid age, worst score (index 1)
         _shortTerm
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(new[] { r0, r1 }));
 
         var f0 = CreateFact("F0", "S", "P", "OOOO", _fixedTime.AddHours(-1));   // oldest, best score (index 0)
@@ -479,7 +479,7 @@ public sealed class MemoryContextAssemblerTests
             CreateMessage("msg-2", "More content to count chars", _fixedTime.AddMinutes(-1))
         };
         _shortTerm
-            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Message>>(messages));
         var sut = CreateSut();
 
