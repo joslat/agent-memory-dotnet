@@ -231,6 +231,36 @@ public sealed class EntityToolsTests
     }
 
     [Fact]
+    public async Task MemoryCreateRelationship_WithUserId_StampsOwner()
+    {
+        // R1: an MCP-created RELATED_TO edge must be owner-scopable, consistent with the entity/fact/
+        // preference create tools — otherwise it is owner-less and leaks to every tenant on read.
+        _longTermMemory.AddRelationshipAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Relationship>());
+
+        await EntityTools.MemoryCreateRelationship(
+            _longTermMemory, _idGenerator, _clock, _options,
+            "e-1", "e-2", "WORKS_FOR", userId: "alice");
+
+        await _longTermMemory.Received(1).AddRelationshipAsync(
+            Arg.Is<Relationship>(r => r.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryCreateRelationship_WithoutUserId_LeavesOwnerNull_SharedGlobal()
+    {
+        _longTermMemory.AddRelationshipAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Relationship>());
+
+        await EntityTools.MemoryCreateRelationship(
+            _longTermMemory, _idGenerator, _clock, _options,
+            "e-1", "e-2", "WORKS_FOR");
+
+        await _longTermMemory.Received(1).AddRelationshipAsync(
+            Arg.Is<Relationship>(r => r.OwnerId == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task MemoryCreateRelationship_UsesDefaultConfidence()
     {
         _longTermMemory.AddRelationshipAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())

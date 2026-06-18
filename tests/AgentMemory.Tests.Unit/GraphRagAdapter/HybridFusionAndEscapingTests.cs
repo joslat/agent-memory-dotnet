@@ -92,5 +92,10 @@ public sealed class HybridFusionAndEscapingTests
         LuceneQueryEscaper.Escape("a+b").Should().Be(@"a\+b");
         LuceneQueryEscaper.Escape("a:b").Should().Be(@"a\:b");
         LuceneQueryEscaper.Escape("(x)").Should().Be(@"\(x\)");
+        // The backslash metacharacter itself must be doubled (escaped). The property test above cannot
+        // verify this — the escaping backslash IS a backslash — so it is checked explicitly here, guarding
+        // a regression that drops '\\' from the escaper's Special set (raw backslashes reaching Lucene).
+        LuceneQueryEscaper.Escape("a\\b").Should().Be(@"a\\b");
+        LuceneQueryEscaper.Escape("&&").Should().Be(@"\&\&");
     }
 }

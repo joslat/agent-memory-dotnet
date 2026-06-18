@@ -93,6 +93,7 @@ public sealed class EntityTools
         [Description("Type of relationship (e.g., 'WORKS_FOR', 'LOCATED_IN', 'KNOWS')")] string relationshipType,
         [Description("Description of the relationship (optional)")] string? description = null,
         [Description("Confidence score from 0.0 to 1.0 (optional)")] double? confidence = null,
+        [Description("Owner/user identifier (optional). Null = shared/global, visible to every tenant; set it in multi-tenant deployments to scope the relationship to its creator (R1), consistent with the entity/fact/preference create tools.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var relationship = new Relationship
@@ -102,6 +103,7 @@ public sealed class EntityTools
             TargetEntityId = targetEntityId,
             RelationshipType = relationshipType,
             Description = description,
+            OwnerId = userId,
             Confidence = confidence ?? options.Value.DefaultConfidence,
             CreatedAtUtc = clock.UtcNow
         };
