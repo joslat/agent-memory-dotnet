@@ -14,6 +14,7 @@ public sealed class ReasoningMemoryServiceTests
     private readonly IReasoningTraceRepository _traceRepo;
     private readonly IReasoningStepRepository _stepRepo;
     private readonly IToolCallRepository _toolCallRepo;
+    private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
@@ -23,11 +24,14 @@ public sealed class ReasoningMemoryServiceTests
         _traceRepo = Substitute.For<IReasoningTraceRepository>();
         _stepRepo = Substitute.For<IReasoningStepRepository>();
         _toolCallRepo = Substitute.For<IToolCallRepository>();
+        _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _clock = Substitute.For<IClock>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
         _clock.UtcNow.Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-id-1", "generated-id-2", "generated-id-3");
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[8]));
 
         _traceRepo
             .AddAsync(Arg.Any<ReasoningTrace>(), Arg.Any<CancellationToken>())
@@ -47,7 +51,7 @@ public sealed class ReasoningMemoryServiceTests
     }
 
     private ReasoningMemoryService CreateSut(ReasoningMemoryOptions? options = null) =>
-        new(_traceRepo, _stepRepo, _toolCallRepo, _clock, _idGenerator,
+        new(_traceRepo, _stepRepo, _toolCallRepo, _embeddingOrchestrator, _clock, _idGenerator,
             Microsoft.Extensions.Options.Options.Create(options ?? new ReasoningMemoryOptions()),
             NullLogger<ReasoningMemoryService>.Instance);
 
@@ -130,6 +134,64 @@ public sealed class ReasoningMemoryServiceTests
         var result = await sut.StartTraceAsync("session-1", "Test task");
 
         result.SessionId.Should().Be("session-1"); // trace still returned despite prune failure
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_GenerateTaskEmbeddingsEnabled_AutoEmbedsTaskWhenNoneSupplied()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { GenerateTaskEmbeddings = true });
+
+        await sut.StartTraceAsync("session-1", "Summarize the report");
+
+        await _embeddingOrchestrator.Received(1).EmbedAsync("Summarize the report", Arg.Any<CancellationToken>());
+        await _traceRepo.Received(1).AddAsync(
+            Arg.Is<ReasoningTrace>(t => t.TaskEmbedding != null && t.TaskEmbedding.Length == 8), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_GenerateTaskEmbeddingsDisabled_DoesNotEmbed()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { GenerateTaskEmbeddings = false });
+
+        await sut.StartTraceAsync("session-1", "Summarize the report");
+
+        await _embeddingOrchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _traceRepo.Received(1).AddAsync(
+            Arg.Is<ReasoningTrace>(t => t.TaskEmbedding == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_CallerSuppliedEmbedding_IsNotOverwritten()
+    {
+        var supplied = new float[] { 1f, 2f, 3f };
+        var sut = CreateSut(new ReasoningMemoryOptions { GenerateTaskEmbeddings = true });
+
+        await sut.StartTraceAsync("session-1", "task", taskEmbedding: supplied);
+
+        await _embeddingOrchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _traceRepo.Received(1).AddAsync(
+            Arg.Is<ReasoningTrace>(t => t.TaskEmbedding == supplied), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordToolCallAsync_StoreToolCallsFalse_DoesNotPersist_ButReturnsRecord()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { StoreToolCalls = false });
+
+        var result = await sut.RecordToolCallAsync("step-1", "search", "{}");
+
+        result.ToolName.Should().Be("search");
+        await _toolCallRepo.DidNotReceive().AddAsync(Arg.Any<ToolCall>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordToolCallAsync_StoreToolCallsTrue_Persists()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { StoreToolCalls = true });
+
+        await sut.RecordToolCallAsync("step-1", "search", "{}");
+
+        await _toolCallRepo.Received(1).AddAsync(Arg.Any<ToolCall>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
