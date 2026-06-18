@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using AgentMemory.McpServer.Prompts;
 using AgentMemory.McpServer.Resources;
@@ -17,6 +19,17 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IMcpServerBuilder AddAgentMemoryMcpTools(this IMcpServerBuilder builder)
     {
+        // Project the configured ServerName/ServerVersion into the MCP handshake's server identity. Runs
+        // after AddMcpServer()'s defaults, so a configured McpServerOptions wins. (Uses our McpServerOptions,
+        // resolved by IOptions, to set the SDK's McpServerOptions.ServerInfo.)
+        builder.Services
+            .AddOptions<ModelContextProtocol.Server.McpServerOptions>()
+            .Configure<IOptions<McpServerOptions>>((sdk, ours) =>
+            {
+                var o = ours.Value;
+                sdk.ServerInfo = new Implementation { Name = o.ServerName, Version = o.ServerVersion };
+            });
+
         return builder
             .WithTools<CoreMemoryTools>()
             .WithTools<ConversationTools>()
