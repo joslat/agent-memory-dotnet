@@ -310,7 +310,7 @@ public sealed class LongTermMemoryServiceTests
         _factRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Fact?>(existing));
         _factRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(existing with { Confidence = ci.ArgAt<double>(1) }));
+            .Returns(ci => Task.FromResult<Fact?>(existing with { Confidence = ci.ArgAt<double>(1) }));
 
         var sut = CreateSut();
         var result = await sut.AddFactAsync(CreateFact("f-new"));
@@ -351,7 +351,7 @@ public sealed class LongTermMemoryServiceTests
         _prefRepo.FindDuplicateAsync(Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Preference?>(existing));
         _prefRepo.MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(existing with { Confidence = ci.ArgAt<double>(1) }));
+            .Returns(ci => Task.FromResult<Preference?>(existing with { Confidence = ci.ArgAt<double>(1) }));
 
         var result = await CreateSut().AddPreferenceAsync(CreatePreference("p-new"));
 
