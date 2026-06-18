@@ -103,7 +103,18 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         _logger.LogDebug("Batch upserting {Count} facts", facts.Count);
 
-        var items = facts.Select(f => new Dictionary<string, object?>
+        // The query MERGEs on the {subject,predicate,object,owner_key} triple (parity with the single
+        // Upsert path). Collapse same-triple inputs up front (last-writer-wins) so each surviving node is
+        // fed by exactly one input: otherwise two inputs sharing a triple MERGE onto one node, leaving the
+        // loser id naming nothing and silently dropping its embedding/EXTRACTED_FROM. After dedup the
+        // returned list is 1:1 with distinct triples and provenance is deterministic (R5 #10).
+        var deduped = facts
+            .GroupBy(f => TripleKey(f.Subject, f.Predicate, f.Object, f.OwnerId ?? OwnerKeyShared))
+            .Select(g => g.Last())
+            .ToList();
+
+        var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+        var items = deduped.Select(f => new Dictionary<string, object?>
         {
             ["id"]                = f.FactId,
             ["subject"]           = f.Subject,
@@ -117,6 +128,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             ["valid_until"]       = (object?)(f.ValidUntil?.ToString("O")),
             ["source_message_ids"] = f.SourceMessageIds.ToList(),
             ["created_at"]        = f.CreatedAtUtc.ToString("O"),
+            ["updated_at"]        = updatedAt,
             ["metadata"]          = SerializeMetadata(f.Metadata)
         }).ToList();
 
@@ -125,32 +137,50 @@ public sealed class Neo4jFactRepository : IFactRepository
             var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items });
             var records = await cursor.ToListAsync();
 
-            // Set embeddings individually — only for nodes with a real (non-empty) vector.
-            foreach (var fact in facts.Where(f => f.Embedding is { Length: > 0 }))
+            // The MERGE returns the SURVIVING node per triple; for a pre-existing triple that id is the
+            // ORIGINAL node id, not the caller's fresh FactId. Resolve the embedding/provenance sub-writes
+            // by triple so they land on the real node — mirroring the single-path mergedId fix (R5-A);
+            // keying them on fact.FactId would silently no-op whenever the triple already existed.
+            var nodeIdByTriple = new Dictionary<(string, string, string, string), string>();
+            foreach (var r in records)
             {
+                var n = r["f"].As<INode>();
+                nodeIdByTriple[TripleKey(n["subject"].As<string>(), n["predicate"].As<string>(),
+                                         n["object"].As<string>(), n["owner_key"].As<string>())] = n["id"].As<string>();
+            }
+
+            string? NodeIdFor(Fact f) =>
+                nodeIdByTriple.TryGetValue(
+                    TripleKey(f.Subject, f.Predicate, f.Object, f.OwnerId ?? OwnerKeyShared), out var nodeId)
+                    ? nodeId : null;
+
+            // Set embeddings individually — only for nodes with a real (non-empty) vector.
+            foreach (var fact in deduped.Where(f => f.Embedding is { Length: > 0 }))
+            {
+                if (NodeIdFor(fact) is not { } nodeId) continue;
                 await runner.RunAsync(
                     SharedFragments.SetFactEmbedding,
-                    new { id = fact.FactId, embedding = fact.Embedding!.ToList() });
+                    new { id = nodeId, embedding = fact.Embedding!.ToList() });
             }
 
-            // Auto-create EXTRACTED_FROM relationships
-            var factsWithSources = facts.Where(f => f.SourceMessageIds.Count > 0).ToList();
-            if (factsWithSources.Count > 0)
+            // Auto-create EXTRACTED_FROM relationships on the surviving node.
+            foreach (var fact in deduped.Where(f => f.SourceMessageIds.Count > 0))
             {
-                foreach (var fact in factsWithSources)
-                {
-                    await runner.RunAsync(
-                        SharedFragments.LinkFactExtractedFrom,
-                        new { id = fact.FactId, sourceMessageIds = fact.SourceMessageIds.ToList() });
-                }
+                if (NodeIdFor(fact) is not { } nodeId) continue;
+                await runner.RunAsync(
+                    SharedFragments.LinkFactExtractedFrom,
+                    new { id = nodeId, sourceMessageIds = fact.SourceMessageIds.ToList() });
             }
 
-            var embeddingMap = facts.ToDictionary(f => f.FactId, f => f.Embedding);
+            var embeddingByTriple = deduped.ToDictionary(
+                f => TripleKey(f.Subject, f.Predicate, f.Object, f.OwnerId ?? OwnerKeyShared),
+                f => f.Embedding);
             return records.Select(r =>
             {
                 var node = r["f"].As<INode>();
-                var id   = node["id"].As<string>();
-                return MapToFact(node, embeddingMap.TryGetValue(id, out var emb) ? emb : null);
+                var key  = TripleKey(node["subject"].As<string>(), node["predicate"].As<string>(),
+                                     node["object"].As<string>(), node["owner_key"].As<string>());
+                return MapToFact(node, embeddingByTriple.TryGetValue(key, out var emb) ? emb : null);
             }).ToList();
         }, cancellationToken);
     }
@@ -313,6 +343,13 @@ public sealed class Neo4jFactRepository : IFactRepository
                 new { conversationId, factId });
         }, cancellationToken);
     }
+
+    // The Fact idempotency key: the SPO triple scoped by owner_key (shared vs owned facts stay distinct, R1).
+    // String components compare ordinally — matching Neo4j's exact-string MERGE — so the same triple maps to
+    // the same surviving node both in the database and in the repository's by-triple lookups.
+    private static (string, string, string, string) TripleKey(
+        string subject, string predicate, string @object, string ownerKey)
+        => (subject, predicate, @object, ownerKey);
 
     private static Fact MapToFact(INode node, float[]? embedding) =>
         new()
