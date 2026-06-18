@@ -39,6 +39,10 @@ public sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
             var result = await _generator.GenerateAsync([text], cancellationToken: ct).ConfigureAwait(false);
             return result[0].Vector.ToArray();
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // Honor caller cancellation — do not mask it as a successful empty vector.
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Embedding generation failed for text (length={Len}); returning empty vector.", text.Length);
@@ -86,6 +90,10 @@ public sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
             }
             for (int j = 0; j < nonBlankIndices.Count && j < generated.Count; j++)
                 results[nonBlankIndices[j]] = generated[j].Vector.ToArray();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // Honor caller cancellation — do not mask it as successful empty vectors.
         }
         catch (Exception ex)
         {
