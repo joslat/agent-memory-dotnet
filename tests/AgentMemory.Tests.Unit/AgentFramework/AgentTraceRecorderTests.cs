@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
@@ -81,9 +82,39 @@ public sealed class AgentTraceRecorderTests
             }));
     }
 
-    private AgentTraceRecorder CreateSut() => new(
+    private AgentTraceRecorder CreateSut(bool persist = true) => new(
         _reasoningService, _clock, _idGenerator,
+        Options.Create(new AgentFrameworkOptions { PersistReasoningTraces = persist }),
         NullLogger<AgentTraceRecorder>.Instance);
+
+    [Fact]
+    public async Task PersistDisabled_DoesNotCallReasoningService_ReturnsSyntheticRecords()
+    {
+        var sut = CreateSut(persist: false);
+
+        var trace = await sut.StartTraceAsync("task", "session-1", ownerId: "alice");
+        var step = await sut.RecordStepAsync(trace.TraceId, "action", "did x");
+        var call = await sut.RecordToolCallAsync(step.StepId, "tool", "{}");
+        await sut.CompleteTraceAsync(trace.TraceId, "done");
+
+        // Synthetic records are still returned (ids from the generator), but nothing is persisted.
+        trace.TraceId.Should().Be("gen-id");
+        trace.Task.Should().Be("task");
+        step.TraceId.Should().Be(trace.TraceId);
+        call.ToolName.Should().Be("tool");
+
+        await _reasoningService.DidNotReceive().StartTraceAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]?>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _reasoningService.DidNotReceive().AddStepAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<float[]?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _reasoningService.DidNotReceive().RecordToolCallAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<ToolCallStatus>(),
+            Arg.Any<long?>(), Arg.Any<string?>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _reasoningService.DidNotReceive().CompleteTraceAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool?>(), Arg.Any<CancellationToken>());
+    }
 
     [Fact]
     public async Task StartTrace_CreatesTraceWithCorrectFields()
@@ -213,7 +244,8 @@ public sealed class AgentTraceRecorderTests
     public async Task CompleteTrace_NonExistentTrace_LogsWarning()
     {
         var logger = new CapturingLogger<AgentTraceRecorder>();
-        var sut = new AgentTraceRecorder(_reasoningService, _clock, _idGenerator, logger);
+        var sut = new AgentTraceRecorder(_reasoningService, _clock, _idGenerator,
+            Options.Create(new AgentFrameworkOptions { PersistReasoningTraces = true }), logger);
 
         // Don't call StartTrace — traceId is unknown to this recorder.
         await sut.CompleteTraceAsync("unknown-trace", "some outcome");
