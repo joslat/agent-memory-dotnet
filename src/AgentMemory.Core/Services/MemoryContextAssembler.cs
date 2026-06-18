@@ -275,6 +275,13 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var queryEmbedding = request.QueryEmbedding
             ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
 
+        // Vector searches require a non-empty embedding. A blank query, or a transient embedding-generation
+        // failure (degrades to an empty vector), would otherwise issue a zero-dimension vector query which
+        // the index REJECTS — throwing instead of returning empty. Mirror the live AssembleContextAsync
+        // guard so temporal recall degrades gracefully to recent messages + empty semantic sections.
+        bool hasEmbedding = queryEmbedding is { Length: > 0 };
+        static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
+
         // D6 clock mapping: the transaction clock ($systemAsOf) bounds every record's existence, so
         // messages, entities, preferences, and traces — which have no valid-time window — observe only
         // systemAsOf. Facts additionally observe the valid-time clock ($validAsOf) for their validity
@@ -282,17 +289,21 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         var recentTask = _shortTerm.GetRecentMessagesAsOfAsync(
             request.SessionId, systemAsOf, recallOpts.MaxRecentMessages, cancellationToken);
 
-        var entitiesTask = _longTerm.SearchEntitiesAsOfAsync(
-            queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken);
+        var entitiesTask = hasEmbedding
+            ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
+            : Empty<Entity>();
 
-        var preferencesTask = _longTerm.SearchPreferencesAsOfAsync(
-            queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken);
+        var preferencesTask = hasEmbedding
+            ? _longTerm.SearchPreferencesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
+            : Empty<Preference>();
 
-        var factsTask = _longTerm.SearchFactsAsOfAsync(
-            queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken);
+        var factsTask = hasEmbedding
+            ? _longTerm.SearchFactsAsOfAsync(queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken)
+            : Empty<Fact>();
 
-        var tracesTask = _reasoning.SearchSimilarTracesAsOfAsync(
-            queryEmbedding, systemAsOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken);
+        var tracesTask = hasEmbedding
+            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+            : Empty<ReasoningTrace>();
 
         await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask, tracesTask);
 
