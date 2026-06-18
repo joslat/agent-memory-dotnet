@@ -35,6 +35,49 @@ public sealed class StreamingExtractorTests
         chunks[0].IsLast.Should().BeTrue();
     }
 
+    // ── ChunkDocument validation: reject configs the chunker can't advance through ──
+
+    [Theory]
+    [InlineData(100, 100)] // Overlap == ChunkSize
+    [InlineData(100, 150)] // Overlap > ChunkSize
+    public void ChunkDocument_OverlapNotLessThanChunkSize_ThrowsFastInsteadOfLooping(int chunkSize, int overlap)
+    {
+        var sut = CreateSut();
+        var opts = new StreamingExtractionOptions { ChunkSize = chunkSize, Overlap = overlap };
+
+        var act = () => sut.ChunkDocument(new string('a', 500), opts);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*less than ChunkSize*");
+    }
+
+    [Fact]
+    public void ChunkDocument_NonPositiveChunkSize_Throws()
+    {
+        var sut = CreateSut();
+        var act = () => sut.ChunkDocument(new string('a', 500), new StreamingExtractionOptions { ChunkSize = 0 });
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void ChunkDocument_NegativeOverlap_Throws()
+    {
+        var sut = CreateSut();
+        var act = () => sut.ChunkDocument(new string('a', 500), new StreamingExtractionOptions { ChunkSize = 100, Overlap = -1 });
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void ChunkDocument_ValidOverlap_StillChunksLongText()
+    {
+        var sut = CreateSut();
+        var chunks = sut.ChunkDocument(
+            new string('a', 500),
+            new StreamingExtractionOptions { ChunkSize = 100, Overlap = 20, SplitOnSentences = false });
+
+        chunks.Should().HaveCountGreaterThan(1);
+        chunks[^1].IsLast.Should().BeTrue();
+    }
+
     [Fact]
     public void ChunkDocument_UsesTokenChunker_WhenChunkByTokensTrue()
     {

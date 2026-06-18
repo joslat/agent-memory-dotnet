@@ -54,4 +54,24 @@ public sealed class StreamingExtractionOptions
             ChunkSize = DefaultTokenChunkSize,
             Overlap = DefaultTokenOverlap
         };
+
+    /// <summary>
+    /// Validates that the chunking parameters can make forward progress. <see cref="ChunkSize"/> must be
+    /// positive and <see cref="Overlap"/> must be non-negative and STRICTLY less than <see cref="ChunkSize"/>;
+    /// otherwise the chunker's cursor never advances, producing an infinite loop and unbounded memory growth.
+    /// Called at the start of chunking so a misconfiguration fails fast with a clear message.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">When <see cref="ChunkSize"/> is ≤ 0 or <see cref="Overlap"/> is &lt; 0.</exception>
+    /// <exception cref="ArgumentException">When <see cref="Overlap"/> is ≥ <see cref="ChunkSize"/>.</exception>
+    public void Validate()
+    {
+        if (ChunkSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(ChunkSize), ChunkSize, "ChunkSize must be a positive integer.");
+        if (Overlap < 0)
+            throw new ArgumentOutOfRangeException(nameof(Overlap), Overlap, "Overlap must be non-negative.");
+        if (Overlap >= ChunkSize)
+            throw new ArgumentException(
+                $"Overlap ({Overlap}) must be strictly less than ChunkSize ({ChunkSize}); otherwise chunking cannot advance.",
+                nameof(Overlap));
+    }
 }

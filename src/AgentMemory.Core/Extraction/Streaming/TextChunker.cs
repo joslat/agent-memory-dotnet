@@ -69,7 +69,11 @@ internal static class TextChunker
                 IsLast = end >= text.Length
             });
 
-            start = end < text.Length ? end - overlap : end;
+            // Always advance by at least one char so the loop can never spin in place (defense in depth —
+            // StreamingExtractor.ChunkDocument already rejects overlap >= chunkSize, but a direct internal
+            // caller could still pass a degenerate combination). Math.Max keeps the intended overlap when
+            // it makes real forward progress.
+            start = end < text.Length ? Math.Max(start + 1, end - overlap) : end;
             chunkIndex++;
         }
 
@@ -134,7 +138,8 @@ internal static class TextChunker
                 IsLast = endTokenIdx >= tokens.Count
             });
 
-            tokenIdx = endTokenIdx < tokens.Count ? endTokenIdx - overlap : endTokenIdx;
+            // Always advance by at least one token (see ChunkByChars note) so the loop cannot spin in place.
+            tokenIdx = endTokenIdx < tokens.Count ? Math.Max(tokenIdx + 1, endTokenIdx - overlap) : endTokenIdx;
             chunkIndex++;
         }
 
