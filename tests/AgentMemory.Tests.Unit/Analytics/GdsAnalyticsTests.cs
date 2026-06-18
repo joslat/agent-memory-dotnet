@@ -4,12 +4,59 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Analytics;
 using AgentMemory.Neo4j.Infrastructure;
+using Neo4j.Driver;
 using NSubstitute;
 
 namespace AgentMemory.Tests.Unit.Analytics;
 
 public sealed class GdsAnalyticsTests
 {
+    // ── GdsAvailability: definitive vs transient probe caching ───────────────
+
+    [Fact]
+    public async Task GdsAvailability_TransientProbeFailure_IsNotCached_AndReprobes()
+    {
+        var tx = Substitute.For<INeo4jTransactionRunner>();
+        var calls = 0;
+        tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string>>>(), Arg.Any<CancellationToken>())
+          .Returns(_ => ++calls == 1
+              ? throw new ServiceUnavailableException("connection blip")
+              : Task.FromResult("2.5.0"));
+        var sut = new GdsAvailability(tx, NullLogger<GdsAvailability>.Instance);
+
+        (await sut.IsAvailableAsync()).Should().BeFalse("a transient probe failure degrades to unavailable");
+        (await sut.IsAvailableAsync()).Should().BeTrue("the transient failure was not cached, so it re-probes and recovers");
+        calls.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GdsAvailability_NotInstalled_IsCached_AfterOneProbe()
+    {
+        var tx = Substitute.For<INeo4jTransactionRunner>();
+        var calls = 0;
+        tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string>>>(), Arg.Any<CancellationToken>())
+          .Returns<Task<string>>(_ => { calls++; throw new ClientException("Unknown function 'gds.version'"); });
+        var sut = new GdsAvailability(tx, NullLogger<GdsAvailability>.Instance);
+
+        (await sut.IsAvailableAsync()).Should().BeFalse();
+        (await sut.IsAvailableAsync()).Should().BeFalse();
+        calls.Should().Be(1, "a genuine not-installed result is a stable answer and is memoized");
+    }
+
+    [Fact]
+    public async Task GdsAvailability_Available_IsCached_AndReturnsTrue()
+    {
+        var tx = Substitute.For<INeo4jTransactionRunner>();
+        var calls = 0;
+        tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string>>>(), Arg.Any<CancellationToken>())
+          .Returns(_ => { calls++; return Task.FromResult("2.5.0"); });
+        var sut = new GdsAvailability(tx, NullLogger<GdsAvailability>.Instance);
+
+        (await sut.IsAvailableAsync()).Should().BeTrue();
+        (await sut.IsAvailableAsync()).Should().BeTrue();
+        calls.Should().Be(1, "a present result is memoized for the process lifetime");
+    }
+
     // ── Projection Cypher shape (owner isolation) ────────────────────────────
 
     [Fact]
