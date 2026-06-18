@@ -251,6 +251,29 @@ public sealed class CompositeEntityResolverTests
     }
 
     [Fact]
+    public async Task ResolveEntityAsync_AutoMergeDisabled_DoesNotMerge_FallsThroughToSameAs()
+    {
+        // Same high-confidence match as above, but with EnableAutoMerge=false: the destructive alias-merge
+        // (a re-embed + Upsert that folds the candidate into the existing entity) must be suppressed; the
+        // match falls through to the SAME_AS band, which returns the existing entity unmodified.
+        var existing = new[] { MakeEntity("e1", "Alice Smith", aliases: "Ally Smith") };
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+
+        var sut = CreateSut(new ExtractionOptions
+        {
+            EnableAutoMerge = false,
+            AutoMergeThreshold = 0.95,
+            SameAsThreshold = 0.85
+        });
+
+        var result = await sut.ResolveEntityAsync(MakeCandidate("Ally Smith"), Array.Empty<string>());
+
+        await _entityRepo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+        result.EntityId.Should().Be("e1"); // existing entity returned, not folded/mutated
+    }
+
+    [Fact]
     public async Task ResolveEntityAsync_ConfidenceInSameAsRange_ReturnsExistingWithoutUpsert()
     {
         // Fuzzy score for "John Smith Jr" vs "John Smith" should be in SameAs range
