@@ -592,6 +592,43 @@ public sealed class ExtractionStageTests
         result.ResolvedEntityMap.Should().NotContainKey("BadEntity");
     }
 
+    [Fact]
+    public async Task ExtractAsync_ResolutionCancelled_PropagatesOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice"), MakeEntity("Bob") });
+        var sut = CreateSut(entityExtractors: new[] { ext });
+
+        // Simulate in-flight Neo4j/embedding I/O observing caller cancellation: cancel then throw OCE.
+        _resolver
+            .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Entity>>(_ => { cts.Cancel(); throw new OperationCanceledException(cts.Token); });
+
+        await FluentActions.Awaiting(() => sut.ExtractAsync(TestMessages, ExtractionTypes.All, scope: null, cancellationToken: cts.Token))
+            .Should().ThrowAsync<OperationCanceledException>("caller cancellation must propagate, not be masked as a per-entity error");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ResolutionThrowsOceOnNonCancelledToken_StillLogsAndContinues()
+    {
+        // The `when (IsCancellationRequested)` filter must not over-catch: an OCE on a token the caller did
+        // NOT cancel (e.g. an inner timeout) is a per-entity failure — log and continue, don't propagate.
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice"), MakeEntity("BadEntity") });
+        var sut = CreateSut(entityExtractors: new[] { ext });
+        _resolver
+            .ResolveEntityAsync(Arg.Is<ExtractedEntity>(e => e.Name == "BadEntity"), Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("inner timeout, caller token not cancelled"));
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All); // caller token never cancelled
+
+        result.ResolvedEntityMap.Should().ContainKey("Alice");
+        result.ResolvedEntityMap.Should().NotContainKey("BadEntity");
+    }
+
     // ── Confidence filtering on relationships ──
 
     [Fact]
