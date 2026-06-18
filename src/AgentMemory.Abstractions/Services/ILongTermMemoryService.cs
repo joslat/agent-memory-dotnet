@@ -23,7 +23,9 @@ namespace AgentMemory.Abstractions.Services;
 public interface ILongTermMemoryService
 {
     /// <summary>
-    /// Adds or updates an entity.
+    /// Adds or updates an entity. When the entity's <c>Confidence</c> is below
+    /// <c>LongTermMemoryOptions.MinConfidenceThreshold</c> the add is skipped (not persisted) and the
+    /// supplied entity is returned unchanged.
     /// </summary>
     Task<Entity> AddEntityAsync(
         Entity entity,
@@ -64,7 +66,9 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Adds or updates a preference.
+    /// Adds or updates a preference. When the preference's <c>Confidence</c> is below
+    /// <c>LongTermMemoryOptions.MinConfidenceThreshold</c> the add is skipped (not persisted) and the
+    /// supplied preference is returned unchanged.
     /// </summary>
     Task<Preference> AddPreferenceAsync(
         Preference preference,
@@ -89,7 +93,9 @@ public interface ILongTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Adds or updates a fact.
+    /// Adds or updates a fact. When the fact's <c>Confidence</c> is below
+    /// <c>LongTermMemoryOptions.MinConfidenceThreshold</c> the add is skipped (not persisted) and the
+    /// supplied fact is returned unchanged.
     /// </summary>
     Task<Fact> AddFactAsync(
         Fact fact,

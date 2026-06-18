@@ -360,6 +360,60 @@ public sealed class LongTermMemoryServiceTests
         result.PreferenceId.Should().Be("p-existing");
     }
 
+    // ---- MinConfidenceThreshold gating ----
+
+    [Fact]
+    public async Task AddEntityAsync_BelowMinConfidence_NotPersisted_ReturnsItem()
+    {
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { MinConfidenceThreshold = 0.7 }));
+        var entity = CreateEntity("e-low") with { Confidence = 0.6 };
+
+        var result = await sut.AddEntityAsync(entity);
+
+        await _entityRepo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        result.Should().BeSameAs(entity);
+    }
+
+    [Fact]
+    public async Task AddEntityAsync_AtMinConfidence_IsPersisted()
+    {
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { MinConfidenceThreshold = 0.7 }));
+        var entity = CreateEntity("e-boundary") with { Confidence = 0.7 };
+
+        await sut.AddEntityAsync(entity);
+
+        await _entityRepo.Received(1).UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddFactAsync_BelowMinConfidence_NotPersisted_AndSkipsDuplicateLookup()
+    {
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { MinConfidenceThreshold = 0.7 }));
+        var fact = CreateFact("f-low") with { Confidence = 0.6 };
+
+        var result = await sut.AddFactAsync(fact);
+
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        await _factRepo.DidNotReceive().FindDuplicateAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        result.Should().BeSameAs(fact);
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_BelowMinConfidence_NotPersisted_AndSkipsDuplicateLookup()
+    {
+        var sut = CreateSut(Options.Create(new LongTermMemoryOptions { MinConfidenceThreshold = 0.7 }));
+        var pref = CreatePreference("p-low") with { Confidence = 0.6 };
+
+        var result = await sut.AddPreferenceAsync(pref);
+
+        await _prefRepo.DidNotReceive().UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
+        await _prefRepo.DidNotReceive().FindDuplicateAsync(
+            Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+        result.Should().BeSameAs(pref);
+    }
+
     // ---- Helpers ----
 
     private static Entity CreateEntity(string id, bool withEmbedding = false) => new()

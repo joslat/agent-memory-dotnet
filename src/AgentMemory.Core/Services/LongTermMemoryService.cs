@@ -75,6 +75,15 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
+
+        if (entity.Confidence < _options.MinConfidenceThreshold)
+        {
+            _logger.LogDebug(
+                "Skipping entity '{Id}' — confidence {Confidence} below LongTerm.MinConfidenceThreshold {Threshold}; not persisted.",
+                entity.EntityId, entity.Confidence, _options.MinConfidenceThreshold);
+            return Task.FromResult(entity);
+        }
+
         return EnsureEmbeddingThenUpsertAsync(
             entity,
             shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
@@ -117,6 +126,14 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preference);
+
+        if (preference.Confidence < _options.MinConfidenceThreshold)
+        {
+            _logger.LogDebug(
+                "Skipping preference '{Id}' — confidence {Confidence} below LongTerm.MinConfidenceThreshold {Threshold}; not persisted.",
+                preference.PreferenceId, preference.Confidence, _options.MinConfidenceThreshold);
+            return preference;
+        }
 
         var embedding = preference.Embedding;
         if (_options.GeneratePreferenceEmbeddings && embedding is null)
@@ -172,6 +189,14 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(fact);
+
+        if (fact.Confidence < _options.MinConfidenceThreshold)
+        {
+            _logger.LogDebug(
+                "Skipping fact '{Id}' ({S} {P} {O}) — confidence {Confidence} below LongTerm.MinConfidenceThreshold {Threshold}; not persisted.",
+                fact.FactId, fact.Subject, fact.Predicate, fact.Object, fact.Confidence, _options.MinConfidenceThreshold);
+            return fact;
+        }
 
         var embedding = fact.Embedding;
         if (_options.GenerateFactEmbeddings && embedding is null)
