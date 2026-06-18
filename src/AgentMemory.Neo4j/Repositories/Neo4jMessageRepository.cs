@@ -202,6 +202,9 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         Dictionary<string, object>? metadataFilters = null,
         CancellationToken cancellationToken = default)
     {
+        // Boundary invariant: a zero-dimension (empty/degraded) query embedding has no semantic signal and
+        // would throw a dimension mismatch at db.index.vector.queryNodes — short-circuit to an empty result.
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Message, double)>();
         _logger.LogDebug("Vector search messages, sessionId={SessionId}, limit={Limit}", sessionId, limit);
 
         var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
