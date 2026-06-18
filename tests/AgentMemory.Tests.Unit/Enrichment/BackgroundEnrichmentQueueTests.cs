@@ -270,6 +270,60 @@ public sealed class BackgroundEnrichmentQueueTests
     }
 
     [Fact]
+    public async Task EnqueueAsync_ProviderReturnsTransientRateLimitedThenSuccess_Retries()
+    {
+        // Providers signal transient failures by RETURNING a non-null Error/RateLimited result (not by
+        // throwing). The queue must treat that as a retryable failure, not a success.
+        var callCount = 0;
+        var upsertTcs = new TaskCompletionSource();
+        var service = Substitute.For<IEnrichmentService>();
+        service.EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(_ => Interlocked.Increment(ref callCount) == 1
+                   ? Task.FromResult<EnrichmentResult?>(new EnrichmentResult { EntityName = "Entity-e1", Provider = "Test", Status = EnrichmentStatus.RateLimited })
+                   : Task.FromResult<EnrichmentResult?>(CreateResult("Entity-e1")));
+
+        var repo = CreateRepo("e1");
+        repo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(ci => { upsertTcs.TrySetResult(); return Task.FromResult(ci.Arg<Entity>()); });
+        var opts = new EnrichmentQueueOptions { MaxRetries = 2, RetryDelay = TimeSpan.Zero };
+        await using var sut = CreateSut(service, repo, opts);
+
+        await sut.EnqueueAsync("e1");
+
+        await upsertTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        callCount.Should().BeGreaterThanOrEqualTo(2, "a non-null RateLimited result is a transient failure that must be retried");
+        await repo.Received(1).UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_ProviderReturnsTerminalNotFound_DoesNotRetryOrUpsert()
+    {
+        // NotFound (and Skipped) are terminal — the entity is genuinely un-enrichable, so the queue must
+        // NOT retry (and must not loop) and must not perform a no-op upsert.
+        var callCount = 0;
+        var doneTcs = new TaskCompletionSource();
+        var service = Substitute.For<IEnrichmentService>();
+        service.EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(_ =>
+               {
+                   Interlocked.Increment(ref callCount);
+                   doneTcs.TrySetResult();
+                   return Task.FromResult<EnrichmentResult?>(new EnrichmentResult { EntityName = "Entity-e1", Provider = "Test", Status = EnrichmentStatus.NotFound });
+               });
+
+        var repo = CreateRepo("e1");
+        var opts = new EnrichmentQueueOptions { MaxRetries = 2, RetryDelay = TimeSpan.Zero };
+        await using var sut = CreateSut(service, repo, opts);
+
+        await sut.EnqueueAsync("e1");
+
+        await doneTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(150); // give any erroneous retry a chance to fire
+        callCount.Should().Be(1, "NotFound is terminal — it must not retry");
+        await repo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task EnqueueAsync_MaxRetriesExceeded_ItemDropped()
     {
         var callCount = 0;

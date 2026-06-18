@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Domain.Enrichment;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -118,13 +119,20 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
 
         var updated = entity;
         bool anySuccess = false;
+        // Providers signal TRANSIENT failures (HTTP 429/5xx) by RETURNING a non-null Error/RateLimited
+        // result, not by throwing — so success cannot be inferred from `result is not null`. Track whether
+        // anything is worth retrying separately, otherwise a rate-limit/server-error is silently treated as
+        // a successful enrichment and the entity is never retried.
+        bool anyRetryable = false;
 
         foreach (var service in _enrichmentServices)
         {
             try
             {
                 var result = await service.EnrichEntityAsync(entity.Name, entity.Type, ct).ConfigureAwait(false);
-                if (result is not null)
+                var status = result?.Status;
+
+                if (result is not null && status is null or EnrichmentStatus.Success)
                 {
                     updated = updated with
                     {
@@ -133,10 +141,19 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
                     anySuccess = true;
                     _logger.LogDebug("Enriched entity {EntityId} via {Provider}", entity.EntityId, result.Provider);
                 }
+                else if (result is null || status is EnrichmentStatus.Error or EnrichmentStatus.RateLimited)
+                {
+                    // Transient: worth a retry. (NotFound / Skipped are terminal — neither success nor retry.)
+                    anyRetryable = true;
+                    _logger.LogDebug(
+                        "Enrichment provider {Provider} returned a transient {Status} for entity {EntityId}",
+                        service.GetType().Name, status, entity.EntityId);
+                }
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
+                anyRetryable = true;
                 _logger.LogError(ex, "Enrichment provider {Provider} failed for entity {EntityId}",
                     service.GetType().Name, entity.EntityId);
             }
@@ -148,7 +165,9 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
             return;
         }
 
-        if (item.RetryCount < _options.MaxRetries)
+        // Nothing succeeded. Only retry on a TRANSIENT failure; if every provider returned a terminal
+        // NotFound/Skipped (the entity is genuinely un-enrichable), do not loop — just stop.
+        if (anyRetryable && item.RetryCount < _options.MaxRetries)
         {
             _logger.LogWarning(
                 "All enrichment providers failed for entity {EntityId}; scheduling retry {Attempt}/{Max}",
