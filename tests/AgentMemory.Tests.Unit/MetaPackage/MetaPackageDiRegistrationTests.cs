@@ -190,11 +190,18 @@ public sealed class MetaPackageDiRegistrationTests
     [Fact]
     public void AddNeo4jAgentMemory_RegistersLlmExtractors()
     {
+        // Assert the IMPLEMENTATION type, not just service-type presence: the Core stubs are registered
+        // (TryAdd) before AddLlmExtraction runs, so a presence-only check passes even when the stub wins.
+        // This guards the regression where TryAdd in AddLlmExtraction left LLM extraction silently inert.
         var services = BuildServices();
-        services.Should().Contain(d => d.ServiceType == typeof(IEntityExtractor));
-        services.Should().Contain(d => d.ServiceType == typeof(IFactExtractor));
-        services.Should().Contain(d => d.ServiceType == typeof(IPreferenceExtractor));
-        services.Should().Contain(d => d.ServiceType == typeof(IRelationshipExtractor));
+        services.Should().Contain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(LlmEntityExtractor));
+        services.Should().Contain(d => d.ServiceType == typeof(IFactExtractor) && d.ImplementationType == typeof(LlmFactExtractor));
+        services.Should().Contain(d => d.ServiceType == typeof(IPreferenceExtractor) && d.ImplementationType == typeof(LlmPreferenceExtractor));
+        services.Should().Contain(d => d.ServiceType == typeof(IRelationshipExtractor) && d.ImplementationType == typeof(LlmRelationshipExtractor));
+
+        // The stub must NOT remain registered: Replace removed it, so the IEnumerable<IEntityExtractor>
+        // the ExtractionStage receives contains only the real extractor, not the empty-returning stub.
+        services.Should().NotContain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(AgentMemory.Core.Stubs.StubEntityExtractor));
     }
 
     [Fact]

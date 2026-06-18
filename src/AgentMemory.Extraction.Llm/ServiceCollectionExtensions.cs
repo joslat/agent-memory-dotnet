@@ -24,10 +24,15 @@ public static class ServiceCollectionExtensions
             .Validate(o => o.MaxRetries >= 0, "LlmExtraction MaxRetries must be non-negative.")
             .ValidateOnStart();
 
-        services.TryAddScoped<IEntityExtractor, LlmEntityExtractor>();
-        services.TryAddScoped<IFactExtractor, LlmFactExtractor>();
-        services.TryAddScoped<IPreferenceExtractor, LlmPreferenceExtractor>();
-        services.TryAddScoped<IRelationshipExtractor, LlmRelationshipExtractor>();
+        // Replace (not TryAdd) so the real extractors authoritatively override the Core no-op stub
+        // extractors — AddAgentMemoryCore registers StubEntityExtractor et al. via TryAddScoped FIRST
+        // (the meta package calls AddAgentMemoryCore before AddLlmExtraction), so a TryAdd here would be a
+        // silent no-op and leave LLM extraction inert. This mirrors how the Neo4j package Replaces the
+        // Core portable IMemoryDecayService no-op. Replace also works standalone (adds when none present).
+        services.Replace(ServiceDescriptor.Scoped<IEntityExtractor, LlmEntityExtractor>());
+        services.Replace(ServiceDescriptor.Scoped<IFactExtractor, LlmFactExtractor>());
+        services.Replace(ServiceDescriptor.Scoped<IPreferenceExtractor, LlmPreferenceExtractor>());
+        services.Replace(ServiceDescriptor.Scoped<IRelationshipExtractor, LlmRelationshipExtractor>());
 
         return services;
     }
