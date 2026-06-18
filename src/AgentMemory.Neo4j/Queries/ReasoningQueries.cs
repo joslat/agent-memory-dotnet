@@ -68,6 +68,30 @@ public static class ReasoningQueries
         DETACH DELETE t, s";
 
     /// <summary>
+    /// Retention prune (H): keep the newest <c>$keep</c> traces for a session (optionally R1-scoped to an
+    /// owner) and delete the older ones together with their child ReasoningStep nodes. Returns the number
+    /// of traces pruned. Ordering is by <c>started_at</c> DESC, so the just-added trace (newest) is always
+    /// retained. (A method, not a const, so it is excluded from the Cypher snapshot inventory — like the
+    /// other owner-parameterized builders here.)
+    /// </summary>
+    public static string PruneSessionTraces(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (t.owner_id = $ownerId OR t.owner_id IS NULL)"
+                            : " AND t.owner_id = $ownerId";
+        return @"
+            MATCH (t:ReasoningTrace {session_id: $sessionId})
+            WHERE true" + owner + @"
+            WITH t ORDER BY t.started_at DESC
+            SKIP $keep
+            OPTIONAL MATCH (t)-[:HAS_STEP]->(s:ReasoningStep)
+            WITH collect(DISTINCT t) AS traces, collect(DISTINCT s) AS steps, count(DISTINCT t) AS pruned
+            FOREACH (x IN traces | DETACH DELETE x)
+            FOREACH (x IN steps  | DETACH DELETE x)
+            RETURN pruned";
+    }
+
+    /// <summary>
     /// Vector similarity search over ReasoningTrace task embeddings, with an optional success filter
     /// and an optional owner/shared filter (R1). When scoped, over-fetches <paramref name="topK"/>
     /// candidates then LIMITs to <c>$limit</c> after filtering, so the owner filter is never starved

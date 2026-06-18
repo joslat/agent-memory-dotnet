@@ -46,8 +46,9 @@ public sealed class ReasoningMemoryServiceTests
             .Returns(ci => Task.FromResult(ci.Arg<ToolCall>()));
     }
 
-    private ReasoningMemoryService CreateSut() =>
+    private ReasoningMemoryService CreateSut(ReasoningMemoryOptions? options = null) =>
         new(_traceRepo, _stepRepo, _toolCallRepo, _clock, _idGenerator,
+            Microsoft.Extensions.Options.Options.Create(options ?? new ReasoningMemoryOptions()),
             NullLogger<ReasoningMemoryService>.Instance);
 
     [Fact]
@@ -71,6 +72,64 @@ public sealed class ReasoningMemoryServiceTests
         var result = await sut.StartTraceAsync("session-1", "Test task");
 
         result.StartedAtUtc.Should().Be(_fixedTime);
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_NoMaxTracesConfigured_DoesNotPrune()
+    {
+        var sut = CreateSut(); // MaxTracesPerSession = null (default)
+
+        await sut.StartTraceAsync("session-1", "Test task");
+
+        await _traceRepo.DidNotReceive().PruneSessionTracesAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_MaxTracesConfigured_PrunesUnscopedWhenNoOwner()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 5 });
+
+        await sut.StartTraceAsync("session-1", "Test task");
+
+        await _traceRepo.Received(1).PruneSessionTracesAsync(
+            "session-1", 5, null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_MaxTracesConfiguredWithOwner_PrunesOwnerScopedOwnOnly()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 3 });
+
+        await sut.StartTraceAsync("session-1", "Test task", ownerId: "alice");
+
+        await _traceRepo.Received(1).PruneSessionTracesAsync(
+            "session-1", 3,
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice" && s.IncludeShared == false),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_MaxTracesZeroOrNegative_DoesNotPrune()
+    {
+        var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 0 });
+
+        await sut.StartTraceAsync("session-1", "Test task");
+
+        await _traceRepo.DidNotReceive().PruneSessionTracesAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_PruneFailure_DoesNotFailStartTrace()
+    {
+        _traceRepo.PruneSessionTracesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<int>>(_ => throw new InvalidOperationException("boom"));
+        var sut = CreateSut(new ReasoningMemoryOptions { MaxTracesPerSession = 2 });
+
+        var result = await sut.StartTraceAsync("session-1", "Test task");
+
+        result.SessionId.Should().Be("session-1"); // trace still returned despite prune failure
     }
 
     [Fact]

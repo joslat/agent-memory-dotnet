@@ -221,6 +221,29 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
+    public async Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Pruning reasoning traces for session {SessionId} to newest {Keep}, owner={Owner}",
+            sessionId, maxToKeep, scope?.OwnerId);
+
+        var cypher = ReasoningQueries.PruneSessionTraces(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object>
+        {
+            ["sessionId"] = sessionId,
+            ["keep"] = maxToKeep
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters);
+            var record = await cursor.SingleAsync();
+            return record["pruned"].As<int>();
+        }, cancellationToken);
+    }
+
     private static ReasoningTrace MapToTrace(INode node, float[]? taskEmbedding) =>
         new()
         {
