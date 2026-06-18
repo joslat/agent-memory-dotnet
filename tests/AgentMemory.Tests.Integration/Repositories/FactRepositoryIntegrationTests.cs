@@ -105,6 +105,68 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
         });
 
     [Fact]
+    public async Task UpsertAsync_ReAssertSupersededTriple_RestoresToLiveRecall_KeepsValidUntil()
+    {
+        // R5 HIGH: re-asserting a previously superseded triple is a present-time positive assertion; it must
+        // become visible to live recall again. Before the fix, the triple-MERGE re-matched the dead node but
+        // ON MATCH never cleared invalidated_at, so the fact stayed permanently invisible (write vanished).
+        var idA = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = idA, Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.9, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow });
+        var idB = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = idB, Subject = "Alice", Predicate = "lives_in", Object = "London", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        (await _repo.SupersedeAsync(idA, idB, scope: null)).Should().BeTrue();
+        (await _repo.SearchByVectorAsync(QueryEmbedding, limit: 5)).Select(r => r.Fact.FactId)
+            .Should().NotContain(idA, "a superseded fact is invisible to live recall");
+
+        // Re-assert the SAME triple (fresh id, no explicit ValidUntil) WITH an embedding.
+        await _repo.UpsertAsync(new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.95, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        (await _repo.SearchByVectorAsync(QueryEmbedding, limit: 5)).Select(r => r.Fact.FactId)
+            .Should().Contain(idA, "re-asserting the triple must clear invalidated_at and restore the fact to live recall");
+        (await HasValidUntilAsync(idA)).Should().BeTrue(
+            "the fix clears only the transaction clock (invalidated_at); the valid-time clock (valid_until) stays as supersession stamped it");
+    }
+
+    [Fact]
+    public async Task UpsertAsync_ReExtractSameTriple_WritesEmbeddingAndProvenance_OnMergedNodeId()
+    {
+        // R5 MED: the triple-MERGE keeps the original node id, but the embedding + EXTRACTED_FROM sub-writes
+        // were keyed on the discarded caller id, so on re-extraction they targeted a non-existent node and
+        // the new embedding/provenance was silently lost. They must follow the merged node id.
+        var convRepo = new Neo4jConversationRepository(_fixture.TransactionRunner, NullLogger<Neo4jConversationRepository>.Instance);
+        var msgRepo = new Neo4jMessageRepository(_fixture.TransactionRunner, NullLogger<Neo4jMessageRepository>.Instance);
+        var conv = new Conversation { ConversationId = $"conv-{Guid.NewGuid():N}", SessionId = $"session-{Guid.NewGuid():N}", CreatedAtUtc = DateTimeOffset.UtcNow, UpdatedAtUtc = DateTimeOffset.UtcNow };
+        await convRepo.UpsertAsync(conv);
+        var msg = new Message { MessageId = $"msg-{Guid.NewGuid():N}", ConversationId = conv.ConversationId, SessionId = conv.SessionId, Role = "user", Content = "src", TimestampUtc = DateTimeOffset.UtcNow };
+        await msgRepo.AddAsync(msg);
+
+        // First extraction: degraded (no embedding, no sources).
+        var idA = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = idA, Subject = "Alice", Predicate = "works_at", Object = "Acme", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        // Re-extraction of the SAME triple (fresh id) now carrying a real embedding + a source message.
+        var idB = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = idB, Subject = "Alice", Predicate = "works_at", Object = "Acme", Confidence = 0.95, Embedding = TestEmbedding, SourceMessageIds = [msg.MessageId], CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        // Embedding landed on the surviving node (idA), so vector search finds it.
+        (await _repo.SearchByVectorAsync(QueryEmbedding, limit: 5)).Select(r => r.Fact.FactId)
+            .Should().Contain(idA, "the re-extracted embedding must be written to the merged node, not the discarded id");
+
+        // Provenance edge was created on the surviving node, not the orphan idB.
+        var edgeCount = await _fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                "MATCH (f:Fact {id: $fid})-[:EXTRACTED_FROM]->(m:Message {id: $mid}) RETURN count(*) AS c",
+                new { fid = idA, mid = msg.MessageId });
+            var record = await cursor.SingleAsync();
+            return global::Neo4j.Driver.ValueExtensions.As<long>(record["c"]);
+        });
+        edgeCount.Should().Be(1, "EXTRACTED_FROM provenance must be created on the merged node id");
+        (await _repo.GetByIdAsync(idB)).Should().BeNull("the discarded second id must never become a node");
+    }
+
+    [Fact]
     public async Task GetByIdAsync_ReturnsFact_WhenExists()
     {
         var fact = new Fact

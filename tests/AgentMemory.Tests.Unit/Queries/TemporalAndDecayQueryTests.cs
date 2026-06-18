@@ -20,6 +20,18 @@ public sealed class TemporalQueryTests
         query.Should().Contain(expectedFragment);
     }
 
+    // R5: re-asserting a fact triple (a present-time positive assertion) must clear the transaction clock so
+    // it returns to live recall, while preserving the independent valid-time clock (valid_until).
+    [Fact]
+    public void FactUpsert_OnMatch_ResetsInvalidatedAt_ButPreservesValidUntil()
+    {
+        var onMatch = FactQueries.Upsert[FactQueries.Upsert.IndexOf("ON MATCH SET", StringComparison.Ordinal)..];
+        onMatch.Should().Contain("f.invalidated_at     = null",
+            "re-asserting a triple must clear invalidated_at so the fact is visible to live recall again");
+        onMatch.Should().Contain("ELSE f.valid_until END",
+            "the valid-time clock must be preserved on a bare re-assert (only the transaction clock is reset)");
+    }
+
     // The scoped vector AsOf searches are now methods (IC5): they over-fetch + filter by owner.
     // They are bitemporal (D6): the transaction clock binds created_at/invalidated_at via $systemAsOf.
     [Fact]
