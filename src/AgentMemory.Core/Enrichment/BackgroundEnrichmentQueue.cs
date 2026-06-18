@@ -99,6 +99,20 @@ public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDis
                 {
                     await ProcessItemAsync(item, ct).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw; // shutdown — propagate to the outer catch and end the worker loop
+                }
+                catch (Exception ex)
+                {
+                    // A non-cancellation fault outside the per-provider try (e.g. a transient Neo4j error
+                    // from GetByIdAsync/UpsertAsync, or Task.Delay) must NOT kill the worker — otherwise the
+                    // only worker-level catch was for OCE, so the task faulted permanently and the entire
+                    // queue silently stopped processing all future items. Log and continue with the next.
+                    _logger.LogError(ex,
+                        "Background enrichment failed for entity {EntityId}; skipping and continuing.",
+                        item.EntityId);
+                }
                 finally
                 {
                     Interlocked.Decrement(ref _activeCount);
