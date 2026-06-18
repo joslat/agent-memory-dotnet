@@ -71,6 +71,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                         await _entityRepository.CreateExtractedFromRelationshipAsync(
                             entityToSave.EntityId, msgId, cancellationToken: cancellationToken);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex,
@@ -81,6 +82,7 @@ internal sealed class PersistenceStage : IPersistenceStage
 
                 _logger.LogDebug("Persisted entity '{Name}' (id={Id}).", entityToSave.Name, entityToSave.EntityId);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error persisting entity '{Name}'.", name);
@@ -120,6 +122,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                         await _factRepository.CreateExtractedFromRelationshipAsync(
                             fact.FactId, msgId, cancellationToken);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex,
@@ -131,6 +134,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 persistedFactCount++;
                 _logger.LogDebug("Persisted fact '{S} {P} {O}'.", fact.Subject, fact.Predicate, fact.Object);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
@@ -170,6 +174,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                         await _preferenceRepository.CreateExtractedFromRelationshipAsync(
                             preference.PreferenceId, msgId, cancellationToken);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex,
@@ -181,6 +186,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 persistedPrefCount++;
                 _logger.LogDebug("Persisted preference in category '{Category}'.", preference.Category);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error persisting preference '{Text}'.", extracted.PreferenceText);
@@ -230,6 +236,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     "Persisted relationship '{Src}-{Type}->{Tgt}'.",
                     extracted.SourceEntity, extracted.RelationshipType, extracted.TargetEntity);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
