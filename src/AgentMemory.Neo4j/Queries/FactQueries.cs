@@ -37,16 +37,22 @@ public static class FactQueries
 
     // ── UpsertBatchAsync ───────────────────────────────────────────────
 
-    /// <summary>Batch merge facts by id via UNWIND.</summary>
+    /// <summary>
+    /// Batch merge facts by the {subject, predicate, object, owner_key} triple via UNWIND — the SAME
+    /// idempotency key as the single-fact <see cref="Upsert"/> path, so both surfaces collapse duplicate
+    /// triples identically (R5 #10; previously this MERGEd on {id}, which let a re-extracted triple with a
+    /// fresh id create a second node). Like the single path: <c>id</c> is set ON CREATE only (a matched node
+    /// keeps its original primary key); subject/predicate/object/owner_id are immutable once set (they are
+    /// the merge key or a function of it); valid_from/valid_until are coalesced on ON MATCH (preserve
+    /// existing when incoming is null, so re-extraction never clears a supersession window); and
+    /// invalidated_at is reset on re-assert (a present-time positive assertion restores live recall).
+    /// </summary>
     public const string UpsertBatch = @"
             UNWIND $items AS item
-            MERGE (f:Fact {id: item.id})
+            MERGE (f:Fact {subject: item.subject, predicate: item.predicate, object: item.object, owner_key: item.owner_key})
             ON CREATE SET
-                f.subject            = item.subject,
-                f.predicate          = item.predicate,
-                f.object             = item.object,
+                f.id                 = item.id,
                 f.owner_id           = item.owner_id,
-                f.owner_key          = item.owner_key,
                 f.category           = item.category,
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
@@ -55,15 +61,14 @@ public static class FactQueries
                 f.created_at         = datetime(item.created_at),
                 f.metadata           = item.metadata
             ON MATCH SET
-                f.subject            = item.subject,
-                f.predicate          = item.predicate,
-                f.object             = item.object,
                 f.category           = item.category,
                 f.confidence         = item.confidence,
-                f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
-                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
+                f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
+                f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.source_message_ids = item.source_message_ids,
-                f.metadata           = item.metadata
+                f.updated_at         = datetime(item.updated_at),
+                f.metadata           = item.metadata,
+                f.invalidated_at     = null
             RETURN f";
 
     // ── GetByIdAsync ───────────────────────────────────────────────────

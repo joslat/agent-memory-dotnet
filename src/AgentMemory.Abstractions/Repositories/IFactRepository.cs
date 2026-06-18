@@ -45,7 +45,14 @@ public interface IFactRepository
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Adds or updates a batch of facts atomically.</summary>
+    /// <summary>
+    /// Adds or updates a batch of facts atomically. Facts are merged by their {subject, predicate, object}
+    /// triple scoped per owner — the same idempotency key as the single-fact upsert — so duplicate triples
+    /// (whether repeated within the batch or already in the store) collapse onto one node rather than
+    /// creating duplicates. The returned list is therefore deduplicated by triple: same-triple inputs are
+    /// folded to the last occurrence, and each returned fact carries the surviving node's stable id (the
+    /// first-created id, never a re-extraction's fresh id).
+    /// </summary>
     Task<IReadOnlyList<Fact>> UpsertBatchAsync(IReadOnlyList<Fact> facts, CancellationToken cancellationToken = default);
 
     /// <summary>Creates an EXTRACTED_FROM relationship from a fact to a source message.</summary>

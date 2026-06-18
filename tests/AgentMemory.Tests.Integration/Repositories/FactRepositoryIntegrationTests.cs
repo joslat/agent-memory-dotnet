@@ -244,6 +244,108 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
             .Which.Category.Should().Be("personal");
     }
 
+    // ── R5 #10: batch path collapses duplicate triples like the single path ──
+
+    private async Task<long> CountTripleAsync(string subject, string predicate, string @object) =>
+        await _fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                "MATCH (f:Fact {subject: $s, predicate: $p, object: $o}) RETURN count(f) AS c",
+                new { s = subject, p = predicate, o = @object });
+            var records = await cursor.ToListAsync();
+            return global::Neo4j.Driver.ValueExtensions.As<long>(records[0]["c"]);
+        });
+
+    [Fact]
+    public async Task UpsertBatchAsync_SameTripleDifferentIds_CollapsesToOneNode()
+    {
+        var subject = $"Subj-{Guid.NewGuid():N}";
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = subject, Predicate = "works_at", Object = "Neo4j", Confidence = 0.8, CreatedAtUtc = DateTimeOffset.UtcNow },
+            new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = subject, Predicate = "works_at", Object = "Neo4j", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        (await CountTripleAsync(subject, "works_at", "Neo4j")).Should().Be(1,
+            "the batch path must merge same-triple inputs onto one node, like the single path");
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_SameTripleDifferentOwners_ProducesDistinctNodes()
+    {
+        var subject = $"Subj-{Guid.NewGuid():N}";
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = subject, Predicate = "works_at", Object = "Neo4j", OwnerId = "alice", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
+            new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = subject, Predicate = "works_at", Object = "Neo4j", OwnerId = "bob",   Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
+            new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = subject, Predicate = "works_at", Object = "Neo4j", OwnerId = null,    Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        (await CountTripleAsync(subject, "works_at", "Neo4j")).Should().Be(3,
+            "owner_key keeps the same triple distinct per owner (and for shared/null), parity with the single path");
+    }
+
+    [Fact]
+    public async Task CrossPath_SingleThenBatch_SameTriple_NoDuplicate_KeepsOriginalId()
+    {
+        var subject = $"Subj-{Guid.NewGuid():N}";
+        var idA = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = idA, Subject = subject, Predicate = "works_at", Object = "Neo4j", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        // Re-extract the SAME triple via the BATCH surface with a fresh id.
+        var idB = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Fact { FactId = idB, Subject = subject, Predicate = "works_at", Object = "Neo4j", Confidence = 0.95, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        (await CountTripleAsync(subject, "works_at", "Neo4j")).Should().Be(1, "no duplicate across single+batch surfaces");
+        (await _repo.GetByIdAsync(idA)).Should().NotBeNull("the original node id must survive the batch re-upsert");
+        (await _repo.GetByIdAsync(idB)).Should().BeNull("the batch's fresh id must never become the node's id");
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_ReExtractSupersededTriple_DoesNotClearValidUntil()
+    {
+        // Mirror the single-path bitemporal test via the batch surface: the ON MATCH must COALESCE
+        // valid_until (preserve the supersession window), not overwrite it to null.
+        var loserId = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = loserId, Subject = "Carol", Predicate = "lives_in", Object = "Paris", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        var winnerId = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = winnerId, Subject = "Carol", Predicate = "lives_in", Object = "London", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        (await _repo.SupersedeAsync(loserId, winnerId, scope: null)).Should().BeTrue();
+        (await HasValidUntilAsync(loserId)).Should().BeTrue();
+
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = "Carol", Predicate = "lives_in", Object = "Paris", Confidence = 0.95, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        (await HasValidUntilAsync(loserId)).Should().BeTrue(
+            "re-extracting a superseded triple via the batch path must NOT clear the valid_until supersession stamped");
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_ReExtractWithEmbedding_LandsOnSurvivingNode_NotDiscardedId()
+    {
+        // The key R5-A-class proof for the batch path: when the triple already exists (id A, no vector),
+        // a batch re-upsert carrying a fresh id B AND a real embedding must write the vector onto node A —
+        // not the discarded id B. Keying the sub-write on the caller id would silently no-op here.
+        var subject = $"Subj-{Guid.NewGuid():N}";
+        var idA = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = idA, Subject = subject, Predicate = "works_at", Object = "Neo4j", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        var idB = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertBatchAsync(new[]
+        {
+            new Fact { FactId = idB, Subject = subject, Predicate = "works_at", Object = "Neo4j", Confidence = 0.95, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow },
+        });
+
+        var hits = await _repo.SearchByVectorAsync(QueryEmbedding, limit: 5);
+        hits.Select(h => h.Fact.FactId).Should().Contain(idA,
+            "the batch re-upsert's embedding must land on the surviving node so the fact becomes vector-searchable");
+    }
+
     [Fact]
     public async Task UpsertAsync_NullCategory_RoundTripsAsNull()
     {
