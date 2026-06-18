@@ -25,11 +25,10 @@ public static class FactQueries
                 f.created_at         = datetime($createdAtUtc),
                 f.metadata           = $metadata
             ON MATCH SET
-                f.id                 = $id,
                 f.category           = $category,
                 f.confidence         = $confidence,
-                f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE null END,
-                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
+                f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE f.valid_from END,
+                f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
                 f.source_message_ids = $sourceMessageIds,
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata

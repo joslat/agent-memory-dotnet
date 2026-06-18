@@ -52,6 +52,59 @@ public class FactRepositoryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpsertAsync_ReUpsertSameTriple_KeepsStableId_SoByIdHandleStillResolves()
+    {
+        var idA = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact
+        {
+            FactId = idA, Subject = "Alice", Predicate = "works_at", Object = "Acme",
+            Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        // Re-extract the SAME triple with a DIFFERENT freshly-generated id (the common re-extraction case).
+        var idB = $"fact-{Guid.NewGuid():N}";
+        var reUpserted = await _repo.UpsertAsync(new Fact
+        {
+            FactId = idB, Subject = "Alice", Predicate = "works_at", Object = "Acme",
+            Confidence = 0.95, CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        // The node must KEEP its original id; the triple MERGE must not rewrite the stable primary key.
+        reUpserted.FactId.Should().Be(idA, "re-upsert of the same triple must not clobber the stable id");
+        (await _repo.GetByIdAsync(idA)).Should().NotBeNull("the original id must still resolve after re-upsert");
+        (await _repo.GetByIdAsync(idB)).Should().BeNull("the discarded second id must never become the node's id");
+        // The by-id handle the caller holds must still work for invalidate.
+        (await _repo.InvalidateAsync(idA, scope: null)).Should().BeTrue("invalidate by the original id must succeed");
+    }
+
+    [Fact]
+    public async Task UpsertAsync_ReUpsertSupersededTriple_DoesNotClearValidUntil()
+    {
+        var loserId = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = loserId, Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+        var winnerId = $"fact-{Guid.NewGuid():N}";
+        await _repo.UpsertAsync(new Fact { FactId = winnerId, Subject = "Alice", Predicate = "lives_in", Object = "London", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        // Supersede stamps the loser's valid_until (closes its valid-time window).
+        (await _repo.SupersedeAsync(loserId, winnerId, scope: null)).Should().BeTrue();
+        (await HasValidUntilAsync(loserId)).Should().BeTrue("supersede must close the loser's valid-time window");
+
+        // Re-extract the loser's triple with NO explicit validUntil (the common extraction case).
+        await _repo.UpsertAsync(new Fact { FactId = $"fact-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "lives_in", Object = "Paris", Confidence = 0.95, CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        (await HasValidUntilAsync(loserId)).Should().BeTrue(
+            "re-extracting a superseded triple must NOT clear the valid_until that supersession stamped");
+    }
+
+    private async Task<bool> HasValidUntilAsync(string factId) =>
+        await _fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync("MATCH (f:Fact {id: $id}) RETURN f.valid_until IS NOT NULL AS hasVu", new { id = factId });
+            var records = await cursor.ToListAsync();
+            return records.Count > 0 && global::Neo4j.Driver.ValueExtensions.As<bool>(records[0]["hasVu"]);
+        });
+
+    [Fact]
     public async Task GetByIdAsync_ReturnsFact_WhenExists()
     {
         var fact = new Fact
