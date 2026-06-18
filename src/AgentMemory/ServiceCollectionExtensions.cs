@@ -40,7 +40,13 @@ public static class ServiceCollectionExtensions
 
         services.AddAgentMemoryCore(configureMemory);
         NeoInfra.ServiceCollectionExtensions.AddNeo4jAgentMemory(services, configureNeo4j, configureStore);
-        services.AddLlmExtraction(configureLlm);
+
+        // Only wire LLM-backed extraction when the caller OPTS IN (configureLlm provided). Otherwise the
+        // Core no-op stub extractors remain, so a memory-only consumer does not need to register an
+        // IChatClient just to resolve the extraction pipeline. When opted in, AddLlmExtraction
+        // authoritatively Replaces the stubs (a TryAdd would be a no-op since the stubs are registered first).
+        if (configureLlm is not null)
+            services.AddLlmExtraction(configureLlm);
 
         return services;
     }

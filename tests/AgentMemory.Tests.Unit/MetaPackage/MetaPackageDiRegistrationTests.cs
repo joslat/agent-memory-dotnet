@@ -188,12 +188,13 @@ public sealed class MetaPackageDiRegistrationTests
     }
 
     [Fact]
-    public void AddNeo4jAgentMemory_RegistersLlmExtractors()
+    public void AddNeo4jAgentMemory_WithConfigureLlm_RegistersLlmExtractorsOverStubs()
     {
-        // Assert the IMPLEMENTATION type, not just service-type presence: the Core stubs are registered
-        // (TryAdd) before AddLlmExtraction runs, so a presence-only check passes even when the stub wins.
-        // This guards the regression where TryAdd in AddLlmExtraction left LLM extraction silently inert.
-        var services = BuildServices();
+        // Opt in to LLM extraction (configureLlm provided). Assert the IMPLEMENTATION type, not just
+        // service-type presence: the Core stubs are registered (TryAdd) before AddLlmExtraction runs, so a
+        // presence-only check passes even when the stub wins. This guards the regression where TryAdd in
+        // AddLlmExtraction left LLM extraction silently inert (the stub winning).
+        var services = BuildServices(configureLlm: _ => { });
         services.Should().Contain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(LlmEntityExtractor));
         services.Should().Contain(d => d.ServiceType == typeof(IFactExtractor) && d.ImplementationType == typeof(LlmFactExtractor));
         services.Should().Contain(d => d.ServiceType == typeof(IPreferenceExtractor) && d.ImplementationType == typeof(LlmPreferenceExtractor));
@@ -202,6 +203,17 @@ public sealed class MetaPackageDiRegistrationTests
         // The stub must NOT remain registered: Replace removed it, so the IEnumerable<IEntityExtractor>
         // the ExtractionStage receives contains only the real extractor, not the empty-returning stub.
         services.Should().NotContain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(AgentMemory.Core.Stubs.StubEntityExtractor));
+    }
+
+    [Fact]
+    public void AddNeo4jAgentMemory_WithoutConfigureLlm_KeepsStubExtractors_SoNoChatClientIsRequired()
+    {
+        // Memory-only consumers (no configureLlm) must NOT get the LLM extractors wired — those require an
+        // IChatClient, which a memory-only consumer never registers. The Core no-op stubs stay, so the
+        // extraction pipeline resolves without an IChatClient.
+        var services = BuildServices();
+        services.Should().Contain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(AgentMemory.Core.Stubs.StubEntityExtractor));
+        services.Should().NotContain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(LlmEntityExtractor));
     }
 
     [Fact]
