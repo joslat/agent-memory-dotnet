@@ -23,8 +23,10 @@ public sealed record MemoryOptions
     /// <summary>Whether to enable GraphRAG integration.</summary>
     public bool EnableGraphRag { get; init; }
 
-    /// <summary>Whether to enable automatic extraction after message save.</summary>
-    public bool EnableAutoExtraction { get; init; } = true;
+    // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
+    // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
+    // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read
+    // nowhere (Core AddMessageAsync never auto-extracted), so it was removed.
 
     /// <summary>Extraction pipeline configuration.</summary>
     public ExtractionOptions Extraction { get; init; } = new();

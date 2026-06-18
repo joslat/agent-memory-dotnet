@@ -31,12 +31,6 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
-    public void MemoryOptions_Default_EnableAutoExtractionIsTrue()
-    {
-        new MemoryOptions().EnableAutoExtraction.Should().BeTrue();
-    }
-
-    [Fact]
     public void MemoryOptions_Default_EnableGraphRagIsFalse()
     {
         new MemoryOptions().EnableGraphRag.Should().BeFalse();
@@ -121,12 +115,6 @@ public sealed class ConfigurationValidationTests
     {
         var o = new LongTermMemoryOptions();
         o.MinConfidenceThreshold.Should().BeGreaterThanOrEqualTo(0.0).And.BeLessThanOrEqualTo(1.0);
-    }
-
-    [Fact]
-    public void LongTermMemoryOptions_Default_EnableEntityResolutionIsTrue()
-    {
-        new LongTermMemoryOptions().EnableEntityResolution.Should().BeTrue();
     }
 
     [Fact]

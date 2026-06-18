@@ -27,13 +27,6 @@ public class LongTermMemoryOptionsTests
     }
 
     [Fact]
-    public void Default_EnableEntityResolutionIsTrue()
-    {
-        var options = new LongTermMemoryOptions();
-        options.EnableEntityResolution.Should().BeTrue();
-    }
-
-    [Fact]
     public void Default_MinConfidenceThresholdIs050()
     {
         var options = new LongTermMemoryOptions();
@@ -47,10 +40,4 @@ public class LongTermMemoryOptionsTests
         options.MinConfidenceThreshold.Should().BeInRange(0.0, 1.0);
     }
 
-    [Fact]
-    public void WithInit_CanDisableEntityResolution()
-    {
-        var options = new LongTermMemoryOptions { EnableEntityResolution = false };
-        options.EnableEntityResolution.Should().BeFalse();
-    }
 }
