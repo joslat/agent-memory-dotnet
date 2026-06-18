@@ -85,7 +85,11 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IOptions<MemoryOptions>>(),
             sp.GetRequiredService<ILogger<MemoryContextAssembler>>(),
-            rankingContext: null,
+            // Hand the assembler the SAME AsyncLocal ranking context the long-term repositories read
+            // (registered above as both IMemoryRankingContext and IWritableMemoryRankingContext). Without
+            // this the assembler can never publish the D3 per-request query intent, so RecallOptions.Intent
+            // (Latest/Analog) is silently inert in every DI-wired deployment.
+            rankingContext: sp.GetService<IWritableMemoryRankingContext>(),
             truncationStrategies: sp.GetServices<ITruncationStrategy>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
 

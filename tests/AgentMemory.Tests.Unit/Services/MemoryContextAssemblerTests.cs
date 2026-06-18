@@ -547,6 +547,32 @@ public sealed class MemoryContextAssemblerTests
         result.RelevantEntities.Items.Should().HaveCount(1);
     }
 
+    [Fact]
+    public async Task AssembleContextAsOfAsync_EmptyEmbedding_SkipsVectorSearches_InsteadOfThrowing()
+    {
+        // A blank query (or a transient embed failure) yields an empty vector; like the live path, the
+        // as-of path must skip the semantic searches rather than issue a zero-dimension vector query that
+        // the index rejects (which would throw instead of degrading to recent messages + empty sections).
+        _shortTerm
+            .GetRecentMessagesAsOfAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
+
+        var sut = CreateSut();
+
+        var result = await sut.AssembleContextAsOfAsync(
+            new RecallRequest { SessionId = "s", Query = "", QueryEmbedding = Array.Empty<float>() }, _fixedTime);
+
+        await _longTerm.DidNotReceive().SearchEntitiesAsOfAsync(
+            Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _longTerm.DidNotReceive().SearchFactsAsOfAsync(
+            Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>());
+        await _reasoning.DidNotReceive().SearchSimilarTracesAsOfAsync(
+            Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+
+        result.RelevantEntities.Items.Should().BeEmpty();
+        result.RelevantFacts.Items.Should().BeEmpty();
+    }
+
     // ---- Helpers ----
 
     private static Entity CreateEntity(string id, string name, DateTimeOffset createdAt) => new()
