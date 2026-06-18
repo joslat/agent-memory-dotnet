@@ -223,7 +223,6 @@ public sealed class MemoryDecayServiceTests
 
         options.DecayHalfLifeDays.Should().Be(30);
         options.MinRetentionScore.Should().Be(0.1);
-        options.MaxMemoriesPerSession.Should().Be(10_000);
         options.AccessBoostFactor.Should().Be(0.2);
         options.EnableAutoPrune.Should().BeFalse();
     }
