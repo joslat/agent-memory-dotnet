@@ -62,9 +62,10 @@ public interface IReasoningTraceRepository
     /// <summary>
     /// Enforces a per-session retention cap (H): keeps the newest <paramref name="maxToKeep"/> traces for
     /// the session and hard-deletes older traces together with their child ReasoningStep nodes. Returns the
-    /// number of traces pruned. When <paramref name="scope"/> carries an owner (R1), the prune only considers
-    /// that owner's traces — it never evicts another owner's (and, with <c>IncludeShared=false</c>, never
-    /// shared/global) traces. Ordering is newest-first, so a just-added trace is always retained.
+    /// number of traces pruned. This is a DESTRUCTIVE write, so it ALWAYS confines to exactly one R1 bucket:
+    /// when <paramref name="ownerId"/> is set, only that owner's own traces; when it is <c>null</c>, only the
+    /// shared/global bucket (<c>owner_id IS NULL</c>) — never another owner's traces, and never "all owners".
+    /// Ordering is newest-first, so a just-added trace is always retained.
     /// </summary>
-    Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+    Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, string? ownerId = null, CancellationToken cancellationToken = default);
 }

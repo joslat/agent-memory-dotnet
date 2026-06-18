@@ -68,17 +68,18 @@ public static class ReasoningQueries
         DETACH DELETE t, s";
 
     /// <summary>
-    /// Retention prune (H): keep the newest <c>$keep</c> traces for a session (optionally R1-scoped to an
-    /// owner) and delete the older ones together with their child ReasoningStep nodes. Returns the number
-    /// of traces pruned. Ordering is by <c>started_at</c> DESC, so the just-added trace (newest) is always
-    /// retained. (A method, not a const, so it is excluded from the Cypher snapshot inventory — like the
-    /// other owner-parameterized builders here.)
+    /// Retention prune (H): keep the newest <c>$keep</c> traces for a session and delete the older ones with
+    /// their child ReasoningStep nodes. Returns the number pruned. Ordering is by <c>started_at</c> DESC, so
+    /// the just-added trace (newest) is always retained. ALWAYS confines to exactly one R1 bucket — the
+    /// owner's own traces (<c>owner_id = $ownerId</c>), or, when <paramref name="ownerIsShared"/>, the
+    /// shared/global bucket only (<c>owner_id IS NULL</c>) — so this destructive write can never cross owners.
+    /// (A method, not a const, so it is excluded from the Cypher snapshot inventory.)
     /// </summary>
-    public static string PruneSessionTraces(bool hasOwnerFilter, bool includeShared)
+    public static string PruneSessionTraces(bool ownerIsShared)
     {
-        var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (t.owner_id = $ownerId OR t.owner_id IS NULL)"
-                            : " AND t.owner_id = $ownerId";
+        // A retention prune is a DESTRUCTIVE write keyed by a guessable session_id, so its owner clause must
+        // NEVER collapse to "all owners" (the #40 regression). It always confines to a single bucket.
+        var owner = ownerIsShared ? " AND t.owner_id IS NULL" : " AND t.owner_id = $ownerId";
         return @"
             MATCH (t:ReasoningTrace {session_id: $sessionId})
             WHERE true" + owner + @"
