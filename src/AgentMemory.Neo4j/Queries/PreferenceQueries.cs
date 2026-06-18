@@ -79,6 +79,7 @@ public static class PreferenceQueries
             CALL db.index.vector.queryNodes('preference_embedding_idx', {topK}, $embedding)
             YIELD node, score
             WHERE score >= $threshold
+              AND node.invalidated_at IS NULL
               AND node.category = $category
               AND {ownerClause}
             RETURN node, score

@@ -92,6 +92,7 @@ public static class FactQueries
             CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
             YIELD node, score
             WHERE score >= $threshold
+              AND node.invalidated_at IS NULL
               AND toLower(node.subject) = toLower($subject)
               AND toLower(node.predicate) = toLower($predicate)
               AND node.owner_key = $ownerKey
