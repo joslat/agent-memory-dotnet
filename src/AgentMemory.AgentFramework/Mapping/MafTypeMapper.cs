@@ -46,61 +46,77 @@ internal static class MafTypeMapper
         ContextFormatOptions? formatOptions = null)
     {
         var options = formatOptions ?? new ContextFormatOptions();
-        var messages = new List<ChatMessage>();
 
+        // Build chat messages and memory-derived system messages into SEPARATE buckets and budget them
+        // independently. The whole point of this provider is to inject long-term memory; appending memory
+        // AFTER chat and then Take(MaxContextMessages) put memory at the tail, so once a conversation had
+        // ~MaxContextMessages chat messages the memory blocks were the first dropped — silently injecting
+        // ZERO long-term memory. Memory items are now always kept; only the chat portion is truncated.
+
+        // Lead (always kept): optional prefix + graph context when it leads (GraphRagOnly/GraphRagThenMemory).
+        var lead = new List<ChatMessage>();
         if (!string.IsNullOrWhiteSpace(options.ContextPrefix))
-            messages.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
+            lead.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
 
-        // Blend policy (plan §12.5): GraphRagOnly / GraphRagThenMemory surface the graph context
-        // ahead of memory-derived context; all other modes append it last (see below).
         bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
         if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
-            messages.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
+            lead.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
 
-        // P2-7: Deduplicate across RecentMessages and RelevantMessages — a message may appear in both
-        // when it is both recent and semantically relevant. DistinctBy preserves insertion order
-        // (recent-first) while dropping subsequent duplicates.
-        var allMessages = context.RecentMessages.Items
+        // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
+        // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
+        var chatMessages = context.RecentMessages.Items
             .Concat(context.RelevantMessages.Items)
             .DistinctBy(m => m.MessageId)
+            .Select(ToChatMessage)
             .ToList();
-        foreach (var m in allMessages)
-            messages.Add(ToChatMessage(m));
 
+        // Memory-derived system messages (always kept).
+        var memory = new List<ChatMessage>();
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
         {
             var entityText = string.Join(", ", context.RelevantEntities.Items
                 .Select(e => string.IsNullOrEmpty(e.Description)
                     ? $"{e.Name} ({e.Type})"
                     : $"{e.Name} ({e.Type}): {e.Description}"));
-            messages.Add(new ChatMessage(ChatRole.System, $"Relevant entities: {entityText}"));
+            memory.Add(new ChatMessage(ChatRole.System, $"Relevant entities: {entityText}"));
         }
 
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
         {
             var factText = string.Join("; ", context.RelevantFacts.Items
                 .Select(f => $"{f.Subject} {f.Predicate} {f.Object}"));
-            messages.Add(new ChatMessage(ChatRole.System, $"Known facts: {factText}"));
+            memory.Add(new ChatMessage(ChatRole.System, $"Known facts: {factText}"));
         }
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
         {
             var prefText = string.Join("; ", context.RelevantPreferences.Items
                 .Select(p => p.PreferenceText));
-            messages.Add(new ChatMessage(ChatRole.System, $"User preferences: {prefText}"));
+            memory.Add(new ChatMessage(ChatRole.System, $"User preferences: {prefText}"));
         }
 
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
         {
             var traceText = string.Join("; ", context.SimilarTraces.Items
                 .Select(t => t.Task));
-            messages.Add(new ChatMessage(ChatRole.System, $"Similar past tasks: {traceText}"));
+            memory.Add(new ChatMessage(ChatRole.System, $"Similar past tasks: {traceText}"));
         }
 
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
-            messages.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
+            memory.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
 
-        return messages.Take(options.MaxContextMessages).ToList();
+        // Fill the budget left over after the always-kept lead + memory with the MOST RECENT chat
+        // messages. Order is preserved (lead → chat → memory), matching the original layout.
+        int chatBudget = Math.Max(0, options.MaxContextMessages - lead.Count - memory.Count);
+        var keptChat = chatMessages.Count > chatBudget
+            ? chatMessages.Skip(chatMessages.Count - chatBudget).ToList()
+            : chatMessages;
+
+        var result = new List<ChatMessage>(lead.Count + keptChat.Count + memory.Count);
+        result.AddRange(lead);
+        result.AddRange(keptChat);
+        result.AddRange(memory);
+        return result;
     }
 
     internal static string ToInternalRole(ChatRole role)
