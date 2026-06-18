@@ -49,6 +49,25 @@ public class DedupOnCreateIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task FindDuplicate_DoesNotMatchInvalidatedNodes_SoReAssertedKnowledgeIsNotLost()
+    {
+        // A soft-invalidated (decayed/superseded) node must NOT be a dedup target — otherwise re-asserting
+        // the same knowledge dedups onto the dead node (which stays invisible to live recall) and is
+        // silently lost instead of being re-created as a fresh live node.
+        var factId = $"f-{Guid.NewGuid():N}";
+        await _facts.UpsertAsync(new Fact { FactId = factId, Subject = "Alice", Predicate = "works_at", Object = "Acme", OwnerId = "alice", Confidence = 0.8, Embedding = E, CreatedAtUtc = DateTimeOffset.UtcNow });
+        (await _facts.InvalidateAsync(factId, scope: null)).Should().BeTrue();
+        (await _facts.FindDuplicateAsync("Alice", "works_at", E, "alice", threshold: 0.95))
+            .Should().BeNull("dedup must only match live facts, never a soft-invalidated one");
+
+        var prefId = $"p-{Guid.NewGuid():N}";
+        await _prefs.UpsertAsync(new Preference { PreferenceId = prefId, Category = "style", PreferenceText = "dark mode", OwnerId = "alice", Confidence = 0.8, Embedding = E, CreatedAtUtc = DateTimeOffset.UtcNow });
+        (await _prefs.InvalidateAsync(prefId, scope: null)).Should().BeTrue();
+        (await _prefs.FindDuplicateAsync("style", E, "alice", threshold: 0.95))
+            .Should().BeNull("dedup must only match live preferences, never a soft-invalidated one");
+    }
+
+    [Fact]
     public async Task FactMarkDeduplicated_BumpsConfidence()
     {
         var f = new Fact { FactId = $"f-{Guid.NewGuid():N}", Subject = "Alice", Predicate = "works_at", Object = "Acme", OwnerId = null, Confidence = 0.8, Embedding = E, CreatedAtUtc = DateTimeOffset.UtcNow };
