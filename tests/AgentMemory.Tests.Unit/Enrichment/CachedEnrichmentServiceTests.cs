@@ -72,6 +72,56 @@ public sealed class CachedEnrichmentServiceTests
         await inner.Received(2).EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(EnrichmentStatus.RateLimited)]
+    [InlineData(EnrichmentStatus.Error)]
+    public async Task EnrichEntity_TransientFailure_NotCached_AllowsRetry(EnrichmentStatus status)
+    {
+        // R5: a status-bearing transient failure must NOT be cached — otherwise the queue's retry hits the
+        // cached poison result and never re-contacts the provider until the 24h TTL expires.
+        var (sut, inner) = CreateSut();
+        var failure = new EnrichmentResult { EntityName = "London", Status = status };
+        inner.EnrichEntityAsync("London", "PLACE", Arg.Any<CancellationToken>()).Returns(failure);
+
+        var r1 = await sut.EnrichEntityAsync("London", "PLACE");
+        var r2 = await sut.EnrichEntityAsync("London", "PLACE");
+
+        r1!.Status.Should().Be(status); // still returned so the queue can observe it and retry
+        r2!.Status.Should().Be(status);
+        await inner.Received(2).EnrichEntityAsync("London", "PLACE", Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(EnrichmentStatus.Success)]
+    [InlineData(null)]
+    public async Task EnrichEntity_SuccessOrNullStatus_Cached(EnrichmentStatus? status)
+    {
+        var (sut, inner) = CreateSut();
+        var ok = new EnrichmentResult { EntityName = "London", Status = status };
+        inner.EnrichEntityAsync("London", "PLACE", Arg.Any<CancellationToken>()).Returns(ok);
+
+        await sut.EnrichEntityAsync("London", "PLACE");
+        await sut.EnrichEntityAsync("London", "PLACE");
+
+        await inner.Received(1).EnrichEntityAsync("London", "PLACE", Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(EnrichmentStatus.NotFound)]
+    [InlineData(EnrichmentStatus.Skipped)]
+    public async Task EnrichEntity_TerminalNonSuccess_Cached(EnrichmentStatus status)
+    {
+        // Terminal outcomes (genuinely absent/unsupported) are cached to avoid re-hitting the provider.
+        var (sut, inner) = CreateSut();
+        var terminal = new EnrichmentResult { EntityName = "London", Status = status };
+        inner.EnrichEntityAsync("London", "PLACE", Arg.Any<CancellationToken>()).Returns(terminal);
+
+        await sut.EnrichEntityAsync("London", "PLACE");
+        await sut.EnrichEntityAsync("London", "PLACE");
+
+        await inner.Received(1).EnrichEntityAsync("London", "PLACE", Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task EnrichEntity_DifferentEntityTypes_CachedSeparately()
     {
