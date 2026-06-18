@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer;
 using AgentMemory.McpServer.Tools;
@@ -16,6 +17,7 @@ public sealed class CoreMemoryToolsTests
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IOptions<McpServerOptions> _options = Options.Create(new McpServerOptions());
+    private readonly IOptions<LongTermMemoryOptions> _longTermOptions = Options.Create(new LongTermMemoryOptions());
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
 
@@ -195,7 +197,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Entity>());
 
         await CoreMemoryTools.MemoryAddEntity(
-            _longTermMemory, _idGenerator, _clock, _options, "Alice", "Person", "A developer");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Alice", "Person", "A developer");
 
         await _longTermMemory.Received(1).AddEntityAsync(
             Arg.Is<Entity>(e =>
@@ -214,7 +216,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Entity>());
 
         await CoreMemoryTools.MemoryAddEntity(
-            _longTermMemory, _idGenerator, _clock, _options, "Bob", "Person");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Bob", "Person");
 
         await _longTermMemory.Received(1).AddEntityAsync(
             Arg.Is<Entity>(e => e.Confidence == 0.9),
@@ -228,7 +230,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Entity>());
 
         await CoreMemoryTools.MemoryAddEntity(
-            _longTermMemory, _idGenerator, _clock, _options, "Bob", "Person", confidence: 0.75);
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Bob", "Person", confidence: 0.75);
 
         await _longTermMemory.Received(1).AddEntityAsync(
             Arg.Is<Entity>(e => e.Confidence == 0.75),
@@ -242,12 +244,15 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Entity>());
 
         var result = await CoreMemoryTools.MemoryAddEntity(
-            _longTermMemory, _idGenerator, _clock, _options, "Alice", "Person", "A developer");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Alice", "Person", "A developer");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("entityId").GetString().Should().Be("generated-id-1");
         doc.RootElement.GetProperty("name").GetString().Should().Be("Alice");
         doc.RootElement.GetProperty("type").GetString().Should().Be("Person");
+        // Default confidence (0.9) is at/above the default threshold (0.5) → persisted, no reason.
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeTrue();
+        doc.RootElement.TryGetProperty("reason", out _).Should().BeFalse("a persisted add carries no reason");
     }
 
     // ── memory_add_preference ──
@@ -259,7 +264,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Preference>());
 
         await CoreMemoryTools.MemoryAddPreference(
-            _longTermMemory, _idGenerator, _clock, _options, "style", "dark mode", "IDE");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "style", "dark mode", "IDE");
 
         await _longTermMemory.Received(1).AddPreferenceAsync(
             Arg.Is<Preference>(p =>
@@ -278,7 +283,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Preference>());
 
         await CoreMemoryTools.MemoryAddPreference(
-            _longTermMemory, _idGenerator, _clock, _options, "style", "dark mode");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "style", "dark mode");
 
         await _longTermMemory.Received(1).AddPreferenceAsync(
             Arg.Is<Preference>(p => p.Confidence == 0.9),
@@ -292,12 +297,14 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Preference>());
 
         var result = await CoreMemoryTools.MemoryAddPreference(
-            _longTermMemory, _idGenerator, _clock, _options, "style", "dark mode", "IDE");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "style", "dark mode", "IDE");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("preferenceId").GetString().Should().Be("generated-id-1");
         doc.RootElement.GetProperty("category").GetString().Should().Be("style");
         doc.RootElement.GetProperty("preferenceText").GetString().Should().Be("dark mode");
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeTrue();
+        doc.RootElement.TryGetProperty("reason", out _).Should().BeFalse("a persisted add carries no reason");
     }
 
     // ── memory_add_fact ──
@@ -309,7 +316,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Fact>());
 
         await CoreMemoryTools.MemoryAddFact(
-            _longTermMemory, _idGenerator, _clock, _options, "Alice", "works_at", "Microsoft");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Alice", "works_at", "Microsoft");
 
         await _longTermMemory.Received(1).AddFactAsync(
             Arg.Is<Fact>(f =>
@@ -328,7 +335,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Fact>());
 
         await CoreMemoryTools.MemoryAddFact(
-            _longTermMemory, _idGenerator, _clock, _options, "Alice", "works_at", "Microsoft");
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Alice", "works_at", "Microsoft");
 
         await _longTermMemory.Received(1).AddFactAsync(
             Arg.Is<Fact>(f => f.Confidence == 0.9),
@@ -342,7 +349,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Fact>());
 
         await CoreMemoryTools.MemoryAddFact(
-            _longTermMemory, _idGenerator, _clock, _options,
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
             "Alice", "works_at", "Microsoft",
             confidence: null, userId: "u1", category: "professional",
             metadataJson: "{\"source\":\"crm\"}");
@@ -359,7 +366,7 @@ public sealed class CoreMemoryToolsTests
     public async Task MemoryAddFact_InvalidMetadataJson_ThrowsArgumentException()
     {
         var act = async () => await CoreMemoryTools.MemoryAddFact(
-            _longTermMemory, _idGenerator, _clock, _options,
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
             "Alice", "works_at", "Microsoft", metadataJson: "not-json");
 
         await act.Should().ThrowAsync<ArgumentException>();
@@ -372,7 +379,7 @@ public sealed class CoreMemoryToolsTests
             .Returns(ci => ci.Arg<Fact>());
 
         var result = await CoreMemoryTools.MemoryAddFact(
-            _longTermMemory, _idGenerator, _clock, _options, "Alice", "works_at", "Microsoft", 0.8);
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions, "Alice", "works_at", "Microsoft", 0.8);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("factId").GetString().Should().Be("generated-id-1");
@@ -380,5 +387,95 @@ public sealed class CoreMemoryToolsTests
         doc.RootElement.GetProperty("predicate").GetString().Should().Be("works_at");
         doc.RootElement.GetProperty("object").GetString().Should().Be("Microsoft");
         doc.RootElement.GetProperty("confidence").GetDouble().Should().Be(0.8);
+        // 0.8 ≥ default threshold (0.5) → persisted, no reason.
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeTrue();
+        doc.RootElement.TryGetProperty("reason", out _).Should().BeFalse("a persisted add carries no reason");
+    }
+
+    // ── persistence-outcome gate (#1: low-confidence add must not be reported as a false success) ──
+    // The Add* service skips persistence when confidence < LongTermMemoryOptions.MinConfidenceThreshold.
+    // The MCP add tools must surface that as persisted == false + a non-empty reason, rather than a
+    // silent "success" that returns the (un-stored) record verbatim.
+
+    private IOptions<LongTermMemoryOptions> Threshold(double minConfidence) =>
+        Options.Create(new LongTermMemoryOptions { MinConfidenceThreshold = minConfidence });
+
+    [Fact]
+    public async Task MemoryAddEntity_BelowThreshold_ReturnsPersistedFalseWithReason()
+    {
+        // Service returns the input unchanged (mirrors the skip path returning the un-stored record).
+        _longTermMemory.AddEntityAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Entity>());
+
+        var result = await CoreMemoryTools.MemoryAddEntity(
+            _longTermMemory, _idGenerator, _clock, _options, Threshold(0.5),
+            "Faint", "Person", confidence: 0.3);
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("reason").GetString().Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task MemoryAddPreference_BelowThreshold_ReturnsPersistedFalseWithReason()
+    {
+        _longTermMemory.AddPreferenceAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Preference>());
+
+        var result = await CoreMemoryTools.MemoryAddPreference(
+            _longTermMemory, _idGenerator, _clock, _options, Threshold(0.5),
+            "style", "maybe dark mode", confidence: 0.3);
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("reason").GetString().Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_BelowThreshold_ReturnsPersistedFalseWithReason()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        var result = await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, Threshold(0.5),
+            "Alice", "maybe_works_at", "Microsoft", confidence: 0.3);
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("reason").GetString().Should().NotBeNullOrEmpty();
+    }
+
+    [Theory]
+    [InlineData(0.5)]  // boundary: equal to threshold persists (gate is strict <)
+    [InlineData(0.9)]
+    public async Task MemoryAddFact_AtOrAboveThreshold_ReturnsPersistedTrueWithoutReason(double confidence)
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        var result = await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, Threshold(0.5),
+            "Alice", "works_at", "Microsoft", confidence: confidence);
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeTrue();
+        doc.RootElement.TryGetProperty("reason", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_DefaultConfidence_PersistsAgainstDefaultThreshold()
+    {
+        // No explicit confidence → DefaultConfidence (0.9); default threshold (0.5) → persisted.
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        var result = await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft");
+
+        var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeTrue();
+        doc.RootElement.TryGetProperty("reason", out _).Should().BeFalse();
     }
 }

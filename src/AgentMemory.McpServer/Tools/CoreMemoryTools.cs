@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.McpServer.Tools;
@@ -102,6 +103,7 @@ public sealed class CoreMemoryTools
         IIdGenerator idGenerator,
         IClock clock,
         IOptions<McpServerOptions> options,
+        IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Name of the entity")] string name,
         [Description("Type of entity: Person, Organization, Location, Event, or Object")] string type,
         [Description("Description of the entity (optional)")] string? description = null,
@@ -109,18 +111,20 @@ public sealed class CoreMemoryTools
         [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        var confidenceValue = confidence ?? options.Value.DefaultConfidence;
         var entity = new Entity
         {
             EntityId = idGenerator.GenerateId(),
             Name = name,
             Type = type,
             Description = description,
-            Confidence = confidence ?? options.Value.DefaultConfidence,
+            Confidence = confidenceValue,
             OwnerId = userId,
             CreatedAtUtc = clock.UtcNow
         };
 
         var result = await longTermMemory.AddEntityAsync(entity, cancellationToken);
+        var (persisted, reason) = PersistenceOutcome(confidenceValue, longTermOptions.Value.MinConfidenceThreshold);
         return ToolJsonContext.Serialize(new
         {
             result.EntityId,
@@ -128,7 +132,9 @@ public sealed class CoreMemoryTools
             result.Type,
             result.Description,
             result.Confidence,
-            result.CreatedAtUtc
+            result.CreatedAtUtc,
+            persisted,
+            reason
         });
     }
 
@@ -138,6 +144,7 @@ public sealed class CoreMemoryTools
         IIdGenerator idGenerator,
         IClock clock,
         IOptions<McpServerOptions> options,
+        IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Category of the preference (e.g., 'communication', 'style', 'tooling')")] string category,
         [Description("The preference text describing what the user prefers")] string preferenceText,
         [Description("Context in which the preference applies (optional)")] string? context = null,
@@ -145,18 +152,20 @@ public sealed class CoreMemoryTools
         [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        var confidenceValue = confidence ?? options.Value.DefaultConfidence;
         var preference = new Preference
         {
             PreferenceId = idGenerator.GenerateId(),
             Category = category,
             PreferenceText = preferenceText,
             Context = context,
-            Confidence = confidence ?? options.Value.DefaultConfidence,
+            Confidence = confidenceValue,
             OwnerId = userId,
             CreatedAtUtc = clock.UtcNow
         };
 
         var result = await longTermMemory.AddPreferenceAsync(preference, cancellationToken);
+        var (persisted, reason) = PersistenceOutcome(confidenceValue, longTermOptions.Value.MinConfidenceThreshold);
         return ToolJsonContext.Serialize(new
         {
             result.PreferenceId,
@@ -164,7 +173,9 @@ public sealed class CoreMemoryTools
             result.PreferenceText,
             result.Context,
             result.Confidence,
-            result.CreatedAtUtc
+            result.CreatedAtUtc,
+            persisted,
+            reason
         });
     }
 
@@ -174,6 +185,7 @@ public sealed class CoreMemoryTools
         IIdGenerator idGenerator,
         IClock clock,
         IOptions<McpServerOptions> options,
+        IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Subject of the fact (e.g., a person or concept name)")] string subject,
         [Description("Predicate or relationship (e.g., 'works_at', 'lives_in', 'knows')")] string predicate,
         [Description("Object or value of the fact (e.g., 'Microsoft', 'Seattle')")] string factObject,
@@ -183,6 +195,7 @@ public sealed class CoreMemoryTools
         [Description("Additional metadata as a JSON object string, e.g. {\"source\":\"crm\"} (optional)")] string? metadataJson = null,
         CancellationToken cancellationToken = default)
     {
+        var confidenceValue = confidence ?? options.Value.DefaultConfidence;
         var fact = new Fact
         {
             FactId = idGenerator.GenerateId(),
@@ -190,13 +203,14 @@ public sealed class CoreMemoryTools
             Predicate = predicate,
             Object = factObject,
             Category = category,
-            Confidence = confidence ?? options.Value.DefaultConfidence,
+            Confidence = confidenceValue,
             OwnerId = userId,
             CreatedAtUtc = clock.UtcNow,
             Metadata = ParseMetadata(metadataJson) ?? new Dictionary<string, object>()
         };
 
         var result = await longTermMemory.AddFactAsync(fact, cancellationToken);
+        var (persisted, reason) = PersistenceOutcome(confidenceValue, longTermOptions.Value.MinConfidenceThreshold);
         return ToolJsonContext.Serialize(new
         {
             result.FactId,
@@ -206,9 +220,21 @@ public sealed class CoreMemoryTools
             result.Category,
             result.Confidence,
             result.CreatedAtUtc,
-            result.Metadata
+            result.Metadata,
+            persisted,
+            reason
         });
     }
+
+    // The Add* gate (LongTermMemoryOptions.MinConfidenceThreshold) skips persistence for a sub-threshold item
+    // and returns it un-stored. Surface that to the MCP caller so a low-confidence add is not reported as a
+    // false success. Uses the effective confidence the tool stamped (not result.Confidence, which the dedup-
+    // reinforce path can raise); mirrors the service's strict-&lt; skip, so persisted == (confidence >= threshold).
+    private static (bool Persisted, string? Reason) PersistenceOutcome(double confidence, double threshold) =>
+        confidence >= threshold
+            ? (true, (string?)null)
+            : (false, $"Not stored: confidence {confidence:0.###} is below the configured minimum {threshold:0.###} " +
+                      "(LongTermMemoryOptions.MinConfidenceThreshold). Increase confidence or lower the threshold.");
 
     // Parses an optional JSON-object string into a metadata dictionary. Returns null when blank;
     // throws an actionable ArgumentException (surfaced to the MCP caller) when the JSON is invalid.
