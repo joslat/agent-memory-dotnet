@@ -82,8 +82,11 @@ public sealed class CompositeEntityResolver : IEntityResolver
 
         var matched = resolutionResult.ResolvedEntity;
 
-        // >= AutoMergeThreshold: auto-merge (add alias to existing entity)
-        if (resolutionResult.Confidence >= _options.AutoMergeThreshold)
+        // >= AutoMergeThreshold: auto-merge (add alias to existing entity) — ONLY when auto-merge is
+        // enabled. With EnableAutoMerge=false a high-confidence match falls through to the SAME_AS band
+        // below (non-destructive: the entities are linked, not folded), so a user who disabled auto-merge
+        // to keep distinct-but-similar entities separate is honored instead of silently losing one.
+        if (_options.EnableAutoMerge && resolutionResult.Confidence >= _options.AutoMergeThreshold)
         {
             _logger.LogDebug(
                 "Auto-merging entity '{Candidate}' into '{Existing}' (confidence {Confidence:F3}).",
