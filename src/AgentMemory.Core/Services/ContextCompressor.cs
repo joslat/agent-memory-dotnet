@@ -138,6 +138,10 @@ public sealed class ContextCompressor : IContextCompressor
             var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken);
             return response.Text?.Trim() ?? string.Empty;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // caller cancellation must propagate, not be masked as fallback summary text
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to summarize conversation chunk; using fallback.");
@@ -164,6 +168,10 @@ public sealed class ContextCompressor : IContextCompressor
 
             var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken);
             return response.Text?.Trim() ?? string.Empty;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // caller cancellation must propagate, not be masked as an empty reflection
         }
         catch (Exception ex)
         {
