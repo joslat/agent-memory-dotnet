@@ -53,6 +53,10 @@ public abstract class ExtractorBase<T>
         {
             return await ExtractCoreAsync(messages, ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // Honor caller cancellation — do not mask it as a successful empty result.
+        }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "{ExtractorType} extraction failed; returning empty list.", GetType().Name);

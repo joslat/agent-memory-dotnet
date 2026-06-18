@@ -206,10 +206,10 @@ internal sealed class ExtractionStage : IExtractionStage
             return Array.Empty<T>();
 
         if (extractors.Count == 1)
-            return await ExtractSafeAsync(() => extractFn(extractors[0]), extractorTypeName);
+            return await ExtractSafeAsync(() => extractFn(extractors[0]), extractorTypeName, cancellationToken);
 
         var tasks = extractors
-            .Select(e => ExtractSafeAsync(() => extractFn(e), extractorTypeName))
+            .Select(e => ExtractSafeAsync(() => extractFn(e), extractorTypeName, cancellationToken))
             .ToList();
         await Task.WhenAll(tasks);
 
@@ -229,11 +229,16 @@ internal sealed class ExtractionStage : IExtractionStage
 
     private async Task<IReadOnlyList<T>> ExtractSafeAsync<T>(
         Func<Task<IReadOnlyList<T>>> extractor,
-        string extractorTypeName)
+        string extractorTypeName,
+        CancellationToken ct)
     {
         try
         {
             return await extractor();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // Honor caller cancellation — do not mask it as an empty result.
         }
         catch (Exception ex)
         {
