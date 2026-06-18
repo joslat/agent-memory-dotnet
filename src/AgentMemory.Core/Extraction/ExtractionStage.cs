@@ -108,6 +108,10 @@ internal sealed class ExtractionStage : IExtractionStage
                 resolvedEntityMap[extracted.Name] = entity;
                 _logger.LogDebug("Resolved entity '{Name}' (id={Id}).", entity.Name, entity.EntityId);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw; // Honor caller cancellation — do not mask it as a per-entity resolution error.
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error resolving entity '{Name}'.", extracted.Name);
