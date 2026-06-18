@@ -32,6 +32,7 @@ public sealed class StreamingExtractor : IStreamingExtractor
         StreamingExtractionOptions? options = null)
     {
         var opts = options ?? new StreamingExtractionOptions();
+        opts.Validate(); // fail fast on Overlap >= ChunkSize / ChunkSize <= 0 (would otherwise spin forever)
         return opts.ChunkByTokens
             ? TextChunker.ChunkByTokens(text, opts.ChunkSize, opts.Overlap)
             : TextChunker.ChunkByChars(text, opts.ChunkSize, opts.Overlap, opts.SplitOnSentences);

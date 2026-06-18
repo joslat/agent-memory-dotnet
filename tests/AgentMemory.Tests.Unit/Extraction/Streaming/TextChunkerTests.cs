@@ -37,6 +37,32 @@ public sealed class TextChunkerTests
         result[0].IsLast.Should().BeTrue();
     }
 
+    // Defense in depth: StreamingExtractor.ChunkDocument rejects overlap >= chunkSize, but the chunker
+    // itself must still never spin in place if called directly with a degenerate combination. If the
+    // forward-progress clamp were missing, these tests would hang (the loop never terminates).
+
+    [Fact]
+    public void ChunkByChars_OverlapEqualsChunkSize_TerminatesAndIsBounded()
+    {
+        var text = new string('a', 50);
+        var result = TextChunker.ChunkByChars(text, chunkSize: 10, overlap: 10, splitOnSentences: false);
+
+        result.Should().NotBeEmpty();
+        result.Count.Should().BeLessThanOrEqualTo(text.Length); // advances ≥ 1 char per chunk
+        result[^1].IsLast.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ChunkByTokens_OverlapEqualsChunkSize_Terminates()
+    {
+        var text = string.Join(' ', Enumerable.Range(0, 50).Select(i => $"t{i}"));
+        var result = TextChunker.ChunkByTokens(text, chunkSize: 5, overlap: 5);
+
+        result.Should().NotBeEmpty();
+        result.Count.Should().BeLessThanOrEqualTo(60); // bounded: advances ≥ 1 token per chunk
+        result[^1].IsLast.Should().BeTrue();
+    }
+
     [Fact]
     public void ChunkByChars_LongText_ReturnsMultipleChunks()
     {
