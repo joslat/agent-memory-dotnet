@@ -167,6 +167,37 @@ public sealed class EmbeddingOrchestratorTests
     }
 
     [Fact]
+    public async Task EmbedAsync_CallerCancelled_RethrowsOperationCanceled_NotEmpty()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var generator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        generator.GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+        var sut = new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance);
+
+        var act = () => sut.EmbedAsync("some text", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>(
+            "a cancelled embed must surface cancellation, not a 'successful' empty vector");
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_CallerCancelled_RethrowsOperationCanceled_NotEmpty()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var generator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        generator.GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+        var sut = new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance);
+
+        var act = () => sut.EmbedBatchAsync(new[] { "a", "b" }, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task EmbedEntityAsync_GeneratorThrows_ReturnsEmptyArrayGracefully()
     {
         var failingGenerator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
