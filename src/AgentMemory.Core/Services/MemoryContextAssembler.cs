@@ -391,6 +391,19 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         string? GraphRag,
         bool Truncated);
 
+    /// <summary>
+    /// Resolves the character budget. ~4 chars/token, computed in <c>long</c> and clamped to
+    /// <see cref="int.MaxValue"/> so a very large <c>MaxTokens</c> (an "effectively unlimited" value
+    /// &gt; ~536M) cannot overflow int and wrap NEGATIVE — which would make <c>totalChars &lt;= maxChars</c>
+    /// always false and silently truncate the whole context to empty.
+    /// </summary>
+    internal static int ResolveMaxChars(ContextBudget budget)
+    {
+        if (budget.MaxCharacters.HasValue) return budget.MaxCharacters.Value;
+        if (budget.MaxTokens.HasValue) return (int)Math.Min((long)budget.MaxTokens.Value * 4, int.MaxValue);
+        return int.MaxValue;
+    }
+
     private AssembledSections ApplyBudget(
         ContextBudget budget,
         IReadOnlyList<Message> recent,
@@ -401,8 +414,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<ReasoningTrace> traces,
         string? graphRagContext)
     {
-        int maxChars = budget.MaxCharacters
-            ?? (budget.MaxTokens.HasValue ? budget.MaxTokens.Value * 4 : int.MaxValue);
+        int maxChars = ResolveMaxChars(budget);
 
         int totalChars = ContextBudgetEstimator.EstimateChars(recent) + ContextBudgetEstimator.EstimateChars(relevant)
             + ContextBudgetEstimator.EstimateChars(entities) + ContextBudgetEstimator.EstimateChars(preferences)
