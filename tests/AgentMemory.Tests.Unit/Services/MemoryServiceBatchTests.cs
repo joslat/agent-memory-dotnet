@@ -229,7 +229,8 @@ public sealed class MemoryServiceBatchTests
         var sut = CreateSut();
         var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
 
-        count.Should().Be(1, "the single stalled page is processed once, then the back-fill stops");
+        count.Should().Be(0, "the stalled page's node had an empty (degraded) embedding that was not persisted, " +
+            "so it is not counted as updated — and the back-fill then stops");
         await _entityRepo.Received(1).GetPageWithoutEmbeddingAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

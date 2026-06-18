@@ -18,7 +18,11 @@ public interface IMemoryMaintenance
     /// currently have a null embedding. Processes in batches of <paramref name="batchSize"/>.
     /// Supported labels: <c>Entity</c>, <c>Fact</c>, <c>Preference</c>.
     /// </summary>
-    /// <returns>Total number of nodes updated.</returns>
+    /// <returns>
+    /// The number of nodes actually updated — i.e. for which a non-empty embedding was generated and
+    /// persisted. Nodes whose embedding generation degraded to an empty vector (and were therefore skipped)
+    /// are not counted.
+    /// </returns>
     Task<int> GenerateEmbeddingsBatchAsync(
         string nodeLabel,
         int batchSize = 100,

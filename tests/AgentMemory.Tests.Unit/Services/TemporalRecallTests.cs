@@ -95,6 +95,14 @@ public sealed class TemporalRecallTests
             RelevantPreferences = new MemoryContextSection<Preference>
             {
                 Items = new[] { CreatePreference("pref-1") }
+            },
+            // SimilarTraces is populated on the as-of path too, so it must be counted in the total.
+            SimilarTraces = new MemoryContextSection<ReasoningTrace>
+            {
+                Items = new[]
+                {
+                    new ReasoningTrace { TraceId = "trace-1", SessionId = "session-1", Task = "t", StartedAtUtc = _fixedTime }
+                }
             }
         };
 
@@ -106,7 +114,7 @@ public sealed class TemporalRecallTests
         var result = await sut.RecallAsOfAsync(
             new RecallRequest { SessionId = "session-1", Query = "test" }, asOf);
 
-        result.TotalItemsRetrieved.Should().Be(5); // 1 + 2 + 1 + 1
+        result.TotalItemsRetrieved.Should().Be(6); // 1 msg + 2 entities + 1 fact + 1 pref + 1 trace
     }
 
     [Fact]

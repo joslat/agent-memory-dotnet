@@ -138,10 +138,14 @@ public sealed class MemoryService : IMemoryService
             request.SessionId, validAsOf, systemAsOf);
         var context = await _assembler.AssembleContextAsOfAsync(request, validAsOf, systemAsOf, cancellationToken);
 
+        // Count every populated section so TotalItemsRetrieved matches the documented "across all sections"
+        // contract and the live RecallAsync path. SimilarTraces is populated on the as-of path too, so it
+        // must be included (RelevantMessages is intentionally Empty here — see the assembler's as-of path).
         int totalItems = context.RecentMessages.Items.Count
             + context.RelevantEntities.Items.Count
             + context.RelevantPreferences.Items.Count
-            + context.RelevantFacts.Items.Count;
+            + context.RelevantFacts.Items.Count
+            + context.SimilarTraces.Items.Count;
 
         return new RecallResult
         {
@@ -304,8 +308,9 @@ public sealed class MemoryService : IMemoryService
             {
                 var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, ct);
                 await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct);
-                total++;
-                if (embedding.Length > 0) embeddedThisPage++;
+                // Count only nodes actually updated: the repo skips persisting an empty (degraded) embedding,
+                // so a skipped node must not inflate the "nodes updated" return value.
+                if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }
 
             if (StalledOnPage(page.Items.Count, embeddedThisPage, "Entity")) break;
@@ -327,8 +332,8 @@ public sealed class MemoryService : IMemoryService
             {
                 var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct);
                 await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct);
-                total++;
-                if (embedding.Length > 0) embeddedThisPage++;
+                // Count only nodes actually updated (the repo skips persisting an empty/degraded embedding).
+                if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }
 
             if (StalledOnPage(page.Items.Count, embeddedThisPage, "Fact")) break;
@@ -350,8 +355,8 @@ public sealed class MemoryService : IMemoryService
             {
                 var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, ct);
                 await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct);
-                total++;
-                if (embedding.Length > 0) embeddedThisPage++;
+                // Count only nodes actually updated (the repo skips persisting an empty/degraded embedding).
+                if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }
 
             if (StalledOnPage(page.Items.Count, embeddedThisPage, "Preference")) break;
