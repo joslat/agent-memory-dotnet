@@ -17,10 +17,11 @@ public sealed record MemoryDecayOptions
     /// </summary>
     public double MinRetentionScore { get; init; } = 0.1;
 
-    /// <summary>
-    /// Hard cap on the number of long-term memory nodes per session.
-    /// </summary>
-    public int MaxMemoriesPerSession { get; init; } = 10_000;
+    // NOTE: long-term memory (Entity/Fact/Preference) is cross-session knowledge — those nodes carry an
+    // owner_id, not a session_id — so a "max nodes per session" cap is not meaningful here; pruning is
+    // owner-scoped and retention-score driven (see MinRetentionScore / DecayHalfLifeDays / AccessBoostFactor).
+    // The genuinely session-scoped cap lives on ReasoningMemoryOptions.MaxTracesPerSession. The former
+    // MaxMemoriesPerSession property here was read nowhere and could not be coherently enforced, so it was removed.
 
     /// <summary>
     /// Boost factor applied per access (recall hit) when computing the retention score.
