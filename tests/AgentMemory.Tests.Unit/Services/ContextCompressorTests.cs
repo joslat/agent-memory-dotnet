@@ -196,4 +196,24 @@ public sealed class ContextCompressorTests
         Content = content,
         TimestampUtc = DateTimeOffset.UtcNow
     };
+
+    [Fact]
+    public async Task CompressAsync_CallerCancellation_PropagatesInsteadOfFallbackText()
+    {
+        // When the caller cancels mid-compression, the LLM call's OperationCanceledException must
+        // propagate — not be swallowed and replaced with placeholder summary/reflection text that would
+        // make a cancelled operation look like a successful compression.
+        using var cts = new CancellationTokenSource();
+        _chatClient
+            .GetResponseAsync(Arg.Any<IList<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<ChatResponse>>(_ => { cts.Cancel(); throw new OperationCanceledException(cts.Token); });
+
+        var messages = Enumerable.Range(1, 6)
+            .Select(i => CreateMessage($"m{i}", new string('x', 100)))
+            .ToArray();
+
+        var act = () => _sut.CompressAsync(messages, _defaultOptions, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }
