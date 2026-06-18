@@ -61,6 +61,42 @@ public sealed class LlmSystemPromptTests
         systemMsg.Text.Should().Be(customPrompt);
     }
 
+    [Fact]
+    public async Task EntityExtractor_ConfiguredEntityTypes_DriveTheSystemPrompt()
+    {
+        var (client, captured) = SetupClient();
+        // Custom taxonomy: keep one built-in type, add custom ones (one lowercase to prove normalization),
+        // and drop the rest of the default POLE+O set.
+        var options = new LlmExtractionOptions
+        {
+            EntityExtractionPrompt = null,
+            EntityTypes = new[] { "PERSON", "product", "TECHNOLOGY" }
+        };
+        var sut = new LlmEntityExtractor(client, Options.Create(options), NullLogger<LlmEntityExtractor>.Instance);
+
+        await sut.ExtractAsync(new[] { SampleMessage });
+
+        var systemMsg = captured[0].First(m => m.Role == ChatRole.System);
+        systemMsg.Text.Should().Contain("- PERSON: Individuals by name or role");      // built-in keeps its rich description
+        systemMsg.Text.Should().Contain("- PRODUCT: Domain-specific entity type");     // custom type listed + uppercased
+        systemMsg.Text.Should().Contain("- TECHNOLOGY: Domain-specific entity type");
+        systemMsg.Text.Should().NotContain("ORGANIZATION");                            // a dropped default type is absent
+        systemMsg.Text.Should().NotBe(LlmEntityExtractor.DefaultSystemPrompt);
+    }
+
+    [Fact]
+    public async Task EntityExtractor_EmptyEntityTypes_FallsBackToDefaultPrompt()
+    {
+        var (client, captured) = SetupClient();
+        var options = new LlmExtractionOptions { EntityExtractionPrompt = null, EntityTypes = Array.Empty<string>() };
+        var sut = new LlmEntityExtractor(client, Options.Create(options), NullLogger<LlmEntityExtractor>.Instance);
+
+        await sut.ExtractAsync(new[] { SampleMessage });
+
+        var systemMsg = captured[0].First(m => m.Role == ChatRole.System);
+        systemMsg.Text.Should().Be(LlmEntityExtractor.DefaultSystemPrompt);
+    }
+
     // ── Fact extractor ─────────────────────────────────────────────────────────
 
     [Fact]
