@@ -112,7 +112,8 @@ public sealed class MemoryService : IMemoryService
         {
             Context = context,
             TotalItemsRetrieved = totalItems,
-            EstimatedTokenCount = estimatedTokens
+            EstimatedTokenCount = estimatedTokens,
+            Truncated = context.Truncated
         };
     }
 
@@ -146,6 +147,7 @@ public sealed class MemoryService : IMemoryService
         {
             Context = context,
             TotalItemsRetrieved = totalItems,
+            Truncated = context.Truncated,
             // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.
             Metadata = new Dictionary<string, object>
             {

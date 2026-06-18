@@ -98,7 +98,12 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
             }
 
-            return node is not null ? MapToEntity(node, entity.Embedding) : entity;
+            // The `node` was captured from the MERGE BEFORE the geospatial location was written in a
+            // separate query, so MapToEntity finds no `location` property and yields null coords. Carry the
+            // caller-supplied (and now-persisted) coordinates onto the returned object so it matches DB state.
+            return node is not null
+                ? MapToEntity(node, entity.Embedding) with { Latitude = entity.Latitude, Longitude = entity.Longitude }
+                : entity;
         }, cancellationToken);
     }
 
@@ -335,12 +340,16 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
             }
 
-            var embeddingMap = entities.ToDictionary(e => e.EntityId, e => e.Embedding);
+            // Records were read before embeddings/location were written, so carry the caller-supplied
+            // embedding AND coordinates onto each returned object so it reflects persisted state (see UpsertAsync).
+            var byId = entities.ToDictionary(e => e.EntityId);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 var id   = node["id"].As<string>();
-                return MapToEntity(node, embeddingMap.TryGetValue(id, out var emb) ? emb : null);
+                if (!byId.TryGetValue(id, out var src))
+                    return MapToEntity(node, null);
+                return MapToEntity(node, src.Embedding) with { Latitude = src.Latitude, Longitude = src.Longitude };
             }).ToList();
         }, cancellationToken);
     }

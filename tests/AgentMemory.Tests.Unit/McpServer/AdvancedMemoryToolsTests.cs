@@ -73,6 +73,44 @@ public sealed class AdvancedMemoryToolsTests
     }
 
     [Fact]
+    public async Task MemoryRecordToolCall_UnknownStatus_ReturnsError_AndRecordsNothing()
+    {
+        // A typo like "failed" (not a ToolCallStatus member) must NOT be silently coerced to Success and
+        // written to durable provenance — it returns an error payload and records nothing.
+        var result = await AdvancedMemoryTools.MemoryRecordToolCall(
+            _reasoningMemory, "step-1", "my_tool", "{}", status: "failed");
+
+        JsonDocument.Parse(result).RootElement.GetProperty("error").GetString()
+            .Should().Contain("unknown status 'failed'");
+
+        await _reasoningMemory.DidNotReceive().RecordToolCallAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<ToolCallStatus>(), Arg.Any<long?>(), Arg.Any<string?>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryRecordToolCall_OmittedStatus_DefaultsToSuccess()
+    {
+        var toolCall = new ToolCall
+        {
+            ToolCallId = "tc-2", StepId = "step-1", ToolName = "my_tool",
+            ArgumentsJson = "{}", Status = ToolCallStatus.Success
+        };
+        _reasoningMemory.RecordToolCallAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(),
+                Arg.Any<ToolCallStatus>(), Arg.Any<long?>(), Arg.Any<string?>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(toolCall);
+
+        await AdvancedMemoryTools.MemoryRecordToolCall(_reasoningMemory, "step-1", "my_tool", "{}", status: " ");
+
+        await _reasoningMemory.Received(1).RecordToolCallAsync(
+            "step-1", "my_tool", "{}", null, ToolCallStatus.Success,
+            cancellationToken: Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task MemoryRecordToolCall_ParsesStatusEnum()
     {
         var toolCall = new ToolCall

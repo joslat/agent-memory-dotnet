@@ -234,7 +234,8 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
             GraphRagContext = graphRagContext,
-            BlendMode = blendMode
+            BlendMode = blendMode,
+            Truncated = truncated
         };
 
         _logger.LogDebug(
@@ -305,6 +306,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         // past the configured token/char limit. (Relevant messages are not part of the temporal
         // snapshot, so they pass through as empty.)
         var budget = _options.ContextBudget;
+        bool truncated = false;
         if (budget.MaxTokens.HasValue || budget.MaxCharacters.HasValue)
         {
             var fitted = ApplyBudget(
@@ -315,6 +317,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             preferences = fitted.Preferences;
             facts = fitted.Facts;
             traces = fitted.Traces;
+            truncated = fitted.Truncated;
         }
 
         var context = new MemoryContext
@@ -327,6 +330,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
+            Truncated = truncated,
             // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.
             Metadata = new Dictionary<string, object>
             {

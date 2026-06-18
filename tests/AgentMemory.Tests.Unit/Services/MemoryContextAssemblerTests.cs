@@ -336,6 +336,30 @@ public sealed class MemoryContextAssemblerTests
     }
 
     [Fact]
+    public async Task AssembleContextAsync_SetsTruncatedFlag_OnlyWhenBudgetDropsItems()
+    {
+        // The MemoryContext.Truncated flag (surfaced as RecallResult.Truncated, read by MCP clients) must
+        // reflect whether budget truncation actually dropped context — it used to be permanently false.
+        var oldMsg = CreateMessage("old", "1234567890", _fixedTime.AddHours(-1));
+        var newMsg = CreateMessage("new", "ABCDEFGHIJ", _fixedTime);
+        _shortTerm
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(new[] { oldMsg, newMsg }));
+
+        var overBudget = await CreateSut(options: Options.Create(new MemoryOptions
+        {
+            ContextBudget = new ContextBudget { MaxCharacters = 11, TruncationStrategy = TruncationStrategy.OldestFirst }
+        })).AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+        overBudget.Truncated.Should().BeTrue("the budget forced an item to be dropped");
+
+        var withinBudget = await CreateSut(options: Options.Create(new MemoryOptions
+        {
+            ContextBudget = new ContextBudget { MaxCharacters = 100_000, TruncationStrategy = TruncationStrategy.OldestFirst }
+        })).AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+        withinBudget.Truncated.Should().BeFalse("everything fit within the budget");
+    }
+
+    [Fact]
     public async Task AssembleContextAsync_EnforcesBudgetLowestScoreFirst()
     {
         // Items are assumed ordered by score descending; lowest score (last) is dropped first

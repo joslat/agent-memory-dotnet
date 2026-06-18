@@ -45,7 +45,11 @@ public sealed class WikimediaEnrichmentService : IEnrichmentService
             var client = _httpClientFactory.CreateClient(ClientName);
             var title = Uri.EscapeDataString(entityName.Replace(' ', '_'));
             var lang = _options.WikipediaLanguage;
-            var url = $"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title}";
+            // Honor the configured base URL (the default contains the {lang} token + /api/rest_v1 suffix),
+            // so a mirror / internal caching proxy / non-default REST host actually takes effect. Building
+            // from the literal previously ignored WikipediaBaseUrl entirely despite it being validated.
+            var baseUrl = _options.WikipediaBaseUrl.Replace("{lang}", lang).TrimEnd('/');
+            var url = $"{baseUrl}/page/summary/{title}";
 
             using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
 

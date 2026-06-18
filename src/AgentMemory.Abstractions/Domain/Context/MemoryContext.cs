@@ -66,6 +66,13 @@ public sealed record MemoryContext
     public required DateTimeOffset AssembledAtUtc { get; init; }
 
     /// <summary>
+    /// True when the configured context budget forced items (or the GraphRAG block) to be dropped while
+    /// assembling this context. False when everything fit within the budget (or no budget was configured).
+    /// Surfaced to callers via <c>RecallResult.Truncated</c>.
+    /// </summary>
+    public bool Truncated { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

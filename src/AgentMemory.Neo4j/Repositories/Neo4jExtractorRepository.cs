@@ -224,9 +224,12 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
             Name = node["name"].As<string>(),
             Version = node.Properties.TryGetValue("version", out var v) ? v?.As<string>() : null,
             ConfigJson = node.Properties.TryGetValue("config", out var c) ? c?.As<string>() : null,
-            CreatedAtUtc = node.Properties.TryGetValue("created_at", out var ca) && ca is not null
-                ? DateTimeOffset.Parse(ca.As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind)
-                : DateTimeOffset.UtcNow
+            // Read the native temporal via the shared helper (handles the driver's ZonedDateTime) rather
+            // than As<string>()+Parse, which throws FormatException on a named-zone value like
+            // "2024-01-02T03:04:05[Europe/Madrid]" produced when the server's db.temporal.timezone is a
+            // named zone. ReadDateTimeOffset(null) falls back to UtcNow, matching the old absent-key path.
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(
+                node.Properties.TryGetValue("created_at", out var ca) ? ca : null)
         };
     }
 
@@ -258,7 +261,8 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                 : Array.Empty<string>(),
-            CreatedAtUtc = DateTimeOffset.Parse(node["created_at"].As<string>(), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            // Native temporal via the shared helper (robust to ZonedDateTime named zones; see MapToExtractor).
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
             Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
     }

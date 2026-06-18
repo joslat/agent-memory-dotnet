@@ -107,6 +107,26 @@ public sealed class WikimediaEnrichmentServiceTests
     }
 
     [Fact]
+    public async Task Enrich_UsesConfiguredBaseUrl_WhenOverridden()
+    {
+        // The configured WikipediaBaseUrl (with the {lang} token) must actually drive the request — e.g. a
+        // mirror or internal caching proxy. Previously the host was hardcoded and the option was ignored.
+        var handler = new MockHttpMessageHandler(ValidWikipediaResponse);
+        var options = new EnrichmentOptions
+        {
+            WikipediaLanguage = "de",
+            WikipediaBaseUrl = "https://wiki-proxy.internal/{lang}/rest_v1"
+        };
+        var sut = CreateSut(handler, options);
+
+        await sut.EnrichEntityAsync("London", "City");
+
+        var uri = handler.LastRequest!.RequestUri!.ToString();
+        uri.Should().StartWith("https://wiki-proxy.internal/de/rest_v1/page/summary/");
+        uri.Should().NotContain("wikipedia.org");
+    }
+
+    [Fact]
     public async Task Enrich_CancellationToken_Honored()
     {
         using var cts = new CancellationTokenSource();
