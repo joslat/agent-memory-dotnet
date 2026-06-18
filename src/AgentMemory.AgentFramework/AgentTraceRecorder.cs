@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 
@@ -8,11 +9,17 @@ namespace AgentMemory.AgentFramework;
 /// <summary>
 /// Records MAF agent activity as reasoning traces. A thin adapter over IReasoningMemoryService.
 /// </summary>
+/// <remarks>
+/// Persistence is gated by <see cref="AgentFrameworkOptions.PersistReasoningTraces"/> (default off): when
+/// disabled the recorder never touches <see cref="IReasoningMemoryService"/> and returns synthetic
+/// in-memory records, so a consumer relying on the documented default avoids the Neo4j write overhead.
+/// </remarks>
 public sealed class AgentTraceRecorder
 {
     private readonly IReasoningMemoryService _reasoningService;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
+    private readonly bool _persist;
     private readonly ILogger<AgentTraceRecorder> _logger;
 
     // Tracks current step count per active trace.
@@ -24,16 +31,20 @@ public sealed class AgentTraceRecorder
     /// <param name="reasoningService">Service that persists traces and steps to the Neo4j store.</param>
     /// <param name="clock">Provides the current UTC time for trace timestamps.</param>
     /// <param name="idGenerator">Generates unique identifiers for trace and step records.</param>
+    /// <param name="options">Agent-framework options; <c>PersistReasoningTraces</c> gates persistence.</param>
     /// <param name="logger">Logger for diagnostics and warnings.</param>
     public AgentTraceRecorder(
         IReasoningMemoryService reasoningService,
         IClock clock,
         IIdGenerator idGenerator,
+        IOptions<AgentFrameworkOptions> options,
         ILogger<AgentTraceRecorder> logger)
     {
         _reasoningService = reasoningService ?? throw new ArgumentNullException(nameof(reasoningService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
+        ArgumentNullException.ThrowIfNull(options);
+        _persist = options.Value.PersistReasoningTraces;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -48,6 +59,20 @@ public sealed class AgentTraceRecorder
         string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
+        if (!_persist)
+        {
+            var synthetic = new ReasoningTrace
+            {
+                TraceId = _idGenerator.GenerateId(),
+                SessionId = sessionId,
+                OwnerId = ownerId,
+                Task = task,
+                StartedAtUtc = _clock.UtcNow
+            };
+            _stepCounts[synthetic.TraceId] = 0;
+            return synthetic;
+        }
+
         var trace = await _reasoningService.StartTraceAsync(
             sessionId, task, ownerId: ownerId, cancellationToken: cancellationToken).ConfigureAwait(false);
         _stepCounts[trace.TraceId] = 0;
@@ -90,6 +115,20 @@ public sealed class AgentTraceRecorder
                 break;
         }
 
+        if (!_persist)
+        {
+            return new ReasoningStep
+            {
+                StepId = _idGenerator.GenerateId(),
+                TraceId = traceId,
+                StepNumber = stepNumber,
+                Thought = thought,
+                Action = action,
+                Observation = observation,
+                Metadata = metadata ?? new Dictionary<string, object>()
+            };
+        }
+
         return await _reasoningService.AddStepAsync(
             traceId, stepNumber, thought, action, observation,
             metadata: metadata, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -115,6 +154,19 @@ public sealed class AgentTraceRecorder
         if (toolName is null) throw new ArgumentNullException(nameof(toolName));
         if (input is null) throw new ArgumentNullException(nameof(input));
 
+        if (!_persist)
+        {
+            return new ToolCall
+            {
+                ToolCallId = _idGenerator.GenerateId(),
+                StepId = stepId,
+                ToolName = toolName,
+                ArgumentsJson = input,
+                ResultJson = output,
+                Status = status
+            };
+        }
+
         return await _reasoningService.RecordToolCallAsync(
             stepId, toolName, input, output, status,
             cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -138,8 +190,12 @@ public sealed class AgentTraceRecorder
                 "Completing trace {TraceId} that was not started by this recorder.", traceId);
         }
 
-        await _reasoningService.CompleteTraceAsync(
-            traceId, outcome, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (_persist)
+        {
+            await _reasoningService.CompleteTraceAsync(
+                traceId, outcome, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         _stepCounts.TryRemove(traceId, out _);
     }
 }
