@@ -175,7 +175,7 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
     {
         await _sut.ClearSessionAsync("s1");
 
-        await _memoryService.Received(1).ClearSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // ── R6-A: caller cancellation must propagate, not be swallowed as empty/success ──

@@ -162,6 +162,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 
     public async Task ClearSessionAsync(
         string sessionId,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.clear_session");
@@ -169,7 +170,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 
         try
         {
-            await _inner.ClearSessionAsync(sessionId, cancellationToken);
+            await _inner.ClearSessionAsync(sessionId, ownerId, cancellationToken);
         }
         catch (Exception ex)
         {

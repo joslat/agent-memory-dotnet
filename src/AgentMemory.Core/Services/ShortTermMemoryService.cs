@@ -155,12 +155,15 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
     /// <inheritdoc/>
     public async Task ClearSessionAsync(
         string sessionId,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Clearing session {SessionId}", sessionId);
+        _logger.LogDebug("Clearing session {SessionId}, owner={Owner}", sessionId, ownerId);
         await _messageRepo.DeleteBySessionAsync(sessionId, cancellationToken);
         await _conversationRepo.DeleteBySessionAsync(sessionId, cancellationToken);
-        await _reasoningTraceRepo.DeleteBySessionAsync(sessionId, cancellationToken);
+        // ReasoningTrace carries owner_id (R1): confine the delete to the calling owner's bucket so a
+        // shared session_id can't let one owner's clear evict another owner's traces.
+        await _reasoningTraceRepo.DeleteBySessionAsync(sessionId, ownerId, cancellationToken);
     }
 
     /// <inheritdoc/>

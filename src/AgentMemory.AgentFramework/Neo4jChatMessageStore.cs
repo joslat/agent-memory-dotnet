@@ -106,7 +106,7 @@ public sealed class Neo4jChatMessageStore
     {
         try
         {
-            await _memoryService.ClearSessionAsync(sessionId, ct).ConfigureAwait(false);
+            await _memoryService.ClearSessionAsync(sessionId, cancellationToken: ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

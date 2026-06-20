@@ -186,9 +186,9 @@ public sealed class Neo4jMemoryPluginTests
     [Fact]
     public async Task ClearSessionAsync_DelegatesToService()
     {
-        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
         await _sut.ClearSessionAsync("s1");
-        await _memoryService.Received(1).ClearSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -138,6 +138,55 @@ public class ReasoningTraceOwnerScopeIntegrationTests : IAsyncLifetime
         all.Select(t => t.OwnerId).Should().Contain(new[] { "alice", "bob" });
     }
 
+    // ── DeleteBySession owner-scoping (R6-C) ─────────────────────────────
+    // The twin of the #56 prune hardening: a session-keyed DETACH DELETE is destructive, so it must confine
+    // to one owner bucket. A two-owners-one-session fixture proves owner A's clear never touches owner B's
+    // or the shared bucket's traces, and a null-owner clear touches only the shared bucket. (Also the
+    // standing "harden live isolation tests" guard: it seeds two owners under ONE session_id — the exact
+    // shape that let session-keyed destructive writes leak.)
+
+    [Fact]
+    public async Task DeleteBySession_ScopedToOwner_DeletesOnlyThatOwnersTraces()
+    {
+        const string session = "shared-session-r6c-delete";
+        var alice = InSession(session, "alice plans", "alice");
+        var bob = InSession(session, "bob debugs", "bob");
+        var shared = InSession(session, "org runbook", null);
+        await _repo.AddAsync(alice);
+        await _repo.AddAsync(bob);
+        await _repo.AddAsync(shared);
+
+        // Alice clears the session as herself: only her trace goes.
+        await _repo.DeleteBySessionAsync(session, ownerId: "alice");
+
+        (await _repo.GetByIdAsync(alice.TraceId)).Should().BeNull("alice's own trace is deleted");
+        (await _repo.GetByIdAsync(bob.TraceId)).Should().NotBeNull(
+            "owner A's session clear must NEVER delete owner B's traces under the same session_id");
+        (await _repo.GetByIdAsync(shared.TraceId)).Should().NotBeNull(
+            "an owner-scoped clear must not touch the shared/global bucket");
+    }
+
+    [Fact]
+    public async Task DeleteBySession_NullOwner_DeletesSharedBucketOnly_NeverOwnedTraces()
+    {
+        const string session = "shared-session-r6c-shared";
+        var alice = InSession(session, "alice plans", "alice");
+        var bob = InSession(session, "bob debugs", "bob");
+        var shared = InSession(session, "org runbook", null);
+        await _repo.AddAsync(alice);
+        await _repo.AddAsync(bob);
+        await _repo.AddAsync(shared);
+
+        // A null-owner clear (single-tenant / MCP default) confines to the shared bucket — never "all owners".
+        await _repo.DeleteBySessionAsync(session, ownerId: null);
+
+        (await _repo.GetByIdAsync(shared.TraceId)).Should().BeNull("the shared-bucket trace is deleted");
+        (await _repo.GetByIdAsync(alice.TraceId)).Should().NotBeNull(
+            "a null-owner clear must never delete an owner's private traces");
+        (await _repo.GetByIdAsync(bob.TraceId)).Should().NotBeNull(
+            "a null-owner clear must never delete an owner's private traces");
+    }
+
     private ReasoningTrace InSession(string sessionId, string task, string? ownerId) => new()
     {
         TraceId = $"trace-{Guid.NewGuid():N}",

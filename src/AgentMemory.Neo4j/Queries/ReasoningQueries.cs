@@ -60,12 +60,24 @@ public static class ReasoningQueries
     }
 
     /// <summary>
-    /// Delete all ReasoningTrace nodes for a session, including their child ReasoningStep nodes.
+    /// Delete ReasoningTrace nodes for a session (and their child ReasoningStep nodes), confined to a
+    /// single R1 owner bucket so a session-keyed destructive write can never cross owners (the twin of the
+    /// #56 <see cref="PruneSessionTraces"/> hardening — ReasoningTrace carries <c>owner_id</c>, and
+    /// <c>session_id</c> is guessable/shareable). When <paramref name="ownerIsShared"/> the shared/global
+    /// bucket only (<c>owner_id IS NULL</c>); otherwise the owner's own traces (<c>owner_id = $ownerId</c>).
+    /// Owner A's clear therefore never deletes owner B's or the shared bucket's traces, and a null-owner
+    /// clear never touches an owner's private traces. (A method, not a const, so it is excluded from the
+    /// Cypher snapshot inventory — like PruneSessionTraces.)
     /// </summary>
-    public const string DeleteBySession = @"
+    public static string DeleteBySession(bool ownerIsShared)
+    {
+        var owner = ownerIsShared ? " AND t.owner_id IS NULL" : " AND t.owner_id = $ownerId";
+        return @"
         MATCH (t:ReasoningTrace {session_id: $sessionId})
+        WHERE true" + owner + @"
         OPTIONAL MATCH (t)-[:HAS_STEP]->(s:ReasoningStep)
         DETACH DELETE t, s";
+    }
 
     /// <summary>
     /// Retention prune (H): keep the newest <c>$keep</c> traces for a session and delete the older ones with

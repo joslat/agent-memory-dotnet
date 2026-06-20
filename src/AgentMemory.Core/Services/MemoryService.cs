@@ -212,11 +212,12 @@ public sealed class MemoryService : IMemoryService
     /// <inheritdoc/>
     public Task ClearSessionAsync(
         string sessionId,
+        string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        _logger.LogDebug("Clearing session {SessionId}", sessionId);
-        return _shortTerm.ClearSessionAsync(sessionId, cancellationToken);
+        _logger.LogDebug("Clearing session {SessionId}, owner={Owner}", sessionId, ownerId);
+        return _shortTerm.ClearSessionAsync(sessionId, ownerId, cancellationToken);
     }
 
     /// <inheritdoc/>

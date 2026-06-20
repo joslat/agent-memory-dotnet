@@ -214,7 +214,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     [Fact]
     public async Task ClearSession_CreatesActivity()
     {
-        _inner.ClearSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.ClearSessionAsync("s1");
@@ -377,7 +377,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
         };
         _inner.ExtractAndPersistAsync(extractRequest, Arg.Any<CancellationToken>())
             .Returns(new ExtractionResult());
-        _inner.ClearSessionAsync("s1", Arg.Any<CancellationToken>())
+        _inner.ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         await _sut.RecallAsync(recallRequest);
@@ -390,7 +390,7 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
         await _inner.Received(1).AddMessageAsync("s1", "c1", "user", "hi", null, Arg.Any<CancellationToken>());
         await _inner.Received(1).AddMessagesAsync(messages, Arg.Any<CancellationToken>());
         await _inner.Received(1).ExtractAndPersistAsync(extractRequest, Arg.Any<CancellationToken>());
-        await _inner.Received(1).ClearSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _inner.Received(1).ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // ---- Helpers ----

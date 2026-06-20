@@ -51,7 +51,7 @@ public sealed class MemoryServiceTests
             .Returns(ci => Task.FromResult<IReadOnlyList<Message>>(ci.Arg<IEnumerable<Message>>().ToList()));
 
         _shortTerm
-            .ClearSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ClearSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
         _extractionPipeline
@@ -153,7 +153,7 @@ public sealed class MemoryServiceTests
 
         await sut.ClearSessionAsync("session-1");
 
-        await _shortTerm.Received(1).ClearSessionAsync("session-1", Arg.Any<CancellationToken>());
+        await _shortTerm.Received(1).ClearSessionAsync("session-1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // ---- Helpers ----
