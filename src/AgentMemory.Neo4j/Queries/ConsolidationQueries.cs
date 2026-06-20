@@ -59,9 +59,15 @@ public static class ConsolidationQueries
 
     // ── Detect duplicate entities (report only) ──────────────────────────
 
-    /// <summary>Counts redundant entities (per owner+name+type group, all but one). Detection only.</summary>
+    /// <summary>
+    /// Counts redundant entities (per owner+name+type group, all but one). Detection only. Only live
+    /// (not already-invalidated) entities are grouped (<c>invalidated_at IS NULL</c>) — mirroring
+    /// <see cref="CountDuplicatePreferences"/> — so the count reflects what a non-destructive collapse
+    /// would close and does not over-report tombstoned duplicates after decay (R6-B).
+    /// </summary>
     public const string CountDuplicateEntities = @"
             MATCH (e:Entity)
+            WHERE e.invalidated_at IS NULL
             WITH coalesce(e.owner_id, '*') AS ownerKey, toLower(e.name) AS name, e.type AS type, collect(e) AS grp
             WHERE size(grp) >= $minGroupSize
             RETURN coalesce(sum(size(grp) - 1), 0) AS count";

@@ -488,4 +488,61 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         results.Should().Contain(e => e.EntityId == entityPerson.EntityId);
         results.Should().NotContain(e => e.EntityId == entityOrg.EntityId);
     }
+
+    // ── R6-B: tombstoned entities must drop out of the resolution/dedup candidate sets ──
+
+    [Fact]
+    public async Task GetByTypeAsync_ExcludesInvalidatedEntities()
+    {
+        var live = new Entity
+        {
+            EntityId = $"entity-{Guid.NewGuid():N}", Name = "Live Person", Type = "Person",
+            Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        var tombstoned = new Entity
+        {
+            EntityId = $"entity-{Guid.NewGuid():N}", Name = "Tombstoned Person", Type = "Person",
+            Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        await _repo.UpsertAsync(live);
+        await _repo.UpsertAsync(tombstoned);
+        (await _repo.InvalidateAsync(tombstoned.EntityId)).Should().BeTrue();
+
+        var results = await _repo.GetByTypeAsync("Person");
+
+        results.Should().Contain(e => e.EntityId == live.EntityId);
+        results.Should().NotContain(e => e.EntityId == tombstoned.EntityId,
+            "a soft-invalidated entity must not be a resolution candidate (else a re-extracted entity merges into a tombstone)");
+    }
+
+    [Fact]
+    public async Task FindSimilarByEmbeddingAsync_ExcludesInvalidatedCandidates()
+    {
+        var source = new Entity
+        {
+            EntityId = $"entity-{Guid.NewGuid():N}", Name = "Source", Type = "Concept",
+            Confidence = 0.9, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        var liveDup = new Entity
+        {
+            EntityId = $"entity-{Guid.NewGuid():N}", Name = "Live Dup", Type = "Concept",
+            Confidence = 0.9, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        var tombstonedDup = new Entity
+        {
+            EntityId = $"entity-{Guid.NewGuid():N}", Name = "Tombstoned Dup", Type = "Concept",
+            Confidence = 0.9, Embedding = TestEmbedding, CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        await _repo.UpsertAsync(source);
+        await _repo.UpsertAsync(liveDup);
+        await _repo.UpsertAsync(tombstonedDup);
+        (await _repo.InvalidateAsync(tombstonedDup.EntityId)).Should().BeTrue();
+
+        var results = await _repo.FindSimilarByEmbeddingAsync(source.EntityId, minSimilarity: 0.0, limit: 10);
+
+        var ids = results.Select(r => r.Entity.EntityId).ToList();
+        ids.Should().Contain(liveDup.EntityId);
+        ids.Should().NotContain(tombstonedDup.EntityId,
+            "a soft-invalidated entity must not be presented as a live duplicate candidate");
+    }
 }

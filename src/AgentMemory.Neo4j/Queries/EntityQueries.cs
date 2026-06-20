@@ -117,7 +117,10 @@ public static class EntityQueries
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
                             : " AND e.owner_id = $ownerId";
-        return $"MATCH (e:Entity {{type: $type}}) WHERE true{owner} RETURN e";
+        // Exclude soft-invalidated/superseded entities (R6-B): this is the entity-resolution candidate set,
+        // so a re-extracted entity must not resolve onto (and merge into) a tombstoned node — which would
+        // make the live re-assertion invisible. Mirrors the invalidated_at guard on SearchByVector.
+        return $"MATCH (e:Entity {{type: $type}}) WHERE e.invalidated_at IS NULL{owner} RETURN e";
     }
 
     // ── SearchByNameAsync ──────────────────────────────────────────────
@@ -366,11 +369,13 @@ public static class EntityQueries
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (node.owner_id = $ownerId OR node.owner_id IS NULL)"
                             : " AND node.owner_id = $ownerId";
+        // Exclude soft-invalidated/superseded entities (R6-B) so a "find duplicates of my entity" surface
+        // does not present tombstoned nodes as live duplicate candidates. Mirrors FactQueries.FindDuplicate.
         return $@"
             MATCH (source:Entity {{id: $entityId}}) WHERE source.embedding IS NOT NULL
             CALL db.index.vector.queryNodes('entity_embedding_idx', $topK, source.embedding)
             YIELD node, score
-            WHERE node.id <> $entityId AND score >= $minSimilarity{owner}
+            WHERE node.id <> $entityId AND score >= $minSimilarity AND node.invalidated_at IS NULL{owner}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit";

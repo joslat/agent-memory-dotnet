@@ -22,6 +22,7 @@ MATCH (c:Conversation)
 
 ## ConsolidationQueries.CountDuplicateEntities
 MATCH (e:Entity)
+            WHERE e.invalidated_at IS NULL
             WITH coalesce(e.owner_id, '*') AS ownerKey, toLower(e.name) AS name, e.type AS type, collect(e) AS grp
             WHERE size(grp) >= $minGroupSize
             RETURN coalesce(sum(size(grp) - 1), 0) AS count

@@ -31,7 +31,9 @@ public sealed class ScopedNonVectorReadQueryTests
     public void GetByType_ScopedExcludeShared_MatchesOwnerOnly()
     {
         var cypher = EntityQueries.GetByType(hasOwnerFilter: true, includeShared: false);
-        cypher.Should().Contain("e.owner_id = $ownerId").And.NotContain("IS NULL");
+        // The OWNER clause must be own-only (no shared-OR). Assert specifically against the owner predicate,
+        // not a bare "IS NULL" — the query also carries the R6-B `e.invalidated_at IS NULL` live-set guard.
+        cypher.Should().Contain("e.owner_id = $ownerId").And.NotContain("owner_id IS NULL");
     }
 
     // ── EntityQueries.FindSimilarByEmbedding (dedup) ──
@@ -54,7 +56,9 @@ public sealed class ScopedNonVectorReadQueryTests
     public void FindSimilarByEmbedding_ScopedExcludeShared_MatchesOwnerOnly()
     {
         var cypher = EntityQueries.FindSimilarByEmbedding(hasOwnerFilter: true, includeShared: false);
-        cypher.Should().Contain("node.owner_id = $ownerId").And.NotContain("IS NULL");
+        // Own-only owner clause (no shared-OR). Assert against the owner predicate specifically — the query
+        // also carries the R6-B `node.invalidated_at IS NULL` live-candidate guard.
+        cypher.Should().Contain("node.owner_id = $ownerId").And.NotContain("owner_id IS NULL");
     }
 
     // ── EntityQueries.SearchByNameFiltered (name search) ──

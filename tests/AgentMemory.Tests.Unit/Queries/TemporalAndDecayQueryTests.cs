@@ -192,4 +192,31 @@ public sealed class DecayQueryTests
         DecayQueries.PrunePreferences(hasOwnerFilter: true).Should().Contain("p.owner_id = $ownerId");
         DecayQueries.PrunePreferences(hasOwnerFilter: false).Should().NotContain("owner_id");
     }
+
+    // ── R6-B: entity read/dedup/consolidation queries must exclude soft-invalidated nodes ──
+    // The resolution candidate set (GetByType) and dedup candidates (FindSimilarByEmbedding) must not
+    // surface tombstoned entities, or a re-extracted entity resolves into a dead node and goes invisible.
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void EntityGetByType_ExcludesInvalidated(bool hasOwner, bool includeShared)
+        => EntityQueries.GetByType(hasOwner, includeShared)
+            .Should().Contain("e.invalidated_at IS NULL");
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void EntityFindSimilarByEmbedding_ExcludesInvalidated(bool hasOwner, bool includeShared)
+        => EntityQueries.FindSimilarByEmbedding(hasOwner, includeShared)
+            .Should().Contain("node.invalidated_at IS NULL");
+
+    [Fact]
+    public void CountDuplicateEntities_ExcludesInvalidated_LikeItsPreferenceSibling()
+    {
+        ConsolidationQueries.CountDuplicateEntities.Should().Contain("e.invalidated_at IS NULL");
+        ConsolidationQueries.CountDuplicatePreferences.Should().Contain("p.invalidated_at IS NULL");
+    }
 }

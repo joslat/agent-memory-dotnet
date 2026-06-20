@@ -135,6 +135,7 @@ public sealed class AdvancedMemoryTools
         const string query = """
             MATCH (a:Entity), (b:Entity)
             WHERE elementId(a) < elementId(b)
+              AND a.invalidated_at IS NULL AND b.invalidated_at IS NULL
               AND NOT (a)-[:SAME_AS]-(b)
               AND (toLower(a.name) CONTAINS toLower(b.name)
                    OR toLower(b.name) CONTAINS toLower(a.name))
