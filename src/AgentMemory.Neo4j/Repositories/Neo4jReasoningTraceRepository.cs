@@ -44,16 +44,20 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
-    public async Task<ReasoningTrace> UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken = default)
+    public async Task<ReasoningTrace?> UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Updating reasoning trace {Id}", trace.TraceId);
 
-        return await _tx.WriteAsync(async runner =>
+        return await _tx.WriteAsync<ReasoningTrace?>(async runner =>
         {
             var parameters = BuildTraceParameters(trace);
             var cursor = await runner.RunAsync(ReasoningQueries.UpdateTrace, parameters);
-            var record = await cursor.SingleAsync();
-            var node = record["t"].As<INode>();
+            // The UpdateTrace MATCH returns no rows if the trace was concurrently deleted (session clear /
+            // retention prune) between the caller's read and this write. Return null instead of letting
+            // SingleAsync throw an opaque "sequence contains no elements" (R6-E).
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0) return null;
+            var node = records[0]["t"].As<INode>();
 
             // Only persist a real (non-empty) vector; a degraded empty embedding leaves it NULL.
             if (trace.TaskEmbedding is { Length: > 0 })

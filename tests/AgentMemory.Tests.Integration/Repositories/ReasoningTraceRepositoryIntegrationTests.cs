@@ -146,6 +146,26 @@ public class ReasoningTraceRepositoryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpdateAsync_NonexistentTrace_ReturnsNull_DoesNotThrow()
+    {
+        // R6-E: updating a trace that doesn't exist (e.g. concurrently deleted by a session clear / prune
+        // between read and write) must return null, not throw an opaque sequence-empty exception.
+        var ghost = new ReasoningTrace
+        {
+            TraceId = $"trace-{Guid.NewGuid():N}",   // never added
+            SessionId = $"session-{Guid.NewGuid():N}",
+            Task = "Update of a deleted trace",
+            Outcome = "done",
+            Success = true,
+            StartedAtUtc = DateTimeOffset.UtcNow
+        };
+
+        var result = await _repo.UpdateAsync(ghost);
+
+        result.Should().BeNull("UpdateAsync on a missing trace returns null rather than throwing");
+    }
+
+    [Fact]
     public async Task SearchByTaskVectorAsync_ReturnsTraces_WhenEmbeddingMatches()
     {
         var trace = new ReasoningTrace

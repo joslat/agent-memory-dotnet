@@ -149,4 +149,25 @@ public class ReasoningStepTouchedIntegrationTests : IAsyncLifetime
 
         touched.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task AddAsync_ParentTraceMissing_ThrowsActionableError()
+    {
+        // R6-E: a step's AddStep MATCHes its parent trace. If the parent was concurrently deleted (or never
+        // existed), the step can't be attached — failing is correct, but the error must be actionable, not
+        // the driver's opaque "sequence contains no elements".
+        var orphanStep = new ReasoningStep
+        {
+            StepId = $"step-{Guid.NewGuid():N}",
+            TraceId = $"trace-{Guid.NewGuid():N}",   // no such trace
+            StepNumber = 1,
+            Thought = "Orphan step"
+        };
+
+        var act = async () => await _stepRepo.AddAsync(orphanStep);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should().Contain(orphanStep.TraceId,
+                "the error must name the missing parent trace so the failure is diagnosable");
+    }
 }

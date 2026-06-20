@@ -39,7 +39,7 @@ public sealed class ReasoningMemoryServiceTests
 
         _traceRepo
             .UpdateAsync(Arg.Any<ReasoningTrace>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Task.FromResult(ci.Arg<ReasoningTrace>()));
+            .Returns(ci => Task.FromResult<ReasoningTrace?>(ci.Arg<ReasoningTrace>()));
 
         _stepRepo
             .AddAsync(Arg.Any<ReasoningStep>(), Arg.Any<CancellationToken>())
@@ -271,6 +271,27 @@ public sealed class ReasoningMemoryServiceTests
 
         result.CompletedAtUtc.Should().Be(_fixedTime);
         await _traceRepo.Received(1).UpdateAsync(Arg.Any<ReasoningTrace>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CompleteTraceAsync_TraceConcurrentlyDeleted_ThrowsTypedTraceNotFound()
+    {
+        // R6-E: the trace exists at GetById but is concurrently deleted (session clear / retention prune)
+        // before UpdateAsync, which now returns null. The service must surface the SAME typed TraceNotFound
+        // as the read-miss path — not let an opaque sequence-empty exception escape.
+        var existingTrace = CreateTrace("trace-1", "session-1");
+        _traceRepo
+            .GetByIdAsync("trace-1", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<ReasoningTrace?>(existingTrace));
+        _traceRepo
+            .UpdateAsync(Arg.Any<ReasoningTrace>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<ReasoningTrace?>(null));
+        var sut = CreateSut();
+
+        var act = async () => await sut.CompleteTraceAsync("trace-1", outcome: "done", success: true);
+
+        (await act.Should().ThrowAsync<AgentMemory.Abstractions.Exceptions.MemoryException>())
+            .Which.Code.Should().Be(AgentMemory.Abstractions.Exceptions.MemoryErrorCodes.TraceNotFound);
     }
 
     [Fact]

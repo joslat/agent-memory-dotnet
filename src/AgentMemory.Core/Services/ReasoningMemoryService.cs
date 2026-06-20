@@ -214,7 +214,14 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         };
 
         _logger.LogDebug("Completing trace {TraceId}, success={Success}", traceId, success);
-        return await _traceRepo.UpdateAsync(completed, cancellationToken);
+        // The trace can be concurrently deleted (session clear / retention prune) between the read above and
+        // this write; UpdateAsync returns null in that case. Surface the same typed TraceNotFound as the
+        // read-miss path rather than letting an opaque sequence-empty exception escape (R6-E).
+        return await _traceRepo.UpdateAsync(completed, cancellationToken)
+            ?? throw MemoryError.Create($"Trace '{traceId}' not found.")
+                .WithCode(MemoryErrorCodes.TraceNotFound)
+                .WithMetadata("traceId", traceId)
+                .Build();
     }
 
     /// <inheritdoc/>
