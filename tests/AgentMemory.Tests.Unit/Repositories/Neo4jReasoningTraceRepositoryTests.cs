@@ -20,8 +20,18 @@ public sealed class Neo4jReasoningTraceRepositoryTests
             {
                 var work = call.Arg<Func<IAsyncQueryRunner, Task>>();
                 var runner = Substitute.For<IAsyncQueryRunner>();
+                // Capture BOTH RunAsync overloads: relationship writers pass an anonymous object (object
+                // overload); DeleteBySession passes a Dictionary<string,object> which binds the IDictionary
+                // overload. Without the latter, a dictionary-param call is silently not captured.
                 runner
                     .RunAsync(Arg.Any<string>(), Arg.Any<object>())
+                    .Returns(ci =>
+                    {
+                        calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
+                        return Task.FromResult(Substitute.For<IResultCursor>());
+                    });
+                runner
+                    .RunAsync(Arg.Any<string>(), Arg.Any<IDictionary<string, object>>())
                     .Returns(ci =>
                     {
                         calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
@@ -96,7 +106,7 @@ public sealed class Neo4jReasoningTraceRepositoryTests
     // ── DeleteBySessionAsync ──
 
     [Fact]
-    public async Task DeleteBySessionAsync_SendsCorrectCypher()
+    public async Task DeleteBySessionAsync_NullOwner_DeletesSharedBucketOnly()
     {
         var (repo, calls) = CreateWriteCapture();
 
@@ -104,16 +114,26 @@ public sealed class Neo4jReasoningTraceRepositoryTests
 
         calls.Should().ContainSingle();
         calls[0].Cypher.Should().Contain("DETACH DELETE t, s");
+        // R6-C: a null-owner clear confines to the shared bucket (owner_id IS NULL), never all owners.
+        calls[0].Cypher.Should().Contain("t.owner_id IS NULL").And.NotContain("t.owner_id = $ownerId");
+        var parameters = (IDictionary<string, object>)calls[0].Parameters!;
+        parameters["sessionId"].Should().Be("session-42");
+        parameters.Should().NotContainKey("ownerId");
     }
 
     [Fact]
-    public async Task DeleteBySessionAsync_PassesCorrectSessionId()
+    public async Task DeleteBySessionAsync_WithOwner_ScopesToThatOwner()
     {
         var (repo, calls) = CreateWriteCapture();
 
-        await repo.DeleteBySessionAsync("session-42");
+        await repo.DeleteBySessionAsync("session-42", ownerId: "alice");
 
-        var parameters = calls[0].Parameters!;
-        parameters.GetType().GetProperty("sessionId")!.GetValue(parameters).Should().Be("session-42");
+        calls.Should().ContainSingle();
+        calls[0].Cypher.Should().Contain("DETACH DELETE t, s");
+        // Confines to the owner's own bucket — never the shared-only or all-owners clause.
+        calls[0].Cypher.Should().Contain("t.owner_id = $ownerId").And.NotContain("t.owner_id IS NULL");
+        var parameters = (IDictionary<string, object>)calls[0].Parameters!;
+        parameters["sessionId"].Should().Be("session-42");
+        parameters["ownerId"].Should().Be("alice");
     }
 }
