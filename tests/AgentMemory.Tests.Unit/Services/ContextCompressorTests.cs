@@ -197,6 +197,35 @@ public sealed class ContextCompressorTests
         TimestampUtc = DateTimeOffset.UtcNow
     };
 
+    // R6-D: Tier-3 keeps the MOST RECENT messages verbatim and summarizes older ones. The production caller
+    // (ObservationTools → GetRecentMessagesAsync) passes NEWEST-FIRST, so the method must normalize order —
+    // before the fix it kept the OLDEST verbatim and fed the NEWEST turns to summarization.
+    [Fact]
+    public async Task CompressAsync_NewestFirstInput_KeepsNewestVerbatim_SummarizesOldest()
+    {
+        var baseTime = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        // Newest-first: i=6 (newest) … i=1 (oldest). Each ~100 chars so 6 msgs (150 tokens) exceed threshold.
+        var messages = Enumerable.Range(1, 6).Reverse()
+            .Select(i => new Message
+            {
+                MessageId = $"m{i}",
+                ConversationId = "conv-1",
+                SessionId = "session-1",
+                Role = "user",
+                Content = $"MSG{i}-" + new string('x', 100),
+                TimestampUtc = baseTime.AddMinutes(i)
+            })
+            .ToList();
+
+        var result = await _sut.CompressAsync(messages, _defaultOptions); // RecentMessageCount = 3
+
+        result.WasCompressed.Should().BeTrue();
+        var keptIds = result.RecentMessages.Select(m => m.MessageId).ToList();
+        keptIds.Should().BeEquivalentTo(new[] { "m4", "m5", "m6" },
+            "the 3 most-recent messages (by timestamp) must be kept verbatim, regardless of input order");
+        keptIds.Should().NotContain("m1", "the oldest message must be summarized away, not kept verbatim");
+    }
+
     [Fact]
     public async Task CompressAsync_CallerCancellation_PropagatesInsteadOfFallbackText()
     {
