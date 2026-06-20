@@ -82,6 +82,10 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
@@ -145,12 +149,20 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                             UserId = userId
                         }, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
                         "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
                 }
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

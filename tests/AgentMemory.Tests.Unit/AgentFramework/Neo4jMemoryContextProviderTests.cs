@@ -420,4 +420,58 @@ public sealed class Neo4jMemoryContextProviderTests
 
         await act.Should().NotThrowAsync();
     }
+
+    // ── R6-A: caller cancellation must propagate, not be swallowed as empty-context / silent success ──
+    // Before the OCE guards, a cancelled turn surfaced as an empty AIContext (BuildContext) or a silent
+    // "stored" (PerformStore) — the agent ran on no memory / believed a cancelled write succeeded.
+
+    [Fact]
+    public async Task BuildContextAsync_RecallCancelled_PropagatesOperationCanceled()
+    {
+        var sut = CreateSut();
+        var messages = new List<ChatMessage> { new(ChatRole.User, "Tell me about Neo4j.") };
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.5f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var act = async () => await sut.BuildContextAsync(messages, "s1", "c1", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_EmbeddingCancelled_PropagatesOperationCanceled()
+    {
+        var sut = CreateSut();
+        var messages = new List<ChatMessage> { new(ChatRole.User, "Tell me about Neo4j.") };
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        // The embedding sub-try has its own broad catch; the guard must let cancellation escape rather than
+        // log "proceeding without semantic search" and continue.
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var act = async () => await sut.BuildContextAsync(messages, "s1", "c1", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_CallerCancels_PropagatesOperationCanceled()
+    {
+        var sut = CreateSut();
+        var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Important data.") };
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _memoryService.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var act = async () => await sut.PerformStoreAsync(messages, "s1", "c1", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }

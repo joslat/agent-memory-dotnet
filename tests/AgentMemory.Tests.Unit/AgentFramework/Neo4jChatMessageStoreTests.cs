@@ -172,4 +172,48 @@ public sealed class Neo4jChatMessageStoreTests
 
         await act.Should().NotThrowAsync();
     }
+
+    // ── R6-A: caller cancellation must propagate, not be swallowed as fabricated/empty success ──
+    // Before the OCE guard, a cancelled add returned a fabricated (never-persisted) Message; a cancelled
+    // get/clear returned empty/normally — silently reporting success for a cancelled operation.
+
+    [Fact]
+    public async Task AddMessageAsync_CallerCancels_PropagatesOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _memoryService.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var act = async () => await _sut.AddMessageAsync(new ChatMessage(ChatRole.User, "Hello"), "s1", "c1", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task GetMessagesAsync_CallerCancels_PropagatesOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var act = async () => await _sut.GetMessagesAsync("s1", ct: cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task ClearSessionAsync_CallerCancels_PropagatesOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        var act = async () => await _sut.ClearSessionAsync("s1", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }

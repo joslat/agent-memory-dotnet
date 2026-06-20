@@ -44,6 +44,10 @@ public sealed class Neo4jChatMessageStore
                 .AddMessageAsync(message.SessionId, message.ConversationId, message.Role, message.Content, message.Metadata, ct)
                 .ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to add message for session {SessionId}.", sessionId);
@@ -84,6 +88,10 @@ public sealed class Neo4jChatMessageStore
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to retrieve messages for session {SessionId}.", sessionId);
@@ -99,6 +107,10 @@ public sealed class Neo4jChatMessageStore
         try
         {
             await _memoryService.ClearSessionAsync(sessionId, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

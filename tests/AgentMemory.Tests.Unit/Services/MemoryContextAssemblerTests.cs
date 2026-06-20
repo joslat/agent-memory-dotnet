@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Services;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace AgentMemory.Tests.Unit.Services;
 
@@ -182,6 +183,25 @@ public sealed class MemoryContextAssemblerTests
         result.RelevantEntities.Items.Should().BeEmpty();
         result.GraphRagContext.Should().Contain("graph-only context");
         result.BlendMode.Should().Be(RetrievalBlendMode.GraphRagOnly);
+    }
+
+    // R6-A: FetchGraphRagAsync had a broad catch that re-buried the OCE the GraphRAG source deliberately
+    // rethrows on cancellation. In GraphRagOnly mode that swallow was authoritative: a cancelled recall
+    // returned a normal (empty-graph) context instead of honoring cancellation.
+    [Fact]
+    public async Task AssembleContextAsync_GraphRagCancelled_PropagatesOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _graphRag.GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+
+        var act = async () => await sut.AssembleContextAsync(
+            CreateRequest(queryEmbedding: null, blendMode: RetrievalBlendMode.GraphRagOnly), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     [Fact]
