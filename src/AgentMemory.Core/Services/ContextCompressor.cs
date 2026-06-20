@@ -67,10 +67,15 @@ public sealed class ContextCompressor : IContextCompressor
             "Context compression triggered: {Tokens} tokens exceeds threshold {Threshold}",
             originalTokenCount, options.TokenThreshold);
 
-        // Tier 3: keep the most recent messages verbatim
-        var recentCount = Math.Min(options.RecentMessageCount, messages.Count);
-        var recentMessages = messages.Skip(messages.Count - recentCount).ToList();
-        var olderMessages = messages.Take(messages.Count - recentCount).ToList();
+        // Tier 3: keep the most recent messages verbatim, summarize the older ones. This requires
+        // chronological (oldest-first) order, but callers may pass newest-first (GetRecentMessagesAsync /
+        // recall order DESC). Normalize by timestamp first (R6-D) — otherwise Skip(count - recentCount)
+        // kept the OLDEST verbatim and Take(...) fed the NEWEST turns to summarization, the exact inversion
+        // of the documented behavior.
+        var chronological = messages.OrderBy(m => m.TimestampUtc).ToList();
+        var recentCount = Math.Min(options.RecentMessageCount, chronological.Count);
+        var recentMessages = chronological.Skip(chronological.Count - recentCount).ToList();
+        var olderMessages = chronological.Take(chronological.Count - recentCount).ToList();
 
         // Tier 2: summarize older messages in chunks into observations
         var observations = new List<string>();

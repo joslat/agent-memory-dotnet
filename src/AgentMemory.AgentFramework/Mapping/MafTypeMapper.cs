@@ -106,10 +106,13 @@ internal static class MafTypeMapper
             memory.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
 
         // Fill the budget left over after the always-kept lead + memory with the MOST RECENT chat
-        // messages. Order is preserved (lead → chat → memory), matching the original layout.
+        // messages. chatMessages is newest-first (RecentMessages.Items is recall-ordered DESC), so the
+        // newest `chatBudget` items are the FRONT of the list — Take(chatBudget). (R6-D: the previous
+        // Skip(count - chatBudget) kept the TAIL, i.e. the OLDEST messages, dropping the newest turns
+        // first — the opposite of "most recent".) Order is preserved (lead → chat → memory).
         int chatBudget = Math.Max(0, options.MaxContextMessages - lead.Count - memory.Count);
         var keptChat = chatMessages.Count > chatBudget
-            ? chatMessages.Skip(chatMessages.Count - chatBudget).ToList()
+            ? chatMessages.Take(chatBudget).ToList()
             : chatMessages;
 
         var result = new List<ChatMessage>(lead.Count + keptChat.Count + memory.Count);

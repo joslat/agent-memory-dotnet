@@ -278,6 +278,35 @@ public sealed class MafTypeMapperTests
     }
 
     [Fact]
+    public void ToContextMessages_OverBudget_KeepsNewestChatMessages_NotOldest()
+    {
+        // R6-D: RecentMessages.Items is newest-first (recall orders DESC). When the chat exceeds the budget,
+        // the MOST RECENT messages must be kept — the previous Skip(count - budget) kept the TAIL (oldest).
+        // Build newest-first: m20 (newest) ... m1 (oldest).
+        var messages = Enumerable.Range(1, 20).Reverse()
+            .Select(i => new Message
+            {
+                MessageId = $"m{i}", SessionId = "s1", ConversationId = "c1",
+                Role = "user", Content = $"msg {i}",
+                TimestampUtc = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMinutes(i)
+            })
+            .ToList();
+
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = messages }
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context, new ContextFormatOptions { MaxContextMessages = 3 });
+
+        var texts = result.Where(m => m.Text != null).Select(m => m.Text!).ToList();
+        texts.Should().Contain("msg 20", "the newest message must be kept");
+        texts.Should().NotContain("msg 1", "the oldest message must be dropped first when over budget");
+    }
+
+    [Fact]
     public void ToContextMessages_MemoryItemsSurviveBudget_WhenChatMessagesExceedIt()
     {
         // The whole point of the provider is to inject long-term memory. Even when chat messages exceed
