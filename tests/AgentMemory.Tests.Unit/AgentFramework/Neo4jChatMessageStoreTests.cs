@@ -159,13 +159,13 @@ public sealed class Neo4jChatMessageStoreTests
     {
         await _sut.ClearSessionAsync("s1");
 
-        await _memoryService.Received(1).ClearSessionAsync("s1", Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ClearSessionAsync_ServiceThrows_DoesNotPropagate()
     {
-        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("DB error"));
 
         var act = async () => await _sut.ClearSessionAsync("s1");
@@ -209,7 +209,7 @@ public sealed class Neo4jChatMessageStoreTests
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _memoryService.ClearSessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var act = async () => await _sut.ClearSessionAsync("s1", cts.Token);

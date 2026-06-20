@@ -95,6 +95,6 @@ public sealed class Neo4jMemoryPlugin
         [Description("Session identifier to clear")] string sessionId,
         CancellationToken cancellationToken = default)
     {
-        await _memoryService.ClearSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        await _memoryService.ClearSessionAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

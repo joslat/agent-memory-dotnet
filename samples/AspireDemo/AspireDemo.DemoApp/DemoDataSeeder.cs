@@ -24,7 +24,7 @@ internal static class DemoDataSeeder
         var preferenceRepository = services.GetRequiredService<IPreferenceRepository>();
 
         logger.LogInformation("Resetting scripted demo session '{SessionId}'", SessionId);
-        await shortTerm.ClearSessionAsync(SessionId, cancellationToken);
+        await shortTerm.ClearSessionAsync(SessionId, cancellationToken: cancellationToken);
 
         foreach (var preferenceId in Preferences.Select(static p => p.PreferenceId))
             await preferenceRepository.DeleteAsync(preferenceId, cancellationToken: cancellationToken);

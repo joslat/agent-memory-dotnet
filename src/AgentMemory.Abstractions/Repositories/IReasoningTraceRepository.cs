@@ -55,9 +55,12 @@ public interface IReasoningTraceRepository
     Task CreateConversationTraceRelationshipsAsync(string conversationId, string traceId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all ReasoningTrace and child ReasoningStep nodes for a session.
+    /// Deletes ReasoningTrace and child ReasoningStep nodes for a session, confined to a single R1 owner
+    /// bucket: when <paramref name="ownerId"/> is null the shared/global bucket only (<c>owner_id IS NULL</c>),
+    /// otherwise that owner's own traces. A session-keyed destructive write never crosses owners — owner A's
+    /// clear cannot delete owner B's traces, and a null-owner clear never touches an owner's private traces.
     /// </summary>
-    Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
+    Task DeleteBySessionAsync(string sessionId, string? ownerId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Enforces a per-session retention cap (H): keeps the newest <paramref name="maxToKeep"/> traces for

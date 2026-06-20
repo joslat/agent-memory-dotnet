@@ -216,13 +216,21 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken);
     }
 
-    public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async Task DeleteBySessionAsync(string sessionId, string? ownerId = null, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting reasoning traces for session {SessionId}", sessionId);
+        // null ownerId = the shared/global bucket ONLY (owner_id IS NULL), never "all owners" — a destructive
+        // session-keyed delete must confine to exactly one R1 bucket (mirrors PruneSessionTracesAsync / the
+        // FindDuplicate ownerIsShared idiom), so owner A can never clear owner B's traces.
+        bool ownerIsShared = string.IsNullOrEmpty(ownerId);
+        _logger.LogDebug("Deleting reasoning traces for session {SessionId}, owner={Owner}", sessionId, ownerId);
+
+        var cypher = ReasoningQueries.DeleteBySession(ownerIsShared);
+        var parameters = new Dictionary<string, object> { ["sessionId"] = sessionId };
+        if (!ownerIsShared) parameters["ownerId"] = ownerId!;
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(ReasoningQueries.DeleteBySession, new { sessionId });
+            await runner.RunAsync(cypher, parameters);
         }, cancellationToken);
     }
 

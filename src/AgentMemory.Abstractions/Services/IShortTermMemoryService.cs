@@ -69,10 +69,15 @@ public interface IShortTermMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Clears all messages for a session.
+    /// Clears short-term memory for a session (messages + conversations), and the session's reasoning
+    /// traces confined to one R1 owner bucket: null <paramref name="ownerId"/> ⇒ shared/global traces only,
+    /// otherwise that owner's traces — so owner A's clear never deletes owner B's traces. (Messages and
+    /// conversations carry no owner_id; they are purely session-scoped short-term memory and are cleared in
+    /// full for the session.)
     /// </summary>
     Task ClearSessionAsync(
         string sessionId,
+        string? ownerId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

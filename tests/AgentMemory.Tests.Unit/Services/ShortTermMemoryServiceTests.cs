@@ -245,7 +245,7 @@ public sealed class ShortTermMemoryServiceTests
             .DeleteBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         _reasoningTraceRepo
-            .DeleteBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .DeleteBySessionAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
         var sut = CreateSut();
 
@@ -253,7 +253,7 @@ public sealed class ShortTermMemoryServiceTests
 
         await _messageRepo.Received(1).DeleteBySessionAsync("session-1", Arg.Any<CancellationToken>());
         await _conversationRepo.Received(1).DeleteBySessionAsync("session-1", Arg.Any<CancellationToken>());
-        await _reasoningTraceRepo.Received(1).DeleteBySessionAsync("session-1", Arg.Any<CancellationToken>());
+        await _reasoningTraceRepo.Received(1).DeleteBySessionAsync("session-1", (string?)null, Arg.Any<CancellationToken>());
         await _conversationRepo.DidNotReceive().GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _conversationRepo.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
