@@ -37,8 +37,15 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
             };
 
             var cursor = await runner.RunAsync(ReasoningQueries.AddStep, parameters);
-            var record = await cursor.SingleAsync();
-            var node = record["s"].As<INode>();
+            // AddStep MATCHes the parent trace before CREATE; if the parent was concurrently deleted the
+            // MATCH yields no rows and the step cannot be attached. Failing is correct — but surface a clear,
+            // actionable error instead of SingleAsync's opaque "sequence contains no elements" (R6-E).
+            var records = await cursor.ToListAsync();
+            if (records.Count == 0)
+                throw new InvalidOperationException(
+                    $"Cannot add reasoning step '{step.StepId}': parent trace '{step.TraceId}' does not exist " +
+                    "(it may have been concurrently deleted).");
+            var node = records[0]["s"].As<INode>();
 
             // Only persist a real (non-empty) vector; a degraded empty embedding leaves `embedding` NULL.
             if (step.Embedding is { Length: > 0 })

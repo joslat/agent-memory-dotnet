@@ -11,8 +11,12 @@ public interface IReasoningTraceRepository
     /// <summary>Adds a reasoning trace.</summary>
     Task<ReasoningTrace> AddAsync(ReasoningTrace trace, CancellationToken cancellationToken = default);
 
-    /// <summary>Updates a reasoning trace.</summary>
-    Task<ReasoningTrace> UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Updates a reasoning trace. Returns <c>null</c> if no trace with the given id exists — e.g. it was
+    /// concurrently deleted (a session clear / retention prune) between a read and this write — so callers
+    /// can surface a clean "not found" rather than an opaque sequence-empty exception (R6-E).
+    /// </summary>
+    Task<ReasoningTrace?> UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken = default);
 
     /// <summary>Gets a trace by identifier.</summary>
     Task<ReasoningTrace?> GetByIdAsync(string traceId, CancellationToken cancellationToken = default);
