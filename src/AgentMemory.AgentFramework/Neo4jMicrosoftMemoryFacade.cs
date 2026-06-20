@@ -68,6 +68,10 @@ public sealed class Neo4jMicrosoftMemoryFacade
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get context for session {SessionId}.", sessionId);
@@ -111,11 +115,19 @@ public sealed class Neo4jMicrosoftMemoryFacade
                             UserId = userId
                         }, ct).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
                 }
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -374,6 +374,10 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             };
             return await _graphRag!.GetContextAsync(graphRagRequest, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "GraphRAG retrieval failed for session {SessionId}", request.SessionId);

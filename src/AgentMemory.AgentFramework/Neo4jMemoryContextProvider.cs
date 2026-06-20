@@ -88,6 +88,10 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                     .EmbedQueryAsync(queryText, cancellationToken)
                     .ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to generate query embedding; proceeding without semantic search.");
@@ -108,6 +112,10 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                     .RecallAsync(recallRequest, cancellationToken)
                     .ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Memory recall failed for session {SessionId}; returning empty context.", sessionId);
@@ -120,6 +128,10 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 return new AIContext();
 
             return new AIContext { Messages = contextMessages };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -188,12 +200,20 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                             UserId = userId
                         }, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
                         "Extraction failed for session {SessionId}; messages were persisted.", sessionId);
                 }
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
