@@ -11,6 +11,8 @@
 
 ## TL;DR — resume here
 
+> For an even shorter landing, see [`../CONTINUE-HERE.md`](../CONTINUE-HERE.md) at the repo root.
+
 - **The library is feature-complete and published.** Latest release: **`0.1.0-preview.4`** (NuGet, 2026-06-21).
 - **It is heavily hardened.** Beyond the original 6 review cycles, it went through **six rounds of full-repo
   adversarial bug-hunting plus a final exhaustive convergence-verification pass** — **80+ confirmed defects

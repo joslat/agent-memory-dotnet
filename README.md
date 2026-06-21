@@ -5,6 +5,8 @@
 
 Persistent graph-native memory for AI agents in .NET, built for **Microsoft Agent Framework** and designed to work with **Neo4j**.
 
+> 🧭 **Resuming work / want the current state?** Start at **[`CONTINUE-HERE.md`](CONTINUE-HERE.md)** (30-second landing) or **[`docs/ROADMAP.md`](docs/ROADMAP.md)** (full status & next steps).
+
 This project aims to bring the ideas and capabilities of the Python-based [`neo4j-labs/agent-memory`](https://github.com/neo4j-labs/agent-memory) project into a **native .NET implementation**, while also integrating with the existing [`neo4j-labs/neo4j-maf-provider`](https://github.com/neo4j-labs/neo4j-maf-provider) for **GraphRAG interoperability**.
 
 ## What this project is
