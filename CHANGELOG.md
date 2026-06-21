@@ -6,11 +6,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-preview.4] - 2026-06-21
+
+This release is dominated by a sustained correctness-hardening effort: **six rounds** of adversarial
+bug-hunting plus a final exhaustive convergence-verification pass, surfacing and fixing **80+ confirmed
+defects** across the library (cross-cutting issues the per-file reviews missed — DI/config wiring,
+cancellation, multi-tenant isolation, bitemporal/dedup correctness, resilience, and context assembly).
+Every fix shipped with a regression test targeting the trigger. The public API is unchanged except for the
+small items under **Changed**/**Removed** below.
+
 ### Added
 
 - **`agentmemory schema-check` CLI command — runtime schema conformance.** Verifies that the live Neo4j database actually has every constraint and index the bootstrapper creates: it reads `SHOW CONSTRAINTS` / `SHOW INDEXES`, diffs them against the expected baseline (parsed from `SchemaQueries`, parameterized by the configured embedding dimensions), prints any missing objects, and exits `0` when conformant / `1` otherwise — the runtime counterpart to `bootstrap`, and CI-friendly. This is distinct from `schema-parity` (a *static* check that the .NET schema is compatible with the embedded upstream Python snapshot). New `SchemaConformance` helper (`ExpectedObjectNames`/`ParseObjectName`/`MissingObjects`) + `SchemaQueries.ShowConstraintNames`/`ShowIndexNames`; unit-tested.
 
 - **Meta-package `AddNeo4jAgentMemory` now forwards a `configureStore` delegate.** The one-line `AgentMemory` registration gained an optional 4th parameter, `Action<MemoryStoreOptions>? configureStore`, so the application/memory-store isolation tier (R1b) — e.g. `MemoryStorageStrategy.DatabasePerApplication`, which routes each `ApplicationId` to its own auto-provisioned Neo4j database (Enterprise/AuraDB) — can be configured without dropping down to the `AgentMemory.Neo4j` registration. Backward-compatible (optional, appended last; `SharedDatabase` default unchanged). Documented in `docs/getting-started.md` §3.4 ("Multiple databases & instances"), with a new `deploy/docker-compose.enterprise.yml` (Enterprise + APOC + GDS) for local multi-store/analytics testing.
+
+- **Previously-dead configuration options are now wired and enforced.** `LongTermMemoryOptions.MinConfidenceThreshold` gates the direct `Add{Entity,Fact,Preference}` API (sub-threshold adds are skipped; MCP add tools report `persisted`/`reason`); `LlmExtractionOptions.EntityTypes` now builds the LLM system prompt; `ReasoningMemoryOptions.MaxTracesPerSession` enforces a per-session retention prune; `EnrichmentOptions.MaxRetries`/`GeocodingOptions.MaxRetries` drive a dependency-free retry handler on the enrichment/geocoding HTTP clients; `ReasoningMemoryOptions.StoreToolCalls`/`GenerateTaskEmbeddings`, `AgentFrameworkOptions.PersistReasoningTraces`, and `ShortTermMemoryOptions.DefaultRecentMessageLimit` are likewise honored.
+
+### Fixed
+
+The cross-cutting correctness pass (the six hunt rounds + convergence test). Grouped by area:
+
+- **Cancellation is honored everywhere.** `OperationCanceledException` from a cancelled caller token now propagates instead of being swallowed and reported as a fabricated/empty success — across the Agent Framework adapters (chat-message store, chat-history provider, context provider, memory facade), the context assembler's GraphRAG fetch, the extraction pipeline (extractor base / extraction / persistence / entity-resolution loop), the embedding orchestrator, the context compressor, and the GraphRAG retriever.
+- **Multi-tenant (R1) isolation hardening.** Session-keyed destructive writes (reasoning-trace retention prune **and** session clear / delete-by-session) now confine to a single owner bucket — owner A can never evict owner B's traces under a shared/guessable `session_id`; a null-owner clear touches only the shared bucket. `ListBySession`/`ListTraces` reads are owner-scoped; relationship creation no longer leaks owner-less edges. Entity resolution and dedup candidate queries (`GetByType`, `FindSimilarByEmbedding`) plus the duplicate-detection reports now exclude soft-invalidated nodes, so a re-extracted entity can't merge into a tombstone.
+- **Bitemporal & dedup correctness.** Fact upsert MERGEs idempotently on the `{subject, predicate, object, owner}` triple on **both** the single and batch paths (batch previously MERGEd on `id`, creating duplicate nodes on re-extraction); re-asserting an invalidated/superseded triple restores it to live recall while preserving its valid-time window; embedding/provenance sub-writes land on the surviving node. `FindDuplicate` excludes invalidated nodes so a re-asserted fact isn't deduped onto a dead one.
+- **Degraded-input safety.** An empty/degraded embedding (`Array.Empty<float>()`) is now a search-boundary invariant: all vector-search and dedup paths short-circuit to empty rather than passing a zero-dimension vector to `db.index.vector.queryNodes` (which throws); the as-of recall path is covered too.
+- **Resilience.** Transient enrichment failures (`Error`/`RateLimited`, which providers like Diffbot *return* rather than throw) are retried and no longer cached or counted as success — in the background queue, the caching decorator, and the telemetry decorator; HTTP timeouts are distinguished from caller cancellation. The embedding-backfill loop has a forward-progress guard (no infinite loop on a persistently-failing embed). A reasoning trace concurrently deleted between read and write yields a typed "not found" (and an actionable error when a step's parent trace is gone) instead of an opaque exception. The background enrichment worker survives a transient fault instead of dying silently. GDS-availability probing distinguishes "not installed" (cache) from a transient failure (re-probe).
+- **Context assembly & budgeting.** Truncation keeps the **most recent** messages (the MAF mapper and context compressor previously kept the oldest of a newest-first list); long-term memory blocks are budgeted separately so they're never the first dropped; a large `MaxTokens` can't overflow the char budget to an empty context; proportional GraphRAG truncation never splits a UTF-16 surrogate pair. Hybrid retrieval fuses semantic + keyword results with scale-free Reciprocal Rank Fusion; raw fulltext queries are Lucene-escaped.
+- **Other.** `FactQueries.Upsert` no longer clobbers a fact's stable `id` (or its supersession `valid_until`) on re-extraction; numeric/culture formatting uses `InvariantCulture` (MCP responses, CLI output, Diffbot); several `OperationCanceledException`/read-then-write race and `SingleAsync`-on-empty edge cases return clean results; MCP `record_tool_call` surfaces an error payload for an unknown status instead of coercing to success.
+
+### Changed
+
+- **`IReasoningTraceRepository.UpdateAsync` now returns `Task<ReasoningTrace?>`** (was non-null) — `null` when the trace no longer exists (e.g. concurrently deleted), so callers surface a clean not-found instead of an opaque exception.
+- **`ClearSessionAsync` (`IMemoryService` / `IShortTermMemoryService` / `IMemoryMaintenance`) and `IReasoningTraceRepository.DeleteBySessionAsync` gained an optional `string? ownerId`** to confine the reasoning-trace delete to one owner bucket (additive; default `null` = shared bucket only).
+- **Library code now enforces `ConfigureAwait(false)`** via a `src/.editorconfig` CA2007 rule (applied across all production projects), so awaits don't capture the caller's synchronization context.
+
+### Removed
+
+- **`MemoryDecayOptions.EnableAutoPrune`** — a documented-but-unread option whose premise (auto-prune during extraction) belongs with the broader decay/forgetting work, not a settable flag that did nothing. Pruning runs only when explicitly invoked.
+- **`LongTermMemoryOptions.EnableEntityResolution`** (duplicated the working `ExtractionOptions.EntityResolution` switches), **`MemoryOptions.EnableAutoExtraction`** (Core extraction is explicit by design), and **`MemoryDecayOptions.MaxMemoriesPerSession`** (long-term nodes are cross-session and carry no `session_id`, so a per-session cap couldn't be coherently enforced).
 
 ## [0.1.0-preview.3] - 2026-06-14
 
