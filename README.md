@@ -191,7 +191,7 @@ Long-term knowledge is **owner-scoped** so one user cannot recall another user's
 - **Identity flows from the agent surface:** the MAF providers read `user_id` (and `application_id`) from the `AgentSession` state bag (`session.WithMemoryIdentity(userId: …)`); MCP and Semantic Kernel tools accept an optional `userId`. Owner indexes (`fact/entity/preference/trace/rel_owner_idx`) back the filters; non-backfilling migrations (`0002`, `0003`) bring existing databases to parity losslessly.
 - **Optional store tier (R1b):** an `ApplicationId` above the owner routes to its own Neo4j database (`MemoryStorageStrategy.DatabasePerApplication`, requires Enterprise/AuraDB) or stays on the shared database (default, Community-compatible). `IMemoryStoreContext` is `AsyncLocal`-backed, so per-request routing is concurrency-safe.
 
-> The LLM-invokable memory tools (built from `IMemoryQueryFacade`) scope via an ambient `IMemoryOwnerContext` — set `IWritableMemoryOwnerContext.UserId` for the agent run (the tools can't accept a trusted user id from the model). Status: the owner-scope core and all leak-path closures are implemented and integration-tested (see `docs/Memory_Review_and_Implementation_Plan.md`). Deliberately deferred/limited items (entity-resolution sharing semantics; session-clear owner-scoping) are tracked there.
+> The LLM-invokable memory tools (built from `IMemoryQueryFacade`) scope via an ambient `IMemoryOwnerContext` — set `IWritableMemoryOwnerContext.UserId` for the agent run (the tools can't accept a trusted user id from the model). Status: the owner-scope core and all leak-path closures are implemented and integration-tested (see `docs/Memory_Review_and_Implementation_Plan.md`); session-clear/delete is now owner-scoped too (preview.4). The remaining limited item (entity-resolution cross-owner sharing semantics) is tracked there.
 
 ## Project status
 
@@ -214,7 +214,7 @@ The solution ships these packages:
 | `AgentMemory.Analytics` | Opt-in | Optional Neo4j GDS analytics — PageRank (memory importance) + Louvain community detection, owner-scoped, graceful no-op without the GDS plugin. Not in the meta-package. |
 | `AgentMemory` | Release | Meta-package bundling core + Neo4j + Abstractions for convenient dependencies |
 
-Extensively tested with unit and integration tests covering all packages. ~99% functional parity with the Python reference implementation. Published to NuGet as `0.1.0-preview.3`.
+Extensively tested with unit and integration tests covering all packages (2654 unit + 236 live-Neo4j integration green as of 2026-06-21; Release builds 0-warning). ~99% functional parity with the Python reference implementation, hardened by six rounds of adversarial bug-hunting beyond the initial review cycles. Published to NuGet as `0.1.0-preview.4`. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for current status and next steps.
 
 The goal is to produce a robust, testable, production-oriented .NET implementation that is easy for .NET teams to adopt and extend.
 

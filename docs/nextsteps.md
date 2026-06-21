@@ -1,19 +1,30 @@
+> ## ⚠️ For current status, see [`ROADMAP.md`](ROADMAP.md)
+> **This document is now primarily historical.** It is the original (2026-04-30) forward-looking plan plus a
+> task tracker, kept for the still-useful **.NET-vs-Python assessment (§2)** and the planning rationale.
+> The "Implementation Tracking" table and "§1 Where We Are" below are a **pre-release snapshot** — every
+> item in them has since shipped (the library is at `0.1.0-preview.4`, heavily hardened; see ROADMAP).
+> Several "Where .NET is behind" rows in §2c are also now **shipped** (marked inline). Treat ROADMAP as the
+> source of truth for what's done and what's next.
+
 ## Implementation Tracking
 
-> **State column legend:** empty = available to be taken · `S` = Started (claimed by Ralph or a human, in progress) · `F` = Finished (100% done and reviewed). Ralph picks the **topmost row whose State is empty** and whose dependencies (per Notes) are all `F`.
+> **State column legend:** empty = available to be taken · `S` = Started (in progress) · `F` = Finished (100% done and reviewed).
+> **NOTE (2026-06-21): all rows below are now `F` (done).** The two rows left at `0%` (BenchmarkDotNet, S9)
+> shipped 2026-06-14; NuGet release prep completed and `0.1.0-preview.4` is published. This table is frozen
+> as historical record — see [`ROADMAP.md`](ROADMAP.md) for live status.
 
 | Priority | State | Task Name | Description | % Done | Reviewed | Plan File | Notes |
 |---|---|---|---|---|---|---|---|
 | 1 – HIGH | F | Package Rename | Rename all packages Neo4j.AgentMemory.* → AgentMemory.* | 100% | ✅ Deckard | rename-plan.md | Executed by Roy (acef3ef). All 8 review gates passed. Approved by Deckard 2026-04-30. |
 | 2 – HIGH | F | DELETE_SESSION_DATA Gap | Extend DeleteSessionAsync to delete Conversation + ReasoningTrace nodes | 100% | ✅ Deckard | delete-session-gap-plan.md | PR: https://github.com/joslat/agent-memory-dotnet/pull/1 |
 | 3 – HIGH | F | Aspire Demo | .NET Aspire AppHost + Neo4j + seeded DB + agent client demo app | 100% | — | aspire-demo-plan.md | Merged to mainline 2026-06-05 (`samples/AspireDemo`, in `AgentMemory.slnx`). Verified end-to-end against live Neo4j. |
-| 4 – HIGH | S | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 80% | — | — | CHANGELOG + CONTRIBUTING exist; shared packaging metadata (v0.1.0-preview.1, MIT, README, SourceLink) + tag-gated `squad-release.yml` pack/push added 2026-06-05. Remaining: add `NUGET_API_KEY` secret and push a `v*` tag to publish. |
+| 4 – HIGH | F | NuGet Release Prep | CHANGELOG, CONTRIBUTING, semver, .csproj metadata, CI publish workflow | 100% | — | — | **DONE — published.** `squad-release.yml` (tag-gated) + `NUGET_API_KEY` configured; `0.1.0-preview.2/.3/.4` published to NuGet (latest preview.4, 2026-06-21). |
 | 1 – HIGH | F | Multi-user / multi-store isolation (R1/R1b) | owner_id + MemoryScope (optional shared) across all recall/lookup/GraphRAG/trace/relationship/AsOf paths; MAF/MCP/SK identity; owner indexes + migrations 0002/0003; per-application store tier (AsyncLocal context). | 100% | — | Memory_Review_and_Implementation_Plan.md | I1–I9 + IC1–IC6 on `remediation/analysis-review-hardening`; verified by Neo4j integration tests. Deferred (tracked in plan): entity-resolution sharing, IMemoryQueryFacade tool surface (IC8), session-clear owner-scoping. |
 | 5 – MED | F | Streaming Extraction | IStreamingExtractor (chunk/overlap/cross-chunk dedup) — built + unit-tested + **now DI-registered** in AddAgentMemoryCore (2026-06-06). Pure text→entities helper; owner stamping via PersistenceStage/ExtractionRequest.UserId. | 100% | — | — | Was held until R1 isolation landed; interface name IStreamingExtractor is final (not IStreamingExtractionPipeline). |
 | 6 – MED | F | CLI Tool | `agentmemory` dotnet tool: migrate, bootstrap, schema-check, consolidate, decay, conflicts, schema-parity, invalidate, supersede | 100% | — | Memory_Review_and_Implementation_Plan.md | Shipped 2026-06-13 (`tools/AgentMemory.Cli`); verified end-to-end vs live Neo4j. The v1-spec `schema-check` (runtime DB conformance — `SHOW CONSTRAINTS/INDEXES` vs the bootstrap baseline) shipped 2026-06-14, alongside the static `schema-parity` upstream-compatibility check. |
 | 7 – MED | F | GDS Support | Optional AgentMemory.Analytics package, GDS PageRank + community detection | 100% | — | — | Shipped 2026-06-13. `AddGdsMemoryAnalytics()`; `IMemoryPageRankService` + `IMemoryCommunityService` over an owner-scoped Cypher projection; graceful no-op without the GDS plugin. Validated by unit + live GDS-enabled integration tests. Not in the meta-package (opt-in). |
-| 8 – MED |  | BenchmarkDotNet Harness | Perf benchmarks for batch ops, vector search, decay, hybrid retrieval | 0% | — | — | — |
-| 9 – MED |  | S9 Truncation Refactor | Extract truncation strategies from MemoryContextAssembler | 0% | — | — | Low priority architectural cleanup |
+| 8 – MED | F | BenchmarkDotNet Harness | Perf benchmarks for batch ops, vector search, decay, hybrid retrieval | 100% | — | — | **DONE 2026-06-14** (`benchmarks/AgentMemory.Benchmarks`, against a Testcontainers Neo4j; intentionally out of CI gating and the meta-package). |
+| 9 – MED | F | S9 Truncation Refactor | Extract truncation strategies from MemoryContextAssembler | 100% | — | — | **DONE 2026-06-14** (`ITruncationStrategy` / `ContextBudgetEstimator` extracted from `MemoryContextAssembler`). |
 
 # Agent Memory for .NET — Next Steps
 
@@ -46,6 +57,11 @@ Scored as of 2026-04-30. **Cost/Effort** and **Value** are 1–10 (1 = trivial/m
 ---
 
 ## 1. Where We Are
+
+> **⚠️ This section is a pre-release (2026-04-30) snapshot — superseded by [`ROADMAP.md`](ROADMAP.md).**
+> The "what is not done yet" paragraph below is fully resolved: NuGet release (published, preview.4),
+> streaming extraction (shipped), Aspire demo (shipped), and the GDS analytics package (shipped) are all
+> done. The library has since also been through six rounds of adversarial hardening (80+ defects fixed).
 
 All six implementation phases are complete. The gap-closure sprint (Waves A–C) brought functional parity with the Python reference to ~99%. The documentation has been reorganised and corrected. The solution ships eleven source packages (including a convenience meta-package), an extensive test suite, and a fully functional MCP server.
 
@@ -101,6 +117,13 @@ These dimensions are functionally equivalent, even if the implementation languag
 - Semantic Kernel integration (Python has no SK equivalent — .NET is actually ahead here)
 
 ### 2c. Where .NET is Behind
+
+> **Update (2026-06-21):** several rows below have since **shipped** — **Streaming extraction**
+> (`IStreamingExtractor`, DI-registered), **CLI tool** (`agentmemory` with 9 verbs), **GDS integration**
+> (`AgentMemory.Analytics`), and **Benchmarks** (`benchmarks/AgentMemory.Benchmarks`). The genuinely-open
+> deltas are now **local NLP extractors** (GLiNER/ONNX), a **concrete local embedding adapter**, broader
+> **framework-ecosystem integrations** (AutoGen.NET/LangChain.NET), and **Opik** observability. The table is
+> kept as the original analysis.
 
 | Area | The gap | Why it exists |
 |------|---------|---------------|
