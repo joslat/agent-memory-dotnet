@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using FluentAssertions;
 using AgentMemory.Abstractions.Domain.Enrichment;
 using AgentMemory.Abstractions.Services;
@@ -56,6 +57,56 @@ public sealed class InstrumentedEnrichmentServiceTests
 
         var act = () => _sut.EnrichEntityAsync("Test", "PERSON");
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+    }
+
+    // R6 cleanup: providers return a status-bearing result instead of throwing, so a non-null
+    // Error/RateLimited result must count as an enrichment ERROR (not a success) in telemetry.
+
+    private async Task<long> CaptureEnrichmentErrorsAsync(Func<Task> action)
+    {
+        long errors = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == MemoryMetrics.MeterName) l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+        {
+            if (instrument.Name == "memory.enrichment.errors") Interlocked.Add(ref errors, value);
+        });
+        listener.Start();
+        await action();
+        listener.Dispose();
+        return Interlocked.Read(ref errors);
+    }
+
+    [Theory]
+    [InlineData(EnrichmentStatus.Error)]
+    [InlineData(EnrichmentStatus.RateLimited)]
+    public async Task EnrichEntityAsync_StatusBearingFailure_CountsAsError(EnrichmentStatus status)
+    {
+        _inner.EnrichEntityAsync("Acme", "ORGANIZATION", Arg.Any<CancellationToken>())
+            .Returns(new EnrichmentResult { EntityName = "Acme", Status = status });
+
+        var errors = await CaptureEnrichmentErrorsAsync(() => _sut.EnrichEntityAsync("Acme", "ORGANIZATION"));
+
+        errors.Should().Be(1, "a non-null Error/RateLimited result is a failure, not a successful enrichment");
+    }
+
+    [Theory]
+    [InlineData(EnrichmentStatus.Success)]
+    [InlineData(EnrichmentStatus.NotFound)]
+    [InlineData(EnrichmentStatus.Skipped)]
+    public async Task EnrichEntityAsync_NonFailureStatus_DoesNotCountAsError(EnrichmentStatus status)
+    {
+        _inner.EnrichEntityAsync("Acme", "ORGANIZATION", Arg.Any<CancellationToken>())
+            .Returns(new EnrichmentResult { EntityName = "Acme", Status = status });
+
+        var errors = await CaptureEnrichmentErrorsAsync(() => _sut.EnrichEntityAsync("Acme", "ORGANIZATION"));
+
+        errors.Should().Be(0);
     }
 
     [Fact]

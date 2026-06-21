@@ -446,6 +446,32 @@ public sealed class CoreMemoryToolsTests
         doc.RootElement.GetProperty("reason").GetString().Should().NotBeNullOrEmpty();
     }
 
+    [Fact]
+    public async Task MemoryAddFact_BelowThreshold_ReasonUsesInvariantDecimalPoint_UnderCommaCulture()
+    {
+        // R6 cleanup: the reason string lands in a JSON tool response, so the confidence/threshold doubles
+        // must format with a period under a comma-decimal locale (e.g. de-DE), not "0,3".
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+            _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+                .Returns(ci => ci.Arg<Fact>());
+
+            var result = await CoreMemoryTools.MemoryAddFact(
+                _longTermMemory, _idGenerator, _clock, _options, Threshold(0.5),
+                "Alice", "maybe_works_at", "Microsoft", confidence: 0.3);
+
+            var reason = JsonDocument.Parse(result).RootElement.GetProperty("reason").GetString();
+            reason.Should().Contain("0.3").And.Contain("0.5");
+            reason.Should().NotContain("0,3").And.NotContain("0,5");
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
+
     [Theory]
     [InlineData(0.5)]  // boundary: equal to threshold persists (gate is strict <)
     [InlineData(0.9)]

@@ -28,17 +28,17 @@ public sealed record MemoryDecayOptions
     /// </summary>
     public double AccessBoostFactor { get; init; } = 0.2;
 
-    /// <summary>
-    /// When <c>true</c>, low-scoring memories are automatically pruned during extraction.
-    /// </summary>
-    public bool EnableAutoPrune { get; init; }
+    // NOTE: a documented-but-dead `EnableAutoPrune` option was removed (R6 cleanup). It promised
+    // "automatically prune during extraction" but was read nowhere — auto-prune-on-extraction would wire
+    // the decay service into the extraction pipeline, which belongs with the (currently held) decay/forget
+    // work, not a settable flag that silently does nothing. Pruning runs only when explicitly invoked.
 
     /// <summary>
     /// When <c>true</c> (the default, D4), decay pruning is <b>non-destructive</b>: low-score nodes are
     /// soft-invalidated (their <c>invalidated_at</c> is stamped) — kept, recoverable, and still visible to
     /// as-of recall — rather than deleted, so forgetting is reversible and auditable. Set <c>false</c> for
-    /// a hard <c>DETACH DELETE</c> purge (storage reclamation / GDPR erasure). Either way, pruning only
-    /// runs when invoked — it is not automatic unless <see cref="EnableAutoPrune"/> is set.
+    /// a hard <c>DETACH DELETE</c> purge (storage reclamation / GDPR erasure). Pruning only runs when
+    /// explicitly invoked; it is never automatic.
     /// </summary>
     public bool NonDestructive { get; init; } = true;
 

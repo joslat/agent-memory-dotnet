@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -117,7 +118,9 @@ public sealed class ConflictsCommand(IConflictDetectionService service, TextWrit
             var owner = conflict.OwnerId is null ? "shared" : $"owner={conflict.OwnerId}";
             output.WriteLine($"  [{owner}] {conflict.Subject} / {conflict.Predicate}:");
             foreach (var value in conflict.Values)
-                output.WriteLine($"      = {value.Object}  (fact {value.FactId}, conf {value.Confidence:0.00})");
+                // InvariantCulture so the confidence decimal point is stable across locales (R6 cleanup).
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"      = {value.Object}  (fact {value.FactId}, conf {value.Confidence:0.00})"));
         }
         if (report.FactConflictCount == 0)
             output.WriteLine("  No contradictions found.");

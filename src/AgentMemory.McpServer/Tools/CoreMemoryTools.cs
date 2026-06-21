@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
@@ -233,8 +234,11 @@ public sealed class CoreMemoryTools
     private static (bool Persisted, string? Reason) PersistenceOutcome(double confidence, double threshold) =>
         confidence >= threshold
             ? (true, (string?)null)
-            : (false, $"Not stored: confidence {confidence:0.###} is below the configured minimum {threshold:0.###} " +
-                      "(LongTermMemoryOptions.MinConfidenceThreshold). Increase confidence or lower the threshold.");
+            // Format the doubles with InvariantCulture: this string lands in a JSON tool response, so a
+            // comma-decimal locale must not change "0.3" to "0,3" (R6 cleanup).
+            : (false, string.Create(CultureInfo.InvariantCulture,
+                      $"Not stored: confidence {confidence:0.###} is below the configured minimum {threshold:0.###} " +
+                      $"(LongTermMemoryOptions.MinConfidenceThreshold). Increase confidence or lower the threshold."));
 
     // Parses an optional JSON-object string into a metadata dictionary. Returns null when blank;
     // throws an actionable ArgumentException (surfaced to the MCP caller) when the JSON is invalid.
