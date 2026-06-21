@@ -57,7 +57,7 @@ public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntity
             "Extract entities from this conversation:",
             conversationText,
             ProjectEntities,
-            ct);
+            ct).ConfigureAwait(false);
     }
 
     /// <summary>

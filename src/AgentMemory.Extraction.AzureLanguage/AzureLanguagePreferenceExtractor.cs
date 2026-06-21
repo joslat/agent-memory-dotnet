@@ -36,7 +36,7 @@ public sealed class AzureLanguagePreferenceExtractor : ExtractorBase<ExtractedPr
             if (string.IsNullOrWhiteSpace(message.Content))
                 continue;
 
-            await ExtractPreferencesFromMessage(message, preferences, ct);
+            await ExtractPreferencesFromMessage(message, preferences, ct).ConfigureAwait(false);
         }
 
         return preferences;
@@ -48,10 +48,10 @@ public sealed class AzureLanguagePreferenceExtractor : ExtractorBase<ExtractedPr
         CancellationToken ct)
     {
         var sentiment = await _client.AnalyzeSentimentAsync(
-            message.Content, _options.DefaultLanguage, ct);
+            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
 
         var keyPhrases = await _client.ExtractKeyPhrasesAsync(
-            message.Content, _options.DefaultLanguage, ct);
+            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
 
         var stronglyPositive = sentiment.PositiveScore >= _options.PreferenceSentimentThreshold;
         var stronglyNegative = sentiment.NegativeScore >= _options.PreferenceSentimentThreshold;

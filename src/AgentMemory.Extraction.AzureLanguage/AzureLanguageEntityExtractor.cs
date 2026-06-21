@@ -41,7 +41,7 @@ public sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEntity
                     continue;
 
                 var entities = await _context.GetOrRecognizeEntitiesAsync(
-                    message.Content, _options.DefaultLanguage, _client, ct);
+                    message.Content, _options.DefaultLanguage, _client, ct).ConfigureAwait(false);
                 allEntities.AddRange(entities);
             }
         }

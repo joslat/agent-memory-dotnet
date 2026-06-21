@@ -33,7 +33,7 @@ public sealed class ContextResource
             Options = new RecallOptions { MaxRecentMessages = maxRecentMessages }
         };
 
-        var context = await contextAssembler.AssembleContextAsync(request, cancellationToken);
+        var context = await contextAssembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {

@@ -20,7 +20,7 @@ public sealed class ReasoningTools
         CancellationToken cancellationToken = default)
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
-        var trace = await reasoningMemory.StartTraceAsync(sid, task, cancellationToken: cancellationToken);
+        var trace = await reasoningMemory.StartTraceAsync(sid, task, cancellationToken: cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             trace.TraceId,
@@ -45,7 +45,7 @@ public sealed class ReasoningTools
     {
         var step = await reasoningMemory.AddStepAsync(
             traceId, stepNumber, thought, action, observation,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             step.StepId,
@@ -65,7 +65,7 @@ public sealed class ReasoningTools
         [Description("Whether the task was successful (optional)")] bool? success = null,
         CancellationToken cancellationToken = default)
     {
-        var trace = await reasoningMemory.CompleteTraceAsync(traceId, outcome, success, cancellationToken);
+        var trace = await reasoningMemory.CompleteTraceAsync(traceId, outcome, success, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             trace.TraceId,

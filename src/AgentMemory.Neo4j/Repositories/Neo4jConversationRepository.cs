@@ -36,10 +36,10 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ConversationQueries.Upsert, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(ConversationQueries.Upsert, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return MapToConversation(record["c"].As<INode>());
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Conversation?> GetByIdAsync(string conversationId, CancellationToken cancellationToken = default)
@@ -48,10 +48,10 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ConversationQueries.GetById, new { id = conversationId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ConversationQueries.GetById, new { id = conversationId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count == 0 ? null : MapToConversation(records[0]["c"].As<INode>());
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Conversation>> GetBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -60,10 +60,10 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ConversationQueries.GetBySession, new { sessionId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ConversationQueries.GetBySession, new { sessionId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToConversation(r["c"].As<INode>())).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(string conversationId, CancellationToken cancellationToken = default)
@@ -72,8 +72,8 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(ConversationQueries.Delete, new { id = conversationId });
-        }, cancellationToken);
+            await runner.RunAsync(ConversationQueries.Delete, new { id = conversationId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -82,8 +82,8 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(ConversationQueries.DeleteBySession, new { sessionId });
-        }, cancellationToken);
+            await runner.RunAsync(ConversationQueries.DeleteBySession, new { sessionId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default)
@@ -92,8 +92,8 @@ public sealed class Neo4jConversationRepository : IConversationRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ConversationQueries.ListSessions, new { limit });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ConversationQueries.ListSessions, new { limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var sessionId = r["sessionId"].As<string>();
@@ -105,7 +105,7 @@ public sealed class Neo4jConversationRepository : IConversationRepository
                     : null;
                 return new SessionSummary(sessionId, convCount, msgCount, lastPreview, lastActivity);
             }).ToList();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     private static Conversation MapToConversation(INode node) =>

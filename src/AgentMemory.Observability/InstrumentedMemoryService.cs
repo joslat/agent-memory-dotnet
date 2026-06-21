@@ -28,7 +28,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.RecallAsync(request, cancellationToken);
+            var result = await _inner.RecallAsync(request, cancellationToken).ConfigureAwait(false);
             _metrics.RecallRequests.Add(1);
             activity?.SetTag("memory.recall.entity_count", result.Context.RelevantEntities.Items.Count);
             activity?.SetTag("memory.recall.total_items", result.TotalItemsRetrieved);
@@ -66,7 +66,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.RecallAsOfAsync(request, validAsOf, systemAsOf, cancellationToken);
+            var result = await _inner.RecallAsOfAsync(request, validAsOf, systemAsOf, cancellationToken).ConfigureAwait(false);
             _metrics.RecallRequests.Add(1);
             activity?.SetTag("memory.recall.total_items", result.TotalItemsRetrieved);
             return result;
@@ -98,7 +98,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         try
         {
             var result = await _inner.AddMessageAsync(
-                sessionId, conversationId, role, content, metadata, cancellationToken);
+                sessionId, conversationId, role, content, metadata, cancellationToken).ConfigureAwait(false);
             _metrics.MessagesStored.Add(1);
             return result;
         }
@@ -117,7 +117,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 
         try
         {
-            var result = await _inner.AddMessagesAsync(messages, cancellationToken);
+            var result = await _inner.AddMessagesAsync(messages, cancellationToken).ConfigureAwait(false);
             _metrics.MessagesStored.Add(result.Count);
             activity?.SetTag("memory.messages.count", result.Count);
             return result;
@@ -139,7 +139,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.ExtractAndPersistAsync(request, cancellationToken);
+            var result = await _inner.ExtractAndPersistAsync(request, cancellationToken).ConfigureAwait(false);
             // NOTE: entity/fact/preference counts are owned by the per-extractor decorators
             // (InstrumentedEntityExtractor etc.), which are the single source of truth for these
             // counters. Counting them here as well would double-count. We keep only span tags.
@@ -170,7 +170,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 
         try
         {
-            await _inner.ClearSessionAsync(sessionId, ownerId, cancellationToken);
+            await _inner.ClearSessionAsync(sessionId, ownerId, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -191,7 +191,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            await _inner.ExtractFromSessionAsync(sessionId, userId, cancellationToken);
+            await _inner.ExtractFromSessionAsync(sessionId, userId, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -217,7 +217,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         var sw = Stopwatch.StartNew();
         try
         {
-            await _inner.ExtractFromConversationAsync(conversationId, userId, cancellationToken);
+            await _inner.ExtractFromConversationAsync(conversationId, userId, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -241,6 +241,6 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.generate_embeddings_batch");
         activity?.SetTag("memory.node_label", nodeLabel);
         activity?.SetTag("memory.batch_size", batchSize);
-        return await _inner.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken);
+        return await _inner.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken).ConfigureAwait(false);
     }
 }

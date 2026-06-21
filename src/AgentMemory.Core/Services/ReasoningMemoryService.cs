@@ -61,7 +61,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         if (effectiveEmbedding is null && _options.GenerateTaskEmbeddings && !string.IsNullOrWhiteSpace(task))
         {
             _logger.LogDebug("Generating task embedding for new trace in session {SessionId}", sessionId);
-            effectiveEmbedding = await _embeddingOrchestrator.EmbedAsync(task, cancellationToken);
+            effectiveEmbedding = await _embeddingOrchestrator.EmbedAsync(task, cancellationToken).ConfigureAwait(false);
         }
 
         var trace = new ReasoningTrace
@@ -76,7 +76,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         };
 
         _logger.LogDebug("Starting trace {TraceId} for session {SessionId}", trace.TraceId, sessionId);
-        var added = await _traceRepo.AddAsync(trace, cancellationToken);
+        var added = await _traceRepo.AddAsync(trace, cancellationToken).ConfigureAwait(false);
 
         // Retention cap (H): when MaxTracesPerSession is configured, prune older traces beyond the cap so a
         // session's reasoning history cannot grow without bound. The prune confines to exactly the just-added
@@ -86,7 +86,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         {
             try
             {
-                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, ownerId, cancellationToken);
+                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, ownerId, cancellationToken).ConfigureAwait(false);
                 if (pruned > 0)
                     _logger.LogDebug("Pruned {Pruned} trace(s) beyond MaxTracesPerSession={Cap} for session {SessionId}.",
                         pruned, cap, sessionId);
@@ -126,7 +126,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         };
 
         _logger.LogDebug("Adding step {StepNumber} to trace {TraceId}", stepNumber, traceId);
-        return await _stepRepo.AddAsync(step, cancellationToken);
+        return await _stepRepo.AddAsync(step, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -162,7 +162,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         }
 
         _logger.LogDebug("Recording tool call {ToolName} for step {StepId}", toolName, stepId);
-        return await _toolCallRepo.AddAsync(toolCall, cancellationToken);
+        return await _toolCallRepo.AddAsync(toolCall, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -200,7 +200,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         bool? success = null,
         CancellationToken cancellationToken = default)
     {
-        var existing = await _traceRepo.GetByIdAsync(traceId, cancellationToken)
+        var existing = await _traceRepo.GetByIdAsync(traceId, cancellationToken).ConfigureAwait(false)
             ?? throw MemoryError.Create($"Trace '{traceId}' not found.")
                 .WithCode(MemoryErrorCodes.TraceNotFound)
                 .WithMetadata("traceId", traceId)
@@ -217,7 +217,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         // The trace can be concurrently deleted (session clear / retention prune) between the read above and
         // this write; UpdateAsync returns null in that case. Surface the same typed TraceNotFound as the
         // read-miss path rather than letting an opaque sequence-empty exception escape (R6-E).
-        return await _traceRepo.UpdateAsync(completed, cancellationToken)
+        return await _traceRepo.UpdateAsync(completed, cancellationToken).ConfigureAwait(false)
             ?? throw MemoryError.Create($"Trace '{traceId}' not found.")
                 .WithCode(MemoryErrorCodes.TraceNotFound)
                 .WithMetadata("traceId", traceId)
@@ -232,14 +232,14 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         var traceTask = _traceRepo.GetByIdAsync(traceId, cancellationToken);
         var stepsTask = _stepRepo.GetByTraceAsync(traceId, cancellationToken);
 
-        await Task.WhenAll(traceTask, stepsTask);
+        await Task.WhenAll(traceTask, stepsTask).ConfigureAwait(false);
 
-        var trace = await traceTask
+        var trace = await traceTask.ConfigureAwait(false)
             ?? throw MemoryError.Create($"Trace '{traceId}' not found.")
                 .WithCode(MemoryErrorCodes.TraceNotFound)
                 .WithMetadata("traceId", traceId)
                 .Build();
-        var steps = await stepsTask;
+        var steps = await stepsTask.ConfigureAwait(false);
 
         return (trace, steps);
     }
@@ -264,7 +264,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         CancellationToken cancellationToken = default)
     {
         var scored = await _traceRepo.SearchByTaskVectorAsync(
-            taskEmbedding, successFilter, limit, minScore, scope, cancellationToken);
+            taskEmbedding, successFilter, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Trace).ToList();
     }
 
@@ -279,7 +279,7 @@ public sealed class ReasoningMemoryService : IReasoningMemoryService
         CancellationToken cancellationToken = default)
     {
         var scored = await _traceRepo.SearchByTaskVectorAsOfAsync(
-            taskEmbedding, asOf, successFilter, limit, minScore, scope, cancellationToken);
+            taskEmbedding, asOf, successFilter, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Trace).ToList();
     }
 }

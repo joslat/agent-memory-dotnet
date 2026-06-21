@@ -36,7 +36,7 @@ public sealed class MemoryStatusResource
             RETURN entityCount, factCount, preferenceCount, conversationCount, messageCount, count(t) AS traceCount
             """;
 
-        var results = await graphQueryService.QueryAsync(countQuery, cancellationToken: cancellationToken);
+        var results = await graphQueryService.QueryAsync(countQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
         var row = results.FirstOrDefault();
 
         return ToolJsonContext.Serialize(new

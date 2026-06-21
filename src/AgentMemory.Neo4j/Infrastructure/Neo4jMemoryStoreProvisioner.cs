@@ -62,8 +62,8 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
             return;
         }
 
-        await CreateDatabaseAsync(database, cancellationToken);
-        await BootstrapDatabaseAsync(database, cancellationToken);
+        await CreateDatabaseAsync(database, cancellationToken).ConfigureAwait(false);
+        await BootstrapDatabaseAsync(database, cancellationToken).ConfigureAwait(false);
 
         _provisioned.TryAdd(database, 0);
         _logger.LogInformation("Provisioned memory store database '{Database}' for application '{App}'.",
@@ -76,10 +76,11 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
         // WAIT blocks until the database is online, so the subsequent bootstrap can connect.
         // The name must be backtick-quoted: StoreDatabaseNaming yields legal-charset names, but the
         // default 'mem-' prefix contains a dash, and unquoted dashes are a Cypher syntax error.
-        await using var session = _sessionFactory.OpenSession(SystemDatabase, AccessMode.Write);
+        var session = _sessionFactory.OpenSession(SystemDatabase, AccessMode.Write);
+        await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            await session.ExecuteWriteAsync(tx => tx.RunAsync($"CREATE DATABASE {QuoteName(database)} IF NOT EXISTS WAIT"));
+            await session.ExecuteWriteAsync(tx => tx.RunAsync($"CREATE DATABASE {QuoteName(database)} IF NOT EXISTS WAIT")).ConfigureAwait(false);
         }
         catch (Neo4jException ex) when (IsMultiDatabaseUnsupported(ex))
         {
@@ -96,14 +97,15 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
         // Each schema statement runs in its own transaction against the freshly created database.
         // All statements are idempotent (IF NOT EXISTS), so re-provisioning is safe.
         var statements = SchemaQueries.BootstrapStatements(_embeddingDimensions);
-        await using var session = _sessionFactory.OpenSession(database, AccessMode.Write);
+        var session = _sessionFactory.OpenSession(database, AccessMode.Write);
+        await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         foreach (var statement in statements)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await session.ExecuteWriteAsync(tx => tx.RunAsync(statement));
+            await session.ExecuteWriteAsync(tx => tx.RunAsync(statement)).ConfigureAwait(false);
         }
 
-        await ValidateVectorIndexDimensionsAsync(session, cancellationToken);
+        await ValidateVectorIndexDimensionsAsync(session, cancellationToken).ConfigureAwait(false);
     }
 
     // Mirrors SchemaBootstrapper's guard for the shared database: a per-app database that already
@@ -119,10 +121,10 @@ public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
 
         var existing = await session.ExecuteReadAsync(async tx =>
         {
-            var cursor = await tx.RunAsync(SchemaQueries.ShowVectorIndexDimensions);
-            var records = await cursor.ToListAsync();
+            var cursor = await tx.RunAsync(SchemaQueries.ShowVectorIndexDimensions).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return VectorIndexDimensionValidator.MapRows(records);
-        }) ?? [];
+        }).ConfigureAwait(false) ?? [];
 
         VectorIndexDimensionValidator.EnsureMatches(_embeddingDimensions, existing);
     }

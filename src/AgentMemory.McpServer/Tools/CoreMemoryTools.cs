@@ -31,7 +31,7 @@ public sealed class CoreMemoryTools
             Query = query
         };
 
-        var result = await memoryService.RecallAsync(request, cancellationToken);
+        var result = await memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             result.TotalItemsRetrieved,
@@ -68,7 +68,7 @@ public sealed class CoreMemoryTools
             Query = query
         };
 
-        var result = await memoryService.RecallAsync(request, cancellationToken);
+        var result = await memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(result);
     }
 
@@ -85,7 +85,7 @@ public sealed class CoreMemoryTools
         var sid = sessionId ?? options.Value.DefaultSessionId;
         var cid = conversationId ?? sid;
 
-        var message = await memoryService.AddMessageAsync(sid, cid, role, content, cancellationToken: cancellationToken);
+        var message = await memoryService.AddMessageAsync(sid, cid, role, content, cancellationToken: cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             message.MessageId,
@@ -123,7 +123,7 @@ public sealed class CoreMemoryTools
             CreatedAtUtc = clock.UtcNow
         };
 
-        var result = await longTermMemory.AddEntityAsync(entity, cancellationToken);
+        var result = await longTermMemory.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
         var (persisted, reason) = PersistenceOutcome(confidenceValue, longTermOptions.Value.MinConfidenceThreshold);
         return ToolJsonContext.Serialize(new
         {
@@ -164,7 +164,7 @@ public sealed class CoreMemoryTools
             CreatedAtUtc = clock.UtcNow
         };
 
-        var result = await longTermMemory.AddPreferenceAsync(preference, cancellationToken);
+        var result = await longTermMemory.AddPreferenceAsync(preference, cancellationToken).ConfigureAwait(false);
         var (persisted, reason) = PersistenceOutcome(confidenceValue, longTermOptions.Value.MinConfidenceThreshold);
         return ToolJsonContext.Serialize(new
         {
@@ -209,7 +209,7 @@ public sealed class CoreMemoryTools
             Metadata = ParseMetadata(metadataJson) ?? new Dictionary<string, object>()
         };
 
-        var result = await longTermMemory.AddFactAsync(fact, cancellationToken);
+        var result = await longTermMemory.AddFactAsync(fact, cancellationToken).ConfigureAwait(false);
         var (persisted, reason) = PersistenceOutcome(confidenceValue, longTermOptions.Value.MinConfidenceThreshold);
         return ToolJsonContext.Serialize(new
         {

@@ -59,8 +59,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 ["metadata"]       = SerializeMetadata(entity.Metadata)
             };
 
-            var cursor = await runner.RunAsync(EntityQueries.Upsert, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.Upsert, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             var node = records.Count > 0 ? records[0]["e"].As<INode>() : null;
 
             // Persist geospatial location if provided
@@ -68,7 +68,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 await runner.RunAsync(
                     SharedFragments.SetEntityLocation,
-                    new { id = entity.EntityId, lat = entity.Latitude.Value, lon = entity.Longitude.Value });
+                    new { id = entity.EntityId, lat = entity.Latitude.Value, lon = entity.Longitude.Value }).ConfigureAwait(false);
             }
 
             // Only persist a real (non-empty) vector. A zero-length embedding (the orchestrator's
@@ -79,7 +79,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 await runner.RunAsync(
                     SharedFragments.SetEntityEmbedding,
-                    new { id = entity.EntityId, embedding = entity.Embedding.ToList() });
+                    new { id = entity.EntityId, embedding = entity.Embedding.ToList() }).ConfigureAwait(false);
             }
 
             // Dynamically add POLE+O type labels
@@ -87,7 +87,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             if (labels.Count > 0)
             {
                 var labelClause = string.Join(", ", labels.Select(l => $"e:{SanitizeLabel(l)}"));
-                await runner.RunAsync($"MATCH (e:Entity {{id: $id}}) SET {labelClause}", new { id = entity.EntityId });
+                await runner.RunAsync($"MATCH (e:Entity {{id: $id}}) SET {labelClause}", new { id = entity.EntityId }).ConfigureAwait(false);
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
@@ -95,7 +95,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 await runner.RunAsync(
                     SharedFragments.LinkEntityExtractedFrom,
-                    new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
+                    new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() }).ConfigureAwait(false);
             }
 
             // The `node` was captured from the MERGE BEFORE the geospatial location was written in a
@@ -104,7 +104,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             return node is not null
                 ? MapToEntity(node, entity.Embedding) with { Latitude = entity.Latitude, Longitude = entity.Longitude }
                 : entity;
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Entity?> GetByIdAsync(string entityId, CancellationToken cancellationToken = default)
@@ -113,12 +113,12 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetById, new { id = entityId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.GetById, new { id = entityId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["e"].As<INode>();
             return MapToEntity(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> GetByNameAsync(
@@ -135,14 +135,14 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Score)>> SearchByVectorAsync(
@@ -174,15 +174,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> GetByTypeAsync(string type, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -196,15 +196,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["type"] = type, ["ownerId"] = scope!.OwnerId! })
-                : await runner.RunAsync(cypher, new { type });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["type"] = type, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { type }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> SearchByNameAsync(string name, string? type = null, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -218,15 +218,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object?> { ["name"] = name, ["type"] = type, ["ownerId"] = scope!.OwnerId })
-                : await runner.RunAsync(cypher, new { name, type });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object?> { ["name"] = name, ["type"] = type, ["ownerId"] = scope!.OwnerId }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { name, type }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task AddMentionAsync(string messageId, string entityId, double? confidence = null, int? startPos = null, int? endPos = null, string? context = null, CancellationToken cancellationToken = default)
@@ -235,8 +235,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(EntityQueries.AddMention, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
-        }, cancellationToken);
+            await runner.RunAsync(EntityQueries.AddMention, new { messageId, entityId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task AddMentionsBatchAsync(string messageId, IReadOnlyList<string> entityIds, double? confidence = null, CancellationToken cancellationToken = default)
@@ -245,8 +245,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(EntityQueries.AddMentionsBatch, new { messageId, entityIds = entityIds.ToList(), confidence = (object?)confidence });
-        }, cancellationToken);
+            await runner.RunAsync(EntityQueries.AddMentionsBatch, new { messageId, entityIds = entityIds.ToList(), confidence = (object?)confidence }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task AddSameAsRelationshipAsync(string entityId1, string entityId2, double confidence, string matchType, string status = "pending", CancellationToken cancellationToken = default)
@@ -256,8 +256,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(EntityQueries.AddSameAs, new { entityId1, entityId2, confidence, matchType, status });
-        }, cancellationToken);
+            await runner.RunAsync(EntityQueries.AddSameAs, new { entityId1, entityId2, confidence, matchType, status }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Confidence, string MatchType)>> GetSameAsEntitiesAsync(string entityId, CancellationToken cancellationToken = default)
@@ -266,8 +266,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetSameAsEntities, new { entityId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.GetSameAsEntities, new { entityId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node       = r["other"].As<INode>();
@@ -275,7 +275,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 var matchType  = r["matchType"].As<string>();
                 return (MapToEntity(node, ReadEmbedding(node)), confidence, matchType);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> UpsertBatchAsync(IReadOnlyList<Entity> entities, CancellationToken cancellationToken = default)
@@ -303,8 +303,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.UpsertBatch, new { items });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.UpsertBatch, new { items }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
 
             // Set embeddings individually — only for nodes with a real (non-empty) vector, so a degraded
             // empty embedding leaves `embedding` NULL and re-queueable for the back-fill (see UpsertAsync).
@@ -312,7 +312,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 await runner.RunAsync(
                     SharedFragments.SetEntityEmbedding,
-                    new { id = entity.EntityId, embedding = entity.Embedding!.ToList() });
+                    new { id = entity.EntityId, embedding = entity.Embedding!.ToList() }).ConfigureAwait(false);
             }
 
             // Persist geospatial location individually (parity with single UpsertAsync — the UNWIND
@@ -321,7 +321,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 await runner.RunAsync(
                     SharedFragments.SetEntityLocation,
-                    new { id = entity.EntityId, lat = entity.Latitude!.Value, lon = entity.Longitude!.Value });
+                    new { id = entity.EntityId, lat = entity.Latitude!.Value, lon = entity.Longitude!.Value }).ConfigureAwait(false);
             }
 
             // Dynamically add POLE+O type labels
@@ -331,7 +331,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 if (labels.Count > 0)
                 {
                     var labelClause = string.Join(", ", labels.Select(l => $"e:{SanitizeLabel(l)}"));
-                    await runner.RunAsync($"MATCH (e:Entity {{id: $id}}) SET {labelClause}", new { id = entity.EntityId });
+                    await runner.RunAsync($"MATCH (e:Entity {{id: $id}}) SET {labelClause}", new { id = entity.EntityId }).ConfigureAwait(false);
                 }
             }
 
@@ -340,7 +340,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 await runner.RunAsync(
                     SharedFragments.LinkEntityExtractedFrom,
-                    new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() });
+                    new { id = entity.EntityId, sourceMessageIds = entity.SourceMessageIds.ToList() }).ConfigureAwait(false);
             }
 
             // Records were read before embeddings/location were written, so carry the caller-supplied
@@ -354,7 +354,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                     return MapToEntity(node, null);
                 return MapToEntity(node, src.Embedding) with { Latitude = src.Latitude, Longitude = src.Longitude };
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateExtractedFromRelationshipAsync(string entityId, string messageId, double? confidence = null, int? startPos = null, int? endPos = null, string? context = null, CancellationToken cancellationToken = default)
@@ -365,8 +365,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         {
             await runner.RunAsync(
                 EntityQueries.CreateExtractedFrom,
-                new { entityId, messageId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context });
-        }, cancellationToken);
+                new { entityId, messageId, confidence = (object?)confidence, startPos = (object?)startPos, endPos = (object?)endPos, context = (object?)context }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -380,12 +380,12 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         await _tx.WriteAsync(async runner =>
         {
             if (hasOwner)
-                await runner.RunAsync(cypher, new Dictionary<string, object> { ["sourceEntityId"] = sourceEntityId, ["targetEntityId"] = targetEntityId, ["ownerId"] = scope!.OwnerId! });
+                await runner.RunAsync(cypher, new Dictionary<string, object> { ["sourceEntityId"] = sourceEntityId, ["targetEntityId"] = targetEntityId, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false);
             else
-                await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId });
-        }, cancellationToken);
+                await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
-        await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken);
+        await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default)
@@ -398,8 +398,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
             {
                 entityId,
                 updatedAt = DateTimeOffset.UtcNow.ToString("O")
-            });
-        }, cancellationToken);
+            }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Entity MapToEntity(INode node, float[]? embedding)
@@ -455,12 +455,12 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["e"].As<INode>();
             return MapToEntity(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> SearchByLocationAsync(
@@ -483,15 +483,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 ? await runner.RunAsync(cypher, new Dictionary<string, object>
                 {
                     ["lat"] = latitude, ["lon"] = longitude, ["radiusMeters"] = radiusKm * 1000.0, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
-                })
-                : await runner.RunAsync(cypher, new { lat = latitude, lon = longitude, radiusMeters = radiusKm * 1000.0, limit });
-            var records = await cursor.ToListAsync();
+                }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { lat = latitude, lon = longitude, radiusMeters = radiusKm * 1000.0, limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> SearchInBoundingBoxAsync(
@@ -516,15 +516,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 ? await runner.RunAsync(cypher, new Dictionary<string, object>
                 {
                     ["minLat"] = minLat, ["minLon"] = minLon, ["maxLat"] = maxLat, ["maxLon"] = maxLon, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
-                })
-                : await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit });
-            var records = await cursor.ToListAsync();
+                }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PagedResult<Entity>> GetPageWithoutEmbeddingAsync(
@@ -535,15 +535,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetPageWithoutEmbedding, new { limit = limit + 1 });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.GetPageWithoutEmbedding, new { limit = limit + 1 }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             var items = records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, null);
             }).ToList();
             return PaginationHelper.ApplyPagination(items, limit);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpdateEmbeddingAsync(
@@ -566,8 +566,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         {
             await runner.RunAsync(
                 EntityQueries.UpdateEmbedding,
-                new { id = entityId, embedding = embedding.ToList() });
-        }, cancellationToken);
+                new { id = entityId, embedding = embedding.ToList() }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> DeleteAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -580,11 +580,11 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         return await _tx.WriteAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! })
-                : await runner.RunAsync(cypher, new { entityId });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { entityId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["deleted"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> InvalidateAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -599,10 +599,10 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         {
             var parameters = new Dictionary<string, object?> { ["id"] = entityId, ["now"] = now };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["invalidated"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
@@ -620,16 +620,16 @@ public sealed class Neo4jEntityRepository : IEntityRepository
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["topK"] = topK, ["minSimilarity"] = minSimilarity, ["limit"] = limit, ["ownerId"] = scope!.OwnerId! })
-                : await runner.RunAsync(cypher, new { entityId, topK, minSimilarity, limit });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["topK"] = topK, ["minSimilarity"] = minSimilarity, ["limit"] = limit, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { entityId, topK, minSimilarity, limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(
@@ -639,8 +639,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetPendingDuplicates, new { limit });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.GetPendingDuplicates, new { limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var source = MapToEntity(r["a"].As<INode>(), ReadEmbedding(r["a"].As<INode>()));
@@ -649,7 +649,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 var status = r["status"].As<string>();
                 return new DuplicatePair(source, target, similarity, status);
             }).ToList();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     public async Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default)
@@ -658,8 +658,8 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetDeduplicationStats, new { });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.GetDeduplicationStats, new { }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0)
                 return new DeduplicationStats(0, 0, 0, 0);
 
@@ -669,7 +669,7 @@ public sealed class Neo4jEntityRepository : IEntityRepository
                 ConfirmedCount: record["confirmed"].As<int>(),
                 RejectedCount: record["rejected"].As<int>(),
                 MergedCount: record["merged"].As<int>());
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(
@@ -679,14 +679,14 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(EntityQueries.GetEntitiesFromMessage, new { messageId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(EntityQueries.GetEntitiesFromMessage, new { messageId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Score)>> SearchByVectorAsOfAsync(
@@ -717,15 +717,15 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static float[]? ReadEmbedding(INode node)

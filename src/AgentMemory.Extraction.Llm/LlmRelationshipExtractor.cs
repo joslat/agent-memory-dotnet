@@ -53,7 +53,7 @@ public sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelationsh
             "Extract relationships from this conversation:",
             conversationText,
             ProjectRelationships,
-            ct);
+            ct).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ExtractedRelationship> ProjectRelationships(LlmExtractionResponse dto)

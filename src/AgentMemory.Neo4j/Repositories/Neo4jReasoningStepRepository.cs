@@ -36,11 +36,11 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
                 ["metadata"]    = SerializeMetadata(step.Metadata)
             };
 
-            var cursor = await runner.RunAsync(ReasoningQueries.AddStep, parameters);
+            var cursor = await runner.RunAsync(ReasoningQueries.AddStep, parameters).ConfigureAwait(false);
             // AddStep MATCHes the parent trace before CREATE; if the parent was concurrently deleted the
             // MATCH yields no rows and the step cannot be attached. Failing is correct — but surface a clear,
             // actionable error instead of SingleAsync's opaque "sequence contains no elements" (R6-E).
-            var records = await cursor.ToListAsync();
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0)
                 throw new InvalidOperationException(
                     $"Cannot add reasoning step '{step.StepId}': parent trace '{step.TraceId}' does not exist " +
@@ -52,11 +52,11 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
             {
                 await runner.RunAsync(
                     ReasoningQueries.SetStepEmbedding,
-                    new { id = step.StepId, embedding = step.Embedding.ToList() });
+                    new { id = step.StepId, embedding = step.Embedding.ToList() }).ConfigureAwait(false);
             }
 
             return MapToStep(node, step.Embedding);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ReasoningStep>> GetByTraceAsync(string traceId, CancellationToken cancellationToken = default)
@@ -65,14 +65,14 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ReasoningQueries.GetStepsByTrace, new { traceId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ReasoningQueries.GetStepsByTrace, new { traceId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["s"].As<INode>();
                 return MapToStep(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ReasoningStep?> GetByIdAsync(string stepId, CancellationToken cancellationToken = default)
@@ -81,12 +81,12 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ReasoningQueries.GetStepById, new { id = stepId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ReasoningQueries.GetStepById, new { id = stepId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["s"].As<INode>();
             return MapToStep(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<int> LinkTouchedEntitiesAsync(
@@ -101,10 +101,10 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
         {
             var cursor = await runner.RunAsync(
                 ReasoningQueries.RecordTouchedEntitiesByIds,
-                new { stepId, entityIds = entityIds.ToList() });
-            var record = await cursor.SingleAsync();
+                new { stepId, entityIds = entityIds.ToList() }).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return (int)record["linked"].As<long>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<string>> GetTouchedEntityIdsAsync(
@@ -114,10 +114,10 @@ public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ReasoningQueries.GetTouchedEntityIds, new { stepId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ReasoningQueries.GetTouchedEntityIds, new { stepId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<string>)records.Select(r => r["id"].As<string>()).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static ReasoningStep MapToStep(INode node, float[]? embedding) =>

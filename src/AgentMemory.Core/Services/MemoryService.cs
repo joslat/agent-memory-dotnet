@@ -78,13 +78,13 @@ public sealed class MemoryService : IMemoryService
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Recalling memory for session {SessionId}", request.SessionId);
-        var context = await _assembler.AssembleContextAsync(request, cancellationToken);
+        var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
         // Update access timestamps for recalled long-term memories (awaited so failures and
         // cancellation are observed; the method itself is resilient and logs internally).
         if (_decayService is not null)
         {
-            await UpdateAccessTimestampsAsync(context, cancellationToken);
+            await UpdateAccessTimestampsAsync(context, cancellationToken).ConfigureAwait(false);
         }
 
         int totalItems = context.RecentMessages.Items.Count
@@ -136,7 +136,7 @@ public sealed class MemoryService : IMemoryService
         _logger.LogDebug(
             "Recalling memory for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
             request.SessionId, validAsOf, systemAsOf);
-        var context = await _assembler.AssembleContextAsOfAsync(request, validAsOf, systemAsOf, cancellationToken);
+        var context = await _assembler.AssembleContextAsOfAsync(request, validAsOf, systemAsOf, cancellationToken).ConfigureAwait(false);
 
         // Count every populated section so TotalItemsRetrieved matches the documented "across all sections"
         // contract and the live RecallAsync path. SimilarTraces is populated on the as-of path too, so it
@@ -187,7 +187,7 @@ public sealed class MemoryService : IMemoryService
             Metadata = metadata ?? new Dictionary<string, object>()
         };
 
-        return await _shortTerm.AddMessageAsync(message, cancellationToken);
+        return await _shortTerm.AddMessageAsync(message, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -232,7 +232,7 @@ public sealed class MemoryService : IMemoryService
         // Must use the uncapped, chronological session fetch: routing this through GetRecentMessagesAsync
         // would silently clamp to MaxMessagesPerQuery (default 100) and drop the oldest messages of a long
         // session, so the bulk of its knowledge would never be extracted.
-        var messages = await _shortTerm.GetAllSessionMessagesAsync(sessionId, cancellationToken);
+        var messages = await _shortTerm.GetAllSessionMessagesAsync(sessionId, cancellationToken).ConfigureAwait(false);
         if (messages.Count == 0)
         {
             _logger.LogDebug("No messages found for session {SessionId} — skipping extraction.", sessionId);
@@ -241,7 +241,7 @@ public sealed class MemoryService : IMemoryService
 
         await _extraction.ExtractAsync(
             new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = userId },
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -253,7 +253,7 @@ public sealed class MemoryService : IMemoryService
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
         _logger.LogDebug("Retroactive extraction for conversation {ConversationId}, owner={Owner}", conversationId, userId);
 
-        var messages = await _shortTerm.GetConversationMessagesAsync(conversationId, cancellationToken);
+        var messages = await _shortTerm.GetConversationMessagesAsync(conversationId, cancellationToken).ConfigureAwait(false);
         if (messages.Count == 0)
         {
             _logger.LogDebug("No messages found for conversation {ConversationId} — skipping extraction.", conversationId);
@@ -267,14 +267,14 @@ public sealed class MemoryService : IMemoryService
         var ownerId = userId;
         if (string.IsNullOrEmpty(ownerId) && _conversationRepository is not null)
         {
-            var conversation = await _conversationRepository.GetByIdAsync(conversationId, cancellationToken);
+            var conversation = await _conversationRepository.GetByIdAsync(conversationId, cancellationToken).ConfigureAwait(false);
             ownerId = conversation?.UserId;
         }
 
         var sessionId = messages[0].SessionId;
         await _extraction.ExtractAsync(
             new ExtractionRequest { Messages = messages, SessionId = sessionId, UserId = ownerId },
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -288,9 +288,9 @@ public sealed class MemoryService : IMemoryService
 
         return nodeLabel switch
         {
-            "Entity"     => await BackfillEntityEmbeddingsAsync(batchSize, cancellationToken),
-            "Fact"       => await BackfillFactEmbeddingsAsync(batchSize, cancellationToken),
-            "Preference" => await BackfillPreferenceEmbeddingsAsync(batchSize, cancellationToken),
+            "Entity"     => await BackfillEntityEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
+            "Fact"       => await BackfillFactEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
+            "Preference" => await BackfillPreferenceEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
             _ => throw new ArgumentException(
                 $"Unsupported node label '{nodeLabel}'. Supported values: Entity, Fact, Preference.",
                 nameof(nodeLabel))
@@ -303,12 +303,12 @@ public sealed class MemoryService : IMemoryService
         PagedResult<Entity> page;
         do
         {
-            page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct).ConfigureAwait(false);
             int embeddedThisPage = 0;
             foreach (var entity in page.Items)
             {
-                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, ct);
-                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct);
+                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, ct).ConfigureAwait(false);
+                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct).ConfigureAwait(false);
                 // Count only nodes actually updated: the repo skips persisting an empty (degraded) embedding,
                 // so a skipped node must not inflate the "nodes updated" return value.
                 if (embedding.Length > 0) { total++; embeddedThisPage++; }
@@ -327,12 +327,12 @@ public sealed class MemoryService : IMemoryService
         PagedResult<Fact> page;
         do
         {
-            page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, ct).ConfigureAwait(false);
             int embeddedThisPage = 0;
             foreach (var fact in page.Items)
             {
-                var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct);
-                await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct);
+                var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct).ConfigureAwait(false);
+                await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct).ConfigureAwait(false);
                 // Count only nodes actually updated (the repo skips persisting an empty/degraded embedding).
                 if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }
@@ -350,12 +350,12 @@ public sealed class MemoryService : IMemoryService
         PagedResult<Preference> page;
         do
         {
-            page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct);
+            page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct).ConfigureAwait(false);
             int embeddedThisPage = 0;
             foreach (var pref in page.Items)
             {
-                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, ct);
-                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct);
+                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, ct).ConfigureAwait(false);
+                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct).ConfigureAwait(false);
                 // Count only nodes actually updated (the repo skips persisting an empty/degraded embedding).
                 if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }
@@ -401,7 +401,7 @@ public sealed class MemoryService : IMemoryService
             foreach (var pref in context.RelevantPreferences.Items)
                 tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, "Preference", cancellationToken));
 
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(tasks).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

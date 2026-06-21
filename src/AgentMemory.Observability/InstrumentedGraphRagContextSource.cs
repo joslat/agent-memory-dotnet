@@ -30,7 +30,7 @@ internal sealed class InstrumentedGraphRagContextSource : IGraphRagContextSource
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.GetContextAsync(request, cancellationToken);
+            var result = await _inner.GetContextAsync(request, cancellationToken).ConfigureAwait(false);
             _metrics.GraphRagQueries.Add(1);
             activity?.SetTag("memory.graphrag.result_count", result.Items.Count);
             return result;

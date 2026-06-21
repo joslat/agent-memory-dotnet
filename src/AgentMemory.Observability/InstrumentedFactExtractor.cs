@@ -28,7 +28,7 @@ internal sealed class InstrumentedFactExtractor : IFactExtractor
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.ExtractAsync(messages, cancellationToken);
+            var result = await _inner.ExtractAsync(messages, cancellationToken).ConfigureAwait(false);
             _metrics.FactsExtracted.Add(result.Count);
             activity?.SetTag("memory.extraction.fact_count", result.Count);
             return result;

@@ -57,11 +57,11 @@ internal sealed class PersistenceStage : IPersistenceStage
                 if (entityToSave.Embedding is null)
                 {
                     var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
-                        entityToSave.Name, cancellationToken);
+                        entityToSave.Name, cancellationToken).ConfigureAwait(false);
                     entityToSave = entityToSave with { Embedding = embedding };
                 }
 
-                entityToSave = await _entityRepository.UpsertAsync(entityToSave, cancellationToken);
+                entityToSave = await _entityRepository.UpsertAsync(entityToSave, cancellationToken).ConfigureAwait(false);
                 persistedEntityMap[name] = entityToSave;
 
                 foreach (var msgId in sourceMessageIds)
@@ -69,7 +69,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     try
                     {
                         await _entityRepository.CreateExtractedFromRelationshipAsync(
-                            entityToSave.EntityId, msgId, cancellationToken: cancellationToken);
+                            entityToSave.EntityId, msgId, cancellationToken: cancellationToken).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
@@ -96,7 +96,7 @@ internal sealed class PersistenceStage : IPersistenceStage
             try
             {
                 var factEmbedding = await _embeddingOrchestrator.EmbedFactAsync(
-                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken);
+                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
 
                 var fact = new Fact
                 {
@@ -113,14 +113,14 @@ internal sealed class PersistenceStage : IPersistenceStage
                     CreatedAtUtc = _clock.UtcNow
                 };
 
-                await _factRepository.UpsertAsync(fact, cancellationToken);
+                await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
 
                 foreach (var msgId in sourceMessageIds)
                 {
                     try
                     {
                         await _factRepository.CreateExtractedFromRelationshipAsync(
-                            fact.FactId, msgId, cancellationToken);
+                            fact.FactId, msgId, cancellationToken).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
@@ -150,7 +150,7 @@ internal sealed class PersistenceStage : IPersistenceStage
             try
             {
                 var prefEmbedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
-                    extracted.PreferenceText, cancellationToken);
+                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
 
                 var preference = new Preference
                 {
@@ -165,14 +165,14 @@ internal sealed class PersistenceStage : IPersistenceStage
                     CreatedAtUtc = _clock.UtcNow
                 };
 
-                await _preferenceRepository.UpsertAsync(preference, cancellationToken);
+                await _preferenceRepository.UpsertAsync(preference, cancellationToken).ConfigureAwait(false);
 
                 foreach (var msgId in sourceMessageIds)
                 {
                     try
                     {
                         await _preferenceRepository.CreateExtractedFromRelationshipAsync(
-                            preference.PreferenceId, msgId, cancellationToken);
+                            preference.PreferenceId, msgId, cancellationToken).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                     catch (Exception ex)
@@ -229,7 +229,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     CreatedAtUtc = _clock.UtcNow
                 };
 
-                await _relationshipRepository.UpsertAsync(relationship, cancellationToken);
+                await _relationshipRepository.UpsertAsync(relationship, cancellationToken).ConfigureAwait(false);
                 persistedRelCount++;
 
                 _logger.LogDebug(

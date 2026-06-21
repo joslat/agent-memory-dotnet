@@ -38,8 +38,8 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                 ["metadata"]       = SerializeMetadata(message.Metadata)
             };
 
-            var cursor = await runner.RunAsync(MessageQueries.Add, createParams);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(MessageQueries.Add, createParams).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             var node = record["m"].As<INode>();
 
             // Only persist a real (non-empty) vector; a degraded empty embedding leaves `embedding` NULL.
@@ -47,19 +47,19 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             {
                 await runner.RunAsync(
                     SharedFragments.SetMessageEmbedding,
-                    new { id = message.MessageId, embedding = message.Embedding.ToList() });
+                    new { id = message.MessageId, embedding = message.Embedding.ToList() }).ConfigureAwait(false);
             }
 
             // Create FIRST_MESSAGE if this is the first message in the conversation
             await runner.RunAsync(
                 MessageQueries.CreateFirstMessageLink,
-                new { conversationId = message.ConversationId, id = message.MessageId });
+                new { conversationId = message.ConversationId, id = message.MessageId }).ConfigureAwait(false);
 
             // Establish NEXT_MESSAGE link from the previous last message
-            await runner.RunAsync(MessageQueries.LinkNextMessage, new { conversationId = message.ConversationId, id = message.MessageId });
+            await runner.RunAsync(MessageQueries.LinkNextMessage, new { conversationId = message.ConversationId, id = message.MessageId }).ConfigureAwait(false);
 
             return MapToMessage(node, message.Embedding);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> AddBatchAsync(IEnumerable<Message> messages, CancellationToken cancellationToken = default)
@@ -83,16 +83,16 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(MessageQueries.AddBatch, new { messages = msgParams });
+            var cursor = await runner.RunAsync(MessageQueries.AddBatch, new { messages = msgParams }).ConfigureAwait(false);
             // consume result
-            await cursor.ConsumeAsync();
+            await cursor.ConsumeAsync().ConfigureAwait(false);
 
             // Set embeddings — only for messages with a real (non-empty) vector.
             foreach (var msg in ordered.Where(m => m.Embedding is { Length: > 0 }))
             {
                 await runner.RunAsync(
                     SharedFragments.SetMessageEmbedding,
-                    new { id = msg.MessageId, embedding = msg.Embedding!.ToList() });
+                    new { id = msg.MessageId, embedding = msg.Embedding!.ToList() }).ConfigureAwait(false);
             }
 
             // Create NEXT_MESSAGE chain within batch
@@ -100,7 +100,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
             {
                 await runner.RunAsync(
                     MessageQueries.CreateNextMessageLink,
-                    new { prevId = ordered[i - 1].MessageId, nextId = ordered[i].MessageId });
+                    new { prevId = ordered[i - 1].MessageId, nextId = ordered[i].MessageId }).ConfigureAwait(false);
             }
 
             // Connect first batch message to any existing last message in the conversation
@@ -113,14 +113,14 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                         conversationId = ordered[0].ConversationId,
                         batchIds       = ordered.Select(m => m.MessageId).ToList(),
                         firstId        = ordered[0].MessageId
-                    });
+                    }).ConfigureAwait(false);
             }
 
             // Re-read all created messages
             var readCursor = await runner.RunAsync(
                 MessageQueries.GetByIds,
-                new { ids = ordered.Select(m => m.MessageId).ToList() });
-            var records = await readCursor.ToListAsync();
+                new { ids = ordered.Select(m => m.MessageId).ToList() }).ConfigureAwait(false);
+            var records = await readCursor.ToListAsync().ConfigureAwait(false);
 
             var embeddingMap = ordered.ToDictionary(m => m.MessageId, m => m.Embedding);
             return records.Select(r =>
@@ -129,7 +129,7 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                 var id = node["id"].As<string>();
                 return MapToMessage(node, embeddingMap.TryGetValue(id, out var emb) ? emb : null);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Message?> GetByIdAsync(string messageId, CancellationToken cancellationToken = default)
@@ -138,12 +138,12 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(MessageQueries.GetById, new { id = messageId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(MessageQueries.GetById, new { id = messageId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["m"].As<INode>();
             return MapToMessage(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> GetByConversationAsync(string conversationId, CancellationToken cancellationToken = default)
@@ -152,14 +152,14 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(MessageQueries.GetByConversation, new { conversationId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(MessageQueries.GetByConversation, new { conversationId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["m"].As<INode>();
                 return MapToMessage(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> GetRecentBySessionAsync(string sessionId, int limit, CancellationToken cancellationToken = default)
@@ -168,14 +168,14 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(MessageQueries.GetRecentBySession, new { sessionId, limit });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(MessageQueries.GetRecentBySession, new { sessionId, limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["m"].As<INode>();
                 return MapToMessage(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> GetAllBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -184,14 +184,14 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(MessageQueries.GetAllBySession, new { sessionId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(MessageQueries.GetAllBySession, new { sessionId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["m"].As<INode>();
                 return MapToMessage(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Message Message, double Score)>> SearchByVectorAsync(
@@ -221,15 +221,15 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToMessage(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -238,8 +238,8 @@ public sealed class Neo4jMessageRepository : IMessageRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(MessageQueries.DeleteBySession, new { sessionId });
-        }, cancellationToken);
+            await runner.RunAsync(MessageQueries.DeleteBySession, new { sessionId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken ct = default)
@@ -249,10 +249,10 @@ public sealed class Neo4jMessageRepository : IMessageRepository
         return await _tx.WriteAsync(async runner =>
         {
             var query = cascade ? MessageQueries.DeleteCascade : MessageQueries.DeleteSimple;
-            var cursor = await runner.RunAsync(query, new { id = messageId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(query, new { id = messageId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["deleted"].As<bool>();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> GetRecentBySessionAsOfAsync(
@@ -270,14 +270,14 @@ public sealed class Neo4jMessageRepository : IMessageRepository
                 sessionId,
                 asOf = asOf.UtcDateTime.ToString("O"),
                 limit
-            });
-            var records = await cursor.ToListAsync();
+            }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["m"].As<INode>();
                 return MapToMessage(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Message MapToMessage(INode node, float[]? embedding) =>

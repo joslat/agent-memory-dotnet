@@ -35,7 +35,7 @@ public sealed class Neo4jConflictDetectionService : IConflictDetectionService
         var ranAt = _clock.UtcNow;
 
         var factConflicts = opts.DetectFactContradictions
-            ? await DetectFactContradictionsAsync(opts, cancellationToken)
+            ? await DetectFactContradictionsAsync(opts, cancellationToken).ConfigureAwait(false)
             : Array.Empty<FactConflict>();
 
         _logger.LogInformation("Conflict detection complete: {FactConflicts} fact contradiction group(s).", factConflicts.Count);
@@ -63,7 +63,7 @@ public sealed class Neo4jConflictDetectionService : IConflictDetectionService
                 MinConfidence = null,
                 MaxConflicts = opts.MaxConflicts,
             },
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         int groupsResolved = 0;
         int factsSuperseded = 0;
@@ -98,12 +98,12 @@ public sealed class Neo4jConflictDetectionService : IConflictDetectionService
                         ["now"] = now,
                     };
                     if (hasOwner) parameters["ownerId"] = conflict.OwnerId;
-                    var cursor = await runner.RunAsync(cypher, parameters);
-                    var records = await cursor.ToListAsync();
+                    var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                    var records = await cursor.ToListAsync().ConfigureAwait(false);
                     if (records.Count > 0 && records[0]["superseded"].As<bool>()) closed++;
                 }
                 return closed;
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
 
             if (closedInGroup > 0)
             {
@@ -134,8 +134,8 @@ public sealed class Neo4jConflictDetectionService : IConflictDetectionService
                 ["limit"] = opts.MaxConflicts,
             };
 
-            var cursor = await runner.RunAsync(ConflictQueries.DetectFactContradictions, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ConflictQueries.DetectFactContradictions, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
 
             return (IReadOnlyList<FactConflict>)records.Select(r =>
             {

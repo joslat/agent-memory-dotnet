@@ -55,8 +55,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
                 ["metadata"]         = SerializeMetadata(preference.Metadata)
             };
 
-            var cursor = await runner.RunAsync(PreferenceQueries.Upsert, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(PreferenceQueries.Upsert, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             var node = record["p"].As<INode>();
 
             // Only persist a real (non-empty) vector so a degraded empty embedding leaves `embedding`
@@ -65,7 +65,7 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             {
                 await runner.RunAsync(
                     PreferenceQueries.SetEmbedding,
-                    new { id = preference.PreferenceId, embedding = preference.Embedding.ToList() });
+                    new { id = preference.PreferenceId, embedding = preference.Embedding.ToList() }).ConfigureAwait(false);
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
@@ -73,11 +73,11 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
             {
                 await runner.RunAsync(
                     PreferenceQueries.CreateExtractedFromMessages,
-                    new { id = preference.PreferenceId, sourceMessageIds = preference.SourceMessageIds.ToList() });
+                    new { id = preference.PreferenceId, sourceMessageIds = preference.SourceMessageIds.ToList() }).ConfigureAwait(false);
             }
 
             return MapToPreference(node, preference.Embedding);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Preference?> GetByIdAsync(string preferenceId, CancellationToken cancellationToken = default)
@@ -86,12 +86,12 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.GetById, new { id = preferenceId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(PreferenceQueries.GetById, new { id = preferenceId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["p"].As<INode>();
             return MapToPreference(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Preference>> GetByCategoryAsync(
@@ -107,14 +107,14 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["p"].As<INode>();
                 return MapToPreference(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsync(
@@ -146,15 +146,15 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private const int DedupOverFetch = 10;
@@ -178,27 +178,27 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["node"].As<INode>();
             return MapToPreference(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Preference?> MarkDeduplicatedAsync(string preferenceId, double confidence, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Reinforcing preference {Id} via dedup (confidence={Confidence}).", preferenceId, confidence);
-        return await _tx.WriteAsync<Preference?>(async runner =>
+        return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.MarkDeduplicated, new { id = preferenceId, confidence });
+            var cursor = await runner.RunAsync(PreferenceQueries.MarkDeduplicated, new { id = preferenceId, confidence }).ConfigureAwait(false);
             // 0/1-row read (not SingleAsync): the node can be concurrently hard-deleted between the dedup
             // lookup and this write (e.g. a destructive decay prune), leaving an empty result.
-            var records = await cursor.ToListAsync();
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["p"].As<INode>();
             return MapToPreference(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DeleteAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -211,10 +211,10 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         await _tx.WriteAsync(async runner =>
         {
             if (hasOwner)
-                await runner.RunAsync(cypher, new Dictionary<string, object> { ["id"] = preferenceId, ["ownerId"] = scope!.OwnerId! });
+                await runner.RunAsync(cypher, new Dictionary<string, object> { ["id"] = preferenceId, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false);
             else
-                await runner.RunAsync(cypher, new { id = preferenceId });
-        }, cancellationToken);
+                await runner.RunAsync(cypher, new { id = preferenceId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> InvalidateAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -229,10 +229,10 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             var parameters = new Dictionary<string, object?> { ["id"] = preferenceId, ["now"] = now };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["invalidated"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> SupersedeAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -247,10 +247,10 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             var parameters = new Dictionary<string, object?> { ["loserId"] = loserPreferenceId, ["winnerId"] = winnerPreferenceId, ["now"] = now };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["superseded"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateExtractedFromRelationshipAsync(string preferenceId, string messageId, CancellationToken cancellationToken = default)
@@ -261,8 +261,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             await runner.RunAsync(
                 PreferenceQueries.CreateExtractedFromRelationship,
-                new { preferenceId, messageId });
-        }, cancellationToken);
+                new { preferenceId, messageId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateAboutRelationshipAsync(string preferenceId, string entityId, CancellationToken cancellationToken = default)
@@ -273,8 +273,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             await runner.RunAsync(
                 PreferenceQueries.CreateAboutRelationship,
-                new { preferenceId, entityId });
-        }, cancellationToken);
+                new { preferenceId, entityId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateConversationPreferenceRelationshipAsync(string conversationId, string preferenceId, CancellationToken cancellationToken = default)
@@ -285,8 +285,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             await runner.RunAsync(
                 PreferenceQueries.CreateConversationPreferenceRelationship,
-                new { conversationId, preferenceId });
-        }, cancellationToken);
+                new { conversationId, preferenceId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Preference MapToPreference(INode node, float[]? embedding) =>
@@ -320,15 +320,15 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(PreferenceQueries.GetPageWithoutEmbedding, new { limit = limit + 1 });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(PreferenceQueries.GetPageWithoutEmbedding, new { limit = limit + 1 }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             var items = records.Select(r =>
             {
                 var node = r["p"].As<INode>();
                 return MapToPreference(node, null);
             }).ToList();
             return PaginationHelper.ApplyPagination(items, limit);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpdateEmbeddingAsync(
@@ -350,8 +350,8 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             await runner.RunAsync(
                 PreferenceQueries.UpdateEmbedding,
-                new { id = preferenceId, embedding = embedding.ToList() });
-        }, cancellationToken);
+                new { id = preferenceId, embedding = embedding.ToList() }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Preference Preference, double Score)>> SearchByVectorAsOfAsync(
@@ -382,14 +382,14 @@ public sealed class Neo4jPreferenceRepository : IPreferenceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

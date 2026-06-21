@@ -27,9 +27,9 @@ public sealed class MaintenanceTools
 
         bool? invalidated = kind switch
         {
-            "fact" => await longTerm.InvalidateFactAsync(id, scope, cancellationToken),
-            "entity" => await longTerm.InvalidateEntityAsync(id, scope, cancellationToken),
-            "preference" or "pref" => await longTerm.InvalidatePreferenceAsync(id, scope, cancellationToken),
+            "fact" => await longTerm.InvalidateFactAsync(id, scope, cancellationToken).ConfigureAwait(false),
+            "entity" => await longTerm.InvalidateEntityAsync(id, scope, cancellationToken).ConfigureAwait(false),
+            "preference" or "pref" => await longTerm.InvalidatePreferenceAsync(id, scope, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
 
@@ -52,8 +52,8 @@ public sealed class MaintenanceTools
 
         bool? superseded = kind switch
         {
-            "fact" => await longTerm.SupersedeFactAsync(loserId, winnerId, scope, cancellationToken),
-            "preference" or "pref" => await longTerm.SupersedePreferenceAsync(loserId, winnerId, scope, cancellationToken),
+            "fact" => await longTerm.SupersedeFactAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false),
+            "preference" or "pref" => await longTerm.SupersedePreferenceAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false),
             _ => null,
         };
 

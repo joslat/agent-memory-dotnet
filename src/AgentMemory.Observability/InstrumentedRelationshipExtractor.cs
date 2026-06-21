@@ -28,7 +28,7 @@ internal sealed class InstrumentedRelationshipExtractor : IRelationshipExtractor
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.ExtractAsync(messages, cancellationToken);
+            var result = await _inner.ExtractAsync(messages, cancellationToken).ConfigureAwait(false);
             _metrics.RelationshipsExtracted.Add(result.Count);
             activity?.SetTag("memory.extraction.relationship_count", result.Count);
             return result;

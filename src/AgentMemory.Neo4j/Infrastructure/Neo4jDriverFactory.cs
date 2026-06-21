@@ -34,6 +34,6 @@ public sealed class Neo4jDriverFactory : INeo4jDriverFactory
     public async ValueTask DisposeAsync()
     {
         _logger.LogInformation("Disposing Neo4j driver.");
-        await _driver.DisposeAsync();
+        await _driver.DisposeAsync().ConfigureAwait(false);
     }
 }

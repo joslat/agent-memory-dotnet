@@ -30,7 +30,7 @@ public sealed class ObservationTools
         var sid = sessionId ?? options.Value.DefaultSessionId;
         maxTokens = Math.Clamp(maxTokens, 256, 100_000); // a non-positive/absurd budget would break compression
 
-        var messages = await shortTermMemory.GetRecentMessagesAsync(sid, limit: 100, cancellationToken);
+        var messages = await shortTermMemory.GetRecentMessagesAsync(sid, limit: 100, cancellationToken).ConfigureAwait(false);
 
         if (messages.Count == 0)
         {
@@ -55,7 +55,7 @@ public sealed class ObservationTools
             EnableReflections = true
         };
 
-        var compressed = await compressor.CompressAsync(messages, compressionOptions, cancellationToken);
+        var compressed = await compressor.CompressAsync(messages, compressionOptions, cancellationToken).ConfigureAwait(false);
 
         var observations = new List<string>();
         if (compressed.WasCompressed)

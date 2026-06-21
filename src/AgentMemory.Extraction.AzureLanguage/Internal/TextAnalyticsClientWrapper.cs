@@ -14,7 +14,7 @@ internal sealed class TextAnalyticsClientWrapper : ITextAnalyticsClientWrapper
     public async Task<IReadOnlyList<AzureRecognizedEntity>> RecognizeEntitiesAsync(
         string document, string? language, CancellationToken ct)
     {
-        var response = await _client.RecognizeEntitiesAsync(document, language, ct);
+        var response = await _client.RecognizeEntitiesAsync(document, language, ct).ConfigureAwait(false);
         return response.Value
             .Select(e => new AzureRecognizedEntity(e.Text, e.Category.ToString(), e.ConfidenceScore, e.SubCategory))
             .ToList();
@@ -23,14 +23,14 @@ internal sealed class TextAnalyticsClientWrapper : ITextAnalyticsClientWrapper
     public async Task<IReadOnlyList<string>> ExtractKeyPhrasesAsync(
         string document, string? language, CancellationToken ct)
     {
-        var response = await _client.ExtractKeyPhrasesAsync(document, language, ct);
+        var response = await _client.ExtractKeyPhrasesAsync(document, language, ct).ConfigureAwait(false);
         return response.Value.ToList();
     }
 
     public async Task<IReadOnlyList<AzureLinkedEntity>> RecognizeLinkedEntitiesAsync(
         string document, string? language, CancellationToken ct)
     {
-        var response = await _client.RecognizeLinkedEntitiesAsync(document, language, ct);
+        var response = await _client.RecognizeLinkedEntitiesAsync(document, language, ct).ConfigureAwait(false);
         return response.Value
             .Select(e => new AzureLinkedEntity(e.Name, e.Url?.ToString()))
             .ToList();
@@ -39,7 +39,7 @@ internal sealed class TextAnalyticsClientWrapper : ITextAnalyticsClientWrapper
     public async Task<AzureSentimentResult> AnalyzeSentimentAsync(
         string document, string? language, CancellationToken ct)
     {
-        var response = await _client.AnalyzeSentimentAsync(document, language, cancellationToken: ct);
+        var response = await _client.AnalyzeSentimentAsync(document, language, cancellationToken: ct).ConfigureAwait(false);
         var doc = response.Value;
         return new AzureSentimentResult(
             doc.Sentiment.ToString().ToLowerInvariant(),

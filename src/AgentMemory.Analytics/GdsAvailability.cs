@@ -41,8 +41,8 @@ public sealed class GdsAvailability : IGdsAvailability
         {
             var version = await _tx.ReadAsync(async runner =>
             {
-                var cursor = await runner.RunAsync(GdsQueries.ProbeVersion);
-                var record = await cursor.SingleAsync();
+                var cursor = await runner.RunAsync(GdsQueries.ProbeVersion).ConfigureAwait(false);
+                var record = await cursor.SingleAsync().ConfigureAwait(false);
                 return record["version"].As<string>();
             }).ConfigureAwait(false);
 

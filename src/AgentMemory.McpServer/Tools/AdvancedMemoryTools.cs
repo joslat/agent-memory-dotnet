@@ -41,7 +41,7 @@ public sealed class AdvancedMemoryTools
 
         var toolCall = await reasoningMemory.RecordToolCallAsync(
             stepId, toolName, input, output, toolStatus,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {
@@ -91,8 +91,8 @@ public sealed class AdvancedMemoryTools
             ["sessionId"] = (object?)sessionId
         };
 
-        var nodes = await graphQueryService.QueryAsync(nodeQuery, parameters, cancellationToken);
-        var relationships = await graphQueryService.QueryAsync(relQuery, parameters, cancellationToken);
+        var nodes = await graphQueryService.QueryAsync(nodeQuery, parameters, cancellationToken).ConfigureAwait(false);
+        var relationships = await graphQueryService.QueryAsync(relQuery, parameters, cancellationToken).ConfigureAwait(false);
 
         if (format.Equals("cypher", StringComparison.OrdinalIgnoreCase))
         {
@@ -158,7 +158,7 @@ public sealed class AdvancedMemoryTools
             ["limit"] = (long)limit
         };
 
-        var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken);
+        var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {
@@ -200,7 +200,7 @@ public sealed class AdvancedMemoryTools
                 Messages = new[] { message },
                 SessionId = sid,
                 UserId = userId
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {
@@ -226,7 +226,7 @@ public sealed class AdvancedMemoryTools
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
 
-        await memoryService.ExtractFromSessionAsync(sid, userId, cancellationToken);
+        await memoryService.ExtractFromSessionAsync(sid, userId, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {
@@ -242,7 +242,7 @@ public sealed class AdvancedMemoryTools
         [Description("Number of nodes to process per batch (default: 100)")] int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
-        var count = await memoryService.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken);
+        var count = await memoryService.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {

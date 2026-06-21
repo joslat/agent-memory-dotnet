@@ -64,7 +64,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         };
 
         _logger.LogDebug("Upserting conversation {ConversationId} for session {SessionId}", conversationId, sessionId);
-        return await _conversationRepo.UpsertAsync(conversation, cancellationToken);
+        return await _conversationRepo.UpsertAsync(conversation, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -77,11 +77,11 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         if (_options.GenerateEmbeddings && message.Embedding is null)
         {
             _logger.LogDebug("Generating embedding for message {MessageId}", message.MessageId);
-            var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken);
+            var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken).ConfigureAwait(false);
             finalMessage = message with { Embedding = embedding };
         }
 
-        return await _messageRepo.AddAsync(finalMessage, cancellationToken);
+        return await _messageRepo.AddAsync(finalMessage, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -97,14 +97,14 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
             var finalMessage = message;
             if (_options.GenerateEmbeddings && message.Embedding is null)
             {
-                var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken);
+                var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken).ConfigureAwait(false);
                 finalMessage = message with { Embedding = embedding };
             }
             results.Add(finalMessage);
         }
 
         _logger.LogDebug("Batch adding {Count} messages", results.Count);
-        return await _messageRepo.AddBatchAsync(results, cancellationToken);
+        return await _messageRepo.AddBatchAsync(results, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -118,7 +118,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         // 10", which is why DefaultRecentMessageLimit was previously unreadable.)
         var requested = limit ?? _options.DefaultRecentMessageLimit;
         var cappedLimit = Math.Min(requested, _options.MaxMessagesPerQuery);
-        return await _messageRepo.GetRecentBySessionAsync(sessionId, cappedLimit, cancellationToken);
+        return await _messageRepo.GetRecentBySessionAsync(sessionId, cappedLimit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -148,7 +148,7 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         CancellationToken cancellationToken = default)
     {
         var scored = await _messageRepo.SearchByVectorAsync(
-            queryEmbedding, sessionId, limit, minScore, null, cancellationToken);
+            queryEmbedding, sessionId, limit, minScore, null, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Message).ToList();
     }
 
@@ -159,11 +159,11 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Clearing session {SessionId}, owner={Owner}", sessionId, ownerId);
-        await _messageRepo.DeleteBySessionAsync(sessionId, cancellationToken);
-        await _conversationRepo.DeleteBySessionAsync(sessionId, cancellationToken);
+        await _messageRepo.DeleteBySessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        await _conversationRepo.DeleteBySessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
         // ReasoningTrace carries owner_id (R1): confine the delete to the calling owner's bucket so a
         // shared session_id can't let one owner's clear evict another owner's traces.
-        await _reasoningTraceRepo.DeleteBySessionAsync(sessionId, ownerId, cancellationToken);
+        await _reasoningTraceRepo.DeleteBySessionAsync(sessionId, ownerId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -174,6 +174,6 @@ public sealed class ShortTermMemoryService : IShortTermMemoryService
         CancellationToken cancellationToken = default)
     {
         var cappedLimit = Math.Min(limit, _options.MaxMessagesPerQuery);
-        return await _messageRepo.GetRecentBySessionAsOfAsync(sessionId, asOf, cappedLimit, cancellationToken);
+        return await _messageRepo.GetRecentBySessionAsOfAsync(sessionId, asOf, cappedLimit, cancellationToken).ConfigureAwait(false);
     }
 }

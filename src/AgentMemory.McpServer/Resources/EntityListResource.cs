@@ -53,7 +53,7 @@ public sealed class EntityListResource
         };
         if (hasOwner) parameters["ownerId"] = userId;
 
-        var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken);
+        var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {

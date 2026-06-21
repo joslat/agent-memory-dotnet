@@ -40,7 +40,7 @@ public sealed class AzureLanguageRelationshipExtractor : ExtractorBase<Extracted
                 continue;
 
             var entityList = await _context.GetOrRecognizeEntitiesAsync(
-                message.Content, _options.DefaultLanguage, _client, ct);
+                message.Content, _options.DefaultLanguage, _client, ct).ConfigureAwait(false);
 
             for (int i = 0; i < entityList.Count - 1; i++)
             {

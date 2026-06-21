@@ -90,7 +90,7 @@ public sealed class ContextCompressor : IContextCompressor
 
             foreach (var chunk in chunks)
             {
-                var observation = await SummarizeChunkAsync(chunk, cancellationToken);
+                var observation = await SummarizeChunkAsync(chunk, cancellationToken).ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(observation))
                     observations.Add(observation);
             }
@@ -100,7 +100,7 @@ public sealed class ContextCompressor : IContextCompressor
         var reflections = new List<string>();
         if (options.EnableReflections && observations.Count > 0)
         {
-            var reflection = await GenerateReflectionAsync(observations, cancellationToken);
+            var reflection = await GenerateReflectionAsync(observations, cancellationToken).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(reflection))
                 reflections.Add(reflection);
         }
@@ -140,7 +140,7 @@ public sealed class ContextCompressor : IContextCompressor
                 new(ChatRole.User, conversationText)
             };
 
-            var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken);
+            var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.Text?.Trim() ?? string.Empty;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -171,7 +171,7 @@ public sealed class ContextCompressor : IContextCompressor
                 new(ChatRole.User, $"Observations:\n{observationText}")
             };
 
-            var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken);
+            var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.Text?.Trim() ?? string.Empty;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

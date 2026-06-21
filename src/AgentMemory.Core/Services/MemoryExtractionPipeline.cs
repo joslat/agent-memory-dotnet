@@ -47,9 +47,9 @@ public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         var scope = string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId);
 
         var staged = await _extractionStage.ExtractAsync(
-            request.Messages, request.TypesToExtract, scope, cancellationToken);
+            request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
-        var persisted = await _persistenceStage.PersistAsync(staged, request.UserId, cancellationToken);
+        var persisted = await _persistenceStage.PersistAsync(staged, request.UserId, cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
         _logger.LogInformation(
