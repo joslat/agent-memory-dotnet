@@ -224,7 +224,7 @@ public sealed class MemoryDecayServiceTests
         options.DecayHalfLifeDays.Should().Be(30);
         options.MinRetentionScore.Should().Be(0.1);
         options.AccessBoostFactor.Should().Be(0.2);
-        options.EnableAutoPrune.Should().BeFalse();
+        options.NonDestructive.Should().BeTrue();
     }
 
     [Fact]
@@ -233,6 +233,6 @@ public sealed class MemoryDecayServiceTests
         var defaults = MemoryDecayOptions.Default;
 
         defaults.DecayHalfLifeDays.Should().Be(30);
-        defaults.EnableAutoPrune.Should().BeFalse();
+        defaults.NonDestructive.Should().BeTrue();
     }
 }
