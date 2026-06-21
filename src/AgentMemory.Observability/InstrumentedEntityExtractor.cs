@@ -28,7 +28,7 @@ internal sealed class InstrumentedEntityExtractor : IEntityExtractor
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.ExtractAsync(messages, cancellationToken);
+            var result = await _inner.ExtractAsync(messages, cancellationToken).ConfigureAwait(false);
             _metrics.EntitiesExtracted.Add(result.Count);
             activity?.SetTag("memory.extraction.entity_count", result.Count);
             return result;

@@ -84,8 +84,8 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
                 };
                 if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-                var cursor = await runner.RunAsync(cypher, parameters);
-                var records = await cursor.ToListAsync();
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
                 if (records.Count > 0)
                     total += Convert.ToInt32(records[0]["pruned"]);
             }
@@ -94,7 +94,7 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
                 "{Mode} {Count} expired memory node(s), owner={Owner}",
                 nonDestructive ? "Soft-invalidated" : "Pruned", total, scope?.OwnerId);
             return total;
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -109,8 +109,8 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, new { id = nodeId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, new { id = nodeId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return 0.0;
 
             var r = records[0];
@@ -124,7 +124,7 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
             int accessCount = r["accessCount"] is null ? 0 : Convert.ToInt32(r["accessCount"]);
 
             return ComputeScore(confidence, createdAt, lastAccessedAt, accessCount);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -140,8 +140,8 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { id = nodeId, now });
-        }, cancellationToken);
+            await runner.RunAsync(cypher, new { id = nodeId, now }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("Bumped access timestamp for {Label} {NodeId}", label, nodeId);
     }

@@ -29,7 +29,7 @@ public sealed class MemoryPageRankService : IMemoryPageRankService
     public async Task<IReadOnlyList<EntityRank>> RankEntitiesAsync(
         int? topN = null, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        if (!await _gds.IsAvailableAsync(cancellationToken))
+        if (!await _gds.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
         {
             _logger.LogWarning("PageRank skipped — Neo4j GDS plugin not installed; returning no ranks.");
             return Array.Empty<EntityRank>();
@@ -40,11 +40,11 @@ public sealed class MemoryPageRankService : IMemoryPageRankService
 
         return await GdsGraphScope.WithProjectionAsync(_tx, graphName, scope, async runner =>
         {
-            var cursor = await runner.RunAsync(GdsQueries.PageRankStream, new { graphName, topN = limit });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(GdsQueries.PageRankStream, new { graphName, topN = limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<EntityRank>)records
                 .Select(r => new EntityRank(r["entityId"].As<string>(), r["score"].As<double>()))
                 .ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

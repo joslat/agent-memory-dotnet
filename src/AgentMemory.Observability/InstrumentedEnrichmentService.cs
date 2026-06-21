@@ -30,7 +30,7 @@ internal sealed class InstrumentedEnrichmentService : IEnrichmentService
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.EnrichEntityAsync(entityName, entityType, ct);
+            var result = await _inner.EnrichEntityAsync(entityName, entityType, ct).ConfigureAwait(false);
             _metrics.EnrichmentRequests.Add(1);
             activity?.SetTag("memory.enrichment.enriched", result is not null);
             return result;

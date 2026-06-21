@@ -66,8 +66,8 @@ public sealed class Neo4jFactRepository : IFactRepository
                 ["metadata"]         = SerializeMetadata(fact.Metadata)
             };
 
-            var cursor = await runner.RunAsync(FactQueries.Upsert, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(FactQueries.Upsert, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             var node = record["f"].As<INode>();
 
             // The MERGE is on the {subject,predicate,object,owner_key} triple and ON MATCH deliberately never
@@ -82,7 +82,7 @@ public sealed class Neo4jFactRepository : IFactRepository
             {
                 await runner.RunAsync(
                     SharedFragments.SetFactEmbedding,
-                    new { id = mergedId, embedding = fact.Embedding.ToList() });
+                    new { id = mergedId, embedding = fact.Embedding.ToList() }).ConfigureAwait(false);
             }
 
             // Auto-create EXTRACTED_FROM relationships for all source messages
@@ -90,11 +90,11 @@ public sealed class Neo4jFactRepository : IFactRepository
             {
                 await runner.RunAsync(
                     SharedFragments.LinkFactExtractedFrom,
-                    new { id = mergedId, sourceMessageIds = fact.SourceMessageIds.ToList() });
+                    new { id = mergedId, sourceMessageIds = fact.SourceMessageIds.ToList() }).ConfigureAwait(false);
             }
 
             return MapToFact(node, fact.Embedding);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Fact>> UpsertBatchAsync(IReadOnlyList<Fact> facts, CancellationToken cancellationToken = default)
@@ -134,8 +134,8 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
 
             // The MERGE returns the SURVIVING node per triple; for a pre-existing triple that id is the
             // ORIGINAL node id, not the caller's fresh FactId. Resolve the embedding/provenance sub-writes
@@ -160,7 +160,7 @@ public sealed class Neo4jFactRepository : IFactRepository
                 if (NodeIdFor(fact) is not { } nodeId) continue;
                 await runner.RunAsync(
                     SharedFragments.SetFactEmbedding,
-                    new { id = nodeId, embedding = fact.Embedding!.ToList() });
+                    new { id = nodeId, embedding = fact.Embedding!.ToList() }).ConfigureAwait(false);
             }
 
             // Auto-create EXTRACTED_FROM relationships on the surviving node.
@@ -169,7 +169,7 @@ public sealed class Neo4jFactRepository : IFactRepository
                 if (NodeIdFor(fact) is not { } nodeId) continue;
                 await runner.RunAsync(
                     SharedFragments.LinkFactExtractedFrom,
-                    new { id = nodeId, sourceMessageIds = fact.SourceMessageIds.ToList() });
+                    new { id = nodeId, sourceMessageIds = fact.SourceMessageIds.ToList() }).ConfigureAwait(false);
             }
 
             var embeddingByTriple = deduped.ToDictionary(
@@ -182,7 +182,7 @@ public sealed class Neo4jFactRepository : IFactRepository
                                      node["object"].As<string>(), node["owner_key"].As<string>());
                 return MapToFact(node, embeddingByTriple.TryGetValue(key, out var emb) ? emb : null);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Fact?> GetByIdAsync(string factId, CancellationToken cancellationToken = default)
@@ -191,12 +191,12 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.GetById, new { id = factId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(FactQueries.GetById, new { id = factId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();
             return MapToFact(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Fact>> GetBySubjectAsync(
@@ -212,14 +212,14 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["f"].As<INode>();
                 return MapToFact(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
@@ -251,15 +251,15 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     // Small candidate set for dedup lookups: a near-duplicate by subject+predicate is rare, so a
@@ -285,27 +285,27 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["node"].As<INode>();
             return MapToFact(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Fact?> MarkDeduplicatedAsync(string factId, double confidence, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Reinforcing fact {FactId} via dedup (confidence={Confidence}).", factId, confidence);
-        return await _tx.WriteAsync<Fact?>(async runner =>
+        return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.MarkDeduplicated, new { id = factId, confidence });
+            var cursor = await runner.RunAsync(FactQueries.MarkDeduplicated, new { id = factId, confidence }).ConfigureAwait(false);
             // 0/1-row read (not SingleAsync): the node can be concurrently hard-deleted between the dedup
             // lookup and this write (e.g. a destructive decay prune), leaving an empty result.
-            var records = await cursor.ToListAsync();
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();
             return MapToFact(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateExtractedFromRelationshipAsync(string factId, string messageId, CancellationToken cancellationToken = default)
@@ -316,8 +316,8 @@ public sealed class Neo4jFactRepository : IFactRepository
         {
             await runner.RunAsync(
                 FactQueries.CreateExtractedFrom,
-                new { factId, messageId });
-        }, cancellationToken);
+                new { factId, messageId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateAboutRelationshipAsync(string factId, string entityId, CancellationToken cancellationToken = default)
@@ -328,8 +328,8 @@ public sealed class Neo4jFactRepository : IFactRepository
         {
             await runner.RunAsync(
                 FactQueries.CreateAbout,
-                new { factId, entityId });
-        }, cancellationToken);
+                new { factId, entityId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateConversationFactRelationshipAsync(string conversationId, string factId, CancellationToken cancellationToken = default)
@@ -340,8 +340,8 @@ public sealed class Neo4jFactRepository : IFactRepository
         {
             await runner.RunAsync(
                 FactQueries.CreateConversationFact,
-                new { conversationId, factId });
-        }, cancellationToken);
+                new { conversationId, factId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     // The Fact idempotency key: the SPO triple scoped by owner_key (shared vs owned facts stay distinct, R1).
@@ -389,15 +389,15 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.GetPageWithoutEmbedding, new { limit = limit + 1 });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(FactQueries.GetPageWithoutEmbedding, new { limit = limit + 1 }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             var items = records.Select(r =>
             {
                 var node = r["f"].As<INode>();
                 return MapToFact(node, null);
             }).ToList();
             return PaginationHelper.ApplyPagination(items, limit);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpdateEmbeddingAsync(
@@ -419,8 +419,8 @@ public sealed class Neo4jFactRepository : IFactRepository
         {
             await runner.RunAsync(
                 FactQueries.UpdateEmbedding,
-                new { id = factId, embedding = embedding.ToList() });
-        }, cancellationToken);
+                new { id = factId, embedding = embedding.ToList() }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> DeleteAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -433,11 +433,11 @@ public sealed class Neo4jFactRepository : IFactRepository
         return await _tx.WriteAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["factId"] = factId, ["ownerId"] = scope!.OwnerId! })
-                : await runner.RunAsync(cypher, new { factId });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["factId"] = factId, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { factId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["deleted"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> InvalidateAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -452,10 +452,10 @@ public sealed class Neo4jFactRepository : IFactRepository
         {
             var parameters = new Dictionary<string, object?> { ["id"] = factId, ["now"] = now };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["invalidated"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> SupersedeAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -470,10 +470,10 @@ public sealed class Neo4jFactRepository : IFactRepository
         {
             var parameters = new Dictionary<string, object?> { ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["superseded"].As<bool>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Fact?> FindByTripleAsync(string subject, string predicate, string @object, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -487,13 +487,13 @@ public sealed class Neo4jFactRepository : IFactRepository
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["subject"] = subject, ["predicate"] = predicate, ["object"] = @object, ["ownerId"] = scope!.OwnerId! })
-                : await runner.RunAsync(cypher, new { subject, predicate, @object });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["subject"] = subject, ["predicate"] = predicate, ["object"] = @object, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { subject, predicate, @object }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();
             return MapToFact(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsOfAsync(
@@ -528,14 +528,14 @@ public sealed class Neo4jFactRepository : IFactRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

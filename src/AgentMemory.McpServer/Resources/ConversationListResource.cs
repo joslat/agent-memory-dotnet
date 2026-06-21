@@ -42,7 +42,7 @@ public sealed class ConversationListResource
         };
         if (hasOwner) parameters["userId"] = userId;
 
-        var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken);
+        var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {

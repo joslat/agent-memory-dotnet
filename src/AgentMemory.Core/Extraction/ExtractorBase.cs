@@ -51,7 +51,7 @@ public abstract class ExtractorBase<T>
         if (messages.Count == 0) return Array.Empty<T>();
         try
         {
-            return await ExtractCoreAsync(messages, ct);
+            return await ExtractCoreAsync(messages, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

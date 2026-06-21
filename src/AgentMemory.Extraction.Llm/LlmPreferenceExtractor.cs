@@ -53,7 +53,7 @@ public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>,
             "Extract preferences from this conversation:",
             conversationText,
             ProjectPreferences,
-            ct);
+            ct).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ExtractedPreference> ProjectPreferences(LlmExtractionResponse dto)

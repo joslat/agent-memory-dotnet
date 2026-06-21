@@ -45,19 +45,19 @@ public sealed class StubExtractionPipeline : IMemoryExtractionPipeline
         var types = request.TypesToExtract;
 
         var entities = types.HasFlag(ExtractionTypes.Entities)
-            ? await _entityExtractor.ExtractAsync(request.Messages, cancellationToken)
+            ? await _entityExtractor.ExtractAsync(request.Messages, cancellationToken).ConfigureAwait(false)
             : Array.Empty<ExtractedEntity>();
 
         var facts = types.HasFlag(ExtractionTypes.Facts)
-            ? await _factExtractor.ExtractAsync(request.Messages, cancellationToken)
+            ? await _factExtractor.ExtractAsync(request.Messages, cancellationToken).ConfigureAwait(false)
             : Array.Empty<ExtractedFact>();
 
         var preferences = types.HasFlag(ExtractionTypes.Preferences)
-            ? await _preferenceExtractor.ExtractAsync(request.Messages, cancellationToken)
+            ? await _preferenceExtractor.ExtractAsync(request.Messages, cancellationToken).ConfigureAwait(false)
             : Array.Empty<ExtractedPreference>();
 
         var relationships = types.HasFlag(ExtractionTypes.Relationships)
-            ? await _relationshipExtractor.ExtractAsync(request.Messages, cancellationToken)
+            ? await _relationshipExtractor.ExtractAsync(request.Messages, cancellationToken).ConfigureAwait(false)
             : Array.Empty<ExtractedRelationship>();
 
         var sourceIds = request.Messages

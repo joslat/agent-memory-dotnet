@@ -43,19 +43,19 @@ public sealed class MigrationRunner : IMigrationRunner
             return;
         }
 
-        await EnsureMigrationConstraintAsync(cancellationToken);
+        await EnsureMigrationConstraintAsync(cancellationToken).ConfigureAwait(false);
 
         foreach (var (version, filePath) in migrationFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (await IsMigrationAppliedAsync(version, cancellationToken))
+            if (await IsMigrationAppliedAsync(version, cancellationToken).ConfigureAwait(false))
             {
                 _logger.LogDebug("Migration {Version} already applied, skipping.", version);
                 continue;
             }
 
-            await ApplyMigrationAsync(version, filePath, cancellationToken);
+            await ApplyMigrationAsync(version, filePath, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -73,7 +73,7 @@ public sealed class MigrationRunner : IMigrationRunner
 
     private async Task EnsureMigrationConstraintAsync(CancellationToken cancellationToken)
     {
-        await _txRunner.WriteAsync(async tx => { await tx.RunAsync(SchemaQueries.MigrationVersionConstraint); }, cancellationToken);
+        await _txRunner.WriteAsync(async tx => { await tx.RunAsync(SchemaQueries.MigrationVersionConstraint).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<bool> IsMigrationAppliedAsync(string version, CancellationToken cancellationToken)
@@ -82,14 +82,14 @@ public sealed class MigrationRunner : IMigrationRunner
         {
             var cursor = await tx.RunAsync(
                 SchemaQueries.IsMigrationApplied,
-                new { version });
-            return await cursor.FetchAsync();
-        }, cancellationToken);
+                new { version }).ConfigureAwait(false);
+            return await cursor.FetchAsync().ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ApplyMigrationAsync(string version, string filePath, CancellationToken cancellationToken)
     {
-        var fileContent = await File.ReadAllTextAsync(filePath, cancellationToken);
+        var fileContent = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
         var statements = ParseStatements(fileContent);
 
         _logger.LogInformation(
@@ -103,15 +103,15 @@ public sealed class MigrationRunner : IMigrationRunner
         foreach (var statement in statements)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await _txRunner.WriteAsync(async tx => { await tx.RunAsync(statement); }, cancellationToken);
+            await _txRunner.WriteAsync(async tx => { await tx.RunAsync(statement).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
         }
 
         await _txRunner.WriteAsync(async tx =>
         {
             await tx.RunAsync(
                 SchemaQueries.RecordMigration,
-                new { version, appliedAtUtc = DateTime.UtcNow.ToString("O") });
-        }, cancellationToken);
+                new { version, appliedAtUtc = DateTime.UtcNow.ToString("O") }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Migration {Version} applied successfully.", version);
     }

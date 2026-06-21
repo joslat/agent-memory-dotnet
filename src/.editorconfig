@@ -1,0 +1,8 @@
+# Analyzer rules for the production library projects under src/ (apps/tests/tools are excluded — they are
+# not consumed on arbitrary synchronization contexts, so ConfigureAwait is not required there).
+
+[*.cs]
+# CA2007: library code must not capture the caller's synchronization context — await with
+# ConfigureAwait(false). Enforced (TreatWarningsAsErrors is on for src) so the drift that left ~68 files
+# inconsistent can never recur. (R6 cleanup, 2026-06-21.)
+dotnet_diagnostic.CA2007.severity = warning

@@ -45,10 +45,10 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
                 ["metadata"]         = SerializeMetadata(relationship.Metadata)
             };
 
-            var cursor = await runner.RunAsync(RelationshipQueries.Upsert, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(RelationshipQueries.Upsert, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return MapToRelationship(record["r"].As<IRelationship>());
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<Relationship?> GetByIdAsync(string relationshipId, CancellationToken cancellationToken = default)
@@ -57,11 +57,11 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(RelationshipQueries.GetById, new { id = relationshipId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(RelationshipQueries.GetById, new { id = relationshipId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             return MapToRelationship(records[0]["r"].As<IRelationship>());
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Relationship>> GetByEntityAsync(
@@ -77,10 +77,10 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Relationship>> GetBySourceEntityAsync(
@@ -96,10 +96,10 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Relationship>> GetByTargetEntityAsync(
@@ -115,10 +115,10 @@ public sealed class Neo4jRelationshipRepository : IRelationshipRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Relationship MapToRelationship(IRelationship r) =>

@@ -21,9 +21,9 @@ public sealed class SchemaInfoResource
         var relTypesQuery = "CALL db.relationshipTypes() YIELD relationshipType RETURN collect(relationshipType) AS relationshipTypes";
         var propKeysQuery = "CALL db.propertyKeys() YIELD propertyKey RETURN collect(propertyKey) AS propertyKeys";
 
-        var labelsResult = await graphQueryService.QueryAsync(labelsQuery, cancellationToken: cancellationToken);
-        var relTypesResult = await graphQueryService.QueryAsync(relTypesQuery, cancellationToken: cancellationToken);
-        var propKeysResult = await graphQueryService.QueryAsync(propKeysQuery, cancellationToken: cancellationToken);
+        var labelsResult = await graphQueryService.QueryAsync(labelsQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var relTypesResult = await graphQueryService.QueryAsync(relTypesQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var propKeysResult = await graphQueryService.QueryAsync(propKeysQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var labels = labelsResult.FirstOrDefault()?.TryGetValue("labels", out var l) == true
             ? l as IEnumerable<object> ?? Array.Empty<object>()

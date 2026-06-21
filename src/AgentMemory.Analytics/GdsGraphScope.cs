@@ -26,7 +26,7 @@ internal static class GdsGraphScope
             // Defensive drop first: ExecuteWriteAsync auto-retries this lambda on a transient error, and the
             // graph name is fixed per call — without this, a retry after the catalog write would fail with
             // "graph already exists" and leak the partial graph. Drop is a no-op when the graph is absent.
-            await (await runner.RunAsync(GdsQueries.DropGraph, new { graphName })).ConsumeAsync();
+            await (await runner.RunAsync(GdsQueries.DropGraph, new { graphName }).ConfigureAwait(false)).ConsumeAsync().ConfigureAwait(false);
 
             var parameters = new Dictionary<string, object?>
             {
@@ -35,14 +35,14 @@ internal static class GdsGraphScope
                 ["relQuery"] = relQuery,
             };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            await runner.RunAsync(GdsQueries.ProjectCypher(hasOwner), parameters);
-        }, cancellationToken);
+            await runner.RunAsync(GdsQueries.ProjectCypher(hasOwner), parameters).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
         try
         {
             // Run the stream under a WRITE session too: under a routing (cluster/Aura) URI this pins it to
             // the same member (the leader) that holds the just-created, member-local GDS catalog graph.
-            return await tx.WriteAsync(algorithm, cancellationToken);
+            return await tx.WriteAsync(algorithm, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -51,8 +51,8 @@ internal static class GdsGraphScope
             {
                 await tx.WriteAsync(async runner =>
                 {
-                    await runner.RunAsync(GdsQueries.DropGraph, new { graphName });
-                }, CancellationToken.None);
+                    await runner.RunAsync(GdsQueries.DropGraph, new { graphName }).ConfigureAwait(false);
+                }, CancellationToken.None).ConfigureAwait(false);
             }
             catch
             {

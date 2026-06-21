@@ -24,7 +24,7 @@ public sealed class GraphQueryTools
             throw new McpException("The graph_query tool is disabled. Enable it in McpServerOptions.EnableGraphQuery.");
         }
 
-        var results = await graphQueryService.QueryAsync(cypherQuery, cancellationToken: cancellationToken);
+        var results = await graphQueryService.QueryAsync(cypherQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             rowCount = results.Count,

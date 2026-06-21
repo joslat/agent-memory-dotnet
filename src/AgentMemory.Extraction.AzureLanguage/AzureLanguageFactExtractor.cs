@@ -36,8 +36,8 @@ public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, I
             if (string.IsNullOrWhiteSpace(message.Content))
                 continue;
 
-            await AddKeyPhraseFacts(message, facts, ct);
-            await AddLinkedEntityFacts(message, facts, ct);
+            await AddKeyPhraseFacts(message, facts, ct).ConfigureAwait(false);
+            await AddLinkedEntityFacts(message, facts, ct).ConfigureAwait(false);
         }
 
         return facts;
@@ -46,7 +46,7 @@ public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, I
     private async Task AddKeyPhraseFacts(Message message, List<ExtractedFact> facts, CancellationToken ct)
     {
         var keyPhrases = await _client.ExtractKeyPhrasesAsync(
-            message.Content, _options.DefaultLanguage, ct);
+            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
 
         var context = message.Content.Length > 100
             ? message.Content[..100] + "..."
@@ -70,7 +70,7 @@ public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, I
     private async Task AddLinkedEntityFacts(Message message, List<ExtractedFact> facts, CancellationToken ct)
     {
         var linkedEntities = await _client.RecognizeLinkedEntitiesAsync(
-            message.Content, _options.DefaultLanguage, ct);
+            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
 
         foreach (var entity in linkedEntities)
         {

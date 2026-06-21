@@ -116,7 +116,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Entity).ToList();
     }
 
@@ -139,7 +139,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         if (_options.GeneratePreferenceEmbeddings && embedding is null)
         {
             _logger.LogDebug("Generating embedding for preference {PreferenceId}", preference.PreferenceId);
-            embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(preference.PreferenceText, cancellationToken);
+            embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(preference.PreferenceText, cancellationToken).ConfigureAwait(false);
         }
 
         // Dedup-on-create: reinforce an existing same-category, same-owner near-duplicate instead of
@@ -152,11 +152,11 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         {
             var dup = await _prefRepo.FindDuplicateAsync(
                 preference.Category, embedding, preference.OwnerId,
-                _options.DeduplicationSimilarityThreshold, cancellationToken);
+                _options.DeduplicationSimilarityThreshold, cancellationToken).ConfigureAwait(false);
             if (dup is not null)
             {
                 var reinforced = BumpConfidence(dup.Confidence, preference.Confidence);
-                var marked = await _prefRepo.MarkDeduplicatedAsync(dup.PreferenceId, reinforced, cancellationToken);
+                var marked = await _prefRepo.MarkDeduplicatedAsync(dup.PreferenceId, reinforced, cancellationToken).ConfigureAwait(false);
                 if (marked is not null)
                 {
                     _logger.LogDebug("Deduplicated preference in '{Category}' onto {Id} (confidence→{C}).",
@@ -170,7 +170,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         }
 
         var toSave = embedding is null ? preference : preference with { Embedding = embedding };
-        return await _prefRepo.UpsertAsync(toSave, cancellationToken);
+        return await _prefRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -190,7 +190,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Preference).ToList();
     }
 
@@ -213,7 +213,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         if (_options.GenerateFactEmbeddings && embedding is null)
         {
             _logger.LogDebug("Generating embedding for fact {FactId}", fact.FactId);
-            embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken);
+            embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken).ConfigureAwait(false);
         }
 
         // Dedup-on-create: reinforce an existing same-subject+predicate, same-owner near-duplicate
@@ -227,11 +227,11 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         {
             var dup = await _factRepo.FindDuplicateAsync(
                 fact.Subject, fact.Predicate, embedding, fact.OwnerId,
-                _options.DeduplicationSimilarityThreshold, cancellationToken);
+                _options.DeduplicationSimilarityThreshold, cancellationToken).ConfigureAwait(false);
             if (dup is not null)
             {
                 var reinforced = BumpConfidence(dup.Confidence, fact.Confidence);
-                var marked = await _factRepo.MarkDeduplicatedAsync(dup.FactId, reinforced, cancellationToken);
+                var marked = await _factRepo.MarkDeduplicatedAsync(dup.FactId, reinforced, cancellationToken).ConfigureAwait(false);
                 if (marked is not null)
                 {
                     _logger.LogDebug("Deduplicated fact '{S} {P}' onto {Id} (confidence→{C}).",
@@ -245,7 +245,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         }
 
         var toSave = embedding is null ? fact : fact with { Embedding = embedding };
-        return await _factRepo.UpsertAsync(toSave, cancellationToken);
+        return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Reinforced confidence on a dedup hit: max(existing, incoming) + configured bump, capped at 1.0.</summary>
@@ -267,10 +267,10 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         var final = item;
         if (shouldEmbed)
         {
-            var embedding = await embed(cancellationToken);
+            var embedding = await embed(cancellationToken).ConfigureAwait(false);
             final = withEmbedding(item, embedding);
         }
-        return await upsert(final, cancellationToken);
+        return await upsert(final, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -290,7 +290,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Fact).ToList();
     }
 
@@ -331,7 +331,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken);
+        var scored = await _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Entity).ToList();
     }
 
@@ -345,7 +345,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, systemAsOf, cancellationToken);
+        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, systemAsOf, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Fact).ToList();
     }
 
@@ -358,7 +358,7 @@ public sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken);
+        var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Preference).ToList();
     }
 

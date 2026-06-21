@@ -25,7 +25,7 @@ public sealed class ConversationTools
         // messages. Conversations carry user_id; deny when the conversation is owned by someone else.
         if (!string.IsNullOrEmpty(userId))
         {
-            var conversation = await conversationRepo.GetByIdAsync(conversationId, cancellationToken);
+            var conversation = await conversationRepo.GetByIdAsync(conversationId, cancellationToken).ConfigureAwait(false);
             if (conversation is null ||
                 (conversation.UserId is not null && conversation.UserId != userId))
             {
@@ -33,7 +33,7 @@ public sealed class ConversationTools
             }
         }
 
-        var messages = await shortTermMemory.GetConversationMessagesAsync(conversationId, cancellationToken);
+        var messages = await shortTermMemory.GetConversationMessagesAsync(conversationId, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(messages.Select(m => new
         {
             m.MessageId,
@@ -54,7 +54,7 @@ public sealed class ConversationTools
         CancellationToken cancellationToken = default)
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
-        var conversations = await conversationRepo.GetBySessionAsync(sid, cancellationToken);
+        var conversations = await conversationRepo.GetBySessionAsync(sid, cancellationToken).ConfigureAwait(false);
 
         // R1: a session id is shareable/guessable, so a scoped caller sees only their own (or un-attributed)
         // conversations — never another owner's. null userId ⇒ unscoped (admin/single-tenant).

@@ -76,12 +76,12 @@ internal sealed class ExtractionStage : IExtractionStage
                 strategy, MergeStrategyFactory.CreateRelationshipStrategy, "relationship", cancellationToken)
             : Task.FromResult<IReadOnlyList<ExtractedRelationship>>(Array.Empty<ExtractedRelationship>());
 
-        await Task.WhenAll(entityTask, factTask, prefTask, relTask);
+        await Task.WhenAll(entityTask, factTask, prefTask, relTask).ConfigureAwait(false);
 
-        var rawEntities = await entityTask;
-        var rawFacts = await factTask;
-        var rawPreferences = await prefTask;
-        var rawRelationships = await relTask;
+        var rawEntities = await entityTask.ConfigureAwait(false);
+        var rawFacts = await factTask.ConfigureAwait(false);
+        var rawPreferences = await prefTask.ConfigureAwait(false);
+        var rawRelationships = await relTask.ConfigureAwait(false);
 
         // 2. Filter + validate + resolve entities; build name→Entity map for relationship resolution.
         var resolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
@@ -104,7 +104,7 @@ internal sealed class ExtractionStage : IExtractionStage
             try
             {
                 var entity = await _entityResolver.ResolveEntityAsync(
-                    extracted, sourceMessageIds, scope, cancellationToken);
+                    extracted, sourceMessageIds, scope, cancellationToken).ConfigureAwait(false);
                 resolvedEntityMap[extracted.Name] = entity;
                 _logger.LogDebug("Resolved entity '{Name}' (id={Id}).", entity.Name, entity.EntityId);
             }
@@ -210,16 +210,16 @@ internal sealed class ExtractionStage : IExtractionStage
             return Array.Empty<T>();
 
         if (extractors.Count == 1)
-            return await ExtractSafeAsync(() => extractFn(extractors[0]), extractorTypeName, cancellationToken);
+            return await ExtractSafeAsync(() => extractFn(extractors[0]), extractorTypeName, cancellationToken).ConfigureAwait(false);
 
         var tasks = extractors
             .Select(e => ExtractSafeAsync(() => extractFn(e), extractorTypeName, cancellationToken))
             .ToList();
-        await Task.WhenAll(tasks);
+        await Task.WhenAll(tasks).ConfigureAwait(false);
 
         var allResults = new List<IReadOnlyList<T>>(tasks.Count);
         foreach (var task in tasks)
-            allResults.Add(await task);
+            allResults.Add(await task.ConfigureAwait(false));
 
         var mergeStrategy = strategyFactory(strategyType);
         var merged = mergeStrategy.Merge(allResults);
@@ -238,7 +238,7 @@ internal sealed class ExtractionStage : IExtractionStage
     {
         try
         {
-            return await extractor();
+            return await extractor().ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

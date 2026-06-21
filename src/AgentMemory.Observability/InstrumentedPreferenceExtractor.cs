@@ -28,7 +28,7 @@ internal sealed class InstrumentedPreferenceExtractor : IPreferenceExtractor
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.ExtractAsync(messages, cancellationToken);
+            var result = await _inner.ExtractAsync(messages, cancellationToken).ConfigureAwait(false);
             _metrics.PreferencesExtracted.Add(result.Count);
             activity?.SetTag("memory.extraction.preference_count", result.Count);
             return result;

@@ -27,10 +27,11 @@ public sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
     public async Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var session = _sessionFactory.OpenSession(AccessMode.Read);
+        var session = _sessionFactory.OpenSession(AccessMode.Read);
+        await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteReadAsync(work);
+            return await session.ExecuteReadAsync(work).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -43,18 +44,19 @@ public sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
     {
         await ReadAsync(async tx =>
         {
-            await work(tx);
+            await work(tx).ConfigureAwait(false);
             return true;
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<T> WriteAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await using var session = _sessionFactory.OpenSession(AccessMode.Write);
+        var session = _sessionFactory.OpenSession(AccessMode.Write);
+        await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteWriteAsync(work);
+            return await session.ExecuteWriteAsync(work).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -67,8 +69,8 @@ public sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
     {
         await WriteAsync(async tx =>
         {
-            await work(tx);
+            await work(tx).ConfigureAwait(false);
             return true;
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

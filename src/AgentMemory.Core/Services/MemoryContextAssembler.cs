@@ -141,7 +141,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             // Generate embedding if not provided (only needed for memory-layer semantic search).
             var queryEmbedding = request.QueryEmbedding
-                ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
+                ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false);
 
             // Vector searches require a non-empty embedding. A blank query (e.g. a history-only
             // recall via the chat-history provider) yields an empty embedding — skip the semantic
@@ -184,23 +184,23 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             await Task.WhenAll(
                 recentTask, relevantTask, entitiesTask,
-                preferencesTask, factsTask, tracesTask);
+                preferencesTask, factsTask, tracesTask).ConfigureAwait(false);
 
-            recentMessages = await recentTask;
-            relevantMessages = await relevantTask;
-            entities = await entitiesTask;
-            preferences = await preferencesTask;
-            facts = await factsTask;
-            traces = await tracesTask;
+            recentMessages = await recentTask.ConfigureAwait(false);
+            relevantMessages = await relevantTask.ConfigureAwait(false);
+            entities = await entitiesTask.ConfigureAwait(false);
+            preferences = await preferencesTask.ConfigureAwait(false);
+            facts = await factsTask.ConfigureAwait(false);
+            traces = await tracesTask.ConfigureAwait(false);
         }
 
         if (graphRagTask != null)
-            await graphRagTask;
+            await graphRagTask.ConfigureAwait(false);
 
         string? graphRagContext = null;
         if (graphRagTask != null)
         {
-            var graphRagResult = await graphRagTask;
+            var graphRagResult = await graphRagTask.ConfigureAwait(false);
             if (graphRagResult?.Items is { Count: > 0 } items)
                 graphRagContext = string.Join("\n\n", items.Select(i => i.Text));
         }
@@ -273,7 +273,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             ?? (string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId));
 
         var queryEmbedding = request.QueryEmbedding
-            ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken);
+            ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false);
 
         // Vector searches require a non-empty embedding. A blank query, or a transient embedding-generation
         // failure (degrades to an empty vector), would otherwise issue a zero-dimension vector query which
@@ -305,13 +305,13 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
             : Empty<ReasoningTrace>();
 
-        await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask, tracesTask);
+        await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask, tracesTask).ConfigureAwait(false);
 
-        var recentMessages = await recentTask;
-        var entities = await entitiesTask;
-        var preferences = await preferencesTask;
-        var facts = await factsTask;
-        var traces = await tracesTask;
+        var recentMessages = await recentTask.ConfigureAwait(false);
+        var entities = await entitiesTask.ConfigureAwait(false);
+        var preferences = await preferencesTask.ConfigureAwait(false);
+        var facts = await factsTask.ConfigureAwait(false);
+        var traces = await tracesTask.ConfigureAwait(false);
 
         // Enforce the same context budget as the live recall path so temporal recall cannot blow
         // past the configured token/char limit. (Relevant messages are not part of the temporal
@@ -372,7 +372,7 @@ public sealed class MemoryContextAssembler : IMemoryContextAssembler
                 Query = request.Query,
                 TopK = recallOpts.MaxGraphRagItems
             };
-            return await _graphRag!.GetContextAsync(graphRagRequest, cancellationToken);
+            return await _graphRag!.GetContextAsync(graphRagRequest, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

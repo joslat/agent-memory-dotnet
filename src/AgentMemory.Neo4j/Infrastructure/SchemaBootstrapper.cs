@@ -38,31 +38,31 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
         foreach (var constraint in SchemaQueries.Constraints)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(constraint, cancellationToken);
+            await RunStatementAsync(constraint, cancellationToken).ConfigureAwait(false);
         }
 
         foreach (var index in SchemaQueries.FulltextIndexes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(index, cancellationToken);
+            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
         }
 
         foreach (var index in _vectorIndexes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(index, cancellationToken);
+            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
         }
 
         foreach (var index in SchemaQueries.PropertyIndexes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(index, cancellationToken);
+            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
         }
 
         // Fail-fast guard: a CREATE VECTOR INDEX ... IF NOT EXISTS above is a no-op when the index
         // already exists, so an embedder/dimension change leaves stale indexes that would only fail at
         // query time. Verify dimensions now and surface an actionable error listing every mismatch.
-        await ValidateVectorIndexDimensionsAsync(cancellationToken);
+        await ValidateVectorIndexDimensionsAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Schema bootstrap complete.");
     }
@@ -77,11 +77,11 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
         var existing = await _txRunner.ReadAsync(
             async runner =>
             {
-                var cursor = await runner.RunAsync(SchemaQueries.ShowVectorIndexDimensions);
-                var records = await cursor.ToListAsync();
+                var cursor = await runner.RunAsync(SchemaQueries.ShowVectorIndexDimensions).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
                 return VectorIndexDimensionValidator.MapRows(records);
             },
-            cancellationToken) ?? [];
+            cancellationToken).ConfigureAwait(false) ?? [];
 
         VectorIndexDimensionValidator.EnsureMatches(_embeddingDimensions, existing);
         _logger.LogDebug(
@@ -94,8 +94,8 @@ public sealed class SchemaBootstrapper : ISchemaBootstrapper
         try
         {
             await _txRunner.WriteAsync(
-                async tx => { await tx.RunAsync(cypher); },
-                cancellationToken);
+                async tx => { await tx.RunAsync(cypher).ConfigureAwait(false); },
+                cancellationToken).ConfigureAwait(false);
 
             _logger.LogDebug("Executed schema statement: {Cypher}", cypher);
         }

@@ -29,8 +29,8 @@ public sealed class Neo4jGraphQueryService : IGraphQueryService
                 ? parameters.ToDictionary(kv => kv.Key, kv => kv.Value)
                 : new Dictionary<string, object?>();
 
-            var cursor = await runner.RunAsync(cypherQuery, driverParams);
-            var records = await cursor.ToListAsync(cancellationToken);
+            var cursor = await runner.RunAsync(cypherQuery, driverParams).ConfigureAwait(false);
+            var records = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
 
             return records.Select(r =>
             {
@@ -41,7 +41,7 @@ public sealed class Neo4jGraphQueryService : IGraphQueryService
                 }
                 return (IReadOnlyDictionary<string, object?>)dict;
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static object? ConvertValue(object? value)

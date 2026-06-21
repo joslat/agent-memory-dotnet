@@ -39,12 +39,12 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
                 name = extractor.Name,
                 version = (object?)extractor.Version,
                 config = (object?)extractor.ConfigJson
-            });
-            var records = await cursor.ToListAsync();
+            }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count > 0)
                 return MapToExtractor(records[0]["ex"].As<INode>());
             return extractor;
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -54,11 +54,11 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.GetByName, new { name });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ExtractorQueries.GetByName, new { name }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             return MapToExtractor(records[0]["ex"].As<INode>());
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -68,10 +68,10 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.List, new { });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ExtractorQueries.List, new { }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToExtractor(r["ex"].As<INode>())).ToList();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -92,8 +92,8 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
                 extractor_name = extractorName,
                 confidence,
                 extraction_time_ms = (object?)extractionTimeMs
-            });
-        }, ct);
+            }).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -106,15 +106,15 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.GetEntitiesByExtractor, new { extractor_name = extractorName, limit });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ExtractorQueries.GetEntitiesByExtractor, new { extractor_name = extractorName, limit }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
                 var conf = r["confidence"].As<double>();
                 return (MapToEntity(node), conf);
             }).ToList();
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -129,9 +129,9 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! })
-                : await runner.RunAsync(cypher, new { entityId });
-            var records = await cursor.ToListAsync();
+                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
+                : await runner.RunAsync(cypher, new { entityId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
 
             var record = records[0];
@@ -158,7 +158,7 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
                 .ToList();
 
             return new EntityProvenance(id, sources, extractors);
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -168,8 +168,8 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.GetExtractionStats, new { });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ExtractorQueries.GetExtractionStats, new { }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return new ExtractionStats(0, 0, 0.0);
 
             var record = records[0];
@@ -177,7 +177,7 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
                 record["totalEntities"].As<int>(),
                 record["totalMessages"].As<int>(),
                 record["avgPerMessage"].As<double>());
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -187,8 +187,8 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.GetExtractorStats, new { extractorName });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ExtractorQueries.GetExtractorStats, new { extractorName }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
 
             var record = records[0];
@@ -200,7 +200,7 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
                 record["entityCount"].As<int>(),
                 record["avgConfidence"] is not null ? record["avgConfidence"].As<double>() : 0.0,
                 record["totalExtractions"].As<int>());
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -210,10 +210,10 @@ public sealed class Neo4jExtractorRepository : IExtractorRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ExtractorQueries.DeleteEntityProvenance, new { entityId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ExtractorQueries.DeleteEntityProvenance, new { entityId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 ? records[0]["deleted"].As<int>() : 0;
-        }, ct);
+        }, ct).ConfigureAwait(false);
     }
 
     private static Extractor MapToExtractor(INode node)

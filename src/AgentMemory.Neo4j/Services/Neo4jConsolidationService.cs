@@ -53,25 +53,25 @@ public sealed class Neo4jConsolidationService : IConsolidationService
         if (opts.ArchiveExpiredConversations)
         {
             conversationsArchived = opts.DryRun
-                ? await ReadCountAsync(ConsolidationQueries.CountExpiredConversations, new { cutoff }, cancellationToken)
-                : await WriteCountAsync(ConsolidationQueries.ArchiveExpiredConversations, new { cutoff }, cancellationToken);
+                ? await ReadCountAsync(ConsolidationQueries.CountExpiredConversations, new { cutoff }, cancellationToken).ConfigureAwait(false)
+                : await WriteCountAsync(ConsolidationQueries.ArchiveExpiredConversations, new { cutoff }, cancellationToken).ConfigureAwait(false);
         }
 
         if (opts.RemoveDuplicatePreferences)
         {
             duplicatePreferencesRemoved = opts.DryRun
-                ? await ReadCountAsync(ConsolidationQueries.CountDuplicatePreferences, new { minGroupSize = DuplicateGroupMinSize }, cancellationToken)
-                : await WriteCountAsync(ConsolidationQueries.RemoveDuplicatePreferences, new { minGroupSize = DuplicateGroupMinSize }, cancellationToken);
+                ? await ReadCountAsync(ConsolidationQueries.CountDuplicatePreferences, new { minGroupSize = DuplicateGroupMinSize }, cancellationToken).ConfigureAwait(false)
+                : await WriteCountAsync(ConsolidationQueries.RemoveDuplicatePreferences, new { minGroupSize = DuplicateGroupMinSize }, cancellationToken).ConfigureAwait(false);
         }
 
         // Detection-only operations (no apply path): entity merge needs careful edge redirection and
         // trace summarization needs an LLM — both are reported here as candidates and left as follow-ups.
         if (opts.DetectDuplicateEntities)
-            duplicateEntities = await ReadCountAsync(ConsolidationQueries.CountDuplicateEntities, new { minGroupSize = DuplicateGroupMinSize }, cancellationToken);
+            duplicateEntities = await ReadCountAsync(ConsolidationQueries.CountDuplicateEntities, new { minGroupSize = DuplicateGroupMinSize }, cancellationToken).ConfigureAwait(false);
 
         if (opts.DetectLongTraces)
             longTraceCandidates = await ReadCountAsync(
-                ConsolidationQueries.CountLongTraces, new { threshold = opts.LongTraceStepThreshold }, cancellationToken);
+                ConsolidationQueries.CountLongTraces, new { threshold = opts.LongTraceStepThreshold }, cancellationToken).ConfigureAwait(false);
 
         var report = new ConsolidationReport
         {
@@ -85,7 +85,7 @@ public sealed class Neo4jConsolidationService : IConsolidationService
         };
 
         if (!opts.DryRun)
-            await RecordRunAsync(report, ranAt, cancellationToken);
+            await RecordRunAsync(report, ranAt, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
             "Consolidation run {RunId} complete (dryRun={DryRun}): {Archived} archived, {PrefsRemoved} dup-prefs, " +
@@ -98,16 +98,16 @@ public sealed class Neo4jConsolidationService : IConsolidationService
     private Task<int> ReadCountAsync(string cypher, object parameters, CancellationToken ct) =>
         _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return record["count"].As<int>();
         }, ct);
 
     private Task<int> WriteCountAsync(string cypher, object parameters, CancellationToken ct) =>
         _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return record["count"].As<int>();
         }, ct);
 
@@ -122,6 +122,6 @@ public sealed class Neo4jConsolidationService : IConsolidationService
                 preferencesRemoved = report.DuplicatePreferencesRemoved,
                 duplicateEntities = report.DuplicateEntitiesDetected,
                 longTraceCandidates = report.LongTraceCandidates,
-            });
+            }).ConfigureAwait(false);
         }, ct);
 }

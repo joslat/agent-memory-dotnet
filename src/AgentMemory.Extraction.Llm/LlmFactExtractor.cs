@@ -54,7 +54,7 @@ public sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtrac
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,
-            ct);
+            ct).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ExtractedFact> ProjectFacts(LlmExtractionResponse dto)

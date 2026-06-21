@@ -22,7 +22,7 @@ internal sealed class AzureExtractionContext
         if (_entityCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var result = await client.RecognizeEntitiesAsync(content, language, ct);
+        var result = await client.RecognizeEntitiesAsync(content, language, ct).ConfigureAwait(false);
         var list = result.ToList();
         _entityCache.TryAdd(cacheKey, list);
         return list;

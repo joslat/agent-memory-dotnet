@@ -22,7 +22,7 @@ public sealed class EntityTools
         CancellationToken cancellationToken = default)
     {
         var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
-        var provenance = await extractorRepository.GetProvenanceAsync(entityId, scope, cancellationToken);
+        var provenance = await extractorRepository.GetProvenanceAsync(entityId, scope, cancellationToken).ConfigureAwait(false);
         if (provenance is null)
             return ToolJsonContext.Serialize(new { entityId, found = false });
 
@@ -43,7 +43,7 @@ public sealed class EntityTools
         CancellationToken cancellationToken = default)
     {
         var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
-        var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, scope, cancellationToken);
+        var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(entities.Select(e => new
         {
             e.EntityId,
@@ -69,7 +69,7 @@ public sealed class EntityTools
         CancellationToken cancellationToken = default)
     {
         var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
-        var entity = await longTermMemory.RecordEntityFeedbackAsync(entityId, positive, delta, scope, cancellationToken);
+        var entity = await longTermMemory.RecordEntityFeedbackAsync(entityId, positive, delta, scope, cancellationToken).ConfigureAwait(false);
         if (entity is null)
             return ToolJsonContext.Serialize(new { entityId, found = false });
 
@@ -108,7 +108,7 @@ public sealed class EntityTools
             CreatedAtUtc = clock.UtcNow
         };
 
-        var result = await longTermMemory.AddRelationshipAsync(relationship, cancellationToken);
+        var result = await longTermMemory.AddRelationshipAsync(relationship, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             result.RelationshipId,

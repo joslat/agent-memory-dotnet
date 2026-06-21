@@ -25,7 +25,7 @@ public sealed class MemoryCommunityService : IMemoryCommunityService
     public async Task<IReadOnlyList<EntityCommunity>> DetectCommunitiesAsync(
         MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
-        if (!await _gds.IsAvailableAsync(cancellationToken))
+        if (!await _gds.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
         {
             _logger.LogWarning("Community detection skipped — Neo4j GDS plugin not installed; returning no communities.");
             return Array.Empty<EntityCommunity>();
@@ -35,11 +35,11 @@ public sealed class MemoryCommunityService : IMemoryCommunityService
 
         return await GdsGraphScope.WithProjectionAsync(_tx, graphName, scope, async runner =>
         {
-            var cursor = await runner.RunAsync(GdsQueries.LouvainStream, new { graphName });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(GdsQueries.LouvainStream, new { graphName }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<EntityCommunity>)records
                 .Select(r => new EntityCommunity(r["entityId"].As<string>(), r["communityId"].As<long>()))
                 .ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

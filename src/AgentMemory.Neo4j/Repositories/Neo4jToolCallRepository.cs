@@ -26,8 +26,8 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildToolCallParameters(toolCall);
-            var cursor = await runner.RunAsync(ToolCallQueries.Add, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(ToolCallQueries.Add, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             var tcNode = record["tc"].As<INode>();
 
             // Create INSTANCE_OF relationship to a Tool node (auto-created on first encounter)
@@ -36,10 +36,10 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
                 new { id = toolCall.ToolCallId, toolName = toolCall.ToolName,
                       status = toolCall.Status.ToString().ToLowerInvariant(),
                       durationMs = (object?)toolCall.DurationMs,
-                      description = (object?)toolCall.Description });
+                      description = (object?)toolCall.Description }).ConfigureAwait(false);
 
             return MapToToolCall(tcNode);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ToolCall> UpdateAsync(ToolCall toolCall, CancellationToken cancellationToken = default)
@@ -49,10 +49,10 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildToolCallParameters(toolCall);
-            var cursor = await runner.RunAsync(ToolCallQueries.Update, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(ToolCallQueries.Update, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return MapToToolCall(record["tc"].As<INode>());
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ToolCall>> GetByStepAsync(string stepId, CancellationToken cancellationToken = default)
@@ -61,10 +61,10 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ToolCallQueries.GetByStep, new { stepId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ToolCallQueries.GetByStep, new { stepId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToToolCall(r["tc"].As<INode>())).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ToolCall?> GetByIdAsync(string toolCallId, CancellationToken cancellationToken = default)
@@ -73,11 +73,11 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ToolCallQueries.GetById, new { id = toolCallId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ToolCallQueries.GetById, new { id = toolCallId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             return MapToToolCall(records[0]["tc"].As<INode>());
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static ToolCall MapToToolCall(INode node) =>
@@ -123,7 +123,7 @@ public sealed class Neo4jToolCallRepository : IToolCallRepository
         {
             await runner.RunAsync(
                 ToolCallQueries.CreateTriggeredByRelationship,
-                new { toolCallId, messageId });
-        }, cancellationToken);
+                new { toolCallId, messageId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

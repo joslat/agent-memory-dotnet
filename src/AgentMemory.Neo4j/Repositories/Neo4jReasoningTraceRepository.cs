@@ -28,8 +28,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildTraceParameters(trace);
-            var cursor = await runner.RunAsync(ReasoningQueries.AddTrace, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(ReasoningQueries.AddTrace, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             var node = record["t"].As<INode>();
 
             // Only persist a real (non-empty) vector; a degraded empty embedding leaves it NULL.
@@ -37,25 +37,25 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             {
                 await runner.RunAsync(
                     ReasoningQueries.SetTraceTaskEmbedding,
-                    new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() });
+                    new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() }).ConfigureAwait(false);
             }
 
             return MapToTrace(node, trace.TaskEmbedding);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ReasoningTrace?> UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Updating reasoning trace {Id}", trace.TraceId);
 
-        return await _tx.WriteAsync<ReasoningTrace?>(async runner =>
+        return await _tx.WriteAsync(async runner =>
         {
             var parameters = BuildTraceParameters(trace);
-            var cursor = await runner.RunAsync(ReasoningQueries.UpdateTrace, parameters);
+            var cursor = await runner.RunAsync(ReasoningQueries.UpdateTrace, parameters).ConfigureAwait(false);
             // The UpdateTrace MATCH returns no rows if the trace was concurrently deleted (session clear /
             // retention prune) between the caller's read and this write. Return null instead of letting
             // SingleAsync throw an opaque "sequence contains no elements" (R6-E).
-            var records = await cursor.ToListAsync();
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["t"].As<INode>();
 
@@ -64,11 +64,11 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             {
                 await runner.RunAsync(
                     ReasoningQueries.SetTraceTaskEmbedding,
-                    new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() });
+                    new { id = trace.TraceId, taskEmbedding = trace.TaskEmbedding.ToList() }).ConfigureAwait(false);
             }
 
             return MapToTrace(node, trace.TaskEmbedding);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ReasoningTrace?> GetByIdAsync(string traceId, CancellationToken cancellationToken = default)
@@ -77,12 +77,12 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(ReasoningQueries.GetTraceById, new { id = traceId });
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(ReasoningQueries.GetTraceById, new { id = traceId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["t"].As<INode>();
             return MapToTrace(node, ReadEmbedding(node));
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -97,14 +97,14 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node = r["t"].As<INode>();
                 return MapToTrace(node, ReadEmbedding(node));
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(
@@ -140,15 +140,15 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToTrace(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsOfAsync(
@@ -185,15 +185,15 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var records = await cursor.ToListAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
                 var node  = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToTrace(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateInitiatedByRelationshipAsync(string traceId, string messageId, CancellationToken cancellationToken = default)
@@ -204,8 +204,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         {
             await runner.RunAsync(
                 ReasoningQueries.CreateInitiatedByRelationship,
-                new { traceId, messageId });
-        }, cancellationToken);
+                new { traceId, messageId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task CreateConversationTraceRelationshipsAsync(string conversationId, string traceId, CancellationToken cancellationToken = default)
@@ -216,8 +216,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         {
             await runner.RunAsync(
                 ReasoningQueries.CreateConversationTraceRelationships,
-                new { conversationId, traceId });
-        }, cancellationToken);
+                new { conversationId, traceId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task DeleteBySessionAsync(string sessionId, string? ownerId = null, CancellationToken cancellationToken = default)
@@ -234,8 +234,8 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, parameters);
-        }, cancellationToken);
+            await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<int> PruneSessionTracesAsync(string sessionId, int maxToKeep, string? ownerId = null, CancellationToken cancellationToken = default)
@@ -256,10 +256,10 @@ public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(cypher, parameters);
-            var record = await cursor.SingleAsync();
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
             return record["pruned"].As<int>();
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static ReasoningTrace MapToTrace(INode node, float[]? taskEmbedding) =>
