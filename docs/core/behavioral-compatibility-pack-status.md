@@ -1,6 +1,6 @@
 # Behavioral Compatibility Pack Status
 
-Status: implemented and verified as of 2026-07-09.
+Status: local pack implemented and verified as of 2026-07-09; PR-path TODOs clarified on 2026-07-10.
 
 This document tracks the current behavioral compatibility pack. It is the live work log for the five requested features: TCK bridge/mirrored scenarios, compatibility scenario suite, real-provider golden path, read audit/history expansion, and recency/frequency reranking.
 
@@ -21,6 +21,23 @@ The current upstream `neo4j-labs/agent-memory-tck` repository describes a formal
 | 4 | Read audit / history expansion | Verified | Added `MemoryReadAudit` label/constraint/index, access-audit writes from `UpdateAccessTimestampAsync`, history fields for access counts/audit rows, CLI output, schema parity policy/doc updates, and live integration assertions. | Consider owner-scoped access-update overloads later if by-id admin semantics should become stricter. | This removes the previous upstream-only `MemoryReadAudit` divergence and adds richer .NET audit detail. |
 | 5 | Recency/frequency reranker | Verified | Added a live Neo4j behavioral test proving equal-age, frequently accessed memory can outrank the unused semantic-best result when recency/frequency reranking is enabled. | Keep tuning weights with the future quality/performance evaluation harness. | Kept opt-in via `MemoryRankingOptions`; parity mode remains semantic-only. |
 
+## Pending / Next Candidates
+
+Recommended immediate sequence: finish #1 and #2 on `codex/behavioral-compatibility-pack`, then do #3 and open the PR into `main`.
+
+| Priority | Task-Feature | Description | Notes |
+|---:|---|---|---|
+| 1 | Upstream TCK HTTP bridge | Implement the thin HTTP adapter expected by `neo4j-labs/agent-memory-tck` so the upstream runner can drive this .NET implementation out of process. | This is the cleanest way to turn "mirrored compatibility" into canonical TCK evidence before merge. |
+| 2 | Map local scenarios to upstream `SCN-*` IDs | Link each mirrored .NET scenario and catalog entry to the stable upstream scenario IDs and conformance tiers. | Gives reviewers traceability from local tests to the TCK contract. |
+| 3 | Open PR from branch to `main` | Open the PR for `codex/behavioral-compatibility-pack` after #1 and #2 are done. | A draft PR could be opened earlier, but the strongest conformance PR waits for bridge and mapping. |
+| 4 | Real-provider golden-path smoke | Run `AgentWithMemory` with an actual external MEAI chat/embedding provider from a host environment. | Keep provider packages/API keys out of the repo; record the smoke as evidence only. |
+| 5 | Owner-scoped access tracking | Consider owner-scoped access timestamp/read-audit overloads for by-id update paths. | Tightens admin-style by-id semantics; lower priority because recall/read paths are already scoped. |
+| 6 | Expand scenario catalog | Add more mirrored Bronze/Silver/Gold/Platinum scenarios as upstream TCK behavior evolves. | Keep catalog updates tied to upstream TCK tags or meaningful `main` changes. |
+| 7 | Memory quality/performance harness | Implement deterministic evaluation for Recall@K, MRR/NDCG, latency, owner leaks, temporal pass rate, and provenance completeness. | Enables Python-vs-.NET comparison without grading chat history or final model context first. |
+| 8 | Upstream snapshot refresh automation | Keep the scheduled upstream watch and embedded schema snapshots aligned with relevant upstream releases/main changes. | Treat warnings as review triggers, not automatic adoption. |
+| 9 | Preference supersession / graph expansion | Add cohesive semantic-history features if evaluation data shows they improve recall quality. | Fits the history/read-audit/reranking family, but it is not a pre-PR gate. |
+| 10 | PR documentation polish | Make the PR description cite verification results, intentional divergences, and remaining non-gates. | Use this file as the source of truth for the PR narrative. |
+
 ## Verification Log
 
 | Date | Evidence | Result | Notes |
@@ -36,4 +53,4 @@ The current upstream `neo4j-labs/agent-memory-tck` repository describes a formal
 
 ## Commit Record
 
-This pack was committed as `8626fed` (`Add behavioral compatibility pack`) and pushed to `origin/codex/behavioral-compatibility-pack` on 2026-07-10. Generated artifacts under `artifacts/` stay uncommitted.
+This pack was committed as `8626fed` (`Add behavioral compatibility pack`) and pushed to `origin/codex/behavioral-compatibility-pack` on 2026-07-10. A follow-up status-doc commit, `94521e7` (`Update compatibility pack commit record`), recorded the branch evidence. Generated artifacts under `artifacts/` stay uncommitted.

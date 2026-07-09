@@ -124,7 +124,7 @@ Acceptance criteria:
 
 This pass implements the near-term pieces: golden-path sample scoping, sample docs cleanup, compatibility ADR/documentation, sample smoke-build CI, static schema parity CI, and scheduled upstream compatibility watch.
 
-The remaining deeper Step 7 work is the TCK bridge itself. That is intentionally not hidden inside this pass: it requires deciding whether to implement the TCK adapter contract directly or mirror the canonical scenarios into .NET integration tests.
+Follow-up status: the 2026-07-09 behavioral compatibility pack implemented the local mirrored scenarios, compatibility catalog, read-audit/history expansion, and recency/frequency reranking evidence. The remaining pre-PR Step 7 work is now concrete: implement the upstream TCK HTTP bridge and map local mirrored scenarios to stable `SCN-*` IDs before opening `codex/behavioral-compatibility-pack` into `main`. See [`behavioral-compatibility-pack-status.md`](behavioral-compatibility-pack-status.md).
 
 ## Follow-up Execution - 2026-07-09
 
