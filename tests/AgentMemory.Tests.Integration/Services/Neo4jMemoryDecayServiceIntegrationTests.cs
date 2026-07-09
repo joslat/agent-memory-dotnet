@@ -107,17 +107,28 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task UpdateAccessTimestampAsync_IncrementsAccessCount_AndSetsTimestamp()
     {
-        var id = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 2);
+        var id = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 2, ownerId: "user-A");
 
         await _service.UpdateAccessTimestampAsync(id, "Entity");
 
         await using var session = _fixture.Driver.AsyncSession();
         var cursor = await session.RunAsync(
-            "MATCH (n:Entity {id:$id}) RETURN n.access_count AS ac, n.last_accessed_at IS NOT NULL AS hasTs",
+            @"MATCH (n:Entity {id:$id})
+              OPTIONAL MATCH (audit:MemoryReadAudit {memory_id:$id})
+              RETURN n.access_count AS ac,
+                     n.last_accessed_at IS NOT NULL AS hasTs,
+                     count(audit) AS auditCount,
+                     collect(audit.kind) AS auditKinds,
+                     collect(audit.owner_id) AS auditOwners,
+                     all(readAt IN collect(audit.read_at) WHERE readAt IS NOT NULL) AS auditRowsHaveReadAt",
             new { id });
         var record = await cursor.SingleAsync();
         global::Neo4j.Driver.ValueExtensions.As<long>(record["ac"]).Should().Be(3);
         global::Neo4j.Driver.ValueExtensions.As<bool>(record["hasTs"]).Should().BeTrue();
+        global::Neo4j.Driver.ValueExtensions.As<long>(record["auditCount"]).Should().Be(1);
+        global::Neo4j.Driver.ValueExtensions.As<IList<object>>(record["auditKinds"]).Should().Contain("Entity");
+        global::Neo4j.Driver.ValueExtensions.As<IList<object>>(record["auditOwners"]).Should().Contain("user-A");
+        global::Neo4j.Driver.ValueExtensions.As<bool>(record["auditRowsHaveReadAt"]).Should().BeTrue();
     }
 
     [Fact]

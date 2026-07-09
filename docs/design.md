@@ -1,15 +1,15 @@
 # Software Design Document — Agent Memory for .NET
 
-**Last Updated:** 2026-04-17 (Post Wave 4A/4B/4C — Schema Parity Review)  
-**Author:** Deckard (Lead Architect), domain model by Roy (Core Memory Domain Engineer)  
-**Canonical Specification:** [specification.md](specification.md)  
+**Last Updated:** 2026-07-09 (preview.4 reality check)
+**Author:** Deckard (Lead Architect), domain model by Roy (Core Memory Domain Engineer)
+**Canonical Specification:** [specification.md](specification.md)
 **Architecture Overview:** [architecture.md](architecture.md)
 
 ---
 
 ## 1. Domain Model Overview
 
-The domain model comprises **45 domain records** (plus 11 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
+The domain model comprises **47 domain records** (plus 13 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
 
 ### Key Design Decisions
 
@@ -190,7 +190,7 @@ sequenceDiagram
     participant GR as IGraphRagContextSource
 
     Caller->>Assembler: AssembleContextAsync(RecallRequest)
-    
+
     par Parallel retrieval
         Assembler->>STM: GetRecentMessagesAsync(sessionId)
         Assembler->>STM: SearchMessagesAsync(queryEmbedding)
@@ -200,7 +200,7 @@ sequenceDiagram
         Assembler->>RM: SearchSimilarTracesAsync(queryEmbedding)
         Assembler->>GR: GetContextAsync(request) [if enabled]
     end
-    
+
     Assembler->>Assembler: Apply ContextBudget (truncation)
     Assembler-->>Caller: MemoryContext
 ```
@@ -247,7 +247,7 @@ The assembled `MemoryContext` contains typed sections:
 
 *(Plan §13)*
 
-Extraction converts raw conversation messages into structured long-term memory. In Phase 1, extraction is **stubbed** — the pipeline infrastructure exists but returns empty results.
+Extraction converts raw conversation messages into structured long-term memory. The default Core registration includes no-op stub extractors so the memory engine can run without an LLM, and optional packages replace or supplement those stubs with real LLM, Azure AI Language, and streaming/chunked extraction paths.
 
 ### 4.1 Flow
 
@@ -263,16 +263,16 @@ sequenceDiagram
     participant LTM as Repositories
 
     Caller->>Pipeline: ExtractAsync(ExtractionRequest)
-    
+
     Pipeline->>EE: ExtractEntitiesAsync(messages)
     Pipeline->>FE: ExtractFactsAsync(messages)
     Pipeline->>PE: ExtractPreferencesAsync(messages)
     Pipeline->>RE: ExtractRelationshipsAsync(messages)
-    
+
     Pipeline->>ER: ResolveAsync(entities) [dedup]
-    
+
     Pipeline->>LTM: Persist extracted items
-    
+
     Pipeline-->>Caller: ExtractionResult
 ```
 
@@ -293,7 +293,7 @@ public enum ExtractionTypes
 }
 ```
 
-### 4.3 Phase 1 Stubs
+### 4.3 Default Stub Implementations
 
 | Stub | Behavior |
 |---|---|
@@ -303,7 +303,7 @@ public enum ExtractionTypes
 | `StubRelationshipExtractor` | Returns empty list |
 | `StubEntityResolver` | Returns entities unmodified (no dedup) |
 | `StubExtractionPipeline` | Returns empty `ExtractionResult` |
-| `StubEmbeddingProvider` | Returns zero-vectors of configured dimension |
+| `StubEmbeddingGenerator` | Returns deterministic zero-vectors of configured dimension |
 
 ### 4.4 Phase 2+: Real Extraction (✅ COMPLETE)
 
@@ -322,7 +322,7 @@ LLM-based extraction is implemented via `AgentMemory.Extraction.Llm`:
 All service interfaces are defined in `AgentMemory.Abstractions.Services`.
 
 This catalog is authoritative: it lists every interface in `AgentMemory.Abstractions.Services`
-(**37 total**), which is the count `architecture.md §3.1` and `AbstractionsContractGuardTests` enforce.
+(**38 total**), which is the count `architecture.md §3.1` and `AbstractionsContractGuardTests` enforce.
 
 | # | Interface | Purpose | Key Methods |
 |---|---|---|---|
@@ -335,34 +335,35 @@ This catalog is authoritative: it lists every interface in `AgentMemory.Abstract
 | 7 | `IReasoningMemoryService` | Trace, step, and tool call operations | `StartTraceAsync`, `AddStepAsync`, `RecordToolCallAsync`, `CompleteTraceAsync`, `GetTraceWithStepsAsync`, `ListTracesAsync`, `SearchSimilarTracesAsync` |
 | 8 | `IMemoryContextAssembler` | Context orchestration across all layers | `AssembleContextAsync`, `AssembleContextAsOfAsync` |
 | 9 | `IMemoryQueryFacade` | Render-ready search/command facade for adapters (tools, SK plugin) | `SearchMemoryAsync`, `RememberPreferenceAsync`, `RememberFactAsync`, `RecallPreferencesAsync`, `SearchKnowledgeAsync`, `FindSimilarTasksAsync` |
-| 10 | `IMemoryExtractionPipeline` | Extraction coordination | `ExtractAsync` |
-| 11 | `IEntityExtractor` | Entity extraction from messages | `ExtractAsync` |
-| 12 | `IFactExtractor` | Fact extraction from messages | `ExtractAsync` |
-| 13 | `IPreferenceExtractor` | Preference extraction from messages | `ExtractAsync` |
-| 14 | `IRelationshipExtractor` | Relationship extraction from messages | `ExtractAsync` |
-| 15 | `IStreamingExtractor` | Incremental/streaming extraction | `ExtractAsync` |
-| 16 | `IMergeStrategy` | Merges results from multiple extractors | `Merge` |
-| 17 | `IEmbeddingOrchestrator` | Embedding generation (single + batch) | `EmbedAsync`, `EmbedBatchAsync` (+ `EmbedEntity/Fact/Preference/Message/Query/TextAsync` extension helpers) |
-| 18 | `IEntityResolver` | Entity deduplication / resolution | `ResolveEntityAsync`, `FindPotentialDuplicatesAsync` |
-| 19 | `IMemoryDecayService` | Time-decay scoring and pruning | `CalculateRetentionScoreAsync`, `PruneExpiredMemoriesAsync`, `UpdateAccessTimestampAsync` |
-| 20 | `IContextCompressor` | Compresses assembled context to fit budgets | `CompressAsync` |
-| 21 | `IGraphRagContextSource` | GraphRAG integration point | `GetContextAsync` |
-| 22 | `IGraphQueryService` | Read-only ad-hoc Cypher query surface | `QueryAsync` |
-| 23 | `IEnrichmentService` | Entity enrichment (Wikimedia/Diffbot) | `EnrichEntityAsync` |
-| 24 | `IGeocodingService` | Location → coordinates (Nominatim) | `GeocodeAsync` |
-| 25 | `IBackgroundEnrichmentQueue` | Async enrichment work queue | `EnqueueAsync`, `EnqueueBatchAsync` |
-| 26 | `ISchemaManager` | Schema document load/save/versioning | `LoadSchemaAsync`, `SaveSchemaAsync`, `SchemaExistsAsync`, `LoadSchemaVersionAsync`, `DeleteSchemaAsync` |
-| 27 | `ISessionIdGenerator` | Session-id strategy (per-conversation/day/user) | `GenerateSessionId` |
-| 28 | `IClock` | Testable time abstraction | `UtcNow` |
-| 29 | `IIdGenerator` | Testable ID generation | `GenerateId` |
-| 30 | `IConsolidationService` | Memory-hygiene consolidation (dedup/collapse), dry-run by default (PR #113) | `ConsolidateAsync` |
-| 31 | `IConflictDetectionService` | Detect (and optionally resolve) contradicting facts | `DetectFactContradictionsAsync`, `ResolveFactContradictionsAsync` |
-| 32 | `IMemoryOwnerContext` | Ambient owner/user id for the current scope (IC8, read) | `UserId` |
-| 33 | `IWritableMemoryOwnerContext` | Writable owner context — adapters set it per request/agent run | `UserId` (set) |
-| 34 | `IMemoryStoreContext` | Ambient application/memory-store id (R1b store tier, read) | `ApplicationId` |
-| 35 | `IWritableMemoryStoreContext` | Writable store context — route the store per scope | `ApplicationId` (set) |
-| 36 | `IMemoryRankingContext` | Ambient per-request ranking intent (D3, read) | `Intent` |
-| 37 | `IWritableMemoryRankingContext` | Writable ranking context — set by the assembler per recall | `Intent` (set) |
+| 10 | `IMemoryHistoryService` | Read-only lifecycle/history view over long-term memory nodes | `GetHistoryAsync` |
+| 11 | `IMemoryExtractionPipeline` | Extraction coordination | `ExtractAsync` |
+| 12 | `IEntityExtractor` | Entity extraction from messages | `ExtractAsync` |
+| 13 | `IFactExtractor` | Fact extraction from messages | `ExtractAsync` |
+| 14 | `IPreferenceExtractor` | Preference extraction from messages | `ExtractAsync` |
+| 15 | `IRelationshipExtractor` | Relationship extraction from messages | `ExtractAsync` |
+| 16 | `IStreamingExtractor` | Incremental/streaming extraction | `ExtractAsync` |
+| 17 | `IMergeStrategy` | Merges results from multiple extractors | `Merge` |
+| 18 | `IEmbeddingOrchestrator` | Embedding generation (single + batch) | `EmbedAsync`, `EmbedBatchAsync` (+ `EmbedEntity/Fact/Preference/Message/Query/TextAsync` extension helpers) |
+| 19 | `IEntityResolver` | Entity deduplication / resolution | `ResolveEntityAsync`, `FindPotentialDuplicatesAsync` |
+| 20 | `IMemoryDecayService` | Time-decay scoring and pruning | `CalculateRetentionScoreAsync`, `PruneExpiredMemoriesAsync`, `UpdateAccessTimestampAsync` |
+| 21 | `IContextCompressor` | Compresses assembled context to fit budgets | `CompressAsync` |
+| 22 | `IGraphRagContextSource` | GraphRAG integration point | `GetContextAsync` |
+| 23 | `IGraphQueryService` | Read-only ad-hoc Cypher query surface | `QueryAsync` |
+| 24 | `IEnrichmentService` | Entity enrichment (Wikimedia/Diffbot) | `EnrichEntityAsync` |
+| 25 | `IGeocodingService` | Location -> coordinates (Nominatim) | `GeocodeAsync` |
+| 26 | `IBackgroundEnrichmentQueue` | Async enrichment work queue | `EnqueueAsync`, `EnqueueBatchAsync` |
+| 27 | `ISchemaManager` | Schema document load/save/versioning | `LoadSchemaAsync`, `SaveSchemaAsync`, `SchemaExistsAsync`, `LoadSchemaVersionAsync`, `DeleteSchemaAsync` |
+| 28 | `ISessionIdGenerator` | Session-id strategy (per-conversation/day/user) | `GenerateSessionId` |
+| 29 | `IClock` | Testable time abstraction | `UtcNow` |
+| 30 | `IIdGenerator` | Testable ID generation | `GenerateId` |
+| 31 | `IConsolidationService` | Memory-hygiene consolidation (dedup/collapse), dry-run by default (PR #113) | `ConsolidateAsync` |
+| 32 | `IConflictDetectionService` | Detect (and optionally resolve) contradicting facts | `DetectFactContradictionsAsync`, `ResolveFactContradictionsAsync` |
+| 33 | `IMemoryOwnerContext` | Ambient owner/user id for the current scope (IC8, read) | `UserId` |
+| 34 | `IWritableMemoryOwnerContext` | Writable owner context — adapters set it per request/agent run | `UserId` (set) |
+| 35 | `IMemoryStoreContext` | Ambient application/memory-store id (R1b store tier, read) | `ApplicationId` |
+| 36 | `IWritableMemoryStoreContext` | Writable store context — route the store per scope | `ApplicationId` (set) |
+| 37 | `IMemoryRankingContext` | Ambient per-request ranking intent (D3, read) | `Intent` |
+| 38 | `IWritableMemoryRankingContext` | Writable ranking context — set by the assembler per recall | `Intent` (set) |
 
 ---
 
@@ -377,7 +378,7 @@ All repository interfaces are defined in `AgentMemory.Abstractions.Repositories`
 | 3 | `IEntityRepository` | Entity CRUD + search | `UpsertAsync`, `GetByIdAsync`, `GetByNameAsync`, `SearchByVectorAsync`, `GetByTypeAsync` | `:Entity` |
 | 4 | `IFactRepository` | Fact CRUD + search | `UpsertAsync`, `GetByIdAsync`, `GetBySubjectAsync`, `SearchByVectorAsync` | `:Fact` |
 | 5 | `IPreferenceRepository` | Preference CRUD + search | `UpsertAsync`, `GetByIdAsync`, `GetByCategoryAsync`, `SearchByVectorAsync` | `:Preference` |
-| 6 | `IRelationshipRepository` | Relationship CRUD | `UpsertAsync`, `GetByIdAsync`, `GetByEntityAsync`, `GetBySourceEntityAsync`, `GetByTargetEntityAsync` | `:MemoryRelationship` |
+| 6 | `IRelationshipRepository` | Relationship CRUD over `RELATED_TO` edges | `UpsertAsync`, `GetByIdAsync`, `GetByEntityAsync`, `GetBySourceEntityAsync`, `GetByTargetEntityAsync` | `(:Entity)-[:RELATED_TO]->(:Entity)` |
 | 7 | `IReasoningTraceRepository` | Trace persistence + search | `AddAsync`, `UpdateAsync`, `GetByIdAsync`, `ListBySessionAsync`, `SearchByTaskVectorAsync` | `:ReasoningTrace` |
 | 8 | `IReasoningStepRepository` | Step persistence | `AddAsync`, `GetByTraceAsync`, `GetByIdAsync` | `:ReasoningStep` |
 | 9 | `IToolCallRepository` | Tool call persistence | `AddAsync`, `UpdateAsync`, `GetByStepAsync`, `GetByIdAsync` | `:ToolCall` |
@@ -460,7 +461,7 @@ This registers: `INeo4jDriverFactory`, `INeo4jSessionFactory`, `INeo4jTransactio
 
 | Enum | Values | Purpose |
 |---|---|---|
-| `ToolCallStatus` | `Pending`, `Success`, `Error`, `Cancelled` | Tool call lifecycle states |
+| `ToolCallStatus` | `Pending`, `Success`, `Error`, `Cancelled`, `Failure`, `Timeout` | Tool call lifecycle states |
 | `SessionStrategy` | `PerConversation`, `PerDay`, `PersistentPerUser` | Session scoping strategy |
 | `RetrievalBlendMode` | `MemoryOnly`, `GraphRagOnly`, `Blended`, `MemoryThenGraphRag`, `GraphRagThenMemory` | How to blend memory + GraphRAG results |
 | `TruncationStrategy` | `OldestFirst`, `LowestScoreFirst`, `Proportional`, `Fail` | Budget overflow handling |

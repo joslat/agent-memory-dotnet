@@ -127,6 +127,9 @@ public static class SchemaConstants
         /// <summary>Cypher label for ConsolidationRun audit nodes (memory hygiene, PR #113).</summary>
         public const string ConsolidationRun = "ConsolidationRun";
 
+        /// <summary>Cypher label for read-audit nodes recording long-term memory recall hits.</summary>
+        public const string MemoryReadAudit = "MemoryReadAudit";
+
         /// <summary>Cypher label for Schema nodes.</summary>
         public const string Schema = "Schema";
     }
@@ -170,6 +173,21 @@ public static class SchemaConstants
 
         /// <summary>Generic timestamp property.</summary>
         public const string Timestamp = "timestamp";
+
+        /// <summary>Last access timestamp used by read audit and recency/frequency ranking.</summary>
+        public const string LastAccessedAt = "last_accessed_at";
+
+        /// <summary>Recall/access count used by read audit and recency/frequency ranking.</summary>
+        public const string AccessCount = "access_count";
+
+        /// <summary>Generic kind/type discriminator used by audit nodes.</summary>
+        public const string Kind = "kind";
+
+        /// <summary>Identifier of the memory node a read-audit record refers to.</summary>
+        public const string MemoryId = "memory_id";
+
+        /// <summary>Timestamp when a memory read was audited.</summary>
+        public const string ReadAt = "read_at";
 
         // Conversation
 

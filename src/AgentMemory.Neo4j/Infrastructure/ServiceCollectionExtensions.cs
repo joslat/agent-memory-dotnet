@@ -67,6 +67,9 @@ public static class ServiceCollectionExtensions
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();
 
+        // Long-term memory history / audit read model.
+        services.TryAddTransient<IMemoryHistoryService, Neo4jMemoryHistoryService>();
+
         // Memory-hygiene / consolidation (PR #113) — dry-run by default.
         services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();
 
@@ -108,4 +111,3 @@ public static class ServiceCollectionExtensions
         return services;
     }
 }
-

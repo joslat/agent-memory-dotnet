@@ -92,6 +92,7 @@ public sealed class ShakedownEndToEndTests : IAsyncLifetime
         sp.GetRequiredService<IMemoryQueryFacade>().Should().NotBeNull();
         sp.GetRequiredService<IConsolidationService>().Should().NotBeNull();
         sp.GetRequiredService<IConflictDetectionService>().Should().NotBeNull();
+        sp.GetRequiredService<IMemoryHistoryService>().Should().NotBeNull();
         // The Neo4j DI must Replace the Core portable no-op with the server-side Cypher decay impl.
         sp.GetRequiredService<IMemoryDecayService>().Should().BeOfType<AgentMemory.Neo4j.Services.Neo4jMemoryDecayService>();
         sp.GetRequiredService<IMigrationRunner>().Should().NotBeNull();
@@ -183,13 +184,84 @@ public sealed class ShakedownEndToEndTests : IAsyncLifetime
         loaded.GetEntityTypeNames().Should().BeEquivalentTo(["PATIENT", "DRUG"]);
     }
 
-    private static Fact NewFact(string subject, string predicate, string obj) => new()
+    [Fact]
+    public async Task GoldenPathOwnerScope_FacadeToolsStampAndFilterAmbientOwner()
+    {
+        using var scope = _provider.CreateScope();
+        var sp = scope.ServiceProvider;
+        var facade = sp.GetRequiredService<IMemoryQueryFacade>();
+        var ownerContext = sp.GetRequiredService<IWritableMemoryOwnerContext>();
+        var facts = sp.GetRequiredService<IFactRepository>();
+
+        using (ownerContext.BeginOwnerScope("alice"))
+        {
+            var result = await facade.RememberFactAsync("Ruaidhri", "prefers", "green tea");
+            result.Success.Should().BeTrue(result.Error);
+        }
+
+        (await facts.FindByTripleAsync("Ruaidhri", "prefers", "green tea", MemoryScope.For("alice", includeShared: false)))
+            .Should().NotBeNull("the golden-path host owner scope stamps tool writes with the current user");
+        (await facts.FindByTripleAsync("Ruaidhri", "prefers", "green tea", MemoryScope.For("bob", includeShared: false)))
+            .Should().BeNull("bob must not see alice's private tool-written fact");
+    }
+
+    [Fact]
+    public async Task MemoryHistory_ListsLifecycleRows_WithOwnerScope()
+    {
+        using var scope = _provider.CreateScope();
+        var sp = scope.ServiceProvider;
+        var facts = sp.GetRequiredService<IFactRepository>();
+        var history = sp.GetRequiredService<IMemoryHistoryService>();
+
+        var loser = await facts.UpsertAsync(NewFact("Alice", "works_at", "Acme", owner: "alice", sourceMessageIds: new[] { "m1" }));
+        var winner = await facts.UpsertAsync(NewFact("Alice", "works_at", "Neo4j", owner: "alice", sourceMessageIds: new[] { "m2" }));
+        await facts.UpsertAsync(NewFact("Bob", "works_at", "Globex", owner: "bob"));
+
+        (await facts.SupersedeAsync(loser.FactId, winner.FactId, Alice)).Should().BeTrue();
+
+        var records = await history.GetHistoryAsync(new MemoryHistoryQuery
+        {
+            Kind = MemoryHistoryKind.Fact,
+            OwnerId = "alice",
+            IncludeShared = false,
+            Limit = 10,
+        });
+
+        records.Should().Contain(r =>
+            r.Id == loser.FactId &&
+            r.Status == MemoryHistoryStatus.Invalidated &&
+            r.ValidUntilUtc.HasValue &&
+            r.SupersededByIds.Contains(winner.FactId) &&
+            r.SourceMessageIds.Contains("m1"));
+        records.Should().Contain(r => r.Id == winner.FactId && r.Status == MemoryHistoryStatus.Live);
+        records.Should().NotContain(r => r.OwnerId == "bob");
+
+        var liveOnly = await history.GetHistoryAsync(new MemoryHistoryQuery
+        {
+            Kind = MemoryHistoryKind.Fact,
+            OwnerId = "alice",
+            IncludeShared = false,
+            IncludeInvalidated = false,
+            Limit = 10,
+        });
+
+        liveOnly.Should().NotContain(r => r.Id == loser.FactId);
+        liveOnly.Should().Contain(r => r.Id == winner.FactId);
+    }
+    private static Fact NewFact(
+        string subject,
+        string predicate,
+        string obj,
+        string? owner = null,
+        IReadOnlyList<string>? sourceMessageIds = null) => new()
     {
         FactId = $"f-{Guid.NewGuid():N}",
         Subject = subject,
         Predicate = predicate,
         Object = obj,
         Confidence = 0.9,
+        OwnerId = owner,
+        SourceMessageIds = sourceMessageIds ?? Array.Empty<string>(),
         CreatedAtUtc = DateTimeOffset.UtcNow,
     };
 }

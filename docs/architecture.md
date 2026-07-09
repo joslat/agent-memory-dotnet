@@ -1,7 +1,7 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-04-14 (Phase 6 — Complete)  
-**Author:** Deckard (Lead Architect)  
+**Last Updated:** 2026-07-09 (preview.4 reality check)
+**Author:** Deckard (Lead Architect)
 **Canonical Specification:** [specification.md](specification.md)
 **Implementation Plan (historical):** [archive/full-implementation-plan.md](archive/full-implementation-plan.md)
 
@@ -130,7 +130,7 @@ graph TD
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.5.1 (approved, D-AR2-1) — .NET 9 BCL otherwise |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 45 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, ReasoningTrace, ReasoningStep, ToolCall, etc.), 37 service interfaces, 11 repository interfaces, 15 configuration types (incl. `MemoryRankingOptions`), 11 enums (incl. `MemoryProfile`, `RankingIntent`) (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
+| **Key types** | 47 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, etc.), 38 service interfaces, 11 repository interfaces, 15 configuration types (incl. `MemoryRankingOptions`), 13 enums (incl. `MemoryProfile`, `RankingIntent`, `MemoryHistoryKind`, `MemoryHistoryStatus`) (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
 
 **Namespace structure:**
 ```
@@ -228,7 +228,7 @@ AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 
 1. **Decorator pattern** — `AddAgentMemoryObservability()` finds the already-registered `IMemoryService` and `IGraphRagContextSource` descriptors, removes them, and re-registers them wrapped in instrumented decorators. No Scrutor dependency.
 2. **OTel API only** — Uses only the vendor-neutral `OpenTelemetry.Api` package. The actual exporter (OTLP, console, etc.) is wired up by the host application.
-3. **Registration order** — Must be called **after** `AddAgentMemoryCore()` and `AddGraphRagAdapter()`. If no `IGraphRagContextSource` is registered, the decorator step is silently skipped.
+3. **Registration order** — Must be called **after** `AddAgentMemoryCore()` and, when GraphRAG is enabled, after `AgentMemory.Neo4j.Infrastructure.AddGraphRagAdapter()`. If no `IGraphRagContextSource` is registered, the decorator step is skipped.
 4. **Metrics** — `MemoryMetrics` exposes counters (`messages.stored`, `entities.extracted`, `graphrag.queries`) and histograms (`recall.duration`, `persist.duration`, `graphrag.duration`).
 5. **Tracing** — All spans are emitted under `ActivitySource` name `"AgentMemory"` (version `1.0.0`).
 
@@ -407,18 +407,18 @@ CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningS
   OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}
 ```
 
-> **Note:** A `task_embedding_idx` for `ReasoningTrace.taskEmbedding` is used by `SearchByTaskVectorAsync` and is created in `SchemaBootstrapper` as part of the standard vector index set.
+> **Note:** A `task_embedding_idx` for `ReasoningTrace.task_embedding` is used by `SearchByTaskVectorAsync` and is created in `SchemaBootstrapper` as part of the standard vector index set.
 
 ### 4.6 Property Indexes (Implemented in SchemaBootstrapper)
 
 ```cypher
-CREATE INDEX message_session_id IF NOT EXISTS FOR (m:Message) ON (m.sessionId)
+CREATE INDEX conversation_session_idx IF NOT EXISTS FOR (c:Conversation) ON (c.session_id)
 CREATE INDEX message_timestamp IF NOT EXISTS FOR (m:Message) ON (m.timestamp)
 CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)
 CREATE INDEX entity_name_prop IF NOT EXISTS FOR (e:Entity) ON (e.name)
 CREATE INDEX fact_category IF NOT EXISTS FOR (f:Fact) ON (f.category)
 CREATE INDEX preference_category IF NOT EXISTS FOR (p:Preference) ON (p.category)
-CREATE INDEX reasoning_trace_session_id IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.sessionId)
+CREATE INDEX trace_session_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.session_id)
 CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)
 CREATE INDEX tool_call_status IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
 ```
@@ -557,14 +557,14 @@ The upstream `neo4j-maf-provider` was built for **MAF 0.3** (pre-GA). Our Phase 
 | **1** | Core Memory Engine | Framework-agnostic memory core + Neo4j persistence | ✅ **Complete** |
 | **2** | LLM Extraction Pipeline | .NET-native structured extraction using LLMs | ✅ **Complete** |
 | **3** | MAF Adapter | Microsoft Agent Framework integration | ✅ **Complete** |
-| **4** | GraphRAG + Observability | GraphRAG adapter, blended context, OpenTelemetry | ✅ **Complete** |
+| **4** | GraphRAG + Observability | GraphRAG retrieval inside `AgentMemory.Neo4j`, blended context, OpenTelemetry | ✅ **Complete** |
 | **5** | Advanced Extraction | Azure Language, geocoding, enrichment | ✅ **Complete** |
 | **6** | MCP Server | External access via Model Context Protocol | ✅ **Complete** |
 | **7** | Gap Closure (Waves A–C) | Python parity sprint — datetime, sessions, filters, MCP resources | ✅ **Complete** |
 
 ### All Phases Complete
 
-All 6 implementation phases plus the gap closure sprint are complete. The project ships 10 packages plus a meta-package with extensive unit and integration test coverage and ~99% functional parity with the Python reference.
+All 6 implementation phases plus the gap closure and hardening work are complete. The project ships 11 adapter/library packages plus the `AgentMemory` meta-package, with extensive unit and integration test coverage and ~99% functional parity with the Python reference.
 
 ### Phase 1 Exit Criteria
 
@@ -580,7 +580,7 @@ All 6 implementation phases plus the gap closure sprint are complete. The projec
 
 ## 9. Package Strategy Analysis
 
-**Added:** 2026-04-17  
+**Added:** 2026-04-17
 **Author:** Deckard (Lead Architect)
 
 ### 9.1 Package Dependency Isolation Audit

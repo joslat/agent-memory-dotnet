@@ -1,4 +1,8 @@
 using AgentMemory;                          // meta AddNeo4jAgentMemory
+using AgentMemory.Core.Stubs;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Cli;
@@ -17,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede" };
+var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -64,6 +68,10 @@ try
             o.Database = database;
             o.EmbeddingDimensions = dims;
         });
+    builder.Services.TryAddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+        new StubEmbeddingGenerator(
+            sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(),
+            dims));
 
     // Must dispose the host via DisposeAsync, not the synchronous Dispose(): the Neo4j driver factory is
     // registered as an IAsyncDisposable-ONLY singleton on the root provider, and a synchronous
@@ -101,6 +109,24 @@ try
             sp.GetRequiredService<IFactRepository>(),
             sp.GetRequiredService<IPreferenceRepository>(), output)
             .ExecuteAsync(cli.Get("type"), cli.Get("loser"), cli.Get("winner"), cli.Get("owner")),
+        "history" => await new HistoryCommand(
+            sp.GetRequiredService<IMemoryHistoryService>(), output)
+            .ExecuteAsync(
+                cli.Get("type"), cli.Get("id"), cli.Get("owner"),
+                liveOnly: cli.HasFlag("live-only"),
+                ownOnly: cli.HasFlag("own-only"),
+                limitValue: cli.Get("limit")),
+        "evaluate" => await new EvaluationCommand(
+            sp.GetRequiredService<ISchemaBootstrapper>(),
+            sp.GetRequiredService<INeo4jTransactionRunner>(),
+            sp.GetRequiredService<IOptions<Neo4jOptions>>(),
+            sp.GetRequiredService<IShortTermMemoryService>(),
+            sp.GetRequiredService<ILongTermMemoryService>(),
+            sp.GetRequiredService<IReasoningMemoryService>(),
+            sp.GetRequiredService<IMemoryHistoryService>(),
+            sp.GetRequiredService<IToolCallRepository>(),
+            output)
+            .ExecuteAsync(cli.Get("output"), cli.Get("iterations"), cli.Get("owner")),
         _ => 1,
     };
 }

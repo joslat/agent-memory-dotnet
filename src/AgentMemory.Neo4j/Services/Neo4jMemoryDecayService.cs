@@ -140,7 +140,7 @@ public sealed class Neo4jMemoryDecayService : IMemoryDecayService
 
         await _tx.WriteAsync(async runner =>
         {
-            await runner.RunAsync(cypher, new { id = nodeId, now }).ConfigureAwait(false);
+            await runner.RunAsync(cypher, new { id = nodeId, kind = label, now }).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("Bumped access timestamp for {Label} {NodeId}", label, nodeId);

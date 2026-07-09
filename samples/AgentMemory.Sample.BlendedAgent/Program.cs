@@ -92,8 +92,6 @@ builder.Services.AddAgentMemoryFramework(options =>
     options.ContextFormat.IncludePreferences = true;
 });
 
-builder.Services.AddScoped<AgentTraceRecorder>();
-builder.Services.AddScoped<MemoryToolFactory>();
 
 // ── 5. Observability (must be LAST — decorates previously registered services) ─
 // Wraps IMemoryService and IGraphRagContextSource with OTel tracing + metrics.

@@ -84,6 +84,13 @@ public static class CliHelp
                                      Soft-invalidate a node (D5): drops from live recall, kept + as-of-recallable.
               supersede --type <fact|preference> --loser <id> --winner <id> [--owner <id>]
                                      Supersede a loser with a winner (D7): non-destructive, links :SUPERSEDED_BY.
+              history [--type <fact|entity|preference>] [--id <id>] [--owner <id>]
+                      [--live-only] [--own-only] [--limit <n>]
+                                     Read long-term memory lifecycle history, including soft-invalidated
+                                     rows, supersession links, valid-time windows, and source messages.
+              evaluate [--iterations <n>] [--owner <id>] [--output <path>]
+                                     Run deterministic memory-layer quality/performance scenarios and
+                                     write a JSON report under artifacts/evaluation by default.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
               schema-parity [--upstream-version <v>]
@@ -105,6 +112,8 @@ public static class CliHelp
               agentmemory consolidate --apply    # perform hygiene mutations
               agentmemory decay                  # global prune (all owners)
               agentmemory decay --owner user-42  # prune only user-42's memories
+              agentmemory history --type fact --owner user-42 --limit 20
+              agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
             """);
     }
 }

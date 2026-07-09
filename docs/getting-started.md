@@ -260,8 +260,7 @@ builder.Services.AddAgentMemoryFramework(options =>
     options.ContextFormat.IncludeFacts     = true;
     options.ContextFormat.IncludePreferences = true;
 });
-builder.Services.AddScoped<AgentTraceRecorder>();
-builder.Services.AddScoped<MemoryToolFactory>();
+// AgentTraceRecorder and MemoryToolFactory are registered by AddAgentMemoryFramework(...).
 ```
 
 Use the facade in an agent pipeline:
@@ -305,7 +304,7 @@ var result = await kernel.InvokeAsync("Neo4jMemory", "recall",
     new KernelArguments { ["query"] = "Alice preferences", ["sessionId"] = sessionId });
 ```
 
-For a full runnable example, see `samples/AgentMemory.Sample.MinimalAgent`.
+For a full runnable MAF golden path, start with `samples/AgentMemory.Sample.AgentWithMemory`. For the lower-level facade pattern, see `samples/AgentMemory.Sample.MinimalAgent`.
 
 ---
 
@@ -334,10 +333,12 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
 | Resource | Description |
 |----------|-------------|
 | [`README.md`](../README.md) | Project overview and architecture summary |
+| [`docs/core/`](core/) | Canonical core docs — philosophy, requirements, design, specification, ADRs, summaries |
 | [`docs/architecture.md`](architecture.md) | Full architecture walkthrough — packages, layers, boundaries |
 | [`docs/schema.md`](schema.md) | Neo4j graph schema — node types, relationships, indexes |
-| [`docs/nextsteps.md`](nextsteps.md) | Active forward-looking backlog |
-| [`samples/AgentMemory.Sample.MinimalAgent`](../samples/AgentMemory.Sample.MinimalAgent/) | Runnable MAF sample — best starting point |
+| [`docs/ROADMAP.md`](ROADMAP.md) | Current roadmap and forward-looking status |
+| [`samples/AgentMemory.Sample.AgentWithMemory`](../samples/AgentMemory.Sample.AgentWithMemory/) | Flagship MAF golden path: context provider, memory tools, identity scoping, session serialize/restore, durable cross-session recall |
+| [`samples/AgentMemory.Sample.MinimalAgent`](../samples/AgentMemory.Sample.MinimalAgent/) | Lower-level facade sample for pre-run context, post-run persistence, tools, and traces |
 | [`samples/AgentMemory.Sample.BlendedAgent`](../samples/AgentMemory.Sample.BlendedAgent/) | Blended GraphRAG + memory sample |
 | [`samples/AgentMemory.Sample.McpHost`](../samples/AgentMemory.Sample.McpHost/) | MCP server host sample |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | How to build, test, and contribute |

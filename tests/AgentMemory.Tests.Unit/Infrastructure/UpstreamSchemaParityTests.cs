@@ -40,11 +40,12 @@ public sealed class UpstreamSchemaParityTests
         var report = SchemaParityVerifier.VerifyDotNet("0.5.0", Registry);
 
         report.Breaks.Should().BeEmpty();
-        // The intentional deltas surface as informational notes (owner_id/invalidated_at supersets,
-        // HAS_FACT/IN_SESSION extensions, the User/MemoryReadAudit omissions).
+        // The intentional deltas surface as informational notes (owner_id/invalidated_at/read-audit supersets,
+        // HAS_FACT/IN_SESSION extensions, and the upstream User omission).
         report.DocumentedDivergences.Should().Contain(d => d.Contains("owner_id"));
         report.DocumentedDivergences.Should().Contain(d => d.Contains("HAS_FACT"));
         report.DocumentedDivergences.Should().Contain(d => d.Contains("User"));
+        report.DocumentedDivergences.Should().NotContain(d => d.Contains("MemoryReadAudit"));
     }
 
     // ── Verifier engine: each break class is actually detected ───────────────

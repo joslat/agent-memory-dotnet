@@ -1,0 +1,144 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AgentMemory: evaluation (local Neo4j JSON)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "tools/AgentMemory.Cli/AgentMemory.Cli.csproj",
+        "--",
+        "evaluate",
+        "--uri",
+        "${input:neo4jUri}",
+        "--user",
+        "${input:neo4jUser}",
+        "--password",
+        "${input:neo4jPassword}",
+        "--database",
+        "${input:neo4jDatabase}",
+        "--iterations",
+        "${input:evaluationIterations}",
+        "--output",
+        "artifacts/evaluation/vscode-memory-evaluation.json"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AgentMemory: compatibility smoke (Testcontainers)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj",
+        "--no-restore",
+        "--filter",
+        "FullyQualifiedName~TckMirroredBehaviorTests"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AgentMemory: performance smoke (Testcontainers)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj",
+        "--no-restore"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AgentMemory: benchmark smoke (Testcontainers)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "-c",
+        "Release",
+        "--project",
+        "benchmarks/AgentMemory.Benchmarks/AgentMemory.Benchmarks.csproj",
+        "--",
+        "--smoke"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "AgentMemory: golden path sample (local Neo4j)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "samples/AgentMemory.Sample.AgentWithMemory/AgentMemory.Sample.AgentWithMemory.csproj"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "options": {
+        "env": {
+          "Neo4j__Uri": "${input:neo4jUri}",
+          "Neo4j__Username": "${input:neo4jUser}",
+          "Neo4j__Password": "${input:neo4jPassword}"
+        }
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "neo4jUri",
+      "type": "promptString",
+      "description": "Neo4j Bolt URI for local memory evaluation",
+      "default": "bolt://localhost:7687"
+    },
+    {
+      "id": "neo4jUser",
+      "type": "promptString",
+      "description": "Neo4j username",
+      "default": "neo4j"
+    },
+    {
+      "id": "neo4jPassword",
+      "type": "promptString",
+      "description": "Neo4j password",
+      "password": true
+    },
+    {
+      "id": "neo4jDatabase",
+      "type": "promptString",
+      "description": "Neo4j database",
+      "default": "neo4j"
+    },
+    {
+      "id": "evaluationIterations",
+      "type": "promptString",
+      "description": "Evaluation iterations, 1-50",
+      "default": "3"
+    }
+  ]
+}

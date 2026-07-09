@@ -23,21 +23,20 @@ public sealed record SchemaParityPolicy(
         UpstreamVersion: "0.5.0",
         // Upstream labels the .NET port intentionally does not implement.
         UpstreamOnlyLabels: Set(
-            "User",            // upstream's first-class identity node; .NET scopes via the owner_id property
-            "MemoryReadAudit"),// upstream read-audit node; not modelled in .NET
+            "User"),           // upstream's first-class identity node; .NET scopes via the owner_id property
         // .NET-only labels (none today — a new one must be added here deliberately).
         NetOnlyLabels: Set(),
         // .NET-only relationship extensions (documented in SchemaConstants.RelationshipTypes).
         NetOnlyRelationshipTypes: Set("HAS_FACT", "HAS_PREFERENCE", "IN_SESSION"),
-        // .NET property supersets absent upstream (owner scope + transaction-time clock).
-        NetSupersetProperties: Set("owner_id", "owner_key", "invalidated_at"),
+        // .NET property supersets absent upstream (owner scope, transaction-time clock, and read-audit detail).
+        NetSupersetProperties: Set("owner_id", "owner_key", "invalidated_at", "last_accessed_at", "access_count", "memory_id", "read_at"),
         // Upstream properties the .NET port intentionally does not model as SchemaConstants (so the
         // structural property gate doesn't flag them as missing). Anything NOT on this list that exists
         // upstream but vanishes from .NET is a break — which is exactly how a silent rename is caught.
         UpstreamOnlyProperties: Set(
             "actions_taken", "archived", "archived_at", "attributes", "candidate_count", "config",
             "created_by", "dry_run", "error_kind", "extraction_time_ms", "identifier", "is_active",
-            "kind", "ran_at", "recorded_at", "version"),
+            "ran_at", "recorded_at", "version"),
         // Property names that MUST be spelled identically on both sides (cross-impl read contract).
         InteropCriticalProperties: Set(
             "id", "name", "type", "embedding", "confidence", "metadata",

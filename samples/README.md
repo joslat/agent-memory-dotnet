@@ -33,7 +33,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 
 | Sample | Demonstrates |
 | --- | --- |
-| **AgentWithMemory** | The flagship — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall** (a brand-new session still remembers — the official session-scoped sample cannot). |
+| **AgentWithMemory** | The flagship golden path — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, explicit `WithMemoryIdentity(...)` owner/application/session scope, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall**. |
 | **RealAgent** | A real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |
 | **MemoryToolsAgent** | The memory tools (`MemoryToolFactory.CreateAIFunctions()`, the `create_memory_tools` equivalent): registered on an agent and invoked directly against Neo4j. |
 | **ChatHistoryProvider** | `Neo4jChatHistoryProvider` wired via `ChatClientAgentOptions.ChatHistoryProvider` — per-session conversation history (distinct from long-term memory). |
@@ -42,9 +42,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | **McpHost** | Hosting the AgentMemory MCP server. |
 | **AspireDemo** | A .NET Aspire AppHost orchestrating Neo4j + a scripted demo app. |
 
-All agent samples use a **mock `IChatClient`** so they run offline (no API key). Replace it with a real
-`IChatClient` (OpenAI/Azure OpenAI/Foundry) for genuine inference and autonomous tool-calling. Memory
-operations degrade gracefully when no live Neo4j is available.
+All agent samples use a **mock `IChatClient`** so they run offline (no API key). The golden path registers the mock through DI, so production hosts can replace it with a real `IChatClient` (OpenAI/Azure OpenAI/Foundry) and a real `IEmbeddingGenerator<string, Embedding<float>>` without changing the memory wiring. See `AgentMemory.Sample.AgentWithMemory/README.md` for the production identity/provider seams. Memory operations degrade gracefully when no live Neo4j is available.
 
 ## Running
 
@@ -53,6 +51,7 @@ operations degrade gracefully when no live Neo4j is available.
 docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26
 
 # Defaults: bolt://localhost:7687, neo4j/password (override via Neo4j__Uri / Neo4j__Username / Neo4j__Password)
+dotnet run --project samples/AgentMemory.Sample.AgentWithMemory
 dotnet run --project samples/AgentMemory.Sample.RealAgent
 dotnet run --project samples/AgentMemory.Sample.MemoryToolsAgent
 dotnet run --project samples/AgentMemory.Sample.ChatHistoryProvider

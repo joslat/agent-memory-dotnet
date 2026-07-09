@@ -8,9 +8,9 @@ coverage); all are `IsPackable=false`.
 
 | Project | ~Tests | Needs Docker | What it covers |
 |---|---|---|---|
-| `AgentMemory.Tests.Unit` | ~1,600 | No | Pure unit tests. Mocks `IDriver` / `INeo4jTransactionRunner`. Domain/options/schema, extraction (LLM + AzureLanguage + pattern + streaming), repositories, services, MCP tools & resources, queries, observability, MAF & SK adapters, enrichment, infrastructure, resolution, guardrails. |
-| `AgentMemory.Tests.Unit.SemanticKernel` | ~33 | No | SK `Neo4jMemoryPlugin`, `Neo4jTextSearch`, and the kernel DI extensions. |
-| `AgentMemory.Tests.Integration` | ~170 | **Yes** | Live Neo4j via **Testcontainers** (`neo4j:5.26`). Repository CRUD/dedup/delete, R1 owner-isolation, per-app store isolation, schema bootstrap/migrations, decay prune, conflict/consolidation, GraphRAG, and the full-stack shakedown. |
+| `AgentMemory.Tests.Unit` | 2,654 as of 2026-07-09 local Release run | No | Pure unit tests. Mocks `IDriver` / `INeo4jTransactionRunner`. Domain/options/schema, extraction (LLM + AzureLanguage + pattern + streaming), repositories, services, MCP tools & resources, queries, observability, MAF & SK adapters, enrichment, infrastructure, resolution, guardrails. |
+| `AgentMemory.Tests.Unit.SemanticKernel` | 34 as of 2026-07-09 local Release run | No | SK `Neo4jMemoryPlugin`, `Neo4jTextSearch`, and the kernel DI extensions. |
+| `AgentMemory.Tests.Integration` | 236 as of 2026-06-21 ROADMAP record | **Yes** | Live Neo4j via **Testcontainers** (`neo4j:5.26`). Repository CRUD/dedup/delete, R1 owner-isolation, per-app store isolation, schema bootstrap/migrations, decay prune, conflict/consolidation, GraphRAG, and the full-stack shakedown. |
 | `AgentMemory.Tests.Performance` | 3 | **Yes** | Throughput/latency smoke against live Neo4j (own fixture). |
 
 ## Running the tests
@@ -48,7 +48,7 @@ collection rather than per-test:
   (embedding dim = 4), and exposes `Driver` / `TransactionRunner` / connection info. Each test class
   calls `_fixture.CleanDatabaseAsync()` in `InitializeAsync`.
 - **`[Collection("Neo4j")]` → `Neo4jTestFixture` (legacy, no schema bootstrap).** Only used by a couple
-  of older classes (Conversation repository, GraphRAG adapter). Don't use it for new tests.
+  of older classes (Conversation repository, legacy GraphRAG classes). Don't use it for new tests.
 - **`PerfNeo4jFixture`** — the Performance project's own container fixture.
 
 `[Trait("Category", "Integration")]` (or `"Performance"`) is applied at the class level.

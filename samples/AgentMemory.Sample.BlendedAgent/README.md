@@ -13,7 +13,7 @@ A console application that demonstrates combining **persistent agent memory** wi
 | C | `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync` | Blended pre-run context (memory + GraphRAG) |
 | 1 | *(your agent)* | Simulated agent turn |
 | 2 | `Neo4jMicrosoftMemoryFacade.PersistAfterRunAsync` | Post-run memory persistence |
-| 3 | `MemoryToolFactory.CreateTools` | Six memory tools for function calling |
+| 3 | `MemoryToolFactory.CreateAIFunctions` | Six memory tools for function calling |
 | 4 | `AgentTraceRecorder` | Reasoning trace with blended context observation |
 | OTel | `ActivityListener` | Console span output showing memory + GraphRAG operations |
 
@@ -157,5 +157,5 @@ services.AddAgentMemoryObservability();
 //    var agent = chatClient.AsAIAgent(new ChatClientAgentOptions { ... }, tools: [..tools]);
 ```
 
-> **Note:** `AddAgentMemoryObservability()` must be called **after** the services it decorates are registered.  
+> **Note:** `AddAgentMemoryObservability()` must be called **after** the services it decorates are registered.
 > Replace `StubEmbeddingGenerator` with a real `IEmbeddingGenerator<string, Embedding<float>>` (e.g. OpenAI `text-embedding-3-small`) before using semantic search.

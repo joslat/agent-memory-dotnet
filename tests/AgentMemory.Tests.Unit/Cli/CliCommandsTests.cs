@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -261,6 +262,63 @@ public sealed class CliCommandsTests
         await facts.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
+    // ── history ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task HistoryCommand_RequestsFilteredHistory_AndPrintsRows()
+    {
+        var svc = Substitute.For<IMemoryHistoryService>();
+        var records = new[]
+        {
+            new MemoryHistoryRecord
+            {
+                Kind = MemoryHistoryKind.Fact,
+                Id = "f1",
+                Summary = "Alice works_at Acme",
+                OwnerId = "alice",
+                Status = MemoryHistoryStatus.Invalidated,
+                CreatedAtUtc = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero),
+                InvalidatedAtUtc = new DateTimeOffset(2026, 1, 3, 3, 4, 5, TimeSpan.Zero),
+                SupersededByIds = new[] { "f2" },
+                SourceMessageIds = new[] { "m1" },
+            },
+        };
+        svc.GetHistoryAsync(Arg.Any<MemoryHistoryQuery>(), Arg.Any<CancellationToken>()).Returns(records);
+
+        var exit = await new HistoryCommand(svc, _output).ExecuteAsync(
+            "fact", "f1", "alice", liveOnly: false, ownOnly: false, limitValue: "25");
+
+        exit.Should().Be(0);
+        await svc.Received(1).GetHistoryAsync(
+            Arg.Is<MemoryHistoryQuery>(q =>
+                q.Kind == MemoryHistoryKind.Fact &&
+                q.Id == "f1" &&
+                q.OwnerId == "alice" &&
+                q.IncludeInvalidated &&
+                q.IncludeShared &&
+                q.Limit == 25),
+            Arg.Any<CancellationToken>());
+        _output.ToString().Should()
+            .Contain("history: 1 memory record")
+            .And.Contain("Alice works_at Acme")
+            .And.Contain("superseded_by: f2")
+            .And.Contain("source_messages: m1");
+    }
+
+    [Theory]
+    [InlineData("widget", "10")]
+    [InlineData("fact", "0")]
+    [InlineData("fact", "not-a-number")]
+    public async Task HistoryCommand_BadArgs_ReturnsOne_WithoutCallingService(string? type, string? limit)
+    {
+        var svc = Substitute.For<IMemoryHistoryService>();
+
+        var exit = await new HistoryCommand(svc, _output).ExecuteAsync(
+            type, id: null, owner: null, liveOnly: false, ownOnly: false, limitValue: limit);
+
+        exit.Should().Be(1);
+        await svc.DidNotReceive().GetHistoryAsync(Arg.Any<MemoryHistoryQuery>(), Arg.Any<CancellationToken>());
+    }
     private static (IFactRepository Facts, IEntityRepository Entities, IPreferenceRepository Preferences) LongTermRepos()
         => (Substitute.For<IFactRepository>(), Substitute.For<IEntityRepository>(), Substitute.For<IPreferenceRepository>());
 

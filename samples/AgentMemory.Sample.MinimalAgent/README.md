@@ -11,7 +11,7 @@ A minimal console application demonstrating how to wire up **Neo4j Agent Memory*
 | 1 | `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync` | Fetch prior conversation history before an agent run |
 | 2 | *(your MAF agent)* | Placeholder showing where the real agent invocation goes |
 | 3 | `Neo4jMicrosoftMemoryFacade.PersistAfterRunAsync` | Persist new messages (+ trigger extraction) after a run |
-| 4 | `MemoryToolFactory.CreateTools` | Enumerate the six standard memory tools for function calling |
+| 4 | `MemoryToolFactory.CreateAIFunctions` | Enumerate the six standard memory tools for function calling |
 | 5 | `AgentTraceRecorder` | Capture agent reasoning steps as persistent traces in Neo4j |
 
 ---
@@ -100,9 +100,9 @@ services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddi
 //                Neo4jChatHistoryProvider)
 services.AddAgentMemoryFramework(options => { ... });
 
-// 4. Optional: register additional framework helpers
-services.AddScoped<AgentTraceRecorder>();
-services.AddScoped<MemoryToolFactory>();
+// 4. Framework helpers are registered by AddAgentMemoryFramework(...):
+//    Neo4jMicrosoftMemoryFacade, Neo4jChatMessageStore, Neo4jMemoryContextProvider,
+//    Neo4jChatHistoryProvider, AgentTraceRecorder, and MemoryToolFactory.
 
 // 5. Wire MAF-compatible AI functions into your agent's tool list:
 //    var tools = toolFactory.CreateAIFunctions();

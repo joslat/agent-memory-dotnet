@@ -50,8 +50,8 @@ Our port diverges by adding a **scalar `owner_id` property** directly to `Fact`,
 Item | Upstream | Ours | Action
 ---|---|---|---
 **Node: `User`** (constraint `user_identifier` UNIQUE on `User.identifier`, v0.4 multi-tenant) | Present | **Absent** | **Decision.** We replaced relationship-based scoping with scalar `owner_id`. Adopting `:User` is a design choice, not a defect. Keep our model; optionally add `:User` only if cross-impl graph interop is required.
-**Node: `ConsolidationRun`** (constraint `consolidation_run_id`, idx `consolidation_run_kind_idx`, v0.5) | Present | **Absent** | **verify / decision.** v0.5 feature. Add only if we implement consolidation runs. Confidence on exact props (`id`,`kind`) is HIGH (from `schema.py`); presence of the feature in our port is out of scope.
-**Node: `MemoryReadAudit`** (constraint `memory_read_audit_id`, idx `memory_read_audit_kind_idx`, v0.5 privacy/audit) | Present | **Absent** | **verify / decision.** v0.5 audit feature. Add only with a read-audit implementation.
+**Node: `ConsolidationRun`** (constraint `consolidation_run_id`, idx `consolidation_run_kind_idx`, v0.5) | Present | **Present** | **DONE.** Implemented by the consolidation service and bootstrap schema. Keep monitoring exact upstream bookkeeping props only if cross-implementation reads become a goal.
+**Node: `MemoryReadAudit`** (constraint `memory_read_audit_id`, idx `memory_read_audit_kind_idx`, v0.5 privacy/audit) | Present | **Present** | **DONE 2026-07-09.** The port now writes read-audit rows when access timestamps are updated; it preserves upstream `id`/`kind` and adds `memory_id`, `read_at`, `owner_id`, and `access_count` for local history/audit use.
 **Relationship-scoping edges: `(:User)-[:HAS_CONVERSATION/HAS_TRACE/HAS_PREFERENCE]->`** | Present | **Absent** (we use scalar `owner_id`) | **Decision.** Intentional divergence (see §2). Keep.
 **Relationship: `[:TOUCHED]`** (trace → touched entities) | Present | **Absent** | **verify.** Medium confidence (relationship list was summarized upstream). If confirmed, candidate to add for trace→entity provenance. Add `Touched = "TOUCHED"` to `SchemaConstants.RelationshipTypes`.
 **Relationship: `(:Entity)-[:INSTANCE_OF]->(:Entity)`** | Present (Entity→Entity) | **Present but different semantics** — ours is `INSTANCE_OF (ToolCall → Tool)` | **verify.** Name collides; direction/endpoints differ. Upstream uses it for entity typing; we use it for tool typing. Likely both legitimately exist for different subgraphs — confirm upstream endpoints before any change. No action unless interop required.
@@ -64,7 +64,7 @@ Item | Upstream | Ours | Action
 **Extra rel types** `HAS_FACT`, `HAS_PREFERENCE`, `IN_SESSION`, `EXTRACTED_BY` (as constant), full directional `RELATED_TO` provenance props | Mostly absent / partial | **Present** (ours) | **Keep (our extension).**
 **Embedding dimensions** | Default 1536, configurable per embedder | Parameterized (`BuildVectorIndexes(int dimensions)`), `cosine` | **Parity.** No action.
 
-**Net:** No upstream **constraint, btree index, or vector index on a shared node** is missing from our port. The only clear-cut upstream-has/we-lack items are the **v0.4/v0.5 feature nodes** (`User`, `ConsolidationRun`, `MemoryReadAudit`) and a few feature-specific props/indexes (`archived`, `error_kind`/`summary`, `[:TOUCHED]`) — all gated behind features we have not (yet) ported, and several resting on medium-confidence upstream reads.
+**Net:** No upstream **constraint, btree index, or vector index on a shared node** is missing from our port. Remaining intentional differences are the upstream `User` identity node/edges, feature-specific trace error fields, and modeling choices such as scalar `owner_id` plus transaction-time invalidation.
 
 ---
 
@@ -77,13 +77,13 @@ These close *name-level / constant-level* gaps without altering stored data or e
 1. ~~**(verify-then-safe) Add `[:TOUCHED]` relationship-type constant.**~~ ✅ **DONE (2026-06-06).**
    Upstream direction verified against `graph/queries.py` — `(:ReasoningStep)-[:TOUCHED]->(:Entity)`, `recorded_at` stamped on create, identity precedence id > name+type > name. We ported the **by-id** variant (links existing entities only; never MERGE-creates, preserving our resolution/dedup pipeline). `SchemaConstants.RelationshipTypes.Touched = "TOUCHED"` added and wired into `ReasoningQueries.RecordTouchedEntitiesByIds`/`GetTouchedEntityIds` + `IReasoningMemoryService`/`IReasoningStepRepository`. No constraint/index needed (parity-confirmed: upstream `schema.py` has none). 4 unit + 5 integration tests.
 
-> No other "safe now" schema additions exist: every remaining upstream-only item (`User`, `ConsolidationRun`, `MemoryReadAudit`, `archived`, `error_kind`/`summary`) belongs to an unported feature and would create orphan schema with no writer, which is *not* desirable to land blindly.
+> `MemoryReadAudit` is no longer an orphan schema candidate; it landed with a writer and history reader on 2026-07-09. Remaining upstream-only items should still land with their owning feature, not as bare schema.
 
 ### Needs a human decision
 
 2. **Keep `owner_id` / `owner_key` and the four `*_owner_idx` indexes (do NOT remove for parity).** This is an intentional, enforced-on-read improvement over upstream's write-only/edge-based model. Decision = affirm divergence. No file change.
 3. **`:User` node + `HAS_CONVERSATION`/`HAS_TRACE`/`HAS_PREFERENCE` edges** (upstream v0.4). Decision: adopt only if cross-implementation graph interop with the Python store is a goal. If yes: add `User` to `NodeLabels`, a `user_identifier` UNIQUE constraint to `SchemaQueries.Constraints`, and the three edges to `RelationshipTypes`. If no (recommended given our scalar model): document the divergence and skip.
-4. **`ConsolidationRun` + `MemoryReadAudit` nodes/indexes** (upstream v0.5). Decision: tie to porting consolidation and read-audit features. Schema lands *with* the feature, not before. Files when greenlit: `SchemaQueries.cs` (constraints + `consolidation_run_kind_idx`, `memory_read_audit_kind_idx`), `SchemaConstants.cs` (labels), a new `0003_*.cypher` migration.
+4. **`ConsolidationRun` + `MemoryReadAudit` nodes/indexes** (upstream v0.5). Decision: **implemented**. `ConsolidationRun` supports consolidation bookkeeping; `MemoryReadAudit` is created by access timestamp updates and surfaced through memory history.
 5. **`Conversation.archived` + `conversation_archived_idx`** (upstream v0.5). Decision: tie to a soft-archive feature. Files: add `Archived` to `Properties`, an index to `SchemaQueries.PropertyIndexes`, migration `0003`.
 6. **`ReasoningTrace.error_kind` / `summary` + `trace_error_kind_idx`** (upstream). Decision: reconcile trace shape only if cross-impl trace read is required; otherwise keep our `outcome`/`result` shape. Files (if pursued): `Properties` + `SchemaQueries.PropertyIndexes` + migration.
 7. **POLE+O typed relations vs our `relation_type`-on-`RELATED_TO` model.** Decision: keep data-driven model (recommended) or emit typed edges to match upstream traversal patterns. No change recommended; document as an intentional modeling difference.
@@ -119,9 +119,9 @@ These close *name-level / constant-level* gaps without altering stored data or e
   },
   {
     "file": "src/AgentMemory.Neo4j/Queries/SchemaQueries.cs + src/AgentMemory.Abstractions/Schema/SchemaConstants.cs + new src/AgentMemory.Neo4j/Schema/Migrations/0003_*.cypher",
-    "change": "Add ConsolidationRun node (constraint consolidation_run_id, index consolidation_run_kind_idx) and MemoryReadAudit node (constraint memory_read_audit_id, index memory_read_audit_kind_idx), upstream v0.5.",
+    "change": "DONE: ConsolidationRun and MemoryReadAudit schema are present; MemoryReadAudit is written by access tracking and read by memory history.",
     "risk": "decision",
-    "rationale": "Feature-gated. Land schema WITH the consolidation/read-audit feature implementation, not before, to avoid orphan schema with no writer. Upstream DDL is HIGH confidence (read from schema.py)."
+    "rationale": "Implemented with feature writers/readers instead of orphan DDL. Keep monitoring upstream if MemoryReadAudit gains more canonical fields beyond id/kind.",
   },
   {
     "file": "src/AgentMemory.Abstractions/Schema/SchemaConstants.cs + src/AgentMemory.Neo4j/Queries/SchemaQueries.cs + new migration",

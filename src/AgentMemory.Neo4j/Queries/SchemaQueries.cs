@@ -41,6 +41,9 @@ public static class SchemaQueries
     /// <summary>Unique constraint on ConsolidationRun.id (memory-hygiene audit, PR #113).</summary>
     public const string ConsolidationRunIdConstraint = "CREATE CONSTRAINT consolidation_run_id IF NOT EXISTS FOR (r:ConsolidationRun) REQUIRE r.id IS UNIQUE";
 
+    /// <summary>Unique constraint on MemoryReadAudit.id (read/privacy audit, upstream v0.5-compatible).</summary>
+    public const string MemoryReadAuditIdConstraint = "CREATE CONSTRAINT memory_read_audit_id IF NOT EXISTS FOR (a:MemoryReadAudit) REQUIRE a.id IS UNIQUE";
+
     /// <summary>All uniqueness constraints in bootstrap order.</summary>
     public static readonly string[] Constraints =
     [
@@ -54,7 +57,8 @@ public static class SchemaQueries
         ToolCallIdConstraint,
         ToolNameConstraint,
         ExtractorNameConstraint,
-        ConsolidationRunIdConstraint
+        ConsolidationRunIdConstraint,
+        MemoryReadAuditIdConstraint
     ];
 
     // ── Fulltext Indexes ────────────────────────────────────────
@@ -145,6 +149,9 @@ public static class SchemaQueries
     /// <summary>Index on Conversation.archived (memory-hygiene / consolidation, PR #113).</summary>
     public const string ConversationArchivedIndex = "CREATE INDEX conversation_archived_idx IF NOT EXISTS FOR (c:Conversation) ON (c.archived)";
 
+    /// <summary>Index on MemoryReadAudit.kind (read/privacy audit, upstream v0.5-compatible).</summary>
+    public const string MemoryReadAuditKindIndex = "CREATE INDEX memory_read_audit_kind_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.kind)";
+
     /// <summary>All property indexes in bootstrap order.</summary>
     public static readonly string[] PropertyIndexes =
     [
@@ -168,7 +175,8 @@ public static class SchemaQueries
         PreferenceOwnerIndex,
         TraceOwnerIndex,
         RelationshipOwnerIndex,
-        ConversationArchivedIndex
+        ConversationArchivedIndex,
+        MemoryReadAuditKindIndex
     ];
 
     // ── Vector Indexes (parameterized by dimensions) ────────────

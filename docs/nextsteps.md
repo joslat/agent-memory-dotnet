@@ -28,9 +28,9 @@
 
 # Agent Memory for .NET — Next Steps
 
-**Author:** Deckard (Lead / Solution Architect)  
-**Date:** 2026-04-30  
-**Status:** Active forward-looking document. Supersedes prior planning docs (archived under `docs/archive/`).
+**Author:** Deckard (Lead / Solution Architect)
+**Date:** 2026-04-30
+**Status:** Historical planning document. The current status and forward-looking work live in `ROADMAP.md`; this file is retained for the original prioritization rationale and Python-vs-.NET assessment notes.
 
 ---
 
@@ -52,7 +52,7 @@ Scored as of 2026-04-30. **Cost/Effort** and **Value** are 1–10 (1 = trivial/m
 
 > **Note:** §4 (Recommended Next Sequence) applies strategic execution dependencies, not just raw score. Package Rename is #1 because NuGet IDs are permanent — publishing with incorrect package names is an irreversible mistake. DELETE_SESSION_DATA is #2 because it is trivial and can be done in the same sprint as the rename review. Aspire Demo is #3 to validate the renamed library end-to-end before release. NuGet Release Prep is deliberately #4 — it is gated on both the rename being complete and the demo giving a green light. The matrix scores individual proposals in isolation; §4 explains the sequencing rationale.
 
-> **Deferred to `docs/Improvement-Ideas-Backlog.md`:** Memory Conflict Detection + Provenance Scoring, Cross-Agent Memory Sharing, Local Embedding Adapter (ONNX), Local NLP Extractors, AutoGen.NET/LangChain.NET integrations, Opik observability, and full CLI tool feature set. These are well-reasoned future investments — see the backlog for expanded descriptions and implementation sketches.
+> **Deferred to `docs/Improvement-Ideas-Backlog.md`:** provenance scoring/events on top of the shipped conflict-detection service, Cross-Agent Memory Sharing, Local Embedding Adapter (ONNX), Local NLP Extractors, LangChain.NET integration if demand appears, Opik observability, and richer CLI import/export/stats commands. These are well-reasoned future investments — see the backlog for expanded descriptions and implementation sketches.
 
 ---
 
@@ -277,15 +277,15 @@ See `docs/Improvement-Ideas-Backlog.md` for expanded descriptions and implementa
 
 | Document | Role | Status |
 |----------|------|--------|
-| `docs/specification.md` | Canonical functional specification | Active — source of truth for any ambiguity |
+| `docs/core/specification.md` | Canonical current functional specification | Active — source of truth for any ambiguity |
 | `docs/archive/full-implementation-plan.md` | Historical phased build guide | Historical (all phases complete) |
 | `docs/architecture.md` | Package topology, graph model, boundaries | Active |
 | `docs/design.md` | Domain model, context assembly, extraction pipeline | Active |
 | `docs/schema.md` | Neo4j schema reference | Active |
-| `docs/parity-assessment.md` | Python vs .NET parity analysis | Active (post gap-closure sprint) |
-| `docs/implementation-status.md` | Phase completion tracker | Active (all phases done) |
-| `docs/improvement-suggestions.md` | Architecture audit and improvement backlog | Active (most items complete; S7 not recommended, S9 deferred) |
-| `docs/package-strategy.md` | NuGet packaging options analysis | Active (Option C chosen) |
-| `docs/nextsteps.md` | **This document** — forward-looking priorities | Active |
+| `docs/reference/schema-parity-assessment.md` | Python schema parity reference | Reference, date-stamped |
+| `docs/archive/implementation-status.md` | Phase completion tracker | Historical (all phases done) |
+| `docs/archive/improvement-suggestions.md` | Architecture audit and improvement backlog | Historical; live deferred ideas are in `Improvement-Ideas-Backlog.md` |
+| `docs/archive/package-strategy.md` | NuGet packaging options analysis | Historical (current package topology is documented in `docs/core/design-document.md`) |
+| `docs/nextsteps.md` | **This document** — original forward-looking priorities and rationale | Historical |
 | `docs/archive/` | Completed planning and analysis documents | Read-only history |
 | `docs/reference/` | External reference material | Read-only reference |

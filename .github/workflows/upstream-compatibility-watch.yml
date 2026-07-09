@@ -1,0 +1,88 @@
+name: Upstream Compatibility Watch
+# Scheduled visibility check for the upstream agent-memory ecosystem.
+# This does not auto-adopt upstream changes; it records upstream state and verifies the current
+# embedded snapshot still passes the local static schema-parity policy.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * 1'
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  EMBEDDED_UPSTREAM_VERSION: '0.5.0'
+
+jobs:
+  compatibility-watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore CLI
+        run: dotnet restore tools/AgentMemory.Cli/AgentMemory.Cli.csproj
+
+      - name: Build CLI
+        run: dotnet build tools/AgentMemory.Cli/AgentMemory.Cli.csproj -c Release --no-restore
+
+      - name: Static schema parity against embedded snapshot
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet run --project tools/AgentMemory.Cli/AgentMemory.Cli.csproj \
+            -c Release --no-build -- \
+            schema-parity --upstream-version "$EMBEDDED_UPSTREAM_VERSION" | tee schema-parity.txt
+
+      - name: Record upstream state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          agent_memory_sha="$(gh api repos/neo4j-labs/agent-memory/commits/main --jq .sha 2>/dev/null || true)"
+          agent_memory_date="$(gh api repos/neo4j-labs/agent-memory/commits/main --jq .commit.committer.date 2>/dev/null || true)"
+          tck_sha="$(gh api repos/neo4j-labs/agent-memory-tck/commits/main --jq .sha 2>/dev/null || true)"
+          tck_date="$(gh api repos/neo4j-labs/agent-memory-tck/commits/main --jq .commit.committer.date 2>/dev/null || true)"
+          latest_release="$(gh api repos/neo4j-labs/agent-memory/releases/latest --jq '.tag_name + " (" + .published_at + ")"' 2>/dev/null || true)"
+          latest_python_tag="$(gh api repos/neo4j-labs/agent-memory/tags --jq '[.[].name | select(startswith("python-v"))][0]' 2>/dev/null || true)"
+          latest_ts_tag="$(gh api repos/neo4j-labs/agent-memory/tags --jq '[.[].name | select(startswith("typescript-v"))][0]' 2>/dev/null || true)"
+          embedded_python_tag="python-v${EMBEDDED_UPSTREAM_VERSION}"
+
+          {
+            echo "## Upstream compatibility watch"
+            echo ""
+            echo "- Embedded schema snapshot: neo4j-agent-memory ${embedded_python_tag}"
+            echo "- Latest Python tag observed: ${latest_python_tag:-unavailable}"
+            echo "- Latest TypeScript tag observed: ${latest_ts_tag:-unavailable}"
+            echo "- Latest GitHub release: ${latest_release:-unavailable}"
+            echo "- agent-memory main: ${agent_memory_sha:-unavailable} ${agent_memory_date:+($agent_memory_date)}"
+            echo "- agent-memory-tck main: ${tck_sha:-unavailable} ${tck_date:+($tck_date)}"
+            echo ""
+            echo "### Static schema parity"
+            if [ -f schema-parity.txt ]; then
+              sed 's/^/    /' schema-parity.txt
+            else
+              echo "    schema-parity output unavailable"
+            fi
+            echo ""
+            echo "### Recent upstream tags"
+            gh api repos/neo4j-labs/agent-memory/tags --jq '.[0:10][] | "- \(.name) \(.commit.sha)"' 2>/dev/null || echo "- unavailable"
+            echo ""
+            echo "### Refresh rule"
+            echo "Schema snapshots are refreshed only for tagged releases or material Bolt/schema changes. Docs-only or hosted-backend-only upstream changes should be recorded, not auto-adopted."
+            if [ -n "$latest_python_tag" ] && [ "$latest_python_tag" != "$embedded_python_tag" ]; then
+              echo ""
+              echo "> Warning: latest Python tag differs from the embedded snapshot. Review whether a new schema snapshot is needed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$latest_python_tag" ] && [ "$latest_python_tag" != "$embedded_python_tag" ]; then
+            echo "::warning title=Upstream Python tag changed::Latest Python tag ${latest_python_tag} differs from embedded ${embedded_python_tag}. Review snapshot refresh."
+          fi

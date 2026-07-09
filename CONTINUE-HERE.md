@@ -2,14 +2,14 @@
 
 > **The 30-second resume point for this repo.** For the full status, the hardening story, and the road to
 > `1.0`, read **[`docs/ROADMAP.md`](docs/ROADMAP.md)** (this file is the short landing; ROADMAP is the source
-> of truth). _Last updated: **2026-06-21**._
+> of truth). _Last updated: **2026-07-09**._
 
 ---
 
 ## Where we are
 
 - **`0.1.0-preview.4` is published** to NuGet (12 packages: `AgentMemory` + `AgentMemory.*`); GitHub release is live.
-- **`main` is clean and green:** Release build **0 warnings**; **2654 unit + 236 live-Neo4j integration tests passing**. **No open PRs. No known bugs or regressions.**
+- **The 2026-06-21 release record is clean and green:** Release build **0 warnings**; **2654 unit + 236 live-Neo4j integration tests passing**. This 2026-07-09 work now records **2658 Release unit tests passing**, plus a **5-test live Neo4j shakedown passing** for the golden-path/history changes; the earlier docs cleanup also recorded **34 Semantic Kernel tests passing**.
 - The library is **feature-complete and heavily hardened** — 6 structured review cycles, then **6 rounds of full-repo adversarial bug-hunting + a convergence-verification pass** (80+ confirmed defects fixed, PRs #25–#69).
 
 ## What's next — pick up here
@@ -24,7 +24,7 @@ None of this is bug-fixing; `main` is clean. (Full rationale in [ROADMAP → Nex
 
 ## What just happened (most recent first)
 
-- **Docs reconciled** to current reality (this commit) — ROADMAP/README/nextsteps corrected; an earlier "decay/bitemporal on maintainer hold" claim was verified stale (it's shipped).
+- **Docs reconciled** to current reality (2026-07-09 docs pass) — active docs were corrected, `docs/core/` was added, stale package/schema/test/license claims were fixed, and historical task docs were labeled as historical.
 - **Released `0.1.0-preview.4`** (CHANGELOG finalized, tagged `v0.1.0-preview.4` → `squad-release.yml` packed + pushed to nuget.org + created the GitHub release).
 - **R6 hardening (PRs #63–#69):** MAF cancellation guards, entity-resolution `invalidated_at`, owner-scoped session clear/delete, truncation-ordering fixes, trace concurrent-delete race; then cleanup — CA2007 `ConfigureAwait(false)` enforced library-wide, culture-invariant formatting, status-aware telemetry, dead `EnableAutoPrune` removed.
 - **The convergence test** that motivated R6: an exhaustive sweep that found 24 confirmed defects in never-hunted areas, proving the earlier "converged to zero" was a shallow-lens artifact.
@@ -44,4 +44,4 @@ None of this is bug-fixing; `main` is clean. (Full rationale in [ROADMAP → Nex
 
 ---
 
-_Where things live:_ **[`docs/ROADMAP.md`](docs/ROADMAP.md)** (status & plan) · [`CHANGELOG.md`](CHANGELOG.md) (release notes) · [`docs/`](docs/) (architecture / design / schema / getting-started) · [`docs/nextsteps.md`](docs/nextsteps.md) (historical planning + the .NET-vs-Python assessment).
+_Where things live:_ **[`docs/ROADMAP.md`](docs/ROADMAP.md)** (status & plan) · [`docs/core/`](docs/core/) (canonical philosophy / requirements / design / specification / ADRs) · [`CHANGELOG.md`](CHANGELOG.md) (release notes) · [`docs/`](docs/) (reference docs) · [`docs/nextsteps.md`](docs/nextsteps.md) (historical planning + the .NET-vs-Python assessment).

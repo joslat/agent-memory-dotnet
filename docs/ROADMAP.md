@@ -5,7 +5,7 @@
 > [`Memory_Review_and_Implementation_Plan.md`](Memory_Review_and_Implementation_Plan.md); for completed
 > review records see [`reviews/`](reviews/); for the deferred-ideas backlog see
 > [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md).
-> **Last updated: 2026-06-21.**
+> **Last updated: 2026-07-09.**
 
 ---
 
@@ -18,8 +18,7 @@
   adversarial bug-hunting plus a final exhaustive convergence-verification pass** — **80+ confirmed defects
   found and fixed** (PRs #25–#69), each with a regression test targeting the trigger. See
   [Quality & hardening](#quality--hardening).
-- **`main` is green and clean:** Release build **0 warnings**; **2654 unit + 236 integration tests passing**
-  (as of 2026-06-21). No open PRs; no known bugs or regressions outstanding.
+- **`main` is green and clean** in the 2026-06-21 release record: Release build **0 warnings**; **2654 unit + 236 integration tests passing**. This 2026-07-09 work now records **2658 Release unit tests passing**, plus a **5-test live Neo4j shakedown passing** for the golden-path/history changes; the earlier docs cleanup also recorded **34 Semantic Kernel tests passing**.
 - **What's genuinely left is not bug-fixing** — it's preview soak + ecosystem breadth + API stabilization
   toward `1.0`. See [Next steps](#next-steps).
 
@@ -31,10 +30,10 @@
 |---|---|
 | **Version** | `0.1.0-preview.4` — published to NuGet 2026-06-21 (12 packages: `AgentMemory` + `AgentMemory.*`) |
 | **Maturity** | Feature-complete; in public preview, stabilizing toward `1.0` |
-| **Tests** | 2654 unit + Semantic Kernel + 236 live-Neo4j integration — all green (2026-06-21); CI (build-test) on every PR |
+| **Tests** | 2658 Release unit tests and a 5-test live Neo4j shakedown passed locally on 2026-07-09; 34 Semantic Kernel tests were also recorded in the earlier 2026-07-09 docs cleanup; 236 live-Neo4j integration tests are the latest full ROADMAP record (2026-06-21); CI (build-test) on every PR |
 | **Build** | Release builds with **0 warnings** (`TreatWarningsAsErrors` on for `src`; library code is CA2007-enforced) |
 | **Hardening** | 6 review cycles + capstone, **then 6 rounds of adversarial bug-hunting + a convergence-verification pass** — 80+ confirmed defects fixed (see below) |
-| **Open work** | No bugs/regressions outstanding. Forward work is preview feedback, ecosystem breadth, and API stabilization — see [Next steps](#next-steps) |
+| **Open work** | No known bugs/regressions in the documented release state. Forward work is preview feedback, ecosystem breadth, and API stabilization — see [Next steps](#next-steps) |
 
 **What it is:** a native .NET 9 implementation of graph-native persistent memory for AI agents, backed by
 Neo4j, with GraphRAG interop and first-class adapters for the Microsoft Agent Framework, Semantic Kernel,
@@ -145,9 +144,10 @@ Nothing below is a bug or regression — `main` is clean. These are forward-look
 |---|---|
 | **[`ROADMAP.md`](ROADMAP.md)** | **This file — the authoritative current status & next steps.** |
 | [`getting-started.md`](getting-started.md) | Install, configure, first memory store, multi-tenant setup |
+| [`core/`](core/) | Canonical current documentation set: philosophy, requirements, design, specification, ADRs, summaries |
 | [`architecture.md`](architecture.md) · [`design.md`](design.md) · [`schema.md`](schema.md) | Current reference — layers/boundaries, type/interface catalogs, Neo4j graph model |
-| [`specification.md`](specification.md) | Consolidated baseline specification |
-| [`nextsteps.md`](nextsteps.md) · [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md) | Granular/historical task tracking + .NET-vs-Python assessment · deferred-ideas backlog |
+| [`specification.md`](specification.md) | Short current specification entry point; detailed specification lives in [`core/specification.md`](core/specification.md) |
+| [`nextsteps.md`](nextsteps.md) · [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md) | Historical task tracking + .NET-vs-Python assessment · current deferred-ideas backlog |
 | [`Memory_Review_and_Implementation_Plan.md`](Memory_Review_and_Implementation_Plan.md) | The detailed historical implementation plan (isolation deep-dive); kept as deep reference |
 | [`reviews/`](reviews/) | Completed adversarial-review records (point-in-time) |
 | [`reference/`](reference/) | Upstream / parity reference (Python schema snapshots, PR how-to, MAF migration guides) |

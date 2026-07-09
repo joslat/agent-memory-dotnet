@@ -34,6 +34,24 @@ jobs:
       - name: Build
         run: dotnet build AgentMemory.slnx -c Release --no-restore
 
+      - name: Sample smoke builds
+        run: |
+          dotnet build samples/AgentMemory.Sample.AgentWithMemory/AgentMemory.Sample.AgentWithMemory.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.RealAgent/AgentMemory.Sample.RealAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.MemoryToolsAgent/AgentMemory.Sample.MemoryToolsAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.ChatHistoryProvider/AgentMemory.Sample.ChatHistoryProvider.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj -c Release --no-restore
+          dotnet build samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj -c Release --no-restore
+          dotnet build samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj -c Release --no-restore
+
+      - name: Static upstream schema parity
+        run: >
+          dotnet run --project tools/AgentMemory.Cli/AgentMemory.Cli.csproj
+          -c Release --no-build --
+          schema-parity --upstream-version 0.5.0
+
       - name: Unit + SemanticKernel tests
         run: >
           dotnet test AgentMemory.slnx -c Release --no-build

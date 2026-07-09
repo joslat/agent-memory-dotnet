@@ -6,13 +6,22 @@ namespace AgentMemory.Neo4j.Queries;
 public static class DecayQueries
 {
     /// <summary>
-    /// Updates <c>last_accessed_at</c> to now and increments <c>access_count</c> for a node
-    /// with a given label and id.  Use <see cref="UpdateAccessTimestamp(string)"/> to inject the label.
+    /// Updates <c>last_accessed_at</c> to now, increments <c>access_count</c>, and records a
+    /// <c>:MemoryReadAudit</c> row for a node with a given label and id. Use
+    /// <see cref="UpdateAccessTimestamp(string)"/> to inject the label.
     /// </summary>
     public static string UpdateAccessTimestamp(string label) => $@"
             MATCH (n:{label} {{id: $id}})
             SET n.last_accessed_at = datetime($now),
                 n.access_count     = COALESCE(n.access_count, 0) + 1
+            CREATE (:MemoryReadAudit {{
+                id: randomUUID(),
+                kind: $kind,
+                memory_id: $id,
+                owner_id: n.owner_id,
+                read_at: datetime($now),
+                access_count: n.access_count
+            }})
             RETURN n.access_count AS accessCount";
 
     /// <summary>

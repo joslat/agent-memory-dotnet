@@ -98,7 +98,11 @@ public sealed class DecayQueryTests
 
         query.Should().Contain($":{label}")
             .And.Contain("last_accessed_at")
-            .And.Contain("access_count");
+            .And.Contain("access_count")
+            .And.Contain("MemoryReadAudit")
+            .And.Contain("kind: $kind")
+            .And.Contain("memory_id: $id")
+            .And.Contain("read_at: datetime($now)");
     }
 
     [Theory]

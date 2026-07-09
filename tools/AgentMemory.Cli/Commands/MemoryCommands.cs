@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -260,4 +261,110 @@ public sealed class SupersedeCommand(IFactRepository facts, IPreferenceRepositor
         output.WriteLine($"No matching {kind} loser+winner in scope{ownerNote}; nothing superseded.");
         return 1;
     }
+}
+/// <summary>
+/// Lists long-term memory lifecycle records across entities, facts, and preferences. This is a read-only
+/// audit/history surface: by default it includes live and soft-invalidated rows; <c>--live-only</c> narrows
+/// to live recall candidates.
+/// </summary>
+public sealed class HistoryCommand(IMemoryHistoryService service, TextWriter output)
+{
+    public async Task<int> ExecuteAsync(
+        string? type,
+        string? id,
+        string? owner,
+        bool liveOnly,
+        bool ownOnly,
+        string? limitValue,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseKind(type, out var kind))
+        {
+            output.WriteLine($"error: unknown --type '{type}' (expected fact|entity|preference). omit --type to list all.");
+            return 1;
+        }
+
+        if (!TryParseLimit(limitValue, out var limit))
+        {
+            output.WriteLine("error: history --limit must be a positive integer.");
+            return 1;
+        }
+
+        var query = new MemoryHistoryQuery
+        {
+            Kind = kind,
+            Id = NullIfWhiteSpace(id),
+            OwnerId = NullIfWhiteSpace(owner),
+            IncludeInvalidated = !liveOnly,
+            IncludeShared = !ownOnly,
+            Limit = limit,
+        };
+
+        var records = await service.GetHistoryAsync(query, cancellationToken).ConfigureAwait(false);
+        output.WriteLine($"history: {records.Count} memory record(s){DescribeQuery(query)}.");
+
+        foreach (var record in records)
+        {
+            var ownerText = string.IsNullOrWhiteSpace(record.OwnerId) ? "shared" : $"owner={record.OwnerId}";
+            var status = record.Status.ToString().ToLowerInvariant();
+            output.WriteLine($"  [{record.Kind.ToString().ToLowerInvariant()}] {record.Id} {status} {ownerText} created={Format(record.CreatedAtUtc)}");
+            if (!string.IsNullOrWhiteSpace(record.Summary))
+                output.WriteLine($"      {record.Summary}");
+            if (record.UpdatedAtUtc is not null)
+                output.WriteLine($"      updated_at: {Format(record.UpdatedAtUtc.Value)}");
+            if (record.InvalidatedAtUtc is not null)
+                output.WriteLine($"      invalidated_at: {Format(record.InvalidatedAtUtc.Value)}");
+            if (record.LastAccessedAtUtc is not null || record.AccessCount > 0 || record.ReadAuditCount > 0)
+                output.WriteLine($"      access: count={record.AccessCount}, last={FormatOptional(record.LastAccessedAtUtc)}, audit_rows={record.ReadAuditCount}, last_audit={FormatOptional(record.LastReadAuditAtUtc)}");
+            if (record.ValidFromUtc is not null || record.ValidUntilUtc is not null)
+                output.WriteLine($"      valid_time: {FormatOptional(record.ValidFromUtc)} -> {FormatOptional(record.ValidUntilUtc)}");
+            if (record.SupersededByIds.Count > 0)
+                output.WriteLine($"      superseded_by: {string.Join(", ", record.SupersededByIds)}");
+            if (record.SupersedesIds.Count > 0)
+                output.WriteLine($"      supersedes: {string.Join(", ", record.SupersedesIds)}");
+            if (record.SourceMessageIds.Count > 0)
+                output.WriteLine($"      source_messages: {string.Join(", ", record.SourceMessageIds)}");
+        }
+
+        return 0;
+    }
+
+    private static bool TryParseKind(string? type, out MemoryHistoryKind? kind)
+    {
+        kind = null;
+        if (string.IsNullOrWhiteSpace(type)) return true;
+
+        kind = type.Trim().ToLowerInvariant() switch
+        {
+            "entity" or "entities" => MemoryHistoryKind.Entity,
+            "fact" or "facts" => MemoryHistoryKind.Fact,
+            "preference" or "preferences" or "pref" or "prefs" => MemoryHistoryKind.Preference,
+            _ => null,
+        };
+        return kind is not null;
+    }
+
+    private static bool TryParseLimit(string? value, out int limit)
+    {
+        limit = 50;
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out limit) && limit > 0;
+    }
+
+    private static string? NullIfWhiteSpace(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string DescribeQuery(MemoryHistoryQuery query)
+    {
+        var parts = new List<string>();
+        if (query.Kind is not null) parts.Add($"type={query.Kind.ToString()!.ToLowerInvariant()}");
+        if (!string.IsNullOrWhiteSpace(query.Id)) parts.Add($"id={query.Id}");
+        if (!string.IsNullOrWhiteSpace(query.OwnerId)) parts.Add(query.IncludeShared ? $"owner={query.OwnerId}+shared" : $"owner={query.OwnerId}");
+        if (!query.IncludeInvalidated) parts.Add("live-only");
+        parts.Add($"limit={query.Limit}");
+        return parts.Count == 0 ? string.Empty : " (" + string.Join(", ", parts) + ")";
+    }
+
+    private static string Format(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
+
+    private static string FormatOptional(DateTimeOffset? value) => value is null ? "open" : Format(value.Value);
 }

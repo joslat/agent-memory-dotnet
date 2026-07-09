@@ -71,4 +71,44 @@ public class RecencyRerankIntegrationTests : IAsyncLifetime
         on[0].Fact.FactId.Should().Be("f-fresh",
             "with recency re-ranking the fresher memory is promoted over the stale top-similarity one");
     }
+
+    [Fact]
+    public async Task RecencyRerank_OnPromotesFrequentlyAccessedMemory_WithSameAge()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        await _parity.UpsertAsync(new Fact
+        {
+            FactId = "f-best-semantic", Subject = "semantic", Predicate = "is", Object = "closest",
+            Confidence = 0.9, Embedding = Query, OwnerId = null, CreatedAtUtc = now.AddDays(-30),
+        });
+        await _parity.UpsertAsync(new Fact
+        {
+            FactId = "f-frequent", Subject = "frequent", Predicate = "is", Object = "reused",
+            Confidence = 0.9, Embedding = FreshLow, OwnerId = null, CreatedAtUtc = now.AddDays(-30),
+        });
+        await SetFactAccessStateAsync("f-best-semantic", accessCount: 0, daysOld: 30);
+        await SetFactAccessStateAsync("f-frequent", accessCount: 8, daysOld: 30);
+
+        var off = await _parity.SearchByVectorAsync(Query, limit: 5);
+        var on = await _enhanced.SearchByVectorAsync(Query, limit: 5);
+
+        off.Should().HaveCount(2);
+        on.Should().HaveCount(2);
+        off[0].Fact.FactId.Should().Be("f-best-semantic",
+            "semantic-only ranking should prefer the closest vector when recency/frequency is disabled");
+        on[0].Fact.FactId.Should().Be("f-frequent",
+            "with equal age, repeated access should boost the lower-similarity memory above the unused one");
+    }
+
+    private async Task SetFactAccessStateAsync(string factId, int accessCount, int daysOld)
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        await session.RunAsync(
+            @"MATCH (f:Fact {id:$factId})
+              SET f.created_at = datetime() - duration({days:$daysOld}),
+                  f.access_count = $accessCount
+              REMOVE f.last_accessed_at",
+            new { factId, accessCount, daysOld });
+    }
 }
