@@ -34,6 +34,6 @@ The current upstream `neo4j-labs/agent-memory-tck` repository describes a formal
 | 2026-07-09 | `dotnet build AgentMemory.slnx --no-restore` | Passed, 0 warnings | Full solution build including samples and tests. |
 | 2026-07-09 | `dotnet run --no-restore --project tools\\AgentMemory.Cli\\AgentMemory.Cli.csproj -- schema-parity --upstream-version 0.5.0` | Passed | Compatible; 11 documented divergences remain intentional (`User`, relationship extensions, owner/time/read-audit detail fields). |
 
-## Commit Policy
+## Commit Record
 
-This pack is ready to commit as a cohesive slice. Generated artifacts under `artifacts/` stay uncommitted. The branch for this work is `codex/behavioral-compatibility-pack`.
+This pack was committed as `8626fed` (`Add behavioral compatibility pack`) and pushed to `origin/codex/behavioral-compatibility-pack` on 2026-07-10. Generated artifacts under `artifacts/` stay uncommitted.
