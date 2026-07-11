@@ -329,10 +329,14 @@ app.MapPost("/get_entity_by_name", async (
 {
     var entities = await longTerm.GetEntitiesByNameAsync(req.Name, includeAliases: true, scope: sharedScope, ct)
         .ConfigureAwait(false);
-    // TCK contract: Entity or null (SPEC-3.6.2) — GetEntitiesByNameAsync returns a list (possible aliases),
-    // so the first match wins. A single nullable local + one Results.Ok call keeps the lambda's inferred
-    // return type uniform (Ok<TckEntity?>) across both the found/not-found cases.
-    TckEntity? dto = entities.Count > 0 ? ToEntityDto(entities[0]) : null;
+    // TCK contract: Entity or null (SPEC-3.6.2). GetEntitiesByNameAsync can return several rows (exact-name
+    // plus alias matches) and its Cypher defines no order, so entities[0] would be nondeterministic when
+    // duplicates exist. Pick deterministically: an exact Name match wins, then tie-break on EntityId.
+    var match = entities
+        .OrderByDescending(e => string.Equals(e.Name, req.Name, StringComparison.Ordinal))
+        .ThenBy(e => e.EntityId, StringComparer.Ordinal)
+        .FirstOrDefault();
+    TckEntity? dto = match is not null ? ToEntityDto(match) : null;
     return Results.Ok(dto);
 });
 
