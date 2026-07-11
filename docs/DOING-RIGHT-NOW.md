@@ -1,6 +1,6 @@
 # Doing Right Now
 
-**Last updated:** 2026-07-11
+**Last updated:** 2026-07-11 (Full Bronze TCK bridge — schema + short-term, 12 endpoints, 93/93 upstream-conformant against the real neo4j-labs/agent-memory-tck)
 
 ## Current Branch
 
@@ -57,38 +57,49 @@ Current base context:
 
 ## Current Task Being Done
 
-Paused task: implement the next behavioral compatibility slice on `codex/tck-bridge-scn-mapping`.
+**Done — full Bronze tier, EXPANDED beyond the original plan, 2026-07-11.** The behavioral compatibility slice planned in `docs/core/tck-bridge-implementation-plan.md` is implemented and verified against the **real upstream Technology Compatibility Kit** on `codex/tck-bridge-scn-mapping`. The original plan scoped only "Bronze short-term memory"; this slice was expanded to the **full Bronze tier (schema + short-term)** because the TCK "bronze" marker is defined as "schema and short-term memory" and its schema tests assert the round-tripped shape of created entities/facts/preferences.
 
-The intended slice is:
+1. **Upstream TCK HTTP bridge** — `tools/AgentMemory.TckBridge`, an ASP.NET Minimal API host, now serves **12 endpoints (was 9)**:
+   - 9 Bronze **short-term** endpoints: `setup`, `teardown`, `clear_all_data`, `add_message`, `get_conversation`, `search_messages`, `list_sessions`, `delete_message`, `clear_session`.
+   - 3 Bronze **schema-tier long-term** create endpoints: `add_entity`, `add_preference`, `add_fact`. Long-term records are embedded via the deterministic `StubEmbeddingGenerator` and default `Confidence` to `1.0`.
+   - Default `http://localhost:3001`; added to `AgentMemory.slnx`, `IsPackable=false`. `/setup` now returns `{"ok": true}` (matching the upstream C# reference conformance server) instead of `{"status":"ok"}`.
+2. **`SCN-*` scenario mapping** — extended `CompatibilityScenario` in `CompatibilityScenarioCatalog.cs` with an `UpstreamScenarioIds` field; mapped the `NET-TCK-B-001` Bronze mirror to `SCN-B-001`, `SCN-B-002`, `SCN-B-043`, `SCN-B-044`, `SCN-B-055`, `SCN-B-079`; added catalog guard tests (`UpstreamScenarioIds_MatchScnPattern`, `UpstreamScenarioIds_AreUniqueAcrossCatalog`, `BronzeUpstreamMirror_HasMapping`).
 
-1. Add an upstream TCK HTTP bridge server for AgentMemory for .NET.
-2. Map local compatibility scenarios to upstream stable `SCN-*` scenario IDs.
-3. Keep the first implementation narrow and reviewable, starting with the Bronze short-term memory bridge.
+**Real upstream conformance result:** ran `pytest -m bronze --bridge-url http://localhost:3001` against **neo4j-labs/agent-memory-tck at commit `4603b91f` (main)**, driving `tools/AgentMemory.TckBridge` over HTTP against a live **Neo4j 5.26 (Docker)**. Result: **93 passed, 0 failed** (96 deselected = the Silver/Gold/Platinum scenarios). This is the full Bronze tier.
 
-Work started before this pause:
+**Five real defects found and fixed via the conformance run** — the upstream runner uses its OWN Pydantic models on both ends (unlike the in-process mirror tests, which used the bridge's own DTOs and so could not catch a contract mismatch):
 
-- Read local compatibility docs and tests.
-- Read local short-term memory service/repository shapes.
-- Pulled the upstream `neo4j-labs/agent-memory-tck` bridge protocol reference.
-- Confirmed the upstream bridge contract:
-  - server accepts `POST /{snake_case_method}`;
-  - request body is a flat JSON object;
-  - response uses UUID strings, ISO 8601 timestamps, lowercase enum strings, and JSON objects/lists/nulls;
-  - Bronze endpoints include `setup`, `teardown`, `clear_all_data`, `add_message`, `get_conversation`, `search_messages`, `list_sessions`, `delete_message`, and `clear_session`.
+1. **`TckSessionInfo` shape was wrong.** Was `{session_id, conversation_count, message_count, last_message_preview, last_activity}`; the TCK `TCKSessionInfo` model requires `{session_id, message_count, created_at, updated_at}` and reads `created_at` as a required key. Corrected the DTO + mapping.
+2. **Invalid Cypher in the vector-index readiness poll** — `SHOW INDEXES WHERE ... RETURN count(*)` (missing a `YIELD`) is a Neo4j 5.x syntax error that the `catch` swallowed, so the poll silently burned its FULL timeout on every call (30s in the bridge `/setup`, 60s in the test fixture). Existed in BOTH the bridge and the repo's `Neo4jIntegrationFixture.WaitForVectorIndexesAsync` (a genuine latent product-test bug). Fixed both with `SHOW INDEXES YIELD type, state WHERE ...`. Integration compatibility run dropped from ~1m52s to ~22s.
+3. **`delete_message` id-format mismatch** — `IIdGenerator` stores ids as unhyphenated 32-char hex ("N" format), but the Python runner round-trips ids through `UUID()` and re-emits canonical dashed form, so `delete_message` looked up the dashed id, matched nothing, and returned `False`. Fixed by normalizing the incoming id to "N" format in the `delete_message` handler.
+4. **`add_fact` request field is `obj`, not `object`** — the request DTO property was named `Object` (→ `"object"` under snake_case), so it never bound and the fact object arrived null, failing the Neo4j `MERGE`. Renamed the request property to `Obj`.
+5. **`get_conversation` on an unknown session returned the raw `session_id` as the envelope `id`**, which the runner parses via `UUID()`; TCK session ids are not UUIDs (fixture: `f"tck-{uuid4()}"`), so this threw. Fixed to fall back to the nil UUID (`Guid.Empty`).
 
-No TCK bridge implementation code has been committed yet. This document is the pause/resume marker.
+**Judgment calls from the plan — now RESOLVED against the real upstream contract** (`tck/adapters/base_adapter.py` Pydantic models + `docs/reference/bridge-protocol.adoc` + `clients/csharp` reference server):
+- `delete_message` response shape `{"deleted": bool}` — **CONFIRMED correct.**
+- `TckSessionInfo` field names — **CORRECTED.** The earlier "superset is safe" guess was wrong: `created_at` is a required key. Field set is now `{session_id, message_count, created_at, updated_at}`.
+- `get_conversation` empty-envelope shape on an unknown session — **CONFIRMED** (with the `id` → nil-UUID fix noted in defect #5).
+
+**Verified state (2026-07-11):**
+- Full solution build — 0 warnings / 0 errors.
+- Full unit suite (`AgentMemory.Tests.Unit`) — **2684/2684 passing** (`TckBridgeWireContractTests` now 17 tests, including new entity/fact/preference DTO field-name locks and an `add_fact` "obj"-binding regression test).
+- Compatibility integration tests — **13/13 passing** against Testcontainers Neo4j (including the new `TckBridgeHttpRoundTripTests` `WebApplicationFactory` end-to-end test and the fixture query fix).
+- Upstream Bronze TCK — **93/93.**
+
+**Still open / not done:** Silver/Gold/Platinum bridge tiers (the long-term search/reasoning/relationship endpoints) remain future follow-up slices.
 
 ## Tasks / Feature Plans Ahead
 
 | Priority | Task / Feature | Plan | Notes |
 |---:|---|---|---|
-| 1 | Bronze TCK HTTP bridge | Add a small ASP.NET Minimal API host under `tools/AgentMemory.TckBridge` and wire the Bronze short-term endpoints to public services/repositories. | This is the fastest useful compatibility bridge and can be verified locally without claiming full Silver/Gold support. |
-| 2 | Bridge configuration | Reuse CLI-style Neo4j config conventions: `Neo4j:*`, `NEO4J_*`, default `bolt://localhost:7687`, and default bridge URL `http://localhost:3001`. | Register `StubEmbeddingGenerator` for deterministic local search behavior unless a real embedding provider is supplied by host configuration. |
-| 3 | `SCN-*` scenario mapping | Extend `CompatibilityScenarioCatalog` with upstream scenario ID/tier traceability. | The local IDs such as `NET-TCK-B-001` should remain, but each upstream-mirrored row should name the upstream `SCN-*` IDs it covers. |
-| 4 | Tests for mapping and bridge shape | Add unit/source guards for unique local IDs, non-empty upstream mappings where applicable, and documented endpoint names. | Avoid live Neo4j unless endpoint behavior itself is being integration-tested. |
-| 5 | Documentation update | Update `behavioral-compatibility-pack-status.md` and `compatibility-automation.md` with the bridge command and current support tier. | Be explicit that the first bridge slice is Bronze; Silver/Gold remain future bridge expansion unless implemented. |
-| 6 | Local validation | Run focused tests and build the new bridge project. | Minimum: compile the bridge project, run catalog tests, and run existing TCK mirror/catalog tests if time allows. |
-| 7 | Optional upstream run | If Python TCK tooling is available, run `pytest -m bronze --bridge-url http://localhost:3001`. | This may require external tooling/network, so it is optional unless the environment is ready. |
+| 1 | Full Bronze TCK HTTP bridge | **Done — expanded to 12 endpoints.** `tools/AgentMemory.TckBridge` Minimal API host wired to public services/repositories; serves the 9 short-term + 3 schema-tier long-term (`add_entity`, `add_preference`, `add_fact`) endpoints. | Verified against the real upstream TCK, 93/93. |
+| 2 | Bridge configuration | **Done.** CLI-style Neo4j config conventions (`Neo4j:*`, `NEO4J_*`, default `bolt://localhost:7687`, default bridge URL `http://localhost:3001`); `StubEmbeddingGenerator` registered for deterministic local search + long-term embedding; long-term `Confidence` defaults to `1.0`. | No real embedding provider wired in; host config can override. |
+| 3 | `SCN-*` scenario mapping | **Done.** `CompatibilityScenarioCatalog` extended with `UpstreamScenarioIds`; `NET-TCK-B-001` mapped to 6 `SCN-B-*` IDs. | Silver/Gold `[]` placeholders remain a documented follow-up, not this slice. |
+| 4 | Tests for mapping and bridge shape | **Done.** Catalog guard tests (uniqueness/pattern/non-empty Bronze mapping); `TckBridgeWireContractTests` now 17 tests (entity/fact/preference DTO field-name locks + `add_fact` "obj"-binding regression); `TckBridgeHttpRoundTripTests` `WebApplicationFactory` end-to-end test. | Contract shapes now locked by wire-contract + round-trip tests, not just build success. |
+| 5 | Documentation update | **Done** (this update). | Update `behavioral-compatibility-pack-status.md` / `compatibility-automation.md` separately if they still describe the 9-endpoint short-term-only scope. |
+| 6 | Local validation | **Done.** Full solution build 0-warn/0-error; full unit suite 2684/2684; compatibility integration 13/13 against Testcontainers Neo4j. | — |
+| 7 | Upstream conformance run | **Done.** `pytest -m bronze --bridge-url http://localhost:3001` against neo4j-labs/agent-memory-tck `4603b91f` over live Neo4j 5.26 (Docker): **93 passed, 0 failed** (96 Silver/Gold/Platinum deselected). | Uncovered and drove the fix of 5 real contract defects. |
+| 8 | Open the PR | Open the PR from `codex/tck-bridge-scn-mapping` into `main`. | This is now the only remaining step for this slice. Everything is verified but **uncommitted**. |
 
 ## What Not To Do
 
@@ -99,6 +110,8 @@ No TCK bridge implementation code has been committed yet. This document is the p
 
 ## Resume Point
 
-Resume on `codex/tck-bridge-scn-mapping`.
+The **full Bronze TCK bridge** (schema + short-term, 12 endpoints) + `SCN-*` mapping slice is **complete and verified** on `codex/tck-bridge-scn-mapping`: full solution build 0-warn/0-error, unit suite 2684/2684, compatibility integration 13/13, upstream Bronze TCK **93/93**. The three earlier judgment calls are now RESOLVED against the real upstream contract (`delete_message` shape CONFIRMED; `TckSessionInfo` fields CORRECTED; `get_conversation` empty-envelope CONFIRMED). Everything is verified but **uncommitted**.
 
-Start by adding `tools/AgentMemory.TckBridge` with Bronze endpoints, then update `CompatibilityScenarioCatalog` with upstream `SCN-*` mappings and focused tests.
+**Next:** open the PR from `codex/tck-bridge-scn-mapping` into `main`.
+
+Silver/Gold/Platinum bridge tiers (the long-term search/reasoning/relationship endpoints, additional `SCN-*` enumeration) are the next future follow-up slice and have **not** been started.
