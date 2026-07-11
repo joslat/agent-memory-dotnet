@@ -378,7 +378,10 @@ app.MapPost("/get_related_entities", async (
     foreach (var id in relatedIds)
     {
         var entity = await entityRepo.GetByIdAsync(id, ct).ConfigureAwait(false);
-        if (entity is not null) related.Add(entity);
+        // GetByIdAsync is unscoped; keep only shared-bucket entities so a shared relationship that happens to
+        // point at an owned entity can't leak it (defense-in-depth alongside the shared-scope traversal above
+        // and the add_relationship guard below).
+        if (entity is { OwnerId: null }) related.Add(entity);
     }
     return Results.Ok(related.Select(ToEntityDto).ToList());
 });
@@ -390,15 +393,27 @@ app.MapPost("/get_related_entities", async (
 app.MapPost("/add_relationship", async (
     AddRelationshipRequest req,
     ILongTermMemoryService longTerm,
+    IEntityRepository entityRepo,
     IIdGenerator idGenerator,
     IClock clock,
     CancellationToken ct) =>
 {
+    var sourceId = NormalizeId(req.SourceId);
+    var targetId = NormalizeId(req.TargetId);
+    // Owner-isolation guard: the entity MERGE-by-id doesn't owner-filter, so an unguarded shared edge could
+    // attach to another owner's private entity and then be leaked through get_related_entities. Reject if
+    // either endpoint already exists and is NOT shared.
+    foreach (var (label, id) in new[] { ("source_id", sourceId), ("target_id", targetId) })
+    {
+        var existing = await entityRepo.GetByIdAsync(id, ct).ConfigureAwait(false);
+        if (existing is { OwnerId: not null })
+            return Results.BadRequest(new { error = $"{label} references a non-shared entity" });
+    }
     var relationship = await longTerm.AddRelationshipAsync(new Relationship
     {
         RelationshipId = idGenerator.GenerateId(),
-        SourceEntityId = NormalizeId(req.SourceId),
-        TargetEntityId = NormalizeId(req.TargetId),
+        SourceEntityId = sourceId,
+        TargetEntityId = targetId,
         RelationshipType = req.RelationshipType,
         Confidence = 1.0,
         Attributes = req.Properties ?? new Dictionary<string, object>(),
@@ -447,7 +462,11 @@ app.MapPost("/add_step", async (
     await addStepGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
-        var (_, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
+        var (trace, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
+        // Shared-bucket only: trace ids come from the caller, so refuse to mutate a non-shared (owner-scoped)
+        // trace by id — treat it as not found, consistent with get_trace_with_steps.
+        if (trace.OwnerId is not null)
+            return Results.NotFound(new { error = "trace not found" });
         var stepNumber = existingSteps.Count + 1;
         var step = await reasoning.AddStepAsync(
             traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: ct)
@@ -518,7 +537,9 @@ app.MapPost("/get_trace_with_steps", async (
     var traceId = NormalizeId(req.TraceId);
     var trace = await traceRepo.GetByIdAsync(traceId, ct).ConfigureAwait(false);
     TckReasoningTrace? dto = null;
-    if (trace is not null)
+    // Shared-bucket only: a non-shared (owner-scoped) trace is treated as not-found (200 null) so a known/
+    // guessed private trace id can't be read through the owner-agnostic bridge.
+    if (trace is { OwnerId: null })
     {
         var steps = await stepRepo.GetByTraceAsync(traceId, ct).ConfigureAwait(false);
         var stepDtos = new List<TckReasoningStep>(steps.Count);
@@ -542,7 +563,7 @@ app.MapPost("/list_traces", async (
     IReadOnlyList<ReasoningTrace> traces;
     if (!string.IsNullOrEmpty(req.SessionId))
     {
-        traces = await reasoning.ListTracesAsync(req.SessionId, limit, scope: null, ct).ConfigureAwait(false);
+        traces = await reasoning.ListTracesAsync(req.SessionId, limit, scope: sharedScope, ct).ConfigureAwait(false);
     }
     else
     {
