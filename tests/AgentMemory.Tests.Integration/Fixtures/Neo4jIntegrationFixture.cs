@@ -92,7 +92,8 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
     private async Task WaitForVectorIndexesAsync(int timeoutSeconds = 60)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-        while (!cts.IsCancellationRequested)
+        var token = cts.Token;
+        while (!token.IsCancellationRequested)
         {
             try
             {
@@ -102,12 +103,14 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
                 // making this poll silently burn the full timeout instead of returning once indexes are online.
                 var result = await session.RunAsync(
                     "SHOW INDEXES YIELD type, state WHERE type = 'VECTOR' AND state <> 'ONLINE' RETURN count(*) AS pending");
-                var record = await result.SingleAsync();
-                var pending = global::Neo4j.Driver.ValueExtensions.As<long>(record["pending"]);
-                if (pending == 0) return;
+                // Pass the bounded token so a stalled driver call cannot run past the timeout.
+                var record = await result.SingleAsync(token);
+                if (global::Neo4j.Driver.ValueExtensions.As<long>(record["pending"]) == 0) return;
             }
+            catch (OperationCanceledException) { return; /* timed out — best-effort, proceed */ }
             catch { /* ignore — Neo4j may not be fully ready */ }
-            await Task.Delay(500);
+            try { await Task.Delay(500, token); }
+            catch (OperationCanceledException) { return; }
         }
     }
 

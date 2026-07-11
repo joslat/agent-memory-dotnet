@@ -314,8 +314,12 @@ static async Task WaitForVectorIndexesOnlineAsync(
 {
     using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
     timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-    while (!timeoutCts.IsCancellationRequested)
+    var token = timeoutCts.Token;
+    while (true)
     {
+        // Caller cancellation always propagates; the bounded timeout just ends the wait (best-effort —
+        // schema is already bootstrapped, indexes finish coming online shortly after).
+        ct.ThrowIfCancellationRequested();
         try
         {
             await using var session = sessionFactory.OpenSession(AccessMode.Read);
@@ -325,18 +329,33 @@ static async Task WaitForVectorIndexesOnlineAsync(
             var result = await session.RunAsync(
                 "SHOW INDEXES YIELD type, state WHERE type = 'VECTOR' AND state <> 'ONLINE' RETURN count(*) AS pending")
                 .ConfigureAwait(false);
-            var record = await result.SingleAsync().ConfigureAwait(false);
-            var pending = record["pending"].As<long>();
-            if (pending == 0) return;
+            // Pass the bounded token so a stalled driver call cannot run past the timeout.
+            var record = await result.SingleAsync(token).ConfigureAwait(false);
+            if (record["pending"].As<long>() == 0) return;
         }
-        catch when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
+        {
+            // Timeout elapsed (or the caller cancelled) mid-query; stop waiting. Re-throw only genuine
+            // caller cancellation — the bounded timeout is best-effort, not a failure of /setup.
+            break;
+        }
+        catch
         {
             // Neo4j may not be fully ready yet (e.g. indexes still being created); keep polling
-            // until the bounded timeout elapses.
+            // until the bounded token trips.
         }
 
-        await Task.Delay(500, ct).ConfigureAwait(false);
+        try
+        {
+            await Task.Delay(500, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            break;
+        }
     }
+
+    ct.ThrowIfCancellationRequested();
 }
 
 // Exposed so a future WebApplicationFactory<Program>-based integration test (plan §4, Part C item 3)
