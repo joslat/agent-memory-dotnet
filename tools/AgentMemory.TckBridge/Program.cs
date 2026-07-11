@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgentMemory;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Stubs;
@@ -284,6 +285,13 @@ app.MapPost("/add_fact", async (
     return Results.Ok(new TckFact(fact.FactId, fact.Subject, fact.Predicate, fact.Object, fact.Embedding));
 });
 
+// Shared-bucket scope for the long-term READ endpoints: a null scope is UNSCOPED (all owners), which would
+// leak cross-owner records on a multi-tenant store. There is no built-in "shared only" scope (Global is
+// unscoped), so use a sentinel owner + includeShared: the filter becomes (owner_id = <sentinel> OR owner_id
+// IS NULL) and, since nothing is ever created under the sentinel, effectively "owner_id IS NULL" — the same
+// shared-bucket the bridge writes into, consistent with /list_traces and /get_tool_stats.
+var sharedScope = MemoryScope.For("__tck-bridge-shared-sentinel__", includeShared: true);
+
 app.MapPost("/search_entities", async (
     SearchEntitiesRequest req,
     ILongTermMemoryService longTerm,
@@ -292,7 +300,7 @@ app.MapPost("/search_entities", async (
 {
     var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
     var limit = req.Limit ?? 10;
-    var results = await longTerm.SearchEntitiesAsync(embedding, limit, minScore: 0.0, scope: null, ct)
+    var results = await longTerm.SearchEntitiesAsync(embedding, limit, minScore: 0.0, scope: sharedScope, ct)
         .ConfigureAwait(false);
     return Results.Ok(results.Select(ToEntityDto).ToList());
 });
@@ -305,7 +313,7 @@ app.MapPost("/search_preferences", async (
 {
     var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
     var limit = req.Limit ?? 10;
-    var results = await longTerm.SearchPreferencesAsync(embedding, limit, minScore: 0.0, scope: null, ct)
+    var results = await longTerm.SearchPreferencesAsync(embedding, limit, minScore: 0.0, scope: sharedScope, ct)
         .ConfigureAwait(false);
     // Category is applied as a post-search filter (not a separate category-only lookup) so /search_preferences
     // stays a single semantic-search call, matching the bridge-protocol shape (query + optional category).
@@ -319,7 +327,7 @@ app.MapPost("/get_entity_by_name", async (
     ILongTermMemoryService longTerm,
     CancellationToken ct) =>
 {
-    var entities = await longTerm.GetEntitiesByNameAsync(req.Name, includeAliases: true, scope: null, ct)
+    var entities = await longTerm.GetEntitiesByNameAsync(req.Name, includeAliases: true, scope: sharedScope, ct)
         .ConfigureAwait(false);
     // TCK contract: Entity or null (SPEC-3.6.2) — GetEntitiesByNameAsync returns a list (possible aliases),
     // so the first match wins. A single nullable local + one Results.Ok call keeps the lambda's inferred
@@ -350,7 +358,7 @@ app.MapPost("/get_related_entities", async (
         var nextFrontier = new HashSet<string>();
         foreach (var id in frontier)
         {
-            var relationships = await longTerm.GetEntityRelationshipsAsync(id, scope: null, ct).ConfigureAwait(false);
+            var relationships = await longTerm.GetEntityRelationshipsAsync(id, scope: sharedScope, ct).ConfigureAwait(false);
             foreach (var rel in relationships)
             {
                 if (req.RelationshipType is { Length: > 0 } && rel.RelationshipType != req.RelationshipType)
@@ -420,10 +428,11 @@ app.MapPost("/start_trace", async (
     return Results.Ok(ToTraceDto(trace, Array.Empty<TckReasoningStep>()));
 });
 
-// Per-trace gate: step_number is derived as "current count + 1", a read-then-write that is not atomic.
-// Serialize add_step per trace (within this bridge process) so two concurrent appends to the same trace
-// can't compute the same number (duplicate step_number / nondeterministic ORDER BY s.step_number).
-var stepGates = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>();
+// step_number is derived as "current count + 1", a read-then-write that is not atomic, so add_step is
+// serialized. A single process-wide gate (rather than a per-trace-id dictionary) both fixes the race and
+// avoids an unbounded map of trace-id -> SemaphoreSlim that would never be reclaimed in a long-running
+// process; for a sequential conformance bridge the extra serialization across traces is immaterial.
+var addStepGate = new SemaphoreSlim(1, 1);
 
 app.MapPost("/add_step", async (
     AddStepRequest req,
@@ -435,8 +444,7 @@ app.MapPost("/add_step", async (
     // "peek next step number" primitive either, so the next number is derived the same way a caller would
     // discover it: read the trace's current step count and add one. Costs one extra read per add_step call.
     var traceId = NormalizeId(req.TraceId);
-    var gate = stepGates.GetOrAdd(traceId, _ => new SemaphoreSlim(1, 1));
-    await gate.WaitAsync(ct).ConfigureAwait(false);
+    await addStepGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
         var (_, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
@@ -448,7 +456,7 @@ app.MapPost("/add_step", async (
     }
     finally
     {
-        gate.Release();
+        addStepGate.Release();
     }
 });
 

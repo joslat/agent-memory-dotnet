@@ -161,10 +161,14 @@ public sealed class CypherQueryExecutionSweepTests
                     {
                         built = (string)method.Invoke(null, args)!;
                     }
-                    catch (TargetInvocationException)
+                    catch (TargetInvocationException tie)
                     {
-                        // The method itself rejected this argument combination (e.g. an out-of-range enum);
-                        // that combination is not a real query shape, so skip it silently.
+                        // The method rejected this argument combination (e.g. an out-of-range enum). Record it
+                        // rather than dropping it silently, so a builder that STARTS throwing (a regression)
+                        // surfaces in the skip list instead of quietly reducing coverage.
+                        uninvokableMethods.Add(
+                            $"{type.Name}.{method.Name}({FormatArgs(args)}) — threw " +
+                            $"{tie.InnerException?.GetType().Name ?? nameof(TargetInvocationException)}: {tie.InnerException?.Message}");
                         continue;
                     }
 
