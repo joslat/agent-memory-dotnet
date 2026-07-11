@@ -18,12 +18,14 @@ public class TckBridgeWireContractTests
     private static readonly Regex Iso8601Pattern =
         new(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(Z|[+-]\d{2}:\d{2})$", RegexOptions.Compiled);
 
-    // Mirrors Program.cs's builder.Services.ConfigureHttpJsonOptions block exactly: snake_case
-    // wire names, case-insensitive read, and — critically — nulls are NOT globally ignored
-    // (embedding:null / title:null / created_at:null are legitimate response values the TCK
-    // asserts on), so this options instance intentionally omits DefaultIgnoreCondition.
+    // Mirrors runtime exactly: ASP.NET initializes HttpJsonOptions.SerializerOptions from
+    // JsonSerializerDefaults.Web, and Program.cs's ConfigureHttpJsonOptions then applies these two
+    // overrides on top — so start from the same Web baseline here. Snake_case wire names,
+    // case-insensitive read, and — critically — nulls are NOT globally ignored (embedding:null /
+    // title:null / created_at:null are legitimate response values the TCK asserts on), so this options
+    // instance intentionally omits DefaultIgnoreCondition.
     private static JsonSerializerOptions CreateBridgeJsonOptions() =>
-        new()
+        new(JsonSerializerDefaults.Web)
         {
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
             PropertyNameCaseInsensitive = true,

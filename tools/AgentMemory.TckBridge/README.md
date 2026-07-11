@@ -57,8 +57,11 @@ The Bronze tier is defined by the TCK as "schema and short-term memory", so the 
 | `POST /add_preference` | Create a long-term preference; asserts the round-tripped schema shape |
 | `POST /add_fact` | Create a long-term fact (subject/predicate/object triple) |
 
-Embeddings are produced by the deterministic `StubEmbeddingGenerator` (no external model calls), so search
-behavior is reproducible offline. Long-term records default `Confidence` to `1.0`.
+Embeddings are produced by `StubEmbeddingGenerator` (no external model calls), which is deterministic
+within a single process run — the same text yields the same vector while the bridge is up. It is not a
+semantic model and vectors are not guaranteed stable across restarts (it seeds on `string.GetHashCode()`,
+which is per-process randomized in .NET); that is fine for the TCK, whose Bronze search scenarios use
+`threshold=0.0`. Long-term records default `Confidence` to `1.0`.
 
 ## Scope
 
