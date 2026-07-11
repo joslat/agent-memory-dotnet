@@ -10,14 +10,15 @@
 
 - **`0.1.0-preview.4` is published** to NuGet (12 packages: `AgentMemory` + `AgentMemory.*`); GitHub release is live.
 - **The 2026-06-21 release record is clean and green:** Release build **0 warnings**; **2654 unit + 236 live-Neo4j integration tests passing**. This 2026-07-09 work now records **2658 Release unit tests passing**, plus a **5-test live Neo4j shakedown passing** for the golden-path/history changes; the earlier docs cleanup also recorded **34 Semantic Kernel tests passing**.
-- **Behavioral compatibility pack is merged to `main`:** local TCK-style mirrors, the compatibility catalog, read-audit/history expansion, and recency/frequency reranking are now on the default branch. The next compatibility slice is the upstream TCK HTTP bridge plus stable `SCN-*` scenario mapping.
+- **Behavioral compatibility pack is merged to `main`:** local TCK-style mirrors, the compatibility catalog, read-audit/history expansion, and recency/frequency reranking are now on the default branch.
+- **Upstream TCK HTTP bridge is merged to `main`** (PR #70, 2026-07-11): `tools/AgentMemory.TckBridge` serves 12 Bronze endpoints and passes the **full upstream Bronze tier, 93/93** (`pytest -m bronze --bridge-url http://localhost:3001` vs `neo4j-labs/agent-memory-tck` @ `4603b91f`). The next compatibility slice is the **Silver tier** (long-term search / reasoning / relationship endpoints).
 - The library is **feature-complete and heavily hardened** — 6 structured review cycles, then **6 rounds of full-repo adversarial bug-hunting + a convergence-verification pass** (80+ confirmed defects fixed, PRs #25–#69).
 
 ## What's next — pick up here
 
 None of this is bug-fixing; `main` is clean. (Full rationale in [ROADMAP → Next steps](docs/ROADMAP.md#next-steps).)
 
-1. **Start compatibility follow-up** — create/use `codex/tck-bridge-scn-mapping` for the upstream TCK HTTP bridge and stable `SCN-*` mapping; PR that follow-up branch when both are done.
+1. **TCK Silver tier** — extend `tools/AgentMemory.TckBridge` with the Silver endpoints (long-term search: `search_entities`/`search_preferences`/`get_entity_by_name`/`get_related_entities`; reasoning: `start_trace`/`add_step`/`record_tool_call`/`complete_trace`/`get_trace_with_steps`/`list_traces`/`get_tool_stats`) and run `pytest -m silver`. Bronze (schema + short-term) already passes 93/93.
 2. **Preview soak + real-world feedback** — validate the install/usage path on `preview.4`; iterate on ergonomics. **This is the gate to `1.0`.**
 3. **API stabilization → `1.0`** — lock the public surface under SemVer; fold in preview.4's small surface changes (nullable `UpdateAsync`, owner-scoped `ClearSession`/`DeleteBySession`).
 4. **Docs–code reconciliation** — keep `architecture.md` / `design.md` / `schema.md` synced; prefer dated facts over "durable" counts.
@@ -26,7 +27,8 @@ None of this is bug-fixing; `main` is clean. (Full rationale in [ROADMAP → Nex
 
 ## What just happened (most recent first)
 
-- **Behavioral compatibility pack merged and branch cleanup started** — the pack is on `main`; merged/stale branches were pruned, and the only useful artifact from the stale Aspire branch was salvaged as `samples/samples.sln`. Next: upstream TCK bridge + `SCN-*` mapping on `codex/tck-bridge-scn-mapping`.
+- **Upstream TCK Bronze bridge shipped** (PR #70, 2026-07-11, squash `c5b0b1f`) — `tools/AgentMemory.TckBridge` at **full Bronze conformance 93/93**. The conformance run found + fixed 5 wire-contract issues and **2 real Cypher bugs** (`ListSessions collect(m ORDER BY …)` was invalid Cypher; `SHOW INDEXES … RETURN` missing `YIELD`). A 7-round GitHub Copilot review was driven to zero. **Known pre-existing flake:** `MQ005` (`SupersedeFactAsync`) — root-caused to stub-embedding non-determinism triggering fact dedup; hardened separately.
+- **Behavioral compatibility pack merged and branch cleanup started** — the pack is on `main`; merged/stale branches were pruned, and the only useful artifact from the stale Aspire branch was salvaged as `samples/samples.sln`.
 - **Docs reconciled** to current reality (2026-07-09 docs pass) — active docs were corrected, `docs/core/` was added, stale package/schema/test/license claims were fixed, and historical task docs were labeled as historical.
 - **Released `0.1.0-preview.4`** (CHANGELOG finalized, tagged `v0.1.0-preview.4` → `squad-release.yml` packed + pushed to nuget.org + created the GitHub release).
 - **R6 hardening (PRs #63–#69):** MAF cancellation guards, entity-resolution `invalidated_at`, owner-scoped session clear/delete, truncation-ordering fixes, trace concurrent-delete race; then cleanup — CA2007 `ConfigureAwait(false)` enforced library-wide, culture-invariant formatting, status-aware telemetry, dead `EnableAutoPrune` removed.
