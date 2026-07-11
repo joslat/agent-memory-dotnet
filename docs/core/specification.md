@@ -118,7 +118,7 @@ Core automatic extraction on message persist MUST NOT be implied by a root optio
 
 ### 7.1 Required Node Labels
 
-The schema MUST include these labels where the relevant features are used:
+The schema MUST include these labels where the relevant features are used. All except `Migration` are declared as `SchemaConstants.NodeLabels` constants; `Migration` is emitted only as a Cypher literal by the schema/migration queries.
 
 - `Conversation`
 - `Message`
@@ -131,8 +131,9 @@ The schema MUST include these labels where the relevant features are used:
 - `Tool`
 - `Extractor`
 - `Schema`
-- `Migration`
 - `ConsolidationRun`
+- `MemoryReadAudit` (recall-time read-audit node; see §9.7)
+- `Migration` (Cypher literal only, not a `NodeLabels` constant)
 
 ### 7.2 Required Relationship Types
 
@@ -222,6 +223,10 @@ Graph traversal search MUST respect configured hop limits and owner scope.
 ### 9.6 Ranking
 
 Ranking MAY include semantic score, recency, structural hop decay, and query-intent presets. The default profile SHOULD preserve parity-style semantic ranking unless configured otherwise.
+
+### 9.7 Read Audit
+
+Long-term recall hits MUST update access telemetry on the matched node: set `last_accessed_at` to the read time and increment `access_count`. Each such read MUST also `CREATE` a `(:MemoryReadAudit)` node capturing `memory_id`, `owner_id`, `read_at`, and the post-increment `access_count`. These signals feed recency/frequency ranking (§9.6) and are non-destructive to the audited record.
 
 ## 10. Extraction Semantics
 

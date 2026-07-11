@@ -37,7 +37,7 @@ public interface IExtractorRepository
     /// Gets entities extracted by a given extractor. Deliberately unscoped (R1): this is an
     /// operator/QA provenance surface keyed by extractor name (a system handle, not a user identity),
     /// intended to span all owners; it has no user-facing caller. See the unscoped-reads disposition in
-    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
+    /// <c>docs/archive/Memory_Review_and_Implementation_Plan.md</c>.
     /// </summary>
     Task<IReadOnlyList<(Entity Entity, double Confidence)>> GetEntitiesByExtractorAsync(
         string extractorName,

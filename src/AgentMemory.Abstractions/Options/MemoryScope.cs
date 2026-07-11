@@ -3,7 +3,7 @@ namespace AgentMemory.Abstractions.Options;
 /// <summary>
 /// Describes whose long-term memory a recall may see — the owner/user tier of the
 /// <c>store ⊃ owner ⊃ session</c> scope model. See
-/// <c>docs/Memory_Review_and_Implementation_Plan.md</c> (R1).
+/// <c>docs/archive/Memory_Review_and_Implementation_Plan.md</c> (R1).
 /// </summary>
 /// <remarks>
 /// Semantics: when <see cref="OwnerId"/> is null, no owner filter is applied (global recall —

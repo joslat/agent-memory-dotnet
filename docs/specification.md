@@ -81,7 +81,7 @@ The shipped adapters are:
 
 - Microsoft Agent Framework: context provider, chat history provider, facade, memory tools, trace recorder, `WithMemoryIdentity` identity flow.
 - Semantic Kernel: `Neo4jMemoryPlugin`, text search adapter, DI helpers.
-- MCP server: memory tools, resources, prompts, stdio and HTTP host support.
+- MCP server: memory tools, resources, prompts, over the stdio host transport.
 - GraphRAG: internalized in `AgentMemory.Neo4j`; registered through `AddGraphRagAdapter` when enabled.
 
 ## Operational Requirements

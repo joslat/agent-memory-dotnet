@@ -19,7 +19,7 @@ public interface IEntityRepository
     /// Gets an entity by identifier. Deliberately unscoped (R1): the id is itself an already-owned
     /// handle (a caller can only hold it via an owner-scoped recall or by having created the entity),
     /// so no owner filter is applied. See the unscoped-reads disposition in
-    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
+    /// <c>docs/archive/Memory_Review_and_Implementation_Plan.md</c>.
     /// </summary>
     Task<Entity?> GetByIdAsync(
         string entityId,

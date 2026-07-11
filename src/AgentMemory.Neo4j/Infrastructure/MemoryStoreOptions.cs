@@ -4,7 +4,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 
 /// <summary>
 /// How memory stores (applications) are physically isolated. See
-/// <c>docs/Memory_Review_and_Implementation_Plan.md</c> (R1b).
+/// <c>docs/archive/Memory_Review_and_Implementation_Plan.md</c> (R1b).
 /// </summary>
 public enum MemoryStorageStrategy
 {

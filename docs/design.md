@@ -4,6 +4,7 @@
 **Author:** Deckard (Lead Architect), domain model by Roy (Core Memory Domain Engineer)
 **Canonical Specification:** [specification.md](specification.md)
 **Architecture Overview:** [architecture.md](architecture.md)
+**Architecture Narrative (companion):** [core/design-document.md](core/design-document.md) — prose walkthrough of goals, package topology, and design rationale; this document is the detailed interface/type catalog.
 
 ---
 
@@ -285,11 +286,11 @@ sequenceDiagram
 public enum ExtractionTypes
 {
     None = 0,
-    Entities = 1,
-    Facts = 2,
-    Preferences = 4,
-    Relationships = 8,
-    All = Entities | Facts | Preferences | Relationships
+    Entities = 1 << 0,      // 1
+    Relationships = 1 << 1, // 2
+    Facts = 1 << 2,         // 4
+    Preferences = 1 << 3,   // 8
+    All = Entities | Relationships | Facts | Preferences
 }
 ```
 
@@ -303,7 +304,7 @@ public enum ExtractionTypes
 | `StubRelationshipExtractor` | Returns empty list |
 | `StubEntityResolver` | Returns entities unmodified (no dedup) |
 | `StubExtractionPipeline` | Returns empty `ExtractionResult` |
-| `StubEmbeddingGenerator` | Returns deterministic zero-vectors of configured dimension |
+| `StubEmbeddingGenerator` | Returns deterministic pseudo-random vectors seeded by the input text (`text.GetHashCode()`), of configured dimension |
 
 ### 4.4 Phase 2+: Real Extraction (✅ COMPLETE)
 
@@ -357,7 +358,7 @@ This catalog is authoritative: it lists every interface in `AgentMemory.Abstract
 | 29 | `IClock` | Testable time abstraction | `UtcNow` |
 | 30 | `IIdGenerator` | Testable ID generation | `GenerateId` |
 | 31 | `IConsolidationService` | Memory-hygiene consolidation (dedup/collapse), dry-run by default (PR #113) | `ConsolidateAsync` |
-| 32 | `IConflictDetectionService` | Detect (and optionally resolve) contradicting facts | `DetectFactContradictionsAsync`, `ResolveFactContradictionsAsync` |
+| 32 | `IConflictDetectionService` | Detect (and optionally resolve) contradicting facts | `DetectConflictsAsync`, `ResolveFactContradictionsAsync` |
 | 33 | `IMemoryOwnerContext` | Ambient owner/user id for the current scope (IC8, read) | `UserId` |
 | 34 | `IWritableMemoryOwnerContext` | Writable owner context — adapters set it per request/agent run | `UserId` (set) |
 | 35 | `IMemoryStoreContext` | Ambient application/memory-store id (R1b store tier, read) | `ApplicationId` |
@@ -427,9 +428,13 @@ MemoryOptions (root)
 │   ├── MaxTokens (default: null/unlimited)
 │   ├── MaxCharacters (default: null/unlimited)
 │   └── TruncationStrategy (default: OldestFirst)
-├── EnableGraphRag (default: false)
-└── EnableAutoExtraction (default: true)
+└── EnableGraphRag (default: false)
 ```
+
+> **Note:** There is no `EnableAutoExtraction` flag on `MemoryOptions`. Extraction at the Core layer
+> is always explicit (`ExtractAndPersistAsync` / `ExtractFromSessionAsync`). Automatic extraction on
+> message persist is an adapter concern, controlled by `AgentFrameworkOptions.AutoExtractOnPersist`
+> (default: `true`).
 
 ### 7.2 Neo4j-Specific Configuration
 

@@ -1,3 +1,5 @@
+> **ARCHIVED — implemented and shipped in NuGet 0.1.0-preview.4. Kept as the deep isolation-design reference (owner_id / MemoryScope / store-tier). For live status see [../ROADMAP.md](../ROADMAP.md).**
+
 # Memory Review & Implementation Plan
 
 > **Author:** Architecture review (Claude) · **Date:** 2026-06-05 · **Branch:** `remediation/analysis-review-hardening`

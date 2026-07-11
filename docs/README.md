@@ -19,7 +19,7 @@ Start with **[ROADMAP.md](ROADMAP.md)** for the overarching plan and current sta
 |-----|----------------|
 | [nextsteps.md](nextsteps.md) | Historical task-tracking table and prioritization rationale |
 | [Improvement-Ideas-Backlog.md](Improvement-Ideas-Backlog.md) | Current deferred ideas with stale shipped items removed |
-| [Memory_Review_and_Implementation_Plan.md](Memory_Review_and_Implementation_Plan.md) | Detailed historical implementation plan (multi-tenant isolation deep-dive) — kept as deep reference |
+| [Memory_Review_and_Implementation_Plan.md](archive/Memory_Review_and_Implementation_Plan.md) | Detailed historical implementation plan (multi-tenant isolation deep-dive) — kept as deep reference |
 | [core/implementation-plan-golden-path-compatibility.md](core/implementation-plan-golden-path-compatibility.md) | Active implementation plan for the golden-path sample and compatibility automation |
 | [core/behavioral-compatibility-pack-status.md](core/behavioral-compatibility-pack-status.md) | Live tracker for the behavioral compatibility pack and verification evidence |
 

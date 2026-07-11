@@ -2,7 +2,7 @@
 
 > **The single authoritative "where we are / what's done / what's next" document.**
 > For the deep historical implementation plan see
-> [`Memory_Review_and_Implementation_Plan.md`](Memory_Review_and_Implementation_Plan.md); for completed
+> [`Memory_Review_and_Implementation_Plan.md`](archive/Memory_Review_and_Implementation_Plan.md); for completed
 > review records see [`reviews/`](reviews/); for the deferred-ideas backlog see
 > [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md).
 > **Last updated: 2026-07-11.**
@@ -151,7 +151,7 @@ Nothing below is a bug or regression — `main` is clean. The first row is the n
 | [`architecture.md`](architecture.md) · [`design.md`](design.md) · [`schema.md`](schema.md) | Current reference — layers/boundaries, type/interface catalogs, Neo4j graph model |
 | [`specification.md`](specification.md) | Short current specification entry point; detailed specification lives in [`core/specification.md`](core/specification.md) |
 | [`nextsteps.md`](nextsteps.md) · [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md) | Historical task tracking + .NET-vs-Python assessment · current deferred-ideas backlog |
-| [`Memory_Review_and_Implementation_Plan.md`](Memory_Review_and_Implementation_Plan.md) | The detailed historical implementation plan (isolation deep-dive); kept as deep reference |
+| [`Memory_Review_and_Implementation_Plan.md`](archive/Memory_Review_and_Implementation_Plan.md) | The detailed historical implementation plan (isolation deep-dive); kept as deep reference |
 | [`reviews/`](reviews/) | Completed adversarial-review records (point-in-time) |
 | [`reference/`](reference/) | Upstream / parity reference (Python schema snapshots, PR how-to, MAF migration guides) |
 | [`archive/`](archive/) | Superseded plans and now-implemented design discussions (read-only history) |
