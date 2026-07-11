@@ -142,11 +142,11 @@ app.MapPost("/get_conversation", async (
     if (req.Limit is int limit)
         messages = messages.Take(limit).ToList();
 
-    // JUDGMENT CALL: unknown/no-conversation session returns an empty-messages envelope (200), not a
-    // 404 — SCN-B-045 ("returns empty for non-existent session") implies this shape. The runner parses
-    // the envelope id through UUID(...) (tck _conversation_from_dict), and TCK session ids are not UUIDs
-    // (fixture: f"tck-{uuid4()}"), so fall back to the nil UUID (not the raw session id) when there is no
-    // backing Conversation node yet. Timestamps fall back to DateTimeOffset default in that case.
+    // Unknown/no-conversation session returns an empty-messages envelope (200), not a 404 — the confirmed
+    // contract (SCN-B-045 "returns empty for non-existent session", which passes in the conformance run).
+    // The runner parses the envelope id through UUID(...) (tck _conversation_from_dict) and TCK session ids
+    // are not UUIDs (fixture: f"tck-{uuid4()}"), so fall back to the nil UUID (not the raw session id) when
+    // there is no backing Conversation node yet. Timestamps fall back to DateTimeOffset default in that case.
     var dto = new TckConversation(
         Id: conversation?.ConversationId ?? Guid.Empty.ToString(),
         SessionId: req.SessionId,
@@ -186,11 +186,9 @@ app.MapPost("/delete_message", async (
     IMessageRepository messageRepo,
     CancellationToken ct) =>
 {
-    // JUDGMENT CALL: base_adapter.delete_message returns a bare bool upstream, while
-    // bridge-protocol.adoc names a "deleted" field. No reference bridge server was available to
-    // confirm live; defaulting to the wrapped {"deleted": bool} shape per the plan's guidance
-    // (a superset of the bare-bool contract is the safer default — trivially unwrapped by a caller
-    // that only expects a bool, whereas the reverse is not true).
+    // delete_message returns {"deleted": bool} — the confirmed contract: bridge-protocol.adoc's wire
+    // spec names a "deleted" field and the TCK runner reads result.get("deleted", False)
+    // (tck/adapters/http_bridge.py), verified by the passing Bronze conformance run.
     // The TCK client round-trips ids through Python's UUID(), which re-emits them in canonical dashed
     // form, while IIdGenerator stores them as unhyphenated 32-char hex ("N" format). Normalize the
     // incoming id to the stored format so the lookup matches regardless of hyphenation.
