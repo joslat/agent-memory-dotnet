@@ -253,18 +253,25 @@ public sealed class TckMirroredBehaviorTests : IAsyncLifetime
         var history = scope.ServiceProvider.GetRequiredService<IMemoryHistoryService>();
         var decay = scope.ServiceProvider.GetRequiredService<IMemoryDecayService>();
 
+        // Explicit orthogonal embeddings (cosine 0) keep these two same-subject+predicate+owner facts
+        // DISTINCT under AddFactAsync's embedding-similarity dedup-on-create. Without them the facts get
+        // stub embeddings seeded on per-process-randomized string.GetHashCode(), so on some runs Paris/London
+        // land similar enough to be deduped into one node — collapsing loser.FactId == winner.FactId and
+        // making the supersede below return false (a self-supersede). That was the MQ005 CI flake.
         var loser = await longTerm.AddFactAsync(NewFact(
             "TCK Alice",
             "lives_in",
             "Paris",
             "alice",
-            sourceMessageIds: ["source-old"]));
+            sourceMessageIds: ["source-old"],
+            embedding: TargetEmbedding));
         var winner = await longTerm.AddFactAsync(NewFact(
             "TCK Alice",
             "lives_in",
             "London",
             "alice",
-            sourceMessageIds: ["source-new"]));
+            sourceMessageIds: ["source-new"],
+            embedding: DistractorEmbedding));
 
         (await longTerm.SupersedeFactAsync(loser.FactId, winner.FactId, Alice))
             .Should().BeTrue();
@@ -355,7 +362,8 @@ public sealed class TckMirroredBehaviorTests : IAsyncLifetime
         string predicate,
         string obj,
         string? owner,
-        IReadOnlyList<string>? sourceMessageIds = null) => new()
+        IReadOnlyList<string>? sourceMessageIds = null,
+        float[]? embedding = null) => new()
     {
         FactId = Id("fact"),
         Subject = subject,
@@ -363,6 +371,12 @@ public sealed class TckMirroredBehaviorTests : IAsyncLifetime
         Object = obj,
         Confidence = 0.95,
         OwnerId = owner,
+        // When null, AddFactAsync generates an embedding via StubEmbeddingGenerator, which seeds on
+        // string.GetHashCode() (per-process randomized in .NET). Two facts with the same subject+predicate+
+        // owner are dedup-on-create candidates (AddFactAsync reinforces a near-duplicate by embedding
+        // similarity), so a caller that needs them to stay DISTINCT nodes must pass explicit, dissimilar
+        // embeddings — otherwise the stub's per-run randomness makes distinctness flaky. See MQ005.
+        Embedding = embedding,
         SourceMessageIds = sourceMessageIds ?? Array.Empty<string>(),
         CreatedAtUtc = DateTimeOffset.UtcNow,
     };
