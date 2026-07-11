@@ -439,6 +439,10 @@ app.MapPost("/merge_duplicate_entities", async (
 {
     var sourceId = NormalizeId(req.SourceId);
     var targetId = NormalizeId(req.TargetId);
+    // Reject self-merge: MergeEntitiesAsync would otherwise stamp the entity's own id into merged_into
+    // (marking it merged into itself, which drops it from live views) — a well-defined 400 for invalid input.
+    if (sourceId == targetId)
+        return Results.BadRequest(new { error = "source_id and target_id must differ" });
     // Owner-isolation guard (mirrors add_relationship): the scoped MergeEntitiesAsync already no-ops across
     // the isolation boundary, but reject up-front with a clear error if either endpoint is a non-shared
     // (owned) entity, and 404 if either is missing — a merge needs both sides to exist.
@@ -677,6 +681,10 @@ app.MapPost("/get_similar_traces", async (
     CancellationToken ct) =>
 {
     var limit = req.Limit ?? 5;
+    // Reject a non-positive limit up front with a clear 400: a negative LIMIT throws inside Neo4j (an
+    // avoidable 500), and asking a similarity search for <= 0 results is a client error either way.
+    if (limit <= 0)
+        return Results.BadRequest(new { error = "limit must be positive" });
     // success_only=true (the adapter default) ⇒ only traces with success=true; success_only=false ⇒ no
     // success filter (include unsuccessful/incomplete traces). Map to SearchSimilarTracesAsync's successFilter.
     bool? successFilter = (req.SuccessOnly ?? true) ? true : (bool?)null;

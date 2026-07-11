@@ -197,12 +197,18 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
     {
         var aliceId = await SeedOwnedEntityAsync("AliceCo", "alice");
         var bobId = await SeedOwnedEntityAsync("BobCo", "bob");
+        var bobBefore = await _repo.GetByIdAsync(bobId);
 
         // bob's scope must not be able to merge alice's entity into bob's.
         await _repo.MergeEntitiesAsync(aliceId, bobId, MemoryScope.For("bob"));
 
         (await _repo.GetByIdAsync(aliceId)).Should().NotBeNull("the cross-owner merge must no-op");
-        (await _repo.GetByIdAsync(bobId))!.Aliases.Should().NotContain("AliceCo", "bob's entity must not absorb alice's name");
+        var bobAfter = await _repo.GetByIdAsync(bobId);
+        bobAfter!.Aliases.Should().NotContain("AliceCo", "bob's entity must not absorb alice's name");
+        // A guarded no-match merge is a TRUE no-op: it must NOT run the post-merge search-field refresh,
+        // which would otherwise bump bob's updated_at — a scoped call silently writing another owner's node.
+        bobAfter.UpdatedAtUtc.Should().Be(bobBefore!.UpdatedAtUtc,
+            "a no-op merge must not touch bob's entity at all (no post-merge refresh)");
     }
 
     [Fact]
