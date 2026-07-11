@@ -7,6 +7,7 @@ using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.TckBridge;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neo4j.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,11 +43,12 @@ builder.Services.AddNeo4jAgentMemory(
         o.EmbeddingDimensions = embeddingDimensions;
     });
 
-// Neither AddAgentMemoryCore nor the Neo4j infrastructure registration TryAdds an
-// IEmbeddingGenerator<string, Embedding<float>> (confirmed by reading both — the Neo4j
-// ServiceCollectionExtensions.AddNeo4jAgentMemory and AgentMemory.Core's AddAgentMemoryCore never
-// touch that service type), so this explicit registration is required, not a double-register risk.
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+// Register the deterministic StubEmbeddingGenerator as a FALLBACK (TryAdd, matching
+// tools/AgentMemory.Cli): a host running the bridge against a real environment can supply its own
+// IEmbeddingGenerator<string, Embedding<float>> (registered before this point) and it wins, honouring the
+// README's "unless a real provider is wired in" contract. Nothing in AddNeo4jAgentMemory /
+// AddAgentMemoryCore registers this service, so TryAdd installs the deterministic stub by default.
+builder.Services.TryAddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
     new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), embeddingDimensions));
 
 builder.Services.AddSingleton<BridgeAdmin>();
