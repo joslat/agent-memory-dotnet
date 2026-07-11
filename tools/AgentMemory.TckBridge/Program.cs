@@ -429,6 +429,39 @@ app.MapPost("/add_relationship", async (
         relationship.RelationshipType, relationship.Attributes));
 });
 
+// merge_duplicate_entities (Gold tier): fold a duplicate (source) entity into a canonical (target) one.
+// The target survives and keeps its id, so the returned Entity has id == target_id. Ids are normalized to
+// stored ("N") form (the TCK round-trips them through Python UUID()) before the merge and the lookups.
+app.MapPost("/merge_duplicate_entities", async (
+    MergeDuplicateEntitiesRequest req,
+    IEntityRepository entityRepo,
+    CancellationToken ct) =>
+{
+    var sourceId = NormalizeId(req.SourceId);
+    var targetId = NormalizeId(req.TargetId);
+    // Owner-isolation guard (mirrors add_relationship): the scoped MergeEntitiesAsync already no-ops across
+    // the isolation boundary, but reject up-front with a clear error if either endpoint is a non-shared
+    // (owned) entity, and 404 if either is missing — a merge needs both sides to exist.
+    var source = await entityRepo.GetByIdAsync(sourceId, ct).ConfigureAwait(false);
+    var target = await entityRepo.GetByIdAsync(targetId, ct).ConfigureAwait(false);
+    if (source is null || target is null)
+        return Results.NotFound(new { error = "source_id or target_id not found" });
+    if (source.OwnerId is not null || target.OwnerId is not null)
+        return Results.BadRequest(new { error = "merge endpoints must reference shared entities" });
+
+    await entityRepo.MergeEntitiesAsync(sourceId, targetId, sharedScope, ct).ConfigureAwait(false);
+
+    // canonical_name is optional in the wire contract (the TCK never sends it, but honor it for
+    // completeness): apply it to the surviving target without disturbing the merge's own field updates.
+    var merged = await entityRepo.GetByIdAsync(targetId, ct).ConfigureAwait(false);
+    if (merged is null)
+        return Results.NotFound(new { error = "target entity not found after merge" });
+    if (req.CanonicalName is not null)
+        merged = await entityRepo.UpsertAsync(merged with { CanonicalName = req.CanonicalName }, ct).ConfigureAwait(false);
+
+    return Results.Ok(ToEntityDto(merged));
+});
+
 // ---- Reasoning memory (Silver tier: start_trace / add_step / record_tool_call / complete_trace /
 // get_trace_with_steps / list_traces / get_tool_stats) ----
 
@@ -632,6 +665,25 @@ app.MapPost("/get_tool_stats", async (
             totalCalls > 0 ? (double)totalDurationMs / totalCalls : null);
     }).ToList();
     return Results.Ok(stats);
+});
+
+// get_similar_traces (Gold tier): find reasoning traces whose task is semantically similar to a query task.
+// Embeds the query the same way start_trace embeds a trace's task (via the injected IEmbeddingGenerator),
+// then vector-searches shared-bucket traces. Returns [] on an empty store (SPEC-5.4.3).
+app.MapPost("/get_similar_traces", async (
+    GetSimilarTracesRequest req,
+    IReasoningMemoryService reasoning,
+    IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    CancellationToken ct) =>
+{
+    var limit = req.Limit ?? 5;
+    // success_only=true (the adapter default) ⇒ only traces with success=true; success_only=false ⇒ no
+    // success filter (include unsuccessful/incomplete traces). Map to SearchSimilarTracesAsync's successFilter.
+    bool? successFilter = (req.SuccessOnly ?? true) ? true : (bool?)null;
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Task, ct).ConfigureAwait(false);
+    var traces = await reasoning.SearchSimilarTracesAsync(
+        embedding, successFilter, limit, minScore: 0.0, scope: sharedScope, ct).ConfigureAwait(false);
+    return Results.Ok(traces.Select(t => ToTraceDto(t, Array.Empty<TckReasoningStep>())).ToList());
 });
 
 app.Run();

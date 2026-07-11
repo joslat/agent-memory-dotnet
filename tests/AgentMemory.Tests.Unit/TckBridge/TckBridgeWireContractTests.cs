@@ -858,4 +858,67 @@ public class TckBridgeWireContractTests
         message.Role.Should().Be("user");
         message.Content.Should().Be("hi");
     }
+
+    // ---- Gold tier (merge_duplicate_entities / get_similar_traces) ----
+
+    [Fact]
+    public void MergeDuplicateEntitiesRequest_Deserializes_SnakeCaseFields()
+    {
+        var options = CreateBridgeJsonOptions();
+        const string json =
+            """{"source_id":"e-2","target_id":"e-1","canonical_name":"Alice Johnson"}""";
+
+        var request = JsonSerializer.Deserialize<MergeDuplicateEntitiesRequest>(json, options);
+
+        request.Should().NotBeNull();
+        request!.SourceId.Should().Be("e-2");
+        request.TargetId.Should().Be("e-1");
+        request.CanonicalName.Should().Be("Alice Johnson");
+    }
+
+    [Fact]
+    public void MergeDuplicateEntitiesRequest_OmittedCanonicalName_IsNull()
+    {
+        // The TCK sends canonical_name as null (BaseAdapter.merge_duplicate_entities defaults it to None),
+        // and http_bridge includes the key with a null value — either way the property must bind to null.
+        var options = CreateBridgeJsonOptions();
+        const string json = """{"source_id":"e-2","target_id":"e-1"}""";
+
+        var request = JsonSerializer.Deserialize<MergeDuplicateEntitiesRequest>(json, options);
+
+        request.Should().NotBeNull();
+        request!.SourceId.Should().Be("e-2");
+        request.TargetId.Should().Be("e-1");
+        request.CanonicalName.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetSimilarTracesRequest_Deserializes_SnakeCaseFields()
+    {
+        var options = CreateBridgeJsonOptions();
+        const string json = """{"task":"What is Alice's role?","limit":2,"success_only":false}""";
+
+        var request = JsonSerializer.Deserialize<GetSimilarTracesRequest>(json, options);
+
+        request.Should().NotBeNull();
+        request!.Task.Should().Be("What is Alice's role?");
+        request.Limit.Should().Be(2);
+        request.SuccessOnly.Should().BeFalse();
+    }
+
+    [Fact]
+    public void GetSimilarTracesRequest_OmittedOptionals_AreNull()
+    {
+        // limit and success_only are optional on the wire; when omitted the bridge falls back to its
+        // defaults (limit 5, success_only treated as true), so the DTO must leave them null, not 0/false.
+        var options = CreateBridgeJsonOptions();
+        const string json = """{"task":"anything"}""";
+
+        var request = JsonSerializer.Deserialize<GetSimilarTracesRequest>(json, options);
+
+        request.Should().NotBeNull();
+        request!.Task.Should().Be("anything");
+        request.Limit.Should().BeNull();
+        request.SuccessOnly.Should().BeNull();
+    }
 }
