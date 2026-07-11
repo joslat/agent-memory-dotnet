@@ -284,6 +284,283 @@ app.MapPost("/add_fact", async (
     return Results.Ok(new TckFact(fact.FactId, fact.Subject, fact.Predicate, fact.Object, fact.Embedding));
 });
 
+app.MapPost("/search_entities", async (
+    SearchEntitiesRequest req,
+    ILongTermMemoryService longTerm,
+    IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    CancellationToken ct) =>
+{
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
+    var limit = req.Limit ?? 10;
+    var results = await longTerm.SearchEntitiesAsync(embedding, limit, minScore: 0.0, scope: null, ct)
+        .ConfigureAwait(false);
+    return Results.Ok(results.Select(ToEntityDto).ToList());
+});
+
+app.MapPost("/search_preferences", async (
+    SearchPreferencesRequest req,
+    ILongTermMemoryService longTerm,
+    IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    CancellationToken ct) =>
+{
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
+    var limit = req.Limit ?? 10;
+    var results = await longTerm.SearchPreferencesAsync(embedding, limit, minScore: 0.0, scope: null, ct)
+        .ConfigureAwait(false);
+    // Category is applied as a post-search filter (not a separate category-only lookup) so /search_preferences
+    // stays a single semantic-search call, matching the bridge-protocol shape (query + optional category).
+    if (!string.IsNullOrEmpty(req.Category))
+        results = results.Where(p => p.Category == req.Category).ToList();
+    return Results.Ok(results.Select(ToPreferenceDto).ToList());
+});
+
+app.MapPost("/get_entity_by_name", async (
+    GetEntityByNameRequest req,
+    ILongTermMemoryService longTerm,
+    CancellationToken ct) =>
+{
+    var entities = await longTerm.GetEntitiesByNameAsync(req.Name, includeAliases: true, scope: null, ct)
+        .ConfigureAwait(false);
+    // TCK contract: Entity or null (SPEC-3.6.2) — GetEntitiesByNameAsync returns a list (possible aliases),
+    // so the first match wins. A single nullable local + one Results.Ok call keeps the lambda's inferred
+    // return type uniform (Ok<TckEntity?>) across both the found/not-found cases.
+    TckEntity? dto = entities.Count > 0 ? ToEntityDto(entities[0]) : null;
+    return Results.Ok(dto);
+});
+
+app.MapPost("/get_related_entities", async (
+    GetRelatedEntitiesRequest req,
+    ILongTermMemoryService longTerm,
+    IEntityRepository entityRepo,
+    CancellationToken ct) =>
+{
+    // ILongTermMemoryService has no "related entities" method — GetEntityRelationshipsAsync (the closest
+    // graph-traversal primitive) returns Relationship edges (source/target ids), not the entities themselves,
+    // so each hop's related ids are resolved individually via IEntityRepository.GetByIdAsync. depth > 1 is
+    // handled as a genuine BFS expansion (not just single-hop): each level's discovered ids become the next
+    // level's frontier, so multi-hop traversal is real, not a stub.
+    var entityId = NormalizeId(req.EntityId);
+    var depth = req.Depth is int d && d > 0 ? d : 1;
+    var frontier = new HashSet<string> { entityId };
+    var visited = new HashSet<string> { entityId };
+    var relatedIds = new List<string>();
+
+    for (var hop = 0; hop < depth && frontier.Count > 0; hop++)
+    {
+        var nextFrontier = new HashSet<string>();
+        foreach (var id in frontier)
+        {
+            var relationships = await longTerm.GetEntityRelationshipsAsync(id, scope: null, ct).ConfigureAwait(false);
+            foreach (var rel in relationships)
+            {
+                if (req.RelationshipType is { Length: > 0 } && rel.RelationshipType != req.RelationshipType)
+                    continue;
+                var otherId = rel.SourceEntityId == id ? rel.TargetEntityId : rel.SourceEntityId;
+                if (visited.Add(otherId))
+                {
+                    relatedIds.Add(otherId);
+                    nextFrontier.Add(otherId);
+                }
+            }
+        }
+        frontier = nextFrontier;
+    }
+
+    var related = new List<Entity>(relatedIds.Count);
+    foreach (var id in relatedIds)
+    {
+        var entity = await entityRepo.GetByIdAsync(id, ct).ConfigureAwait(false);
+        if (entity is not null) related.Add(entity);
+    }
+    return Results.Ok(related.Select(ToEntityDto).ToList());
+});
+
+// add_relationship is Gold-tier in bridge-protocol.adoc, but the Silver get_related_entities tests call it
+// to set up their fixture data, so the bridge serves it. Normalize the entity ids to stored ("N") form —
+// the TCK round-trips them through Python UUID() into dashed form — before creating the edge, so it matches
+// the same-normalized ids get_related_entities traverses.
+app.MapPost("/add_relationship", async (
+    AddRelationshipRequest req,
+    ILongTermMemoryService longTerm,
+    IIdGenerator idGenerator,
+    IClock clock,
+    CancellationToken ct) =>
+{
+    var relationship = await longTerm.AddRelationshipAsync(new Relationship
+    {
+        RelationshipId = idGenerator.GenerateId(),
+        SourceEntityId = NormalizeId(req.SourceId),
+        TargetEntityId = NormalizeId(req.TargetId),
+        RelationshipType = req.RelationshipType,
+        Confidence = 1.0,
+        Attributes = req.Properties ?? new Dictionary<string, object>(),
+        CreatedAtUtc = clock.UtcNow,
+    }, ct).ConfigureAwait(false);
+    return Results.Ok(new TckRelationship(
+        relationship.RelationshipId, relationship.SourceEntityId, relationship.TargetEntityId,
+        relationship.RelationshipType, relationship.Attributes));
+});
+
+// ---- Reasoning memory (Silver tier: start_trace / add_step / record_tool_call / complete_trace /
+// get_trace_with_steps / list_traces / get_tool_stats) ----
+
+app.MapPost("/start_trace", async (
+    StartTraceRequest req,
+    IReasoningMemoryService reasoning,
+    IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+    CancellationToken ct) =>
+{
+    // Bridge embeds the task explicitly (via the injected IEmbeddingGenerator) rather than relying on
+    // ReasoningMemoryService's own auto-embedding, mirroring add_entity/add_preference/add_fact's pattern
+    // above — the bridge only has access to the public IEmbeddingGenerator, not the internal orchestrator.
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Task, ct).ConfigureAwait(false);
+    var trace = await reasoning.StartTraceAsync(
+        req.SessionId, req.Task, taskEmbedding: embedding, ownerId: null, cancellationToken: ct)
+        .ConfigureAwait(false);
+    return Results.Ok(ToTraceDto(trace, Array.Empty<TckReasoningStep>()));
+});
+
+app.MapPost("/add_step", async (
+    AddStepRequest req,
+    IReasoningMemoryService reasoning,
+    CancellationToken ct) =>
+{
+    // AddStepAsync requires a caller-supplied stepNumber, but the TCK's add_step contract has no such
+    // parameter (bridge-protocol.adoc: trace_id, thought?, action?, observation? only) — there is no
+    // "peek next step number" primitive either, so the next number is derived the same way a caller would
+    // discover it: read the trace's current step count and add one. Costs one extra read per add_step call.
+    var traceId = NormalizeId(req.TraceId);
+    var (_, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
+    var stepNumber = existingSteps.Count + 1;
+    var step = await reasoning.AddStepAsync(
+        traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: ct)
+        .ConfigureAwait(false);
+    return Results.Ok(ToStepDto(step, Array.Empty<ToolCall>()));
+});
+
+app.MapPost("/record_tool_call", async (
+    RecordToolCallRequest req,
+    IReasoningMemoryService reasoning,
+    CancellationToken ct) =>
+{
+    // RecordToolCallAsync's own default is ToolCallStatus.Pending, but the TCK's BaseAdapter contract default
+    // is SUCCESS (record_tool_call(..., status: ToolCallStatus = ToolCallStatus.SUCCESS)); the TCK's HTTP
+    // client always serializes its resolved default onto the wire (http_bridge.py's _serialize only omits
+    // None, and SUCCESS is never None), so in practice "status" arrives on every call — this fallback only
+    // matters for a caller hitting the bridge directly without going through the TCK client.
+    var status = req.Status is { Length: > 0 }
+        ? Enum.Parse<ToolCallStatus>(req.Status, ignoreCase: true)
+        : ToolCallStatus.Success;
+    var argumentsJson = req.Arguments.GetRawText();
+    var resultJson = req.Result.HasValue ? req.Result.Value.GetRawText() : null;
+    var toolCall = await reasoning.RecordToolCallAsync(
+        NormalizeId(req.StepId), req.ToolName, argumentsJson, resultJson, status, req.DurationMs, req.Error,
+        cancellationToken: ct)
+        .ConfigureAwait(false);
+    return Results.Ok(ToToolCallDto(toolCall));
+});
+
+app.MapPost("/complete_trace", async (
+    CompleteTraceRequest req,
+    IReasoningMemoryService reasoning,
+    CancellationToken ct) =>
+{
+    var trace = await reasoning.CompleteTraceAsync(NormalizeId(req.TraceId), req.Outcome, req.Success, ct)
+        .ConfigureAwait(false);
+    return Results.Ok(ToTraceDto(trace, Array.Empty<TckReasoningStep>()));
+});
+
+app.MapPost("/get_trace_with_steps", async (
+    GetTraceWithStepsRequest req,
+    IReasoningTraceRepository traceRepo,
+    IReasoningStepRepository stepRepo,
+    IToolCallRepository toolCallRepo,
+    CancellationToken ct) =>
+{
+    // Uses the repositories directly (not IReasoningMemoryService.GetTraceWithStepsAsync, which throws
+    // TraceNotFound) so a nonexistent trace_id can return the TCK-mandated 200 null (SPEC-4.5.3) rather than
+    // a 500 — the same null-on-not-found convention as Bronze's /get_entity_by_name-style lookups.
+    var traceId = NormalizeId(req.TraceId);
+    var trace = await traceRepo.GetByIdAsync(traceId, ct).ConfigureAwait(false);
+    TckReasoningTrace? dto = null;
+    if (trace is not null)
+    {
+        var steps = await stepRepo.GetByTraceAsync(traceId, ct).ConfigureAwait(false);
+        var stepDtos = new List<TckReasoningStep>(steps.Count);
+        foreach (var step in steps)
+        {
+            var toolCalls = await toolCallRepo.GetByStepAsync(step.StepId, ct).ConfigureAwait(false);
+            stepDtos.Add(ToStepDto(step, toolCalls));
+        }
+        dto = ToTraceDto(trace, stepDtos);
+    }
+    return Results.Ok(dto);
+});
+
+app.MapPost("/list_traces", async (
+    ListTracesRequest req,
+    IReasoningMemoryService reasoning,
+    INeo4jSessionFactory sessionFactory,
+    CancellationToken ct) =>
+{
+    var limit = req.Limit ?? 100;
+    IReadOnlyList<ReasoningTrace> traces;
+    if (!string.IsNullOrEmpty(req.SessionId))
+    {
+        traces = await reasoning.ListTracesAsync(req.SessionId, limit, scope: null, ct).ConfigureAwait(false);
+    }
+    else
+    {
+        // Judgment call (openQuestions): neither IReasoningMemoryService.ListTracesAsync nor
+        // IReasoningTraceRepository can list traces across every session — both require a session_id — yet
+        // SPEC-4.6.1 (list_traces with no session_id) requires exactly "all traces, any session". Read-only
+        // raw Cypher against the same ReasoningTrace schema Neo4jReasoningTraceRepository maintains, mirroring
+        // BridgeAdmin's own "no high-level service for X, so run raw Cypher" precedent — filtered to the
+        // shared/global bucket (owner_id IS NULL) to match this bridge's owner-agnostic design (see
+        // /clear_session's comment), so this fallback can never surface another owner's private trace.
+        await using var session = sessionFactory.OpenSession(AccessMode.Read);
+        var cursor = await session.RunAsync(
+            "MATCH (t:ReasoningTrace) WHERE t.owner_id IS NULL RETURN t ORDER BY t.started_at DESC LIMIT $limit",
+            new { limit }).ConfigureAwait(false);
+        var records = await cursor.ToListAsync(ct).ConfigureAwait(false);
+        traces = records.Select(r => MapTraceNode(r["t"].As<INode>())).ToList();
+    }
+    return Results.Ok(traces.Select(t => ToTraceDto(t, Array.Empty<TckReasoningStep>())).ToList());
+});
+
+app.MapPost("/get_tool_stats", async (
+    GetToolStatsRequest req,
+    INeo4jSessionFactory sessionFactory,
+    CancellationToken ct) =>
+{
+    // Judgment call (openQuestions): neither IToolCallRepository nor any service exposes tool-usage
+    // aggregates, even though Neo4jToolCallRepository.UpsertToolInstance (ToolCallQueries.cs) already
+    // maintains a running :Tool aggregate node (total_calls/successful_calls/failed_calls/total_duration_ms),
+    // updated on every recorded tool call. Read-only raw Cypher against that existing aggregate — mirroring
+    // BridgeAdmin's own "no high-level service for X" precedent — rather than re-deriving the aggregation
+    // by walking every trace/step/tool-call through the service layer.
+    await using var session = sessionFactory.OpenSession(AccessMode.Read);
+    var cursor = await session.RunAsync(
+        "MATCH (t:Tool) WHERE $toolName IS NULL OR t.name = $toolName " +
+        "RETURN t.name AS name, t.total_calls AS total_calls, t.successful_calls AS successful_calls, " +
+        "t.failed_calls AS failed_calls, t.total_duration_ms AS total_duration_ms ORDER BY t.name",
+        new { toolName = (object?)req.ToolName }).ConfigureAwait(false);
+    var records = await cursor.ToListAsync(ct).ConfigureAwait(false);
+    var stats = records.Select(r =>
+    {
+        var totalCalls = checked((int)r["total_calls"].As<long>());
+        var totalDurationMs = r["total_duration_ms"].As<long?>() ?? 0;
+        return new TckToolStats(
+            r["name"].As<string>(),
+            totalCalls,
+            checked((int)r["successful_calls"].As<long>()),
+            checked((int)r["failed_calls"].As<long>()),
+            totalCalls > 0 ? (double)r["successful_calls"].As<long>() / totalCalls : 0.0,
+            totalCalls > 0 ? (double)totalDurationMs / totalCalls : null);
+    }).ToList();
+    return Results.Ok(stats);
+});
+
 app.Run();
 
 // ---- Mapping helpers ----
@@ -295,6 +572,85 @@ static TckSessionInfo ToSessionDto(SessionSummary s) =>
     // SessionSummary has no distinct created_at; map both timestamps from LastActivity (best available).
     // The TCK only asserts created_at is present (SPEC-2.4.6) and that message_count is accurate.
     new(s.SessionId, s.MessageCount, s.LastActivity, s.LastActivity);
+
+// The TCK round-trips every id this bridge mints through Python's UUID(...), which re-emits it in canonical
+// dashed form on the next request, while IIdGenerator (GuidIdGenerator) stores ids as unhyphenated 32-char
+// hex ("N" format) — the same normalization /delete_message already applies to message_id. Silver adds
+// several more id-shaped parameters (entity_id, trace_id, step_id) that need the same treatment before an
+// exact-match lookup, so it is centralized here rather than re-inlined at each call site.
+static string NormalizeId(string id) => Guid.TryParse(id, out var parsed) ? parsed.ToString("N") : id;
+
+// Distinct names, not ToDto overloads: C# local functions cannot be overloaded by parameter list (unlike
+// ordinary methods, redeclaring the same local-function name with different parameters is CS0128 "already
+// defined in this scope") — this bit Program.cs's existing top-level `static TckMessage ToDto(Message m)`
+// local function the first time these were named `ToDto` too.
+static TckEntity ToEntityDto(Entity e) =>
+    new(e.EntityId, e.Name, e.Type, e.Subtype, e.Description, e.Embedding, e.CanonicalName, e.CreatedAtUtc);
+
+static TckPreference ToPreferenceDto(Preference p) =>
+    new(p.PreferenceId, p.Category, p.PreferenceText, p.Context, p.Embedding);
+
+static TckReasoningTrace ToTraceDto(ReasoningTrace trace, IReadOnlyList<TckReasoningStep> steps) =>
+    new(trace.TraceId, trace.SessionId, trace.Task, steps, trace.Outcome, trace.Success,
+        trace.StartedAtUtc, trace.CompletedAtUtc);
+
+static TckReasoningStep ToStepDto(ReasoningStep step, IReadOnlyList<ToolCall> toolCalls) =>
+    new(step.StepId, step.TraceId, step.StepNumber, step.Thought, step.Action, step.Observation,
+        toolCalls.Select(ToToolCallDto).ToList());
+
+static TckToolCall ToToolCallDto(ToolCall tc) =>
+    new(tc.ToolCallId, tc.ToolName, ParseJsonObject(tc.ArgumentsJson), ParseJsonOrNull(tc.ResultJson),
+        tc.Status.ToString().ToLowerInvariant(), tc.DurationMs, tc.Error);
+
+// ArgumentsJson is stored as a JSON string on the ToolCall domain record; re-parse it into a JsonElement so
+// the wire form is a real JSON object (the TCK asserts `arguments == {...}`, a dict), not an escaped string.
+// Falls back to an empty object for null/blank storage (mirrors the TCK model's own dict default_factory).
+static JsonElement ParseJsonObject(string? json)
+{
+    using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+    return doc.RootElement.Clone();
+}
+
+// ResultJson is `Any = None` on the wire — absent/null stays null; anything else round-trips as a JsonElement
+// (object, array, string, number, or bool) rather than a JSON-escaped string.
+static JsonElement? ParseJsonOrNull(string? json)
+{
+    if (string.IsNullOrWhiteSpace(json)) return null;
+    using var doc = JsonDocument.Parse(json);
+    return doc.RootElement.Clone();
+}
+
+// Duplicates AgentMemory.Neo4j.Infrastructure.Neo4jDateTimeHelper's tiny conversion logic: that helper is
+// `internal` to AgentMemory.Neo4j (no InternalsVisibleTo for this bridge project), and is only needed here
+// for the /list_traces "no session_id" raw-Cypher fallback (see MapTraceNode below).
+static DateTimeOffset ReadTraceDateTimeOffset(object? value) => value switch
+{
+    ZonedDateTime zdt => zdt.ToDateTimeOffset(),
+    string s => DateTimeOffset.Parse(s, null, System.Globalization.DateTimeStyles.RoundtripKind),
+    null => DateTimeOffset.UtcNow,
+    _ => throw new InvalidOperationException($"Unexpected datetime type: {value.GetType()}")
+};
+
+static DateTimeOffset? ReadTraceNullableDateTimeOffset(object? value) =>
+    value is null ? null : ReadTraceDateTimeOffset(value);
+
+// Maps a raw :ReasoningTrace node (from the /list_traces "all sessions" fallback query) the same way
+// Neo4jReasoningTraceRepository.MapToTrace does, minus TaskEmbedding/Metadata/OwnerId (not needed on the
+// TckReasoningTrace wire DTO, which only ever sets Steps to an empty list for /list_traces).
+static ReasoningTrace MapTraceNode(INode node) => new()
+{
+    TraceId = node["id"].As<string>(),
+    SessionId = node["session_id"].As<string>(),
+    Task = node["task"].As<string>(),
+    Outcome = node.Properties.TryGetValue("outcome", out var outcome) ? outcome.As<string>() : null,
+    Success = node.Properties.TryGetValue("success", out var success) && success is not null
+        ? success.As<bool?>()
+        : null,
+    StartedAtUtc = ReadTraceDateTimeOffset(node["started_at"]),
+    CompletedAtUtc = node.Properties.TryGetValue("completed_at", out var completedAt)
+        ? ReadTraceNullableDateTimeOffset(completedAt)
+        : null,
+};
 
 // Mirrors the single-string embedding call shape used by AgentMemory.Core.Services.EmbeddingOrchestrator
 // (GenerateAsync with a one-element input, then unwrap the sole result's vector) so the bridge's embedding
