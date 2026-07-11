@@ -97,8 +97,11 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
             try
             {
                 await using var session = _driver!.AsyncSession();
+                // SHOW INDEXES needs an explicit YIELD before WHERE/RETURN can reference its columns;
+                // "SHOW INDEXES WHERE ... RETURN ..." is a Neo4j 5.x syntax error the catch would swallow,
+                // making this poll silently burn the full timeout instead of returning once indexes are online.
                 var result = await session.RunAsync(
-                    "SHOW INDEXES WHERE type = 'VECTOR' AND state <> 'ONLINE' RETURN count(*) AS pending");
+                    "SHOW INDEXES YIELD type, state WHERE type = 'VECTOR' AND state <> 'ONLINE' RETURN count(*) AS pending");
                 var record = await result.SingleAsync();
                 var pending = global::Neo4j.Driver.ValueExtensions.As<long>(record["pending"]);
                 if (pending == 0) return;

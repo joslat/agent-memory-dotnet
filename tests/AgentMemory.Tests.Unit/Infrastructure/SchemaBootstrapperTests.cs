@@ -62,8 +62,8 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 11 constraints + 3 fulltext + 6 vector + 21 property = 41
-        executedStatements.Should().HaveCount(41);
+        // 12 constraints + 3 fulltext + 6 vector + 22 property = 43
+        executedStatements.Should().HaveCount(43);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class SchemaBootstrapperTests
         await bootstrapper.BootstrapAsync();
 
         var constraints = executedStatements.Where(s => s.StartsWith("CREATE CONSTRAINT")).ToList();
-        constraints.Should().HaveCount(11);
+        constraints.Should().HaveCount(12);
         constraints.Should().Contain(s => s.Contains("consolidation_run_id"));
         constraints.Should().Contain(s => s.Contains("conversation_id"));
         constraints.Should().Contain(s => s.Contains("message_id"));
@@ -102,6 +102,7 @@ public class SchemaBootstrapperTests
         constraints.Should().Contain(s => s.Contains("reasoning_step_id"));
         constraints.Should().Contain(s => s.Contains("tool_call_id"));
         constraints.Should().Contain(s => s.Contains("tool_name"));
+        constraints.Should().Contain(s => s.Contains("memory_read_audit_id"));
     }
 
     [Fact]
@@ -193,7 +194,7 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(21);
+        propertyIndexes.Should().HaveCount(22);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("conversation_archived_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
@@ -215,6 +216,7 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("preference_owner_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("trace_owner_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("rel_owner_idx"));
+        propertyIndexes.Should().Contain(s => s.Contains("memory_read_audit_kind_idx"));
     }
 
     [Theory]

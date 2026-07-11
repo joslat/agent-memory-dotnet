@@ -41,12 +41,19 @@ public static class ConversationQueries
     // ── ListSessionsAsync ──────────────────────────────────────────────
 
     /// <summary>List sessions with conversation/message counts and last activity.</summary>
+    // Cypher's collect() has no "ORDER BY" clause of its own (unlike e.g. Postgres' array_agg) — the
+    // only way to get an ordered list out of collect() is to ORDER BY on a WITH *before* the
+    // aggregation, since collect() preserves the row order it receives. Rows where the OPTIONAL MATCH
+    // found nothing carry m = null, which collect() drops (its default ignoreNulls behavior), matching
+    // the original (pre-fix) intent for sessions with zero messages.
     public const string ListSessions = @"
             MATCH (c:Conversation)
             WITH c.session_id AS sessionId, collect(c) AS conversations
             OPTIONAL MATCH (c2:Conversation)-[:HAS_MESSAGE]->(m:Message)
             WHERE c2.session_id = sessionId
-            WITH sessionId, SIZE(conversations) AS convCount, collect(m ORDER BY m.timestamp) AS messages
+            WITH sessionId, SIZE(conversations) AS convCount, m
+            ORDER BY m.timestamp
+            WITH sessionId, convCount, collect(m) AS messages
             RETURN sessionId,
                    convCount,
                    SIZE(messages) AS msgCount,
