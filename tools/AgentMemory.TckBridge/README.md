@@ -1,6 +1,6 @@
 # AgentMemory.TckBridge
 
-A thin ASP.NET Core Minimal API HTTP bridge implementing the **Bronze tier** of the upstream
+A thin ASP.NET Core Minimal API HTTP bridge implementing the **Bronze and Silver tiers** of the upstream
 [`neo4j-labs/agent-memory-tck`](https://github.com/neo4j-labs/agent-memory-tck) bridge protocol, so the
 Python TCK conformance runner can drive this .NET implementation out-of-process (one `POST` per adapter
 method, snake_case JSON wire contract).
@@ -63,10 +63,47 @@ semantic model and vectors are not guaranteed stable across restarts (it seeds o
 which is per-process randomized in .NET); that is fine for the TCK, whose Bronze search scenarios use
 `threshold=0.0`. Long-term records default `Confidence` to `1.0`.
 
+## Endpoints (Silver)
+
+The Silver tier adds long-term search/lookup/relationship endpoints and the full reasoning-memory surface:
+12 endpoints (5 long-term + 7 reasoning).
+
+### Long-term memory (search, lookup, relationships)
+
+| Route | Purpose |
+|---|---|
+| `POST /search_entities` | Vector-search entities by query text |
+| `POST /search_preferences` | Vector-search preferences by query text, with an optional post-search `category` filter |
+| `POST /get_entity_by_name` | Look up an entity by exact name (aliases included); returns `null` if not found |
+| `POST /get_related_entities` | BFS traversal of related entities up to a given `depth`, optionally filtered by `relationship_type` |
+| `POST /add_relationship` | Create a relationship edge between two entities |
+
+`add_relationship` is nominally classified as a **Gold**-tier endpoint in `bridge-protocol.adoc`, but the
+Silver `get_related_entities` scenarios depend on it to set up their fixture data, so the bridge serves it
+alongside the other Silver long-term endpoints.
+
+### Reasoning memory
+
+| Route | Purpose |
+|---|---|
+| `POST /start_trace` | Start a new reasoning trace for a session |
+| `POST /add_step` | Append a step (thought/action/observation) to a trace |
+| `POST /record_tool_call` | Record a tool invocation against a step |
+| `POST /complete_trace` | Mark a trace complete with an outcome/success flag |
+| `POST /get_trace_with_steps` | Fetch a trace with its full steps and tool calls; returns `null` if not found |
+| `POST /list_traces` | List traces, optionally filtered by session |
+| `POST /get_tool_stats` | Aggregate call/success/failure counts and average duration per tool |
+
+Entity/preference search use `minScore=0.0` (matching the Bronze search endpoints' threshold posture), and
+IDs that round-trip through the Python TCK client's `UUID()` formatting (entity/trace/step ids) are
+normalized to the bridge's stored id format before lookup, the same treatment already applied to
+`delete_message`'s `message_id` in the Bronze tier.
+
 ## Scope
 
-Full Bronze tier (schema + short-term memory). Silver/Gold/Platinum tiers (long-term
-search/reasoning/relationship endpoints) are future follow-up slices and are not implemented by this bridge.
+Full Bronze tier (93/93) and full Silver tier (67/67) — schema, short-term memory, long-term
+search/lookup/relationships, and reasoning memory. Gold/Platinum tiers are future follow-up slices and are
+not implemented by this bridge.
 
 ## Conformance
 
@@ -76,9 +113,17 @@ With the upstream Python TCK tooling installed and this bridge running against a
 pytest -m bronze --bridge-url http://localhost:3001
 ```
 
-Verified result: **93 passed, 0 failed** (96 Silver/Gold/Platinum scenarios deselected) — the full Bronze
-tier, run against upstream [`neo4j-labs/agent-memory-tck`](https://github.com/neo4j-labs/agent-memory-tck)
-commit `4603b91f` driving this bridge over HTTP against a live Neo4j 5.26.
+Verified result: **93 passed, 0 failed** (the full Bronze tier).
+
+```bash
+pytest -m silver --bridge-url http://localhost:3001
+```
+
+Verified result: **67 passed, 0 failed** (the full Silver tier).
+
+Both runs were against upstream [`neo4j-labs/agent-memory-tck`](https://github.com/neo4j-labs/agent-memory-tck)
+commit `4603b91f` driving this bridge over HTTP against a live Neo4j 5.26. Gold/Platinum tiers are not yet
+implemented or conformance-run.
 
 ## Design rationale
 

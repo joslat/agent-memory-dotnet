@@ -19,7 +19,8 @@
   found and fixed** (PRs #25–#69), each with a regression test targeting the trigger. See
   [Quality & hardening](#quality--hardening).
 - **`main` is green and clean** in the 2026-06-21 release record: Release build **0 warnings**; **2654 unit + 236 integration tests passing**. This 2026-07-09 work now records **2658 Release unit tests passing**, plus a **5-test live Neo4j shakedown passing** for the golden-path/history changes; the earlier docs cleanup also recorded **34 Semantic Kernel tests passing**.
-- **Behavioral compatibility pack is merged to `main`.** Local TCK-style mirrors, a compatibility catalog, real-provider golden-path task/docs, read-audit/history expansion, and recency/frequency reranking are implemented and verified. The next compatibility slice is the upstream TCK HTTP bridge plus stable `SCN-*` scenario mapping on `codex/tck-bridge-scn-mapping`.
+- **Behavioral compatibility pack is merged to `main`.** Local TCK-style mirrors, a compatibility catalog, real-provider golden-path task/docs, read-audit/history expansion, and recency/frequency reranking are implemented and verified.
+- **Upstream TCK HTTP bridge is merged to `main`** (PR #70, 2026-07-11): `tools/AgentMemory.TckBridge` serves 12 Bronze endpoints and passes the **full upstream Bronze tier (93/93)** against `neo4j-labs/agent-memory-tck` @ `4603b91f`. The next compatibility slice is the **Silver tier**. (That conformance run also fixed 2 real Cypher bugs — see [Quality & hardening](#quality--hardening).)
 - **What's genuinely left is not bug-fixing** — it's preview soak + ecosystem breadth + API stabilization
   toward `1.0`. See [Next steps](#next-steps).
 
@@ -34,7 +35,7 @@
 | **Tests** | 2658 Release unit tests and a 5-test live Neo4j shakedown passed locally on 2026-07-09; 34 Semantic Kernel tests were also recorded in the earlier 2026-07-09 docs cleanup; 236 live-Neo4j integration tests are the latest full ROADMAP record (2026-06-21); CI (build-test) on every PR |
 | **Build** | Release builds with **0 warnings** (`TreatWarningsAsErrors` on for `src`; library code is CA2007-enforced) |
 | **Hardening** | 6 review cycles + capstone, **then 6 rounds of adversarial bug-hunting + a convergence-verification pass** — 80+ confirmed defects fixed (see below) |
-| **Active branch** | `main` contains the behavioral compatibility pack. Next branch: `codex/tck-bridge-scn-mapping` for upstream TCK bridge + `SCN-*` mapping. |
+| **Active branch** | `main` contains the behavioral compatibility pack **and the upstream TCK Bronze bridge** (PR #70, full Bronze 93/93). Next compatibility slice: the **Silver tier**. |
 | **Open work** | No known bugs/regressions in the documented release state. Forward work is the TCK bridge/mapping follow-up, preview feedback, ecosystem breadth, and API stabilization — see [Next steps](#next-steps) |
 
 **What it is:** a native .NET 9 implementation of graph-native persistent memory for AI agents, backed by
@@ -115,7 +116,8 @@ Nothing below is a bug or regression — `main` is clean. The first row is the n
 
 | # | Item | Notes |
 |---|------|-------|
-| 1 | **TCK bridge + `SCN-*` mapping** | On `codex/tck-bridge-scn-mapping`, implement the upstream TCK HTTP bridge and map local mirrored scenarios to stable upstream `SCN-*` IDs; then PR that follow-up branch into `main`. |
+| ✅ | **TCK Bronze bridge + `SCN-*` mapping** — **DONE (PR #70, 2026-07-11).** | `tools/AgentMemory.TckBridge` (12 Bronze endpoints), `SCN-B-*` catalog mapping, full upstream Bronze conformance **93/93**. Also fixed 2 real Cypher bugs found by the run. |
+| 1 | **TCK Silver tier** | Extend the bridge with Silver endpoints (long-term search: `search_entities`/`search_preferences`/`get_entity_by_name`/`get_related_entities`; reasoning: `start_trace`/`add_step`/`record_tool_call`/`complete_trace`/`get_trace_with_steps`/`list_traces`/`get_tool_stats`) and run `pytest -m silver`. Gold/Platinum follow. |
 | 2 | **Preview soak + real-world feedback** | Validate the install/usage path on `0.1.0-preview.4`; iterate on ergonomics. This is the gate to `1.0`. |
 | 3 | **API stabilization → `1.0`** | Lock the public surface under SemVer once the preview has soaked. Note the small surface changes shipped in preview.4 (nullable `UpdateAsync`, owner-scoped `ClearSession`/`DeleteBySession`) — fold into the `1.0` contract. |
 | 4 | **Docs–code reconciliation** | Periodic drift check (this very pass corrected several stale claims). Keep `architecture.md` / `design.md` / `schema.md` synced; prefer dated facts over "durable" counts. |
