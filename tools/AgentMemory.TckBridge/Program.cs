@@ -288,9 +288,10 @@ app.MapPost("/add_fact", async (
 // Shared-bucket scope for the long-term READ endpoints: a null scope is UNSCOPED (all owners), which would
 // leak cross-owner records on a multi-tenant store. There is no built-in "shared only" scope (Global is
 // unscoped), so use a sentinel owner + includeShared: the filter becomes (owner_id = <sentinel> OR owner_id
-// IS NULL) and, since nothing is ever created under the sentinel, effectively "owner_id IS NULL" — the same
-// shared-bucket the bridge writes into, consistent with /list_traces and /get_tool_stats.
-var sharedScope = MemoryScope.For("__tck-bridge-shared-sentinel__", includeShared: true);
+// IS NULL) and, since nothing is created under the sentinel, effectively "owner_id IS NULL" — the same
+// shared-bucket the bridge writes into, consistent with /list_traces and /get_tool_stats. The sentinel is a
+// per-process GUID so it can't collide with a real owner_id (which would otherwise widen the filter).
+var sharedScope = MemoryScope.For($"__tck-bridge-shared-{Guid.NewGuid():N}__", includeShared: true);
 
 app.MapPost("/search_entities", async (
     SearchEntitiesRequest req,
@@ -510,12 +511,11 @@ app.MapPost("/record_tool_call", async (
     {
         status = ToolCallStatus.Success;
     }
-    // A direct (non-TCK) caller may omit "arguments" (binds as ValueKind.Undefined, whose GetRawText()
-    // throws) or send an explicit null (ValueKind.Null, whose GetRawText() is "null"). Either would violate
-    // the "arguments is a JSON object" contract, so default both to an empty object.
-    var argumentsJson = req.Arguments.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
-        ? "{}"
-        : req.Arguments.GetRawText();
+    // The contract is that "arguments" is a JSON object. A direct (non-TCK) caller could omit it (Undefined),
+    // send null, or send a non-object value (string/number/array/bool) — all of which would otherwise be
+    // persisted and re-emitted as non-object. Only a JSON object is passed through; anything else defaults to
+    // an empty object.
+    var argumentsJson = req.Arguments.ValueKind == JsonValueKind.Object ? req.Arguments.GetRawText() : "{}";
     var resultJson = req.Result is { ValueKind: not JsonValueKind.Undefined and not JsonValueKind.Null } r
         ? r.GetRawText()
         : null;
@@ -700,7 +700,10 @@ static DateTimeOffset ReadTraceDateTimeOffset(object? value) => value switch
 {
     ZonedDateTime zdt => zdt.ToDateTimeOffset(),
     string s => DateTimeOffset.Parse(s, null, System.Globalization.DateTimeStyles.RoundtripKind),
-    null => DateTimeOffset.UtcNow,
+    // This is only reached for started_at (a required trace property); completed_at's legitimate null is
+    // handled by ReadTraceNullableDateTimeOffset before it gets here. A null started_at is corrupt data /
+    // a schema mismatch — fail loudly rather than fabricating a plausible, nondeterministic "now".
+    null => throw new InvalidOperationException("ReasoningTrace.started_at is null — a trace must have a start time"),
     _ => throw new InvalidOperationException($"Unexpected datetime type: {value.GetType()}")
 };
 
