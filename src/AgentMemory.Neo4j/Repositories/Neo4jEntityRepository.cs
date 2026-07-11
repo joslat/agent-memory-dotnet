@@ -377,15 +377,23 @@ public sealed class Neo4jEntityRepository : IEntityRepository
 
         var cypher = EntityQueries.MergeEntities(hasOwner, includeShared);
 
-        await _tx.WriteAsync(async runner =>
+        var merged = await _tx.WriteAsync(async runner =>
         {
-            if (hasOwner)
-                await runner.RunAsync(cypher, new Dictionary<string, object> { ["sourceEntityId"] = sourceEntityId, ["targetEntityId"] = targetEntityId, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false);
-            else
-                await runner.RunAsync(cypher, new { sourceEntityId, targetEntityId }).ConfigureAwait(false);
+            var parameters = hasOwner
+                ? (object)new Dictionary<string, object> { ["sourceEntityId"] = sourceEntityId, ["targetEntityId"] = targetEntityId, ["ownerId"] = scope!.OwnerId! }
+                : new { sourceEntityId, targetEntityId };
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            // The merge Cypher RETURNs source, target — a first row means both endpoints matched (in scope)
+            // and the merge ran; no row means a guarded / non-existent no-op.
+            return await cursor.FetchAsync().ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
 
-        await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken).ConfigureAwait(false);
+        // Only refresh the target's search fields when the merge actually matched (and thus modified) it.
+        // A guarded cross-owner / no-match merge returns no rows: skipping the refresh keeps a scoped call
+        // from touching (bumping updated_at / rewriting aliases on) another owner's entity — so the guard
+        // makes such a call a true no-op, not merely a merge-less one.
+        if (merged)
+            await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default)

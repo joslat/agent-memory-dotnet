@@ -142,6 +142,24 @@ public interface IEntityRepository
     Task<bool> InvalidateAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Merges a source (duplicate) entity into a target (canonical) entity: transfers the source's
+    /// <c>MENTIONS</c> and <c>SAME_AS</c> edges to the target, folds the source's name/aliases and
+    /// description into the target, stamps <c>merged_into</c>/<c>merged_at</c> on the source, and clears
+    /// the target's embedding for re-derivation. When <paramref name="scope"/> is supplied (R1) BOTH
+    /// endpoints must be the owner's own (or shared) — a merge can never reach across the isolation
+    /// boundary into another owner's entity. A cross-boundary (or otherwise non-matching) call is a true
+    /// no-op: it matches no rows and leaves both entities untouched, including skipping the post-merge
+    /// search-field refresh, so a scoped caller never bumps another owner's entity. Null scope ⇒ unscoped
+    /// (admin/maintenance dedup). Note: arbitrary typed relationships (other than SAME_AS/MENTIONS) are
+    /// not yet re-pointed from source to target — see the merge-relationship-transfer follow-up.
+    /// </summary>
+    Task MergeEntitiesAsync(
+        string sourceEntityId,
+        string targetEntityId,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Refreshes the search-indexed fields (name, description, aliases) for an entity.
     /// Call after merge operations to ensure fulltext search returns current data.
     /// </summary>

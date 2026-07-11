@@ -19,21 +19,34 @@ public sealed class Neo4jEntityRepositoryExtensionsTests
     private static Neo4jEntityRepository CreateWriteCapture(List<(string Cypher, object? Parameters)> calls)
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+
+        IAsyncQueryRunner CapturingRunner()
+        {
+            var runner = Substitute.For<IAsyncQueryRunner>();
+            runner
+                .RunAsync(Arg.Any<string>(), Arg.Any<object>())
+                .Returns(ci =>
+                {
+                    calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
+                    // Yield one record so MergeEntitiesAsync (which gates its post-merge refresh on the
+                    // merge matching) observes a successful match.
+                    var cursor = Substitute.For<IResultCursor>();
+                    var fetched = 0;
+                    cursor.FetchAsync().Returns(_ => Task.FromResult(fetched++ == 0));
+                    cursor.Current.Returns(Substitute.For<IRecord>());
+                    return Task.FromResult(cursor);
+                });
+            return runner;
+        }
+
+        // Void overload (e.g. RefreshEntitySearchFieldsAsync) + generic overload (MergeEntitiesAsync -> bool).
         txRunner
             .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
-            .Returns(call =>
-            {
-                var work = call.Arg<Func<IAsyncQueryRunner, Task>>();
-                var runner = Substitute.For<IAsyncQueryRunner>();
-                runner
-                    .RunAsync(Arg.Any<string>(), Arg.Any<object>())
-                    .Returns(ci =>
-                    {
-                        calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
-                        return Task.FromResult(Substitute.For<IResultCursor>());
-                    });
-                return work(runner);
-            });
+            .Returns(call => call.Arg<Func<IAsyncQueryRunner, Task>>()(CapturingRunner()));
+        txRunner
+            .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(CapturingRunner()));
+
         return new Neo4jEntityRepository(txRunner, NullLogger<Neo4jEntityRepository>.Instance);
     }
 

@@ -180,3 +180,13 @@ public sealed record GetTraceWithStepsRequest(string TraceId);
 public sealed record ListTracesRequest(string? SessionId, int? Limit);
 
 public sealed record GetToolStatsRequest(string? ToolName);
+
+// ---- Gold tier (cross-memory integration): merge_duplicate_entities / get_similar_traces ----
+
+// The bridge protocol sends canonical_name as an optional field (may be null / omitted); the surviving
+// (target) entity keeps its id, so merge_duplicate_entities returns an Entity whose id == target_id.
+public sealed record MergeDuplicateEntitiesRequest(string SourceId, string TargetId, string? CanonicalName);
+
+// success_only defaults true in the TCK adapter (BaseAdapter.get_similar_traces) and is always sent on the
+// wire; false means "include unsuccessful/incomplete traces too". limit defaults to 5.
+public sealed record GetSimilarTracesRequest(string Task, int? Limit, bool? SuccessOnly);
