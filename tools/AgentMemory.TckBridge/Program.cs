@@ -510,10 +510,12 @@ app.MapPost("/record_tool_call", async (
     {
         status = ToolCallStatus.Success;
     }
-    // A direct (non-TCK) caller may omit "arguments"; the non-nullable JsonElement then binds as
-    // ValueKind.Undefined, whose GetRawText() throws — default it to an empty object. Same for a
-    // null/undefined result.
-    var argumentsJson = req.Arguments.ValueKind == JsonValueKind.Undefined ? "{}" : req.Arguments.GetRawText();
+    // A direct (non-TCK) caller may omit "arguments" (binds as ValueKind.Undefined, whose GetRawText()
+    // throws) or send an explicit null (ValueKind.Null, whose GetRawText() is "null"). Either would violate
+    // the "arguments is a JSON object" contract, so default both to an empty object.
+    var argumentsJson = req.Arguments.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+        ? "{}"
+        : req.Arguments.GetRawText();
     var resultJson = req.Result is { ValueKind: not JsonValueKind.Undefined and not JsonValueKind.Null } r
         ? r.GetRawText()
         : null;
