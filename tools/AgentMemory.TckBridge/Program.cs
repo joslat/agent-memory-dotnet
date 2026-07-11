@@ -420,6 +420,11 @@ app.MapPost("/start_trace", async (
     return Results.Ok(ToTraceDto(trace, Array.Empty<TckReasoningStep>()));
 });
 
+// Per-trace gate: step_number is derived as "current count + 1", a read-then-write that is not atomic.
+// Serialize add_step per trace (within this bridge process) so two concurrent appends to the same trace
+// can't compute the same number (duplicate step_number / nondeterministic ORDER BY s.step_number).
+var stepGates = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>();
+
 app.MapPost("/add_step", async (
     AddStepRequest req,
     IReasoningMemoryService reasoning,
@@ -430,12 +435,21 @@ app.MapPost("/add_step", async (
     // "peek next step number" primitive either, so the next number is derived the same way a caller would
     // discover it: read the trace's current step count and add one. Costs one extra read per add_step call.
     var traceId = NormalizeId(req.TraceId);
-    var (_, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
-    var stepNumber = existingSteps.Count + 1;
-    var step = await reasoning.AddStepAsync(
-        traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: ct)
-        .ConfigureAwait(false);
-    return Results.Ok(ToStepDto(step, Array.Empty<ToolCall>()));
+    var gate = stepGates.GetOrAdd(traceId, _ => new SemaphoreSlim(1, 1));
+    await gate.WaitAsync(ct).ConfigureAwait(false);
+    try
+    {
+        var (_, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
+        var stepNumber = existingSteps.Count + 1;
+        var step = await reasoning.AddStepAsync(
+            traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: ct)
+            .ConfigureAwait(false);
+        return Results.Ok(ToStepDto(step, Array.Empty<ToolCall>()));
+    }
+    finally
+    {
+        gate.Release();
+    }
 });
 
 app.MapPost("/record_tool_call", async (
@@ -448,11 +462,24 @@ app.MapPost("/record_tool_call", async (
     // client always serializes its resolved default onto the wire (http_bridge.py's _serialize only omits
     // None, and SUCCESS is never None), so in practice "status" arrives on every call — this fallback only
     // matters for a caller hitting the bridge directly without going through the TCK client.
-    var status = req.Status is { Length: > 0 }
-        ? Enum.Parse<ToolCallStatus>(req.Status, ignoreCase: true)
-        : ToolCallStatus.Success;
-    var argumentsJson = req.Arguments.GetRawText();
-    var resultJson = req.Result.HasValue ? req.Result.Value.GetRawText() : null;
+    ToolCallStatus status;
+    if (req.Status is { Length: > 0 })
+    {
+        // TryParse (not Parse) so a malformed status from a direct caller is a 400, not a 500.
+        if (!Enum.TryParse(req.Status, ignoreCase: true, out status))
+            return Results.BadRequest(new { error = $"invalid tool call status '{req.Status}'" });
+    }
+    else
+    {
+        status = ToolCallStatus.Success;
+    }
+    // A direct (non-TCK) caller may omit "arguments"; the non-nullable JsonElement then binds as
+    // ValueKind.Undefined, whose GetRawText() throws — default it to an empty object. Same for a
+    // null/undefined result.
+    var argumentsJson = req.Arguments.ValueKind == JsonValueKind.Undefined ? "{}" : req.Arguments.GetRawText();
+    var resultJson = req.Result is { ValueKind: not JsonValueKind.Undefined and not JsonValueKind.Null } r
+        ? r.GetRawText()
+        : null;
     var toolCall = await reasoning.RecordToolCallAsync(
         NormalizeId(req.StepId), req.ToolName, argumentsJson, resultJson, status, req.DurationMs, req.Error,
         cancellationToken: ct)
@@ -533,17 +560,22 @@ app.MapPost("/get_tool_stats", async (
     INeo4jSessionFactory sessionFactory,
     CancellationToken ct) =>
 {
-    // Judgment call (openQuestions): neither IToolCallRepository nor any service exposes tool-usage
-    // aggregates, even though Neo4jToolCallRepository.UpsertToolInstance (ToolCallQueries.cs) already
-    // maintains a running :Tool aggregate node (total_calls/successful_calls/failed_calls/total_duration_ms),
-    // updated on every recorded tool call. Read-only raw Cypher against that existing aggregate — mirroring
-    // BridgeAdmin's own "no high-level service for X" precedent — rather than re-deriving the aggregation
-    // by walking every trace/step/tool-call through the service layer.
+    // No IToolCallRepository/service exposes tool-usage aggregates, so this is read-only raw Cypher
+    // (mirroring BridgeAdmin's "no high-level service for X" precedent). We deliberately do NOT read the
+    // global (:Tool) aggregate node — it accumulates across ALL owners and carries no owner_id, so on a
+    // multi-owner store it would leak cross-owner usage stats. Instead we aggregate ToolCall nodes reached
+    // only through shared-bucket traces (owner_id IS NULL), keeping the bridge owner-agnostic and consistent
+    // with /list_traces. Success/failure classification matches ToolCallQueries.UpsertToolInstance
+    // (failed = error/failure/timeout).
     await using var session = sessionFactory.OpenSession(AccessMode.Read);
     var cursor = await session.RunAsync(
-        "MATCH (t:Tool) WHERE $toolName IS NULL OR t.name = $toolName " +
-        "RETURN t.name AS name, t.total_calls AS total_calls, t.successful_calls AS successful_calls, " +
-        "t.failed_calls AS failed_calls, t.total_duration_ms AS total_duration_ms ORDER BY t.name",
+        "MATCH (t:ReasoningTrace)-[:HAS_STEP]->(:ReasoningStep)-[:USES_TOOL]->(tc:ToolCall) " +
+        "WHERE t.owner_id IS NULL AND ($toolName IS NULL OR tc.tool_name = $toolName) " +
+        "WITH tc.tool_name AS name, count(tc) AS total_calls, " +
+        "sum(CASE WHEN tc.status = 'success' THEN 1 ELSE 0 END) AS successful_calls, " +
+        "sum(CASE WHEN tc.status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END) AS failed_calls, " +
+        "sum(coalesce(tc.duration_ms, 0)) AS total_duration_ms " +
+        "RETURN name, total_calls, successful_calls, failed_calls, total_duration_ms ORDER BY name",
         new { toolName = (object?)req.ToolName }).ConfigureAwait(false);
     var records = await cursor.ToListAsync(ct).ConfigureAwait(false);
     var stats = records.Select(r =>
