@@ -396,6 +396,451 @@ public class TckBridgeWireContractTests
         request.Obj.Should().Be("Acme");
     }
 
+    // ---- TckRelationship (Silver tier: add_relationship / get_related_entities) ----
+
+    [Fact]
+    public void TckRelationship_Serializes_PropertyNamesAsSnakeCase()
+    {
+        var options = CreateBridgeJsonOptions();
+        var relationship = new TckRelationship(
+            Id: "rel-1",
+            SourceId: "e-1",
+            TargetId: "e-2",
+            RelationshipType: "WORKS_AT",
+            Properties: new Dictionary<string, object> { ["since"] = "2020" });
+
+        var json = JsonSerializer.Serialize(relationship, options);
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "id", "source_id", "target_id", "relationship_type", "properties");
+    }
+
+    [Fact]
+    public void TckRelationship_RoundTrip_ReproducesOriginalValues()
+    {
+        var options = CreateBridgeJsonOptions();
+        var original = new TckRelationship(
+            Id: "rel-1",
+            SourceId: "e-1",
+            TargetId: "e-2",
+            RelationshipType: "WORKS_AT",
+            Properties: new Dictionary<string, object> { ["since"] = "2020" });
+
+        var json = JsonSerializer.Serialize(original, options);
+        var roundTripped = JsonSerializer.Deserialize<TckRelationship>(json, options);
+
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Id.Should().Be(original.Id);
+        roundTripped.SourceId.Should().Be(original.SourceId);
+        roundTripped.TargetId.Should().Be(original.TargetId);
+        roundTripped.RelationshipType.Should().Be(original.RelationshipType);
+        roundTripped.Properties.Should().ContainKey("since");
+        ((JsonElement)roundTripped.Properties["since"]).GetString().Should().Be("2020");
+    }
+
+    // ---- Reasoning DTOs (Silver tier: start_trace / add_step / record_tool_call / complete_trace /
+    // get_trace_with_steps / list_traces / get_tool_stats) ----
+
+    [Fact]
+    public void TckReasoningTrace_Serializes_PropertyNamesAsSnakeCase()
+    {
+        var options = CreateBridgeJsonOptions();
+        var trace = new TckReasoningTrace(
+            Id: "trace-1",
+            SessionId: "session-1",
+            Task: "find the answer",
+            Steps: [],
+            Outcome: "solved",
+            Success: true,
+            StartedAt: DateTimeOffset.UtcNow,
+            CompletedAt: DateTimeOffset.UtcNow);
+
+        var json = JsonSerializer.Serialize(trace, options);
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "id", "session_id", "task", "steps", "outcome", "success", "started_at", "completed_at");
+    }
+
+    [Fact]
+    public void TckReasoningTrace_NullOutcomeSuccessCompletedAt_SerializeAsJsonNull_NotOmitted()
+    {
+        var options = CreateBridgeJsonOptions();
+        var trace = new TckReasoningTrace(
+            Id: "trace-1",
+            SessionId: "session-1",
+            Task: "find the answer",
+            Steps: [],
+            Outcome: null,
+            Success: null,
+            StartedAt: DateTimeOffset.UtcNow,
+            CompletedAt: null);
+
+        var json = JsonSerializer.Serialize(trace, options);
+
+        json.Should().Contain("\"outcome\":null");
+        json.Should().Contain("\"success\":null");
+        json.Should().Contain("\"completed_at\":null");
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("outcome").ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("success").ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("completed_at").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void TckReasoningTrace_StartedAt_SerializesAsIso8601()
+    {
+        var options = CreateBridgeJsonOptions();
+        var startedAt = new DateTimeOffset(2026, 7, 11, 10, 30, 45, TimeSpan.Zero);
+        var trace = new TckReasoningTrace(
+            Id: "trace-1",
+            SessionId: "session-1",
+            Task: "find the answer",
+            Steps: [],
+            Outcome: null,
+            Success: null,
+            StartedAt: startedAt,
+            CompletedAt: null);
+
+        var json = JsonSerializer.Serialize(trace, options);
+        using var doc = JsonDocument.Parse(json);
+        var startedAtText = doc.RootElement.GetProperty("started_at").GetString();
+
+        startedAtText.Should().NotBeNull();
+        Iso8601Pattern.IsMatch(startedAtText!).Should().BeTrue(
+            $"'{startedAtText}' should be an ISO-8601 timestamp");
+        DateTimeOffset.Parse(startedAtText!, null, System.Globalization.DateTimeStyles.RoundtripKind)
+            .Should().Be(startedAt);
+    }
+
+    [Fact]
+    public void TckReasoningTrace_RoundTrip_ReproducesOriginalValues_IncludingNestedSteps()
+    {
+        var options = CreateBridgeJsonOptions();
+        var startedAt = new DateTimeOffset(2026, 7, 11, 9, 0, 0, TimeSpan.Zero);
+        var nestedStep = new TckReasoningStep(
+            Id: "step-1",
+            TraceId: "trace-1",
+            StepNumber: 1,
+            Thought: "thinking",
+            Action: "search",
+            Observation: "found it",
+            ToolCalls: []);
+        var original = new TckReasoningTrace(
+            Id: "trace-1",
+            SessionId: "session-1",
+            Task: "find the answer",
+            Steps: [nestedStep],
+            Outcome: "solved",
+            Success: true,
+            StartedAt: startedAt,
+            CompletedAt: null);
+
+        var json = JsonSerializer.Serialize(original, options);
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("steps")[0].EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "id", "trace_id", "step_number", "thought", "action", "observation", "tool_calls");
+
+        var roundTripped = JsonSerializer.Deserialize<TckReasoningTrace>(json, options);
+
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Id.Should().Be(original.Id);
+        roundTripped.SessionId.Should().Be(original.SessionId);
+        roundTripped.Task.Should().Be(original.Task);
+        roundTripped.Outcome.Should().Be(original.Outcome);
+        roundTripped.Success.Should().Be(original.Success);
+        roundTripped.StartedAt.Should().Be(startedAt);
+        roundTripped.CompletedAt.Should().BeNull();
+        roundTripped.Steps.Should().ContainSingle();
+        roundTripped.Steps[0].Id.Should().Be(nestedStep.Id);
+        roundTripped.Steps[0].Thought.Should().Be(nestedStep.Thought);
+    }
+
+    [Fact]
+    public void TckReasoningStep_Serializes_PropertyNamesAsSnakeCase()
+    {
+        var options = CreateBridgeJsonOptions();
+        var step = new TckReasoningStep(
+            Id: "step-1",
+            TraceId: "trace-1",
+            StepNumber: 1,
+            Thought: "thinking",
+            Action: "search",
+            Observation: "found it",
+            ToolCalls: []);
+
+        var json = JsonSerializer.Serialize(step, options);
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "id", "trace_id", "step_number", "thought", "action", "observation", "tool_calls");
+    }
+
+    [Fact]
+    public void TckReasoningStep_NullThoughtActionObservation_SerializeAsJsonNull_NotOmitted()
+    {
+        var options = CreateBridgeJsonOptions();
+        var step = new TckReasoningStep(
+            Id: "step-1",
+            TraceId: "trace-1",
+            StepNumber: 1,
+            Thought: null,
+            Action: null,
+            Observation: null,
+            ToolCalls: []);
+
+        var json = JsonSerializer.Serialize(step, options);
+
+        json.Should().Contain("\"thought\":null");
+        json.Should().Contain("\"action\":null");
+        json.Should().Contain("\"observation\":null");
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("thought").ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("action").ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("observation").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void TckReasoningStep_RoundTrip_ReproducesOriginalValues_IncludingNestedToolCalls()
+    {
+        var options = CreateBridgeJsonOptions();
+        using var argsDoc = JsonDocument.Parse("""{"query":"weather"}""");
+        var toolCall = new TckToolCall(
+            Id: "tc-1",
+            ToolName: "search",
+            Arguments: argsDoc.RootElement.Clone(),
+            Result: null,
+            Status: "success",
+            DurationMs: 42,
+            Error: null);
+        var original = new TckReasoningStep(
+            Id: "step-1",
+            TraceId: "trace-1",
+            StepNumber: 1,
+            Thought: "thinking",
+            Action: "search",
+            Observation: "found it",
+            ToolCalls: [toolCall]);
+
+        var json = JsonSerializer.Serialize(original, options);
+        var roundTripped = JsonSerializer.Deserialize<TckReasoningStep>(json, options);
+
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Id.Should().Be(original.Id);
+        roundTripped.TraceId.Should().Be(original.TraceId);
+        roundTripped.StepNumber.Should().Be(original.StepNumber);
+        roundTripped.ToolCalls.Should().ContainSingle();
+        roundTripped.ToolCalls[0].Id.Should().Be(toolCall.Id);
+        roundTripped.ToolCalls[0].ToolName.Should().Be(toolCall.ToolName);
+        roundTripped.ToolCalls[0].Arguments.GetProperty("query").GetString().Should().Be("weather");
+    }
+
+    // ---- TckToolCall (Arguments/Result are JsonElement wire-level JSON, not JSON-escaped strings —
+    // the TCK asserts `tc.arguments == {...}` as a dict, so these must serialize as JSON objects) ----
+
+    [Fact]
+    public void TckToolCall_Serializes_PropertyNamesAsSnakeCase()
+    {
+        var options = CreateBridgeJsonOptions();
+        using var argsDoc = JsonDocument.Parse("{}");
+        var toolCall = new TckToolCall(
+            Id: "tc-1",
+            ToolName: "search",
+            Arguments: argsDoc.RootElement.Clone(),
+            Result: null,
+            Status: "success",
+            DurationMs: 42,
+            Error: null);
+
+        var json = JsonSerializer.Serialize(toolCall, options);
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "id", "tool_name", "arguments", "result", "status", "duration_ms", "error");
+    }
+
+    [Fact]
+    public void TckToolCall_PopulatedArguments_SerializesAsJsonObject_NotEscapedString()
+    {
+        // Regression lock: Arguments is a JsonElement (re-parsed from ArgumentsJson in
+        // Program.cs's ToToolCallDto), so it must appear as a nested JSON object on the wire —
+        // not as a JSON string containing escaped JSON — because the TCK asserts
+        // `tool_call.arguments == {"query": "weather", "limit": 5}` (a dict equality check that
+        // would fail against a string).
+        var options = CreateBridgeJsonOptions();
+        using var argsDoc = JsonDocument.Parse("""{"query":"weather","limit":5}""");
+        var toolCall = new TckToolCall(
+            Id: "tc-1",
+            ToolName: "search",
+            Arguments: argsDoc.RootElement.Clone(),
+            Result: null,
+            Status: "success",
+            DurationMs: 42,
+            Error: null);
+
+        var json = JsonSerializer.Serialize(toolCall, options);
+        using var doc = JsonDocument.Parse(json);
+
+        var argumentsProp = doc.RootElement.GetProperty("arguments");
+        argumentsProp.ValueKind.Should().Be(JsonValueKind.Object,
+            "arguments must be a JSON object on the wire, not a JSON-escaped string");
+        argumentsProp.GetProperty("query").GetString().Should().Be("weather");
+        argumentsProp.GetProperty("limit").GetInt32().Should().Be(5);
+
+        // Round-trip: re-parsing must keep Arguments as a JsonElement object, not a string.
+        var roundTripped = JsonSerializer.Deserialize<TckToolCall>(json, options);
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Arguments.ValueKind.Should().Be(JsonValueKind.Object);
+        roundTripped.Arguments.GetProperty("query").GetString().Should().Be("weather");
+        roundTripped.Arguments.GetProperty("limit").GetInt32().Should().Be(5);
+    }
+
+    [Fact]
+    public void TckToolCall_NullResultAndError_SerializeAsJsonNull_NotOmitted()
+    {
+        var options = CreateBridgeJsonOptions();
+        using var argsDoc = JsonDocument.Parse("{}");
+        var toolCall = new TckToolCall(
+            Id: "tc-1",
+            ToolName: "search",
+            Arguments: argsDoc.RootElement.Clone(),
+            Result: null,
+            Status: "success",
+            DurationMs: null,
+            Error: null);
+
+        var json = JsonSerializer.Serialize(toolCall, options);
+
+        json.Should().Contain("\"result\":null");
+        json.Should().Contain("\"duration_ms\":null");
+        json.Should().Contain("\"error\":null");
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("result").ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("duration_ms").ValueKind.Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("error").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void TckToolCall_PopulatedResult_SerializesAsJsonObject_NotEscapedString()
+    {
+        var options = CreateBridgeJsonOptions();
+        using var argsDoc = JsonDocument.Parse("{}");
+        using var resultDoc = JsonDocument.Parse("""{"temperature":72,"conditions":"sunny"}""");
+        var toolCall = new TckToolCall(
+            Id: "tc-1",
+            ToolName: "search",
+            Arguments: argsDoc.RootElement.Clone(),
+            Result: resultDoc.RootElement.Clone(),
+            Status: "success",
+            DurationMs: 100,
+            Error: null);
+
+        var json = JsonSerializer.Serialize(toolCall, options);
+        using var doc = JsonDocument.Parse(json);
+
+        var resultProp = doc.RootElement.GetProperty("result");
+        resultProp.ValueKind.Should().Be(JsonValueKind.Object,
+            "result must be a JSON object on the wire, not a JSON-escaped string");
+        resultProp.GetProperty("temperature").GetInt32().Should().Be(72);
+        resultProp.GetProperty("conditions").GetString().Should().Be("sunny");
+    }
+
+    [Fact]
+    public void TckToolCall_RoundTrip_ReproducesOriginalValues()
+    {
+        var options = CreateBridgeJsonOptions();
+        using var argsDoc = JsonDocument.Parse("""{"query":"weather"}""");
+        var original = new TckToolCall(
+            Id: "tc-1",
+            ToolName: "search",
+            Arguments: argsDoc.RootElement.Clone(),
+            Result: null,
+            Status: "error",
+            DurationMs: 250,
+            Error: "timeout");
+
+        var json = JsonSerializer.Serialize(original, options);
+        var roundTripped = JsonSerializer.Deserialize<TckToolCall>(json, options);
+
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Id.Should().Be(original.Id);
+        roundTripped.ToolName.Should().Be(original.ToolName);
+        roundTripped.Status.Should().Be(original.Status);
+        roundTripped.DurationMs.Should().Be(original.DurationMs);
+        roundTripped.Error.Should().Be(original.Error);
+        roundTripped.Result.Should().BeNull();
+        roundTripped.Arguments.GetProperty("query").GetString().Should().Be("weather");
+    }
+
+    // ---- TckToolStats ----
+
+    [Fact]
+    public void TckToolStats_Serializes_PropertyNamesAsSnakeCase()
+    {
+        var options = CreateBridgeJsonOptions();
+        var stats = new TckToolStats(
+            Name: "search",
+            TotalCalls: 10,
+            SuccessfulCalls: 8,
+            FailedCalls: 2,
+            SuccessRate: 0.8,
+            AvgDurationMs: 123.45);
+
+        var json = JsonSerializer.Serialize(stats, options);
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
+            "name", "total_calls", "successful_calls", "failed_calls", "success_rate", "avg_duration_ms");
+    }
+
+    [Fact]
+    public void TckToolStats_NullAvgDurationMs_SerializesAsJsonNull_NotOmitted()
+    {
+        var options = CreateBridgeJsonOptions();
+        var stats = new TckToolStats(
+            Name: "search",
+            TotalCalls: 0,
+            SuccessfulCalls: 0,
+            FailedCalls: 0,
+            SuccessRate: 0,
+            AvgDurationMs: null);
+
+        var json = JsonSerializer.Serialize(stats, options);
+
+        json.Should().Contain("\"avg_duration_ms\":null");
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("avg_duration_ms").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void TckToolStats_RoundTrip_ReproducesOriginalValues()
+    {
+        var options = CreateBridgeJsonOptions();
+        var original = new TckToolStats(
+            Name: "search",
+            TotalCalls: 10,
+            SuccessfulCalls: 8,
+            FailedCalls: 2,
+            SuccessRate: 0.8,
+            AvgDurationMs: 123.45);
+
+        var json = JsonSerializer.Serialize(original, options);
+        var roundTripped = JsonSerializer.Deserialize<TckToolStats>(json, options);
+
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Name.Should().Be(original.Name);
+        roundTripped.TotalCalls.Should().Be(original.TotalCalls);
+        roundTripped.SuccessfulCalls.Should().Be(original.SuccessfulCalls);
+        roundTripped.FailedCalls.Should().Be(original.FailedCalls);
+        roundTripped.SuccessRate.Should().Be(original.SuccessRate);
+        roundTripped.AvgDurationMs.Should().Be(original.AvgDurationMs);
+    }
+
     // ---- Case-insensitive read (PropertyNameCaseInsensitive = true) ----
 
     [Fact]
