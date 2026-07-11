@@ -46,7 +46,7 @@ public class TckBridgeWireContractTests
         var json = JsonSerializer.Serialize(message, options);
         using var doc = JsonDocument.Parse(json);
 
-        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "id", "role", "content", "timestamp", "embedding", "metadata");
     }
 
@@ -193,7 +193,7 @@ public class TckBridgeWireContractTests
         var json = JsonSerializer.Serialize(conversation, options);
         using var doc = JsonDocument.Parse(json);
 
-        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "id", "session_id", "messages", "title", "created_at", "updated_at");
     }
 
@@ -243,7 +243,7 @@ public class TckBridgeWireContractTests
         var json = JsonSerializer.Serialize(original, options);
         using var doc = JsonDocument.Parse(json);
         // Nested list must retain the same snake_case mapping as the top-level DTO.
-        doc.RootElement.GetProperty("messages")[0].EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.GetProperty("messages")[0].EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "id", "role", "content", "timestamp", "embedding", "metadata");
 
         var roundTripped = JsonSerializer.Deserialize<TckConversation>(json, options);
@@ -277,7 +277,7 @@ public class TckBridgeWireContractTests
 
         // Must match the TCK TCKSessionInfo contract exactly (session_id, message_count, created_at,
         // updated_at) — the runner reads created_at as a required key.
-        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "session_id", "message_count", "created_at", "updated_at");
     }
 
@@ -344,7 +344,7 @@ public class TckBridgeWireContractTests
         var json = JsonSerializer.Serialize(entity, options);
         using var doc = JsonDocument.Parse(json);
 
-        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "id", "name", "type", "subtype", "description", "embedding", "canonical_name", "created_at");
     }
 
@@ -358,7 +358,7 @@ public class TckBridgeWireContractTests
         var json = JsonSerializer.Serialize(preference, options);
         using var doc = JsonDocument.Parse(json);
 
-        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "id", "category", "preference", "context", "embedding");
     }
 
@@ -373,7 +373,7 @@ public class TckBridgeWireContractTests
         using var doc = JsonDocument.Parse(json);
 
         // The response fact field is "object" (matching the TCK TCKFact model), not "obj".
-        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal(
+        doc.RootElement.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
             "id", "subject", "predicate", "object", "embedding");
     }
 
