@@ -5,10 +5,10 @@
 > item in them has since shipped (the library is at `0.1.0-preview.4`, heavily hardened; see ROADMAP).
 > Several "Where .NET is behind" rows in §2c are also now **shipped** (marked inline). Treat ROADMAP as the
 > source of truth for what's done and what's next.
-> **Current branch note (2026-07-10):** the live DONE/TODO ledger for the behavioral compatibility slice is
+> **Current branch note (2026-07-11):** the live DONE/TODO ledger for the behavioral compatibility slice is
 > [`core/behavioral-compatibility-pack-status.md`](core/behavioral-compatibility-pack-status.md). The next
-> sequence is upstream TCK HTTP bridge + `SCN-*` mapping, then PR from `codex/behavioral-compatibility-pack`
-> into `main`.
+> sequence is upstream TCK HTTP bridge + `SCN-*` mapping on `codex/tck-bridge-scn-mapping`; the previous
+> behavioral compatibility pack is already merged into `main`.
 
 ## Implementation Tracking
 

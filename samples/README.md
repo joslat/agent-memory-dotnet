@@ -55,6 +55,12 @@ dotnet run --project samples/AgentMemory.Sample.AgentWithMemory
 dotnet run --project samples/AgentMemory.Sample.RealAgent
 dotnet run --project samples/AgentMemory.Sample.MemoryToolsAgent
 dotnet run --project samples/AgentMemory.Sample.ChatHistoryProvider
+
+# Build the standalone Aspire demo solution
+dotnet build samples/samples.sln
+
+# Run the Aspire AppHost demo
+dotnet run --project samples/AspireDemo/AspireDemo.AppHost
 ```
 
 ## References

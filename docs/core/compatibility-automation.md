@@ -45,13 +45,13 @@ Do not weaken .NET behavior simply to pass a scenario that assumes upstream's lo
 
 ## Current Next Sequence
 
-The branch `codex/behavioral-compatibility-pack` already contains local mirrored TCK-style scenarios and the compatibility scenario catalog. The remaining pre-PR order is:
+`main` already contains local mirrored TCK-style scenarios and the compatibility scenario catalog. The next compatibility follow-up should happen on `codex/tck-bridge-scn-mapping`:
 
 | Priority | Task-Feature | Description | Notes |
 |---:|---|---|---|
 | 1 | Upstream TCK HTTP bridge | Add the adapter that lets `neo4j-labs/agent-memory-tck` execute against this .NET implementation. | Turns local mirror confidence into canonical upstream-runner evidence. |
 | 2 | `SCN-*` scenario mapping | Annotate mirrored scenarios/catalog entries with upstream stable scenario IDs and tiers. | Makes compatibility evidence reviewable and prevents drift. |
-| 3 | PR to `main` | Open the PR from `codex/behavioral-compatibility-pack` after #1 and #2. | The branch can be reviewed as a coherent compatibility family. |
+| 3 | PR to `main` | Open the PR from `codex/tck-bridge-scn-mapping` after #1 and #2. | The PR should be narrowly reviewable as bridge/mapping work. |
 
 The full DONE/TODO ledger for this slice lives in [`behavioral-compatibility-pack-status.md`](behavioral-compatibility-pack-status.md).
 
