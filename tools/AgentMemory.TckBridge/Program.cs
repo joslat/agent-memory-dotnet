@@ -456,6 +456,8 @@ var addStepGate = new SemaphoreSlim(1, 1);
 app.MapPost("/add_step", async (
     AddStepRequest req,
     IReasoningMemoryService reasoning,
+    IReasoningTraceRepository traceRepo,
+    IReasoningStepRepository stepRepo,
     CancellationToken ct) =>
 {
     // AddStepAsync requires a caller-supplied stepNumber, but the TCK's add_step contract has no such
@@ -466,11 +468,15 @@ app.MapPost("/add_step", async (
     await addStepGate.WaitAsync(ct).ConfigureAwait(false);
     try
     {
-        var (trace, existingSteps) = await reasoning.GetTraceWithStepsAsync(traceId, ct).ConfigureAwait(false);
-        // Shared-bucket only: trace ids come from the caller, so refuse to mutate a non-shared (owner-scoped)
-        // trace by id — treat it as not found, consistent with get_trace_with_steps.
-        if (trace.OwnerId is not null)
+        // Look the trace up via the repository (which returns null on miss) rather than
+        // IReasoningMemoryService.GetTraceWithStepsAsync (which throws MEMORY_TRACE_NOT_FOUND -> 500). This
+        // makes a missing trace a clean 404, and the same OwnerId check keeps mutation confined to the shared
+        // bucket — so both a nonexistent AND a non-shared trace are treated as not-found, matching
+        // get_trace_with_steps.
+        var trace = await traceRepo.GetByIdAsync(traceId, ct).ConfigureAwait(false);
+        if (trace is not { OwnerId: null })
             return Results.NotFound(new { error = "trace not found" });
+        var existingSteps = await stepRepo.GetByTraceAsync(traceId, ct).ConfigureAwait(false);
         var stepNumber = existingSteps.Count + 1;
         var step = await reasoning.AddStepAsync(
             traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: ct)
