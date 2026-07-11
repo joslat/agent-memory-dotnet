@@ -79,8 +79,8 @@ runner drive this .NET implementation out-of-process, and give reviewers traceab
 the stable upstream `SCN-*` scenario IDs.
 
 **Done when:**
-1. `tools/AgentMemory.TckBridge` builds 0-warning in Release and serves the 9 Bronze endpoints over HTTP on
-   `http://localhost:3001`.
+1. `tools/AgentMemory.TckBridge` builds 0-warning in Release and serves the Bronze endpoints over HTTP on
+   `http://localhost:3001` (9 short-term as originally planned; expanded to 12 at execution — see the status header).
 2. `CompatibilityScenarioCatalog` carries upstream `SCN-*` IDs, and catalog guards enforce mapping validity.
 3. New unit tests pass (catalog guards + bridge DTO serialization); existing TCK-mirror/catalog tests still pass.
 4. Docs updated (`behavioral-compatibility-pack-status.md`, `compatibility-automation.md`, `DOING-RIGHT-NOW.md`).
