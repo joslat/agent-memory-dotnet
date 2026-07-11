@@ -5,7 +5,7 @@ namespace AgentMemory.Abstractions.Services;
 /// <c>RecallRequest</c>/<c>ExtractionRequest</c> — notably the LLM-invokable memory tools built from
 /// <see cref="IMemoryQueryFacade"/>, whose parameters are filled by the model and therefore must not
 /// be trusted to carry a user id. A null <see cref="UserId"/> means shared/global (R1). See
-/// <c>docs/Memory_Review_and_Implementation_Plan.md</c> (IC8).
+/// <c>docs/archive/Memory_Review_and_Implementation_Plan.md</c> (IC8).
 /// </summary>
 public interface IMemoryOwnerContext
 {

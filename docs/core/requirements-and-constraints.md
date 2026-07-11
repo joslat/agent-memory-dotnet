@@ -28,7 +28,7 @@ Consumers should be able to depend on the narrow interface that matches their us
 
 ### FR-3: Graph Persistence
 
-The primary persistence implementation must use Neo4j. It must provide repositories for conversations, messages, entities, facts, preferences, relationships, reasoning traces, reasoning steps, tool calls, extractors, schemas, graph query, memory history, consolidation, conflict detection, and memory decay.
+The primary persistence implementation must use Neo4j. It must provide repositories for conversations, messages, entities, facts, preferences, relationships, reasoning traces, reasoning steps, tool calls, and extractors, plus services for schemas, graph query, memory history, consolidation, conflict detection, and memory decay.
 
 ### FR-4: Schema Bootstrap and Migration
 

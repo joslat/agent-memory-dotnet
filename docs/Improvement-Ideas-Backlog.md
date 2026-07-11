@@ -15,7 +15,7 @@ The following ideas from earlier backlog versions are no longer pending as origi
 | GDS PageRank/community detection | Shipped as `AgentMemory.Analytics` with `AddGdsMemoryAnalytics`, `IMemoryPageRankService`, and `IMemoryCommunityService`. |
 | Basic conflict detection and supersession | Shipped as `IConflictDetectionService`, `Neo4jConflictDetectionService`, `agentmemory conflicts`, and opt-in contradiction resolution through non-destructive `SUPERSEDED_BY`. |
 | AutoGen.NET adapter | No separate adapter needed; AutoGen.NET was absorbed into Microsoft Agent Framework and is covered by `AgentMemory.AgentFramework`. |
-| CLI migrate/schema-check scope | Shipped and expanded: `migrate`, `bootstrap`, `schema-check`, `consolidate`, `decay`, `conflicts`, `schema-parity`, `invalidate`, `supersede`, `history`. |
+| CLI migrate/schema-check scope | Shipped and expanded: `migrate`, `bootstrap`, `schema-check`, `consolidate`, `decay`, `conflicts`, `schema-parity`, `invalidate`, `supersede`, `history`, `evaluate`. |
 
 ## 1. Provenance Scoring and Conflict Events
 
@@ -118,7 +118,7 @@ No official stable .NET Opik SDK was available when this backlog was refreshed. 
 
 ### Current Baseline
 
-The `agentmemory` CLI already covers production maintenance: migrate, bootstrap, schema-check, consolidate, decay, conflicts, schema-parity, invalidate, and supersede.
+The `agentmemory` CLI already covers production maintenance: migrate, bootstrap, schema-check, consolidate, decay, conflicts, schema-parity, invalidate, supersede, history, and evaluate.
 
 ### Deferred Commands
 

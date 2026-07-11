@@ -47,7 +47,7 @@ public sealed record ReasoningTrace
 
     /// <summary>
     /// Optional owner/user id that scopes this trace. Null means shared/global. See
-    /// <c>MemoryScope</c> and docs/Memory_Review_and_Implementation_Plan.md (R1/R2).
+    /// <c>MemoryScope</c> and docs/archive/Memory_Review_and_Implementation_Plan.md (R1/R2).
     /// </summary>
     public string? OwnerId { get; init; }
 

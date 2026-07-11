@@ -30,7 +30,7 @@ public interface IPreferenceRepository
     /// <summary>
     /// Gets a preference by identifier. Deliberately unscoped (R1): the id is itself an already-owned
     /// handle, so no owner filter is applied. See the unscoped-reads disposition in
-    /// <c>docs/Memory_Review_and_Implementation_Plan.md</c>.
+    /// <c>docs/archive/Memory_Review_and_Implementation_Plan.md</c>.
     /// </summary>
     Task<Preference?> GetByIdAsync(string preferenceId, CancellationToken cancellationToken = default);
 

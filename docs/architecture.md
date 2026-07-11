@@ -1,6 +1,6 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-07-09 (preview.4 reality check)
+**Last Updated:** 2026-07-11 (preview.4 reality check)
 **Author:** Deckard (Lead Architect)
 **Canonical Specification:** [specification.md](specification.md)
 **Implementation Plan (historical):** [archive/full-implementation-plan.md](archive/full-implementation-plan.md)
@@ -40,8 +40,8 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                        ADAPTERS (Phase 3–6)                         │
 │                                                                     │
 │  ┌─────────────────────┐  ┌──────────────────────┐  ┌───────────┐  │
-│  │ AgentMemory.MAF     │  │ AgentMemory.          │  │ AgentMem. │  │
-│  │ (MAF adapter)       │  │ SemanticKernel        │  │ McpServer │  │
+│  │ AgentMemory.        │  │ AgentMemory.          │  │ AgentMem. │  │
+│  │ AgentFramework      │  │ SemanticKernel        │  │ McpServer │  │
 │  │                     │  │                       │  │           │  │
 │  │ + Microsoft.Agents  │  │ + Microsoft.          │  │ + MCP SDK │  │
 │  │   .AI.*             │  │   SemanticKernel.*    │  │           │  │
@@ -52,6 +52,11 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │                         ▼                                            │
 ├─────────────────────────────────────────────────────────────────────┤
 │                 EXTENSIONS & CROSS-CUTTING (Phase 4–5)               │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ AgentMemory.Analytics  (optional GDS: PageRank + Louvain)     │ │
+│  │ deps: Abstractions + Neo4j; graceful no-op w/o GDS plugin     │ │
+│  └───────────────────────────────────────────────────────────────┘ │
 │                                                                     │
 │  ┌──────────────────────┐  ┌──────────────────────┐  ┌───────────┐ │
 │  │ Observability        │  │ Extraction.          │  │Enrichment │ │
@@ -242,7 +247,7 @@ AgentMemory.Observability    — all types (decorators, metrics, activity source
 | Attribute | Value |
 |---|---|
 | **Purpose** | Alternative extraction backend using Azure Cognitive Services (Text Analytics) |
-| **Dependencies** | Abstractions (project ref), Core (project ref), Azure.AI.TextAnalytics 13.0.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.5 |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Azure.AI.TextAnalytics 5.3.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
 | **MUST NOT reference** | Business logic — extraction only, no memory persistence |
 | **Key types** | `AzureEntityExtractor : IEntityExtractor`, `AzureKeyPhraseExtractor : IFactExtractor`, `AzurePiiExtractor : IEntityExtractor` |
 
@@ -264,7 +269,7 @@ AgentMemory.Extraction.AzureLanguage    — Azure-backed extractors and DI
 | Attribute | Value |
 |---|---|
 | **Purpose** | Geocoding and entity enrichment services with caching and rate limiting |
-| **Dependencies** | Abstractions (project ref), Core (project ref), Microsoft.Extensions.DI/Logging/Caching.Abstractions 10.0.5 |
+| **Dependencies** | Abstractions (project ref only — no Core ref), Microsoft.Extensions.DI/Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5, Microsoft.Extensions.Http 10.0.5, Microsoft.Extensions.Caching.Memory 10.0.5 |
 | **MUST NOT reference** | Neo4j.Driver (repositories handle persistence) |
 | **Key types** | `IGeocodingService`, `IEnrichmentService` (interfaces in Abstractions), `NominatimGeocodingService`, `WikimediaEntityEnrichmentService`, `CachedGeocodingService`, `RateLimitedGeocodingService` |
 
@@ -295,6 +300,28 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 |---|---|---|---|
 | `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 25 MCP tools, 6 resources, 3 prompts |
 
+#### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
+
+| Attribute | Value |
+|---|---|
+| **Purpose** | Optional Neo4j Graph Data Science (GDS) analytics over the entity `RELATED_TO` graph — PageRank (memory importance) and Louvain community detection (topic clustering) |
+| **Dependencies** | Abstractions (project ref), Neo4j (project ref), Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
+| **MUST NOT reference** | Microsoft.Agents.*, any framework adapter SDK |
+| **Key types** | `IMemoryPageRankService` / `MemoryPageRankService`, `IMemoryCommunityService` / `MemoryCommunityService`, `IGdsAvailability` / `GdsAvailability`, `EntityRank`, `EntityCommunity`, `GdsAnalyticsOptions`, `ServiceCollectionExtensions` |
+| **Core responsibility** | Surface graph-importance and topic-cluster signals when the GDS plugin is installed; degrade to a graceful no-op (empty results) when it is not |
+
+**Key Patterns:**
+
+1. **Opt-in registration** — `AddGdsMemoryAnalytics()` registers the three analytics services. Call `AddNeo4jAgentMemory()` first — they reuse the Neo4j transaction runner (`INeo4jTransactionRunner`).
+2. **Graceful no-op** — `IGdsAvailability` probes `gds.version()` and memoizes only a *definitive* answer (present, or genuinely not installed). When GDS is absent, `RankEntitiesAsync`/`DetectCommunitiesAsync` log a warning and return an empty list rather than throwing. A transient probe failure is **not** cached, so analytics re-enable automatically once Neo4j recovers.
+3. **Owner-scoped projection** — PageRank and Louvain run over the (owner-scoped) `RELATED_TO` graph via a `MemoryScope`, so one owner's ranks/communities are not perturbed by another owner's data (R1).
+4. **Depends inward on Neo4j** — the only extension package (besides the driver firewall itself) that references `AgentMemory.Neo4j`, because it issues Cypher against the same driver.
+
+**Namespace structure:**
+```
+AgentMemory.Analytics    — GDS services, availability probe, models, options, DI
+```
+
 ---
 
 ## 4. Neo4j Graph Model
@@ -318,9 +345,10 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 | `:Tool` | *(aggregate)* | `name`, `created_at`, `total_calls` |
 | `:Extractor` | `ExtractorModel` | `id`, `name`, `version`, `config`, `created_at` — extraction provenance (upstream-parity node) |
 | `:ConsolidationRun` | *(audit)* | `id`, `kind`, `ran_at`, `dry_run`, `candidate_count`, `actions_taken` — memory-hygiene audit trail written when a consolidation run is applied (PR #113) |
+| `:MemoryReadAudit` | *(audit)* | `id`, `kind`, `memory_id`, `owner_id`, `read_at`, `access_count` — read/privacy audit trail recording long-term memory recall hits, written by `DecayQueries.UpdateAccessTimestamp` (upstream v0.5-compatible) |
 | `:Schema` | `SchemaModel` / `EntitySchemaConfig` | `id`, `name`, `version`, `description`, `config`, `is_active`, `created_at`, `created_by` — custom-schema persistence; label + indexes declared by `SchemaBootstrapper`; CRUD via `ISchemaManager` → `Neo4jSchemaManager` (G4, see `docs/schema.md`) |
 
-> **Note:** `SchemaConstants.NodeLabels` defines all 12 labels above. Entity-to-entity relationships use `RELATED_TO` via Neo4j native relationships (not a separate `:MemoryRelationship` node). The `Relationship` domain type maps to `RELATED_TO` relationship properties.
+> **Note:** `SchemaConstants.NodeLabels` defines all 13 labels above. Entity-to-entity relationships use `RELATED_TO` via Neo4j native relationships (not a separate `:MemoryRelationship` node). The `Relationship` domain type maps to `RELATED_TO` relationship properties.
 
 ### 4.2 Relationship Types
 
@@ -343,6 +371,12 @@ graph LR
     Entity -->|EXTRACTED_FROM| Message
     Fact -->|EXTRACTED_FROM| Message
     Preference -->|EXTRACTED_FROM| Message
+    Entity -->|EXTRACTED_BY| Extractor
+    Fact -->|EXTRACTED_BY| Extractor
+    Preference -->|EXTRACTED_BY| Extractor
+    ReasoningStep -->|TOUCHED| Entity
+    Fact -->|SUPERSEDED_BY| Fact
+    Preference -->|SUPERSEDED_BY| Preference
     Conversation -->|HAS_FACT| Fact
     Conversation -->|HAS_PREFERENCE| Preference
 ```
@@ -356,13 +390,16 @@ graph LR
 | `RELATED_TO` | Entity | Entity | Inter-entity relationships |
 | `ABOUT` | Preference/Fact | Entity | Links knowledge to entity |
 | `SAME_AS` | Entity | Entity | Entity deduplication |
+| `SUPERSEDED_BY` | Fact/Preference | Fact/Preference | Supersession (D7): loser soft-invalidated, points to winner (contradiction resolution / duplicate collapse; both kept, non-destructive) |
 | `HAS_STEP` | ReasoningTrace | ReasoningStep | Trace contains steps (with `order` property) |
 | `USES_TOOL` | ReasoningStep | ToolCall | Step-to-tool-call link |
 | `INSTANCE_OF` | ToolCall | Tool | Links call to tool definition |
+| `TOUCHED` | ReasoningStep | Entity | Audit/provenance edge — step read or acted upon an entity (carries `recorded_at`) |
 | `HAS_TRACE` | Conversation | ReasoningTrace | Conversation-to-trace |
 | `INITIATED_BY` | ReasoningTrace | Message | Trace triggered by message |
 | `TRIGGERED_BY` | ToolCall | Message | Tool call triggered by message |
-| `EXTRACTED_FROM` | Entity/Fact/Preference | Message | Extraction provenance |
+| `EXTRACTED_FROM` | Entity/Fact/Preference | Message | Extraction provenance (source message) |
+| `EXTRACTED_BY` | Entity/Fact/Preference | Extractor | Extraction provenance (producing extractor) |
 | `IN_SESSION` | ReasoningTrace | Conversation | .NET extension (reverse of HAS_TRACE) |
 | `HAS_FACT` | Conversation | Fact | .NET extension |
 | `HAS_PREFERENCE` | Conversation | Preference | .NET extension |
@@ -379,7 +416,9 @@ CREATE CONSTRAINT reasoning_trace_id IF NOT EXISTS FOR (t:ReasoningTrace) REQUIR
 CREATE CONSTRAINT reasoning_step_id IF NOT EXISTS FOR (s:ReasoningStep) REQUIRE s.id IS UNIQUE
 CREATE CONSTRAINT tool_call_id IF NOT EXISTS FOR (tc:ToolCall) REQUIRE tc.id IS UNIQUE
 CREATE CONSTRAINT tool_name IF NOT EXISTS FOR (t:Tool) REQUIRE t.name IS UNIQUE
-CREATE CONSTRAINT relationship_id IF NOT EXISTS FOR (r:MemoryRelationship) REQUIRE r.id IS UNIQUE  -- .NET extension
+CREATE CONSTRAINT extractor_name IF NOT EXISTS FOR (ex:Extractor) REQUIRE ex.name IS UNIQUE
+CREATE CONSTRAINT consolidation_run_id IF NOT EXISTS FOR (r:ConsolidationRun) REQUIRE r.id IS UNIQUE
+CREATE CONSTRAINT memory_read_audit_id IF NOT EXISTS FOR (a:MemoryReadAudit) REQUIRE a.id IS UNIQUE
 ```
 
 ### 4.4 Fulltext Indexes (Implemented in SchemaBootstrapper)
@@ -411,17 +450,39 @@ CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningS
 
 ### 4.6 Property Indexes (Implemented in SchemaBootstrapper)
 
+**21 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
+
 ```cypher
 CREATE INDEX conversation_session_idx IF NOT EXISTS FOR (c:Conversation) ON (c.session_id)
-CREATE INDEX message_timestamp IF NOT EXISTS FOR (m:Message) ON (m.timestamp)
-CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)
-CREATE INDEX entity_name_prop IF NOT EXISTS FOR (e:Entity) ON (e.name)
+CREATE INDEX message_timestamp_idx IF NOT EXISTS FOR (m:Message) ON (m.timestamp)
+CREATE INDEX message_role_idx IF NOT EXISTS FOR (m:Message) ON (m.role)
+CREATE INDEX entity_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.type)
+CREATE INDEX entity_name_idx IF NOT EXISTS FOR (e:Entity) ON (e.name)
+CREATE INDEX entity_canonical_idx IF NOT EXISTS FOR (e:Entity) ON (e.canonical_name)
 CREATE INDEX fact_category IF NOT EXISTS FOR (f:Fact) ON (f.category)
-CREATE INDEX preference_category IF NOT EXISTS FOR (p:Preference) ON (p.category)
+CREATE INDEX preference_category_idx IF NOT EXISTS FOR (p:Preference) ON (p.category)
 CREATE INDEX trace_session_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.session_id)
+CREATE INDEX trace_success_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.success)
 CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)
-CREATE INDEX tool_call_status IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
+CREATE INDEX tool_call_status_idx IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
+CREATE INDEX schema_name_idx IF NOT EXISTS FOR (s:Schema) ON (s.name)
+CREATE INDEX schema_version_idx IF NOT EXISTS FOR (s:Schema) ON (s.version)
+CREATE INDEX fact_owner_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_id)
+CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)
+CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)
+CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)
+CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)
+CREATE INDEX conversation_archived_idx IF NOT EXISTS FOR (c:Conversation) ON (c.archived)
+CREATE INDEX memory_read_audit_kind_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.kind)
 ```
+
+**1 point index** (also in `SchemaQueries.PropertyIndexes`, for geospatial entity queries):
+
+```cypher
+CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.location)
+```
+
+> **Note:** The five owner-scope indexes — four node indexes (`fact_owner_idx`, `entity_owner_idx`, `preference_owner_idx`, `trace_owner_idx`) plus the `rel_owner_idx` relationship-property index — accelerate the `owner_id` filter applied during scoped vector recall (R1, multi-user isolation).
 
 ---
 
@@ -573,7 +634,7 @@ All 6 implementation phases plus the gap closure and hardening work are complete
 - ✅ All repositories integration tested with real Neo4j via Testcontainers
 - ✅ Context assembler functional with configurable budgets
 - ✅ No MAF or GraphRAG dependencies in Core or Abstractions
-- ✅ Schema bootstrap creates all constraints and indexes (10 constraints, 14 property, 6 vector, 1 point, 3 fulltext)
+- ✅ Schema bootstrap creates all constraints and indexes (12 constraints, 21 property, 6 vector, 1 point, 3 fulltext)
 - ✅ In-process memory engine works without Agent Framework
 
 ---
@@ -599,6 +660,7 @@ Each package exists to prevent a specific unwanted transitive dependency from re
 | 8 | **SemanticKernel** | Microsoft.SemanticKernel 1.74.0 | Abstractions, Core | **SK firewall.** SK-specific integration layer — only SK users pay this cost (the full SK package, not just contracts). |
 | 9 | **McpServer** | ModelContextProtocol 1.2.0, M.E.Hosting | Abstractions | **MCP SDK firewall.** Only relevant for MCP server deployments. Library consumers never inherit MCP protocol overhead. |
 | 10 | **Observability** | OpenTelemetry.Api 1.12.0 | Abstractions, Core | **OTel opt-in.** Observability is additive, not mandatory. Consumers who don't export traces shouldn't reference OTel. |
+| 11 | **Analytics** | *(no new NuGet dep — GDS is a server-side Neo4j plugin)* | Abstractions, Neo4j | **Optional GDS analytics.** PageRank + Louvain community detection over the entity `RELATED_TO` graph. Opt-in; degrades to a graceful no-op when the GDS plugin is absent. The only extension package that references Neo4j (issues Cypher on the same driver). |
 
 ### 9.2 Dependency Graph (Simplified)
 
@@ -623,11 +685,12 @@ Each package exists to prevent a specific unwanted transitive dependency from re
   │ +GraphRAG │ └───────────┘ └─────────────┘ └───────────────┘
   └───────────┘
 
-  ┌──────────────┐   ┌──────────────┐
-  │SemanticKernel│   │  McpServer   │
-  │(SK.Abstract.)│   │(MCP SDK +   │
-  └──────────────┘   │ Hosting)     │
-                     └──────────────┘
+  ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
+  │SemanticKernel│   │  McpServer   │   │    Analytics     │
+  │(SK.Abstract.)│   │(MCP SDK +   │   │ (→ Neo4j; opt-in │
+  └──────────────┘   │ Hosting)     │   │  GDS PageRank /  │
+                     └──────────────┘   │  Louvain)        │
+                                        └──────────────────┘
 ```
 
 ### 9.3 Can We Simplify? Merger Candidates Analysis
@@ -666,6 +729,7 @@ The only debatable merge is **Extraction.Llm → Core**, and even that should be
 | **GraphRAG retrieval** | Abstractions + Core + Neo4j (GraphRAG built-in) | 3 |
 | **MCP server deployment** | Abstractions + Core + Neo4j + McpServer | 4 |
 | **+ Observability** | + Observability (additive to any above) | +1 |
+| **+ GDS analytics (PageRank / communities)** | + Analytics (additive; requires Neo4j + GDS plugin) | +1 |
 
 ---
 

@@ -721,7 +721,7 @@ re-verified against the working tree for this pass.
 | Owner indexes + non-backfilling migration | `src/AgentMemory.Neo4j/Schema/Migrations/0002_owner_scope.cypher` |
 | `R1b` database naming (collision-safe truncation) | `src/AgentMemory.Neo4j/Infrastructure/StoreDatabaseNaming.cs` |
 | `R1b` options / provisioner / session routing | `src/AgentMemory.Neo4j/Infrastructure/{MemoryStoreOptions,Neo4jMemoryStoreProvisioner,Neo4jSessionFactory}.cs` |
-| Full design rationale | `docs/Memory_Review_and_Implementation_Plan.md` |
+| Full design rationale | `docs/archive/Memory_Review_and_Implementation_Plan.md` |
 
 ### Appendix B — Schema gap at a glance
 

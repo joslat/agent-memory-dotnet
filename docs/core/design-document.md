@@ -2,6 +2,8 @@
 
 Status: current as of 2026-07-09.
 
+Companion: [../design.md](../design.md) — the detailed interface/type catalog (service and repository interfaces, domain types, configuration model). This document is the architecture narrative.
+
 ## 1. Problem Statement
 
 AI agents need durable memory that survives a single prompt window and remains queryable by user, application, time, and semantic relevance. A useful .NET implementation must fit normal .NET application architecture while preserving graph-native memory concepts from the Python reference ecosystem.

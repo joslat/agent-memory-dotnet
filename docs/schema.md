@@ -168,5 +168,5 @@ Live recall excludes invalidated records. As-of recall can answer what was belie
 
 - `ISchemaBootstrapper.BootstrapAsync()` creates constraints/indexes idempotently and validates vector dimensions.
 - `IMigrationRunner` applies versioned `.cypher` migrations and records applied versions.
-- `agentmemory schema-check` compares live database objects with `SchemaQueries.BootstrapStatements`.
+- `agentmemory schema-check` compares live database objects with `SchemaConformance.ExpectedObjectNames(dimensions)`.
 - `agentmemory schema-parity` compares the .NET schema descriptor against embedded upstream Python snapshots.
