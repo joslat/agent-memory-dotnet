@@ -16,7 +16,7 @@ public sealed class CoreMemoryToolsTests
     private readonly ILongTermMemoryService _longTermMemory = Substitute.For<ILongTermMemoryService>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
-    private readonly IOptions<McpServerOptions> _options = Options.Create(new McpServerOptions());
+    private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
     private readonly IOptions<LongTermMemoryOptions> _longTermOptions = Options.Create(new LongTermMemoryOptions());
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);

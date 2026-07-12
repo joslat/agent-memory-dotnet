@@ -15,13 +15,13 @@ internal sealed class GraphQueryTools
     [McpServerTool(Name = "graph_query"), Description("Execute a Cypher query against the Neo4j knowledge graph. Only available when explicitly enabled in server configuration.")]
     public static async Task<string> GraphQuery(
         IGraphQueryService graphQueryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("The Cypher query to execute")] string cypherQuery,
         CancellationToken cancellationToken = default)
     {
         if (!options.Value.EnableGraphQuery)
         {
-            throw new McpException("The graph_query tool is disabled. Enable it in McpServerOptions.EnableGraphQuery.");
+            throw new McpException("The graph_query tool is disabled. Enable it in AgentMemoryMcpOptions.EnableGraphQuery.");
         }
 
         var results = await graphQueryService.QueryAsync(cypherQuery, cancellationToken: cancellationToken).ConfigureAwait(false);

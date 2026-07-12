@@ -18,7 +18,7 @@ internal sealed class CoreMemoryTools
     [McpServerTool(Name = "memory_search"), Description("Search agent memory for relevant context matching a query. Returns assembled memory context with recent messages, entities, facts, and preferences.")]
     public static async Task<string> MemorySearch(
         IMemoryService memoryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("The search query text")] string query,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("User identifier (optional)")] string? userId = null,
@@ -56,7 +56,7 @@ internal sealed class CoreMemoryTools
     [McpServerTool(Name = "memory_get_context"), Description("Get assembled memory context for the current conversation. Similar to memory_search but returns the full structured context object.")]
     public static async Task<string> MemoryGetContext(
         IMemoryService memoryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("The current query or topic to recall context for")] string query,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("User identifier (optional)")] string? userId = null,
@@ -76,7 +76,7 @@ internal sealed class CoreMemoryTools
     [McpServerTool(Name = "memory_store_message"), Description("Store a message in short-term conversation memory.")]
     public static async Task<string> MemoryStoreMessage(
         IMemoryService memoryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("The role of the message sender (e.g., 'user', 'assistant', 'system')")] string role,
         [Description("The message content")] string content,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
@@ -103,7 +103,7 @@ internal sealed class CoreMemoryTools
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
         IClock clock,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Name of the entity")] string name,
         [Description("Type of entity: Person, Organization, Location, Event, or Object")] string type,
@@ -144,7 +144,7 @@ internal sealed class CoreMemoryTools
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
         IClock clock,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Category of the preference (e.g., 'communication', 'style', 'tooling')")] string category,
         [Description("The preference text describing what the user prefers")] string preferenceText,
@@ -185,7 +185,7 @@ internal sealed class CoreMemoryTools
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
         IClock clock,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Subject of the fact (e.g., a person or concept name)")] string subject,
         [Description("Predicate or relationship (e.g., 'works_at', 'lives_in', 'knows')")] string predicate,

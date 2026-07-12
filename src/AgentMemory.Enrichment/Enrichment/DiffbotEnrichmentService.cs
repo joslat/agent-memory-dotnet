@@ -263,7 +263,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
                 {
                     Name = name,
                     Relation = relType,
-                    DiffbotUri = obj["diffbotUri"]?.GetValue<string>(),
+                    ProviderUri = obj["diffbotUri"]?.GetValue<string>(),
                 });
             }
         }
@@ -328,7 +328,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
             Status = EnrichmentStatus.Success,
             Description = description,
             Summary = summary,
-            DiffbotUri = diffbotUri,
+            ProviderUri = diffbotUri,
             ImageUrl = images.Count > 0 ? images[0] : null,
             Images = images,
             RelatedEntities = related,

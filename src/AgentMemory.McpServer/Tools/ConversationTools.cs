@@ -48,7 +48,7 @@ internal sealed class ConversationTools
     [McpServerTool(Name = "memory_list_sessions"), Description("List conversations for a given session.")]
     public static async Task<string> MemoryListSessions(
         IConversationRepository conversationRepo,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Session identifier to list conversations for (optional, uses default if omitted)")] string? sessionId = null,
         [Description("Owner/user identifier (optional). When set, lists only that user's (plus un-attributed) conversations; null = all users (unscoped/admin). Set it in multi-tenant deployments to avoid leaking other users' session ids (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)

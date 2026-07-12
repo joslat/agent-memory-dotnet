@@ -87,7 +87,7 @@ internal sealed class EntityTools
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
         IClock clock,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Entity ID of the source entity")] string sourceEntityId,
         [Description("Entity ID of the target entity")] string targetEntityId,
         [Description("Type of relationship (e.g., 'WORKS_FOR', 'LOCATED_IN', 'KNOWS')")] string relationshipType,

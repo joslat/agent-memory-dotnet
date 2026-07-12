@@ -19,7 +19,7 @@ internal sealed class ObservationTools
     public static async Task<string> MemoryGetObservations(
         IShortTermMemoryService shortTermMemory,
         IContextCompressor compressor,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Session ID to retrieve observations for")] string? sessionId = null,
         [Description("Maximum tokens for the response")] int maxTokens = 4000,
         [Description("Include entity observations")] bool includeEntities = true,

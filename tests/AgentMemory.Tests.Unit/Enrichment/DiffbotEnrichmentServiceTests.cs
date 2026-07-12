@@ -114,7 +114,7 @@ public sealed class DiffbotEnrichmentServiceTests
         result.Status.Should().Be(EnrichmentStatus.Success);
         result.Description.Should().Contain("mathematician");
         result.Summary.Should().Contain("computing");
-        result.DiffbotUri.Should().Contain("PERSON123");
+        result.ProviderUri.Should().Contain("PERSON123");
         result.ImageUrl.Should().Contain("turing.jpg");
         result.SourceUrl.Should().Contain("wikipedia.org");
         result.Properties.Should().ContainKey("birthDate");
@@ -317,7 +317,7 @@ public sealed class DiffbotEnrichmentServiceTests
         result!.RelatedEntities.Should().NotBeEmpty();
         result.RelatedEntities.Should().Contain(r =>
             r.Name == "Bletchley Park" && r.Relation == "employers");
-        result.RelatedEntities[0].DiffbotUri.Should().Contain("BP");
+        result.RelatedEntities[0].ProviderUri.Should().Contain("BP");
     }
 
     [Fact]

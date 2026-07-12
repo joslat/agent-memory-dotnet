@@ -39,8 +39,8 @@ public sealed record EnrichmentResult
     /// <summary>Canonical source URL for the entity (homepage, origin, etc.).</summary>
     public string? SourceUrl { get; init; }
 
-    /// <summary>Provider-specific URI for the entity (e.g. Diffbot DiffbotUri).</summary>
-    public string? DiffbotUri { get; init; }
+    /// <summary>Provider-specific URI for the entity (e.g. the Diffbot entity URI).</summary>
+    public string? ProviderUri { get; init; }
 
     /// <summary>Additional image URLs beyond the primary <see cref="ImageUrl"/>.</summary>
     public IReadOnlyList<string> Images { get; init; } = Array.Empty<string>();

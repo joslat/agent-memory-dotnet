@@ -3,7 +3,7 @@ namespace AgentMemory.Enrichment;
 /// <summary>
 /// Configuration options for the Wikimedia enrichment service.
 /// </summary>
-public sealed class EnrichmentOptions
+public sealed class WikimediaEnrichmentOptions
 {
     public string WikipediaLanguage { get; set; } = "en";
     public string WikipediaBaseUrl { get; set; } = "https://{lang}.wikipedia.org/api/rest_v1";

@@ -59,14 +59,14 @@ internal sealed class AdvancedMemoryTools
     [McpServerTool(Name = "memory_export_graph"), Description("Exports the memory graph or a session-scoped subset as structured JSON. Returns nodes and their relationships. Requires EnableGraphQuery = true in server options.")]
     public static async Task<string> MemoryExportGraph(
         IGraphQueryService graphQueryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Session identifier to scope the export (optional, exports all if omitted)")] string? sessionId = null,
         [Description("Export format: 'json' (default) or 'cypher'")] string format = "json",
         [Description("Maximum number of nodes to export (default: 100)")] int limit = 100,
         CancellationToken cancellationToken = default)
     {
         if (!options.Value.EnableGraphQuery)
-            throw new McpException("memory_export_graph requires EnableGraphQuery = true in McpServerOptions.");
+            throw new McpException("memory_export_graph requires EnableGraphQuery = true in AgentMemoryMcpOptions.");
 
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
@@ -120,13 +120,13 @@ internal sealed class AdvancedMemoryTools
     [McpServerTool(Name = "memory_find_duplicates"), Description("Finds potential duplicate entities based on name containment similarity. Returns pairs of entities whose names are substrings of each other. Requires EnableGraphQuery = true.")]
     public static async Task<string> MemoryFindDuplicates(
         IGraphQueryService graphQueryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Minimum similarity threshold from 0.0 to 1.0 based on name length ratio (default: 0.8)")] double threshold = 0.8,
         [Description("Maximum number of duplicate pairs to return (default: 20)")] int limit = 20,
         CancellationToken cancellationToken = default)
     {
         if (!options.Value.EnableGraphQuery)
-            throw new McpException("memory_find_duplicates requires EnableGraphQuery = true in McpServerOptions.");
+            throw new McpException("memory_find_duplicates requires EnableGraphQuery = true in AgentMemoryMcpOptions.");
 
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
@@ -173,7 +173,7 @@ internal sealed class AdvancedMemoryTools
         IMemoryService memoryService,
         IIdGenerator idGenerator,
         IClock clock,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("The message text to extract from")] string messageText,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("Conversation identifier (optional, defaults to session ID)")] string? conversationId = null,
@@ -219,7 +219,7 @@ internal sealed class AdvancedMemoryTools
     [McpServerTool(Name = "memory_extract_session"), Description("Retroactively runs the extraction pipeline on all messages in a session and persists the resulting entities, facts, preferences, and relationships to long-term memory.")]
     public static async Task<string> MemoryExtractSession(
         IMemoryService memoryService,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("Owner/user identifier (optional, R1). When set, extracted memories are owner-stamped and resolution is owner-scoped; null = stored as shared/global.")] string? userId = null,
         CancellationToken cancellationToken = default)

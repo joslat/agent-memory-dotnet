@@ -19,12 +19,12 @@ internal sealed class WikimediaEnrichmentService : IEnrichmentService
     };
 
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly EnrichmentOptions _options;
+    private readonly WikimediaEnrichmentOptions _options;
     private readonly ILogger<WikimediaEnrichmentService> _logger;
 
     public WikimediaEnrichmentService(
         IHttpClientFactory httpClientFactory,
-        IOptions<EnrichmentOptions> options,
+        IOptions<WikimediaEnrichmentOptions> options,
         ILogger<WikimediaEnrichmentService> logger)
     {
         _httpClientFactory = httpClientFactory;

@@ -12,7 +12,7 @@ namespace AgentMemory.Tests.Unit.McpServer;
 public sealed class ReasoningToolsTests
 {
     private readonly IReasoningMemoryService _reasoningMemory = Substitute.For<IReasoningMemoryService>();
-    private readonly IOptions<McpServerOptions> _options = Options.Create(new McpServerOptions());
+    private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
 

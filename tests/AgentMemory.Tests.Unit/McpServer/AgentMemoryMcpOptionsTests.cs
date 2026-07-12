@@ -3,11 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.McpServer;
-using McpServerOptions = AgentMemory.McpServer.McpServerOptions;
 
 namespace AgentMemory.Tests.Unit.McpServer;
 
-public sealed class McpServerOptionsTests
+public sealed class AgentMemoryMcpOptionsTests
 {
     [Fact]
     public void AddAgentMemoryMcpTools_ProjectsServerNameAndVersion_IntoMcpServerInfo()
@@ -30,42 +29,42 @@ public sealed class McpServerOptionsTests
     [Fact]
     public void DefaultServerName_IsNeo4jAgentMemory()
     {
-        var options = new McpServerOptions();
+        var options = new AgentMemoryMcpOptions();
         options.ServerName.Should().Be("neo4j-agent-memory");
     }
 
     [Fact]
     public void DefaultServerVersion_Is100()
     {
-        var options = new McpServerOptions();
+        var options = new AgentMemoryMcpOptions();
         options.ServerVersion.Should().Be("1.0.0");
     }
 
     [Fact]
     public void DefaultEnableGraphQuery_IsFalse()
     {
-        var options = new McpServerOptions();
+        var options = new AgentMemoryMcpOptions();
         options.EnableGraphQuery.Should().BeFalse();
     }
 
     [Fact]
     public void DefaultSessionId_IsDefault()
     {
-        var options = new McpServerOptions();
+        var options = new AgentMemoryMcpOptions();
         options.DefaultSessionId.Should().Be("default");
     }
 
     [Fact]
     public void DefaultConfidence_Is09()
     {
-        var options = new McpServerOptions();
+        var options = new AgentMemoryMcpOptions();
         options.DefaultConfidence.Should().Be(0.9);
     }
 
     [Fact]
     public void Properties_CanBeOverridden()
     {
-        var options = new McpServerOptions
+        var options = new AgentMemoryMcpOptions
         {
             ServerName = "custom",
             ServerVersion = "2.0.0",

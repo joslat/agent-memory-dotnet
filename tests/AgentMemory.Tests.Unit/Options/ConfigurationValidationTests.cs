@@ -421,21 +421,21 @@ public sealed class ConfigurationValidationTests
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void EnrichmentOptions_Default_WikipediaLanguageIsEn()
+    public void WikimediaEnrichmentOptions_Default_WikipediaLanguageIsEn()
     {
-        new EnrichmentOptions().WikipediaLanguage.Should().Be("en");
+        new WikimediaEnrichmentOptions().WikipediaLanguage.Should().Be("en");
     }
 
     [Fact]
-    public void EnrichmentOptions_Default_TimeoutSecondsIsPositive()
+    public void WikimediaEnrichmentOptions_Default_TimeoutSecondsIsPositive()
     {
-        new EnrichmentOptions().TimeoutSeconds.Should().BePositive();
+        new WikimediaEnrichmentOptions().TimeoutSeconds.Should().BePositive();
     }
 
     [Fact]
-    public void EnrichmentOptions_Default_MaxRetriesIsNonNegative()
+    public void WikimediaEnrichmentOptions_Default_MaxRetriesIsNonNegative()
     {
-        new EnrichmentOptions().MaxRetries.Should().BeGreaterThanOrEqualTo(0);
+        new WikimediaEnrichmentOptions().MaxRetries.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]
@@ -549,33 +549,33 @@ public sealed class ConfigurationValidationTests
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void McpServerOptions_Default_ServerNameIsNotEmpty()
+    public void AgentMemoryMcpOptions_Default_ServerNameIsNotEmpty()
     {
-        new McpServerOptions().ServerName.Should().NotBeNullOrWhiteSpace();
+        new AgentMemoryMcpOptions().ServerName.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void McpServerOptions_Default_ServerVersionIsNotEmpty()
+    public void AgentMemoryMcpOptions_Default_ServerVersionIsNotEmpty()
     {
-        new McpServerOptions().ServerVersion.Should().NotBeNullOrWhiteSpace();
+        new AgentMemoryMcpOptions().ServerVersion.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void McpServerOptions_Default_EnableGraphQueryIsFalse()
+    public void AgentMemoryMcpOptions_Default_EnableGraphQueryIsFalse()
     {
-        new McpServerOptions().EnableGraphQuery.Should().BeFalse();
+        new AgentMemoryMcpOptions().EnableGraphQuery.Should().BeFalse();
     }
 
     [Fact]
-    public void McpServerOptions_Default_DefaultSessionIdIsNotEmpty()
+    public void AgentMemoryMcpOptions_Default_DefaultSessionIdIsNotEmpty()
     {
-        new McpServerOptions().DefaultSessionId.Should().NotBeNullOrWhiteSpace();
+        new AgentMemoryMcpOptions().DefaultSessionId.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void McpServerOptions_Default_DefaultConfidenceIsInValidRange()
+    public void AgentMemoryMcpOptions_Default_DefaultConfidenceIsInValidRange()
     {
-        var o = new McpServerOptions();
+        var o = new AgentMemoryMcpOptions();
         o.DefaultConfidence.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(1.0);
     }
 }

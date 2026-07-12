@@ -14,7 +14,7 @@ internal sealed class ReasoningTools
     [McpServerTool(Name = "memory_start_trace"), Description("Start a new reasoning trace to track an agent's multi-step problem solving process.")]
     public static async Task<string> MemoryStartTrace(
         IReasoningMemoryService reasoningMemory,
-        IOptions<McpServerOptions> options,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Description of the task being solved")] string task,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         CancellationToken cancellationToken = default)

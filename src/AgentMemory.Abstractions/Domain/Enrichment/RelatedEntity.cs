@@ -11,6 +11,6 @@ public sealed record RelatedEntity
     /// <summary>The relation type (e.g. "employers", "subsidiaries", "founders").</summary>
     public required string Relation { get; init; }
 
-    /// <summary>Diffbot URI for the related entity, if available.</summary>
-    public string? DiffbotUri { get; init; }
+    /// <summary>Provider-specific URI for the related entity (e.g. the Diffbot entity URI), if available.</summary>
+    public string? ProviderUri { get; init; }
 }

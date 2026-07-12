@@ -3,7 +3,7 @@ namespace AgentMemory.McpServer;
 /// <summary>
 /// Configuration options for the Agent Memory MCP Server.
 /// </summary>
-public sealed class McpServerOptions
+public sealed class AgentMemoryMcpOptions
 {
     /// <summary>
     /// Server name reported to MCP clients.

@@ -35,7 +35,7 @@ public sealed class RetroactiveToolsTests
     [Fact]
     public async Task MemoryExtractSession_CallsExtractFromSessionAsyncWithGivenSessionId()
     {
-        var options = Options.Create(new McpServerOptions { DefaultSessionId = "default-sess" });
+        var options = Options.Create(new AgentMemoryMcpOptions { DefaultSessionId = "default-sess" });
 
         await AdvancedMemoryTools.MemoryExtractSession(_memoryService, options, "my-session");
 
@@ -45,7 +45,7 @@ public sealed class RetroactiveToolsTests
     [Fact]
     public async Task MemoryExtractSession_UsesDefaultSessionIdWhenNotProvided()
     {
-        var options = Options.Create(new McpServerOptions { DefaultSessionId = "default-sess" });
+        var options = Options.Create(new AgentMemoryMcpOptions { DefaultSessionId = "default-sess" });
 
         await AdvancedMemoryTools.MemoryExtractSession(_memoryService, options);
 
@@ -55,7 +55,7 @@ public sealed class RetroactiveToolsTests
     [Fact]
     public async Task MemoryExtractSession_ReturnsJsonWithSessionIdAndStatus()
     {
-        var options = Options.Create(new McpServerOptions { DefaultSessionId = "sess-x" });
+        var options = Options.Create(new AgentMemoryMcpOptions { DefaultSessionId = "sess-x" });
 
         var result = await AdvancedMemoryTools.MemoryExtractSession(_memoryService, options, "sess-x");
 
