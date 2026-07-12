@@ -226,8 +226,9 @@ internal static class EntityQueries
     /// source onto the target. The merge is non-destructive: only edges that would collapse into a
     /// target→target self-loop are dropped; every real relationship is re-pointed, never discarded (duplicate
     /// same-typed edges are left for the consolidation layer, so temporally-distinct facts survive). When
-    /// scoped (R1) BOTH source and target must be the owner's own (or shared) — so a merge can never reach
-    /// across the isolation boundary into another owner's entity. Null scope ⇒ unscoped (admin). A self-merge
+    /// scoped (R1) BOTH source and target must be the owner's own (or shared), and only the owner's own (or
+    /// shared) RELATED_TO edges are moved — so a merge can never reach across the isolation boundary into
+    /// another owner's entity or relationship. Null scope ⇒ unscoped (admin). A self-merge
     /// (source id == target id) is guarded as a no-op by the repository.
     /// </summary>
     public static string MergeEntities(bool hasOwnerFilter, bool includeShared)
@@ -236,6 +237,13 @@ internal static class EntityQueries
             : includeShared
                 ? "WHERE (source.owner_id = $ownerId OR source.owner_id IS NULL) AND (target.owner_id = $ownerId OR target.owner_id IS NULL)\n            "
                 : "WHERE source.owner_id = $ownerId AND target.owner_id = $ownerId\n            ";
+        // Owner/shared filter for the RELATED_TO EDGE itself (edges carry their own owner_id). A scoped merge
+        // must only move/delete IN-SCOPE edges, so another owner's relationship on a shared entity is left
+        // untouched — consistent with RelationshipQueries applying the owner filter to scoped relationship reads.
+        var edgeGuard = !hasOwnerFilter ? string.Empty
+            : includeShared
+                ? "WHERE (r.owner_id = $ownerId OR r.owner_id IS NULL)\n                "
+                : "WHERE r.owner_id = $ownerId\n                ";
         return @"
             MATCH (source:Entity {id: $sourceEntityId})
             MATCH (target:Entity {id: $targetEntityId})
@@ -262,7 +270,7 @@ internal static class EntityQueries
             // a real relationship, so temporally-distinct facts and their ids survive).
             CALL (source, target) {
                 MATCH (source)-[r:RELATED_TO]->(x:Entity)
-                FOREACH (_ IN CASE WHEN x <> target AND x <> source THEN [1] ELSE [] END |
+                " + edgeGuard + @"FOREACH (_ IN CASE WHEN x <> target AND x <> source THEN [1] ELSE [] END |
                     CREATE (target)-[nr:RELATED_TO]->(x)
                     SET nr = properties(r), nr.source_entity_id = target.id, nr.updated_at = datetime()
                 )
@@ -272,7 +280,7 @@ internal static class EntityQueries
             // Re-point INCOMING typed relationships: (y)-[RELATED_TO]->(source) ⇒ (y)-[RELATED_TO]->(target).
             CALL (source, target) {
                 MATCH (y:Entity)-[r:RELATED_TO]->(source)
-                FOREACH (_ IN CASE WHEN y <> target AND y <> source THEN [1] ELSE [] END |
+                " + edgeGuard + @"FOREACH (_ IN CASE WHEN y <> target AND y <> source THEN [1] ELSE [] END |
                     CREATE (y)-[nr:RELATED_TO]->(target)
                     SET nr = properties(r), nr.target_entity_id = target.id, nr.updated_at = datetime()
                 )

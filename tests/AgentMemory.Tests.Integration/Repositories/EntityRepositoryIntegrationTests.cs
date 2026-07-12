@@ -322,6 +322,28 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         (await ReadRelByIdAsync(relId)).Should().NotBeNull("no relationship is deleted by a self-merge");
     }
 
+    [Fact]
+    public async Task MergeEntitiesAsync_ScopedMove_LeavesAnotherOwnersRelationshipUntouched()
+    {
+        var targetId = await SeedOwnedEntityAsync("Acme", "alice");
+        var sourceId = await SeedOwnedEntityAsync("Acme Corp", "alice");
+        var placeId = await SeedOwnedEntityAsync("London", owner: null); // shared endpoint
+        var aliceRel = $"rel-{Guid.NewGuid():N}";
+        var bobRel = $"rel-{Guid.NewGuid():N}";
+        await SeedRelatedToAsync(aliceRel, sourceId, placeId, "LOCATED_IN", "alice");
+        await SeedRelatedToAsync(bobRel, sourceId, placeId, "HQ_IN", "bob"); // out-of-scope edge on the source
+
+        (await _repo.MergeEntitiesAsync(sourceId, targetId, MemoryScope.For("alice")))
+            .Should().BeTrue();
+
+        // alice's own edge is re-pointed onto the survivor...
+        (await ReadRelByIdAsync(aliceRel))!.StartId.Should().Be(targetId, "an in-scope relationship is moved to the survivor");
+        // ...but bob's out-of-scope edge is neither moved nor deleted — a scoped merge must not touch another owner's data.
+        var bob = await ReadRelByIdAsync(bobRel);
+        bob.Should().NotBeNull("the out-of-scope relationship must not be deleted by alice's scoped merge");
+        bob!.StartId.Should().Be(sourceId, "the out-of-scope relationship must not be re-pointed by alice's scoped merge");
+    }
+
     private sealed record RelInfo(string StartId, string EndId, string SourceProp, string TargetProp, double Confidence);
 
     private Task SeedRelatedToAsync(string relId, string fromEntityId, string toEntityId, string relationType, string? owner, double confidence = 0.9) =>
