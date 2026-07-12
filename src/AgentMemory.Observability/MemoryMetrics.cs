@@ -5,7 +5,7 @@ namespace AgentMemory.Observability;
 /// <summary>
 /// Centralized <see cref="Meter"/> with counters and histograms for memory operations.
 /// </summary>
-internal sealed class MemoryMetrics : IDisposable
+public sealed class MemoryMetrics : IDisposable
 {
     /// <summary>
     /// The meter name used when registering with OpenTelemetry.
@@ -17,7 +17,7 @@ internal sealed class MemoryMetrics : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="MemoryMetrics"/> class.
     /// </summary>
-    public MemoryMetrics()
+    internal MemoryMetrics()
     {
         _meter = new Meter(MeterName, "1.0.0");
 
@@ -120,64 +120,64 @@ internal sealed class MemoryMetrics : IDisposable
     // Counters
 
     /// <summary>Number of messages stored in short-term memory.</summary>
-    public Counter<long> MessagesStored { get; }
+    internal Counter<long> MessagesStored { get; }
 
     /// <summary>Number of entities extracted from messages.</summary>
-    public Counter<long> EntitiesExtracted { get; }
+    internal Counter<long> EntitiesExtracted { get; }
 
     /// <summary>Number of facts extracted from messages.</summary>
-    public Counter<long> FactsExtracted { get; }
+    internal Counter<long> FactsExtracted { get; }
 
     /// <summary>Number of preferences extracted from messages.</summary>
-    public Counter<long> PreferencesExtracted { get; }
+    internal Counter<long> PreferencesExtracted { get; }
 
     /// <summary>Number of recall operations performed.</summary>
-    public Counter<long> RecallRequests { get; }
+    internal Counter<long> RecallRequests { get; }
 
     /// <summary>Number of extraction operations that failed.</summary>
-    public Counter<long> ExtractionErrors { get; }
+    internal Counter<long> ExtractionErrors { get; }
 
     /// <summary>Number of GraphRAG context queries performed.</summary>
-    public Counter<long> GraphRagQueries { get; }
+    internal Counter<long> GraphRagQueries { get; }
 
     // Histograms
 
     /// <summary>Duration of recall operations in milliseconds.</summary>
-    public Histogram<double> RecallDurationMs { get; }
+    internal Histogram<double> RecallDurationMs { get; }
 
     /// <summary>Duration of extraction operations in milliseconds.</summary>
-    public Histogram<double> ExtractionDurationMs { get; }
+    internal Histogram<double> ExtractionDurationMs { get; }
 
     /// <summary>Duration of persist operations in milliseconds.</summary>
-    public Histogram<double> PersistDurationMs { get; }
+    internal Histogram<double> PersistDurationMs { get; }
 
     /// <summary>Duration of GraphRAG queries in milliseconds.</summary>
-    public Histogram<double> GraphRagDurationMs { get; }
+    internal Histogram<double> GraphRagDurationMs { get; }
 
     /// <summary>Duration of context assembly operations in milliseconds.</summary>
-    public Histogram<double> ContextAssemblyDurationMs { get; }
+    internal Histogram<double> ContextAssemblyDurationMs { get; }
 
     /// <summary>Duration of entity extraction operations in milliseconds.</summary>
-    public Histogram<double> EntityExtractionDurationMs { get; }
+    internal Histogram<double> EntityExtractionDurationMs { get; }
 
     /// <summary>Duration of fact extraction operations in milliseconds.</summary>
-    public Histogram<double> FactExtractionDurationMs { get; }
+    internal Histogram<double> FactExtractionDurationMs { get; }
 
     /// <summary>Duration of preference extraction operations in milliseconds.</summary>
-    public Histogram<double> PreferenceExtractionDurationMs { get; }
+    internal Histogram<double> PreferenceExtractionDurationMs { get; }
 
     /// <summary>Duration of relationship extraction operations in milliseconds.</summary>
-    public Histogram<double> RelationshipExtractionDurationMs { get; }
+    internal Histogram<double> RelationshipExtractionDurationMs { get; }
 
     /// <summary>Number of relationships extracted from messages.</summary>
-    public Counter<long> RelationshipsExtracted { get; }
+    internal Counter<long> RelationshipsExtracted { get; }
 
     /// <summary>Number of enrichment requests performed.</summary>
-    public Counter<long> EnrichmentRequests { get; }
+    internal Counter<long> EnrichmentRequests { get; }
 
     /// <summary>Number of enrichment operations that failed.</summary>
-    public Counter<long> EnrichmentErrors { get; }
+    internal Counter<long> EnrichmentErrors { get; }
 
     /// <summary>Duration of enrichment operations in milliseconds.</summary>
-    public Histogram<double> EnrichmentDurationMs { get; }
+    internal Histogram<double> EnrichmentDurationMs { get; }
 }
