@@ -125,7 +125,7 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
     }
 
     private Task<IReadOnlyList<FactConflict>> DetectFactContradictionsAsync(
-        ConflictDetectionOptions opts, CancellationToken ct) =>
+        ConflictDetectionOptions opts, CancellationToken cancellationToken) =>
         _tx.ReadAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -154,5 +154,5 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
                     ownerKey == "*" ? null : ownerKey,
                     members);
             }).ToList();
-        }, ct);
+        }, cancellationToken);
 }

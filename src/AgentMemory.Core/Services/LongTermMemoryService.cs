@@ -87,11 +87,11 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         return EnsureEmbeddingThenUpsertAsync(
             entity,
             shouldEmbed: _options.GenerateEntityEmbeddings && entity.Embedding is null,
-            embed: ct =>
+            embed: cancellationToken =>
             {
                 var text = string.IsNullOrEmpty(entity.Description) ? entity.Name : $"{entity.Name}: {entity.Description}";
                 _logger.LogDebug("Generating embedding for entity {EntityId}", entity.EntityId);
-                return _embeddingOrchestrator.EmbedTextAsync(text, ct);
+                return _embeddingOrchestrator.EmbedTextAsync(text, cancellationToken);
             },
             withEmbedding: (e, emb) => e with { Embedding = emb },
             upsert: _entityRepo.UpsertAsync,

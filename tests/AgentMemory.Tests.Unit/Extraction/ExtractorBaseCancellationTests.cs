@@ -16,7 +16,7 @@ public sealed class ExtractorBaseCancellationTests
         private readonly Exception _toThrow;
         public CoreThrows(Exception toThrow) : base(NullLogger.Instance) => _toThrow = toThrow;
         protected override Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
-            IReadOnlyList<Message> messages, CancellationToken ct) => throw _toThrow;
+            IReadOnlyList<Message> messages, CancellationToken cancellationToken) => throw _toThrow;
     }
 
     private static IReadOnlyList<Message> OneMessage() => new[]
@@ -55,7 +55,7 @@ public sealed class ExtractorBaseCancellationTests
     public async Task ExtractAsync_SpuriousCancellation_WithUncancelledToken_DegradesToEmpty()
     {
         // An OperationCanceledException whose token is NOT cancellation-requested (e.g. a client-side HTTP
-        // timeout) is a failure to degrade, not a caller cancellation — the `when (ct.IsCancellationRequested)`
+        // timeout) is a failure to degrade, not a caller cancellation — the `when (cancellationToken.IsCancellationRequested)`
         // filter must let it fall through to the resilient empty path.
         var sut = new CoreThrows(new OperationCanceledException());
 

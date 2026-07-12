@@ -80,26 +80,26 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
         return Task.CompletedTask;
     }
 
-    private Task StartWorkersAsync(CancellationToken ct)
+    private Task StartWorkersAsync(CancellationToken cancellationToken)
     {
         var workers = Enumerable
             .Range(0, _options.MaxConcurrency)
-            .Select(_ => Task.Run(() => RunWorkerAsync(ct), ct));
+            .Select(_ => Task.Run(() => RunWorkerAsync(cancellationToken), cancellationToken));
         return Task.WhenAll(workers);
     }
 
-    private async Task RunWorkerAsync(CancellationToken ct)
+    private async Task RunWorkerAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await foreach (var item in _channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            await foreach (var item in _channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 Interlocked.Increment(ref _activeCount);
                 try
                 {
-                    await ProcessItemAsync(item, ct).ConfigureAwait(false);
+                    await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw; // shutdown — propagate to the outer catch and end the worker loop
                 }
@@ -122,9 +122,9 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
         catch (OperationCanceledException) { /* expected on shutdown */ }
     }
 
-    private async Task ProcessItemAsync(EnrichmentItem item, CancellationToken ct)
+    private async Task ProcessItemAsync(EnrichmentItem item, CancellationToken cancellationToken)
     {
-        var entity = await _entityRepository.GetByIdAsync(item.EntityId, ct).ConfigureAwait(false);
+        var entity = await _entityRepository.GetByIdAsync(item.EntityId, cancellationToken).ConfigureAwait(false);
         if (entity is null)
         {
             _logger.LogWarning("Entity {EntityId} not found for background enrichment", item.EntityId);
@@ -143,7 +143,7 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
         {
             try
             {
-                var result = await service.EnrichEntityAsync(entity.Name, entity.Type, ct).ConfigureAwait(false);
+                var result = await service.EnrichEntityAsync(entity.Name, entity.Type, cancellationToken).ConfigureAwait(false);
                 var status = result?.Status;
 
                 if (result is not null && status is null or EnrichmentStatus.Success)
@@ -175,7 +175,7 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
 
         if (anySuccess)
         {
-            await _entityRepository.UpsertAsync(updated, ct).ConfigureAwait(false);
+            await _entityRepository.UpsertAsync(updated, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -187,7 +187,7 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
                 "All enrichment providers failed for entity {EntityId}; scheduling retry {Attempt}/{Max}",
                 entity.EntityId, item.RetryCount + 1, _options.MaxRetries);
 
-            await Task.Delay(_options.RetryDelay, ct).ConfigureAwait(false);
+            await Task.Delay(_options.RetryDelay, cancellationToken).ConfigureAwait(false);
             _channel.Writer.TryWrite(item with { RetryCount = item.RetryCount + 1 });
         }
         else

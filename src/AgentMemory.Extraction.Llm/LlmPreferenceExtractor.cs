@@ -45,7 +45,7 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
     }
 
     protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
@@ -53,7 +53,7 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
             "Extract preferences from this conversation:",
             conversationText,
             ProjectPreferences,
-            ct).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ExtractedPreference> ProjectPreferences(LlmExtractionResponse dto)

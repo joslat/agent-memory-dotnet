@@ -43,5 +43,5 @@ public interface IConversationRepository
     /// <summary>
     /// Lists all sessions with summary information.
     /// </summary>
-    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default);
+    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken cancellationToken = default);
 }

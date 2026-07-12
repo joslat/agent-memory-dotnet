@@ -11,17 +11,17 @@ public interface IExtractorRepository
     /// <summary>
     /// Creates or updates an extractor node.
     /// </summary>
-    Task<Extractor> UpsertAsync(Extractor extractor, CancellationToken ct = default);
+    Task<Extractor> UpsertAsync(Extractor extractor, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets an extractor by its unique name.
     /// </summary>
-    Task<Extractor?> GetByNameAsync(string name, CancellationToken ct = default);
+    Task<Extractor?> GetByNameAsync(string name, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lists all registered extractors.
     /// </summary>
-    Task<IReadOnlyList<Extractor>> ListAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<Extractor>> ListAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Creates an EXTRACTED_BY relationship from an entity to an extractor.
@@ -31,7 +31,7 @@ public interface IExtractorRepository
         string extractorName,
         double confidence,
         int? extractionTimeMs = null,
-        CancellationToken ct = default);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets entities extracted by a given extractor. Deliberately unscoped (R1): this is an
@@ -42,27 +42,27 @@ public interface IExtractorRepository
     Task<IReadOnlyList<(Entity Entity, double Confidence)>> GetEntitiesByExtractorAsync(
         string extractorName,
         int limit = 100,
-        CancellationToken ct = default);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets full provenance information for an entity. When <paramref name="scope"/> is supplied (R1)
     /// the lookup is confined to the owner's own or shared entity, returning null when the entity is
     /// out of scope; null scope ⇒ unscoped (admin/audit).
     /// </summary>
-    Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken ct = default);
+    Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets aggregate extraction statistics.
     /// </summary>
-    Task<ExtractionStats> GetExtractionStatsAsync(CancellationToken ct = default);
+    Task<ExtractionStats> GetExtractionStatsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets statistics for a specific extractor.
     /// </summary>
-    Task<ExtractorStats?> GetExtractorStatsAsync(string extractorName, CancellationToken ct = default);
+    Task<ExtractorStats?> GetExtractorStatsAsync(string extractorName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes all provenance relationships (EXTRACTED_FROM, EXTRACTED_BY) for an entity.
     /// </summary>
-    Task<int> DeleteProvenanceAsync(string entityId, CancellationToken ct = default);
+    Task<int> DeleteProvenanceAsync(string entityId, CancellationToken cancellationToken = default);
 }

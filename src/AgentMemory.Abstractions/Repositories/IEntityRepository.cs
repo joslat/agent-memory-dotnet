@@ -173,24 +173,24 @@ public interface IEntityRepository
     /// (optionally) shared entities. Null scope ⇒ unscoped (admin/maintenance dedup).
     /// </summary>
     Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
-        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken ct = default);
+        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets pending SAME_AS duplicate pairs for manual review. Deliberately unscoped (R1): this is an
     /// admin/maintenance dedup-review surface intended to span all owners; it has no user-facing caller.
     /// </summary>
-    Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(int limit = 50, CancellationToken ct = default);
+    Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(int limit = 50, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets aggregate SAME_AS relationship counts grouped by status.
     /// </summary>
-    Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default);
+    Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all entities extracted from a specific message. Deliberately unscoped (R1): the result is
     /// already confined by <paramref name="messageId"/> (itself an owned handle), so no owner filter is added.
     /// </summary>
-    Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(string messageId, CancellationToken ct = default);
+    Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(string messageId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Searches entities by vector similarity, returning only those that existed at <paramref name="asOf"/>.

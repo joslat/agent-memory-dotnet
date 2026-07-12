@@ -616,7 +616,7 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Similarity)>> FindSimilarByEmbeddingAsync(
-        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken ct = default)
+        string entityId, double minSimilarity = 0.85, int limit = 10, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
@@ -639,11 +639,11 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(
-        int limit = 50, CancellationToken ct = default)
+        int limit = 50, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting pending duplicate pairs, limit={Limit}", limit);
 
@@ -659,10 +659,10 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
                 // This API returns only pending pairs — GetPendingDuplicates hard-filters status: 'pending'.
                 return new DuplicatePair(source, target, similarity, DuplicateStatus.Pending);
             }).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken ct = default)
+    public async Task<DeduplicationStats> GetDeduplicationStatsAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting deduplication stats");
 
@@ -679,11 +679,11 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
                 ConfirmedCount: record["confirmed"].As<int>(),
                 RejectedCount: record["rejected"].As<int>(),
                 MergedCount: record["merged"].As<int>());
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Entity>> GetEntitiesFromMessageAsync(
-        string messageId, CancellationToken ct = default)
+        string messageId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting entities from message {MessageId}", messageId);
 
@@ -696,7 +696,7 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
                 var node = r["e"].As<INode>();
                 return MapToEntity(node, ReadEmbedding(node));
             }).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(Entity Entity, double Score)>> SearchByVectorAsOfAsync(

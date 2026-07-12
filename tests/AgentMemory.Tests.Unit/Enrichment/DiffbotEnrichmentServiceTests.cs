@@ -227,7 +227,7 @@ public sealed class DiffbotEnrichmentServiceTests
     [Fact]
     public async Task EnrichEntity_Timeout_ThrowsTimeoutException_ForRetryability()
     {
-        // cycle-6: an HttpClient.Timeout arrives as a TaskCanceledException with the caller's ct NOT
+        // cycle-6: an HttpClient.Timeout arrives as a TaskCanceledException with the caller's cancellationToken NOT
         // cancelled. It must be treated as TRANSIENT — thrown, not returned as a terminal Error — so the
         // background queue retries it and the cache doesn't store a poison Error that suppresses re-enrichment.
         var handler = new ThrowingHttpMessageHandler(new TaskCanceledException("Request timed out"));

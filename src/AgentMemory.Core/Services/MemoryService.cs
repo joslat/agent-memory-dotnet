@@ -294,18 +294,18 @@ internal sealed class MemoryService : IMemoryService
         };
     }
 
-    private async Task<int> BackfillEntityEmbeddingsAsync(int batchSize, CancellationToken ct)
+    private async Task<int> BackfillEntityEmbeddingsAsync(int batchSize, CancellationToken cancellationToken)
     {
         int total = 0;
         PagedResult<Entity> page;
         do
         {
-            page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, ct).ConfigureAwait(false);
+            page = await _entityRepository.GetPageWithoutEmbeddingAsync(batchSize, cancellationToken).ConfigureAwait(false);
             int embeddedThisPage = 0;
             foreach (var entity in page.Items)
             {
-                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, ct).ConfigureAwait(false);
-                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, ct).ConfigureAwait(false);
+                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(entity.Name, cancellationToken).ConfigureAwait(false);
+                await _entityRepository.UpdateEmbeddingAsync(entity.EntityId, embedding, cancellationToken).ConfigureAwait(false);
                 // Count only nodes actually updated: the repo skips persisting an empty (degraded) embedding,
                 // so a skipped node must not inflate the "nodes updated" return value.
                 if (embedding.Length > 0) { total++; embeddedThisPage++; }
@@ -318,18 +318,18 @@ internal sealed class MemoryService : IMemoryService
         return total;
     }
 
-    private async Task<int> BackfillFactEmbeddingsAsync(int batchSize, CancellationToken ct)
+    private async Task<int> BackfillFactEmbeddingsAsync(int batchSize, CancellationToken cancellationToken)
     {
         int total = 0;
         PagedResult<Fact> page;
         do
         {
-            page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, ct).ConfigureAwait(false);
+            page = await _factRepository.GetPageWithoutEmbeddingAsync(batchSize, cancellationToken).ConfigureAwait(false);
             int embeddedThisPage = 0;
             foreach (var fact in page.Items)
             {
-                var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, ct).ConfigureAwait(false);
-                await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, ct).ConfigureAwait(false);
+                var embedding = await _embeddingOrchestrator.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken).ConfigureAwait(false);
+                await _factRepository.UpdateEmbeddingAsync(fact.FactId, embedding, cancellationToken).ConfigureAwait(false);
                 // Count only nodes actually updated (the repo skips persisting an empty/degraded embedding).
                 if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }
@@ -341,18 +341,18 @@ internal sealed class MemoryService : IMemoryService
         return total;
     }
 
-    private async Task<int> BackfillPreferenceEmbeddingsAsync(int batchSize, CancellationToken ct)
+    private async Task<int> BackfillPreferenceEmbeddingsAsync(int batchSize, CancellationToken cancellationToken)
     {
         int total = 0;
         PagedResult<Preference> page;
         do
         {
-            page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, ct).ConfigureAwait(false);
+            page = await _preferenceRepository.GetPageWithoutEmbeddingAsync(batchSize, cancellationToken).ConfigureAwait(false);
             int embeddedThisPage = 0;
             foreach (var pref in page.Items)
             {
-                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, ct).ConfigureAwait(false);
-                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, ct).ConfigureAwait(false);
+                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(pref.PreferenceText, cancellationToken).ConfigureAwait(false);
+                await _preferenceRepository.UpdateEmbeddingAsync(pref.PreferenceId, embedding, cancellationToken).ConfigureAwait(false);
                 // Count only nodes actually updated (the repo skips persisting an empty/degraded embedding).
                 if (embedding.Length > 0) { total++; embeddedThisPage++; }
             }

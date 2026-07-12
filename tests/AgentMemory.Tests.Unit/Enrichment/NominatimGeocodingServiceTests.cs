@@ -151,7 +151,7 @@ public sealed class NominatimGeocodingServiceTests
     [Fact]
     public async Task Geocode_Timeout_ReturnsNull_DoesNotThrow()
     {
-        // cycle-6: an HttpClient.Timeout (TaskCanceledException with the caller's ct NOT cancelled) must
+        // cycle-6: an HttpClient.Timeout (TaskCanceledException with the caller's cancellationToken NOT cancelled) must
         // degrade gracefully to null — NOT propagate as an exception, and NOT be confused with a genuine
         // caller cancellation (which still throws, see Geocode_CancellationToken_Honored).
         var httpClient = new HttpClient(new ThrowingHandler(new TaskCanceledException("timed out")));

@@ -66,24 +66,24 @@ var app = builder.Build();
 
 // ---- Bronze endpoints ----
 
-app.MapPost("/setup", async (ISchemaBootstrapper bootstrapper, INeo4jSessionFactory sessionFactory, CancellationToken ct) =>
+app.MapPost("/setup", async (ISchemaBootstrapper bootstrapper, INeo4jSessionFactory sessionFactory, CancellationToken cancellationToken) =>
 {
-    await bootstrapper.BootstrapAsync(ct).ConfigureAwait(false);
-    await WaitForVectorIndexesOnlineAsync(sessionFactory, ct).ConfigureAwait(false);
+    await bootstrapper.BootstrapAsync(cancellationToken).ConfigureAwait(false);
+    await WaitForVectorIndexesOnlineAsync(sessionFactory, cancellationToken).ConfigureAwait(false);
     // Bridge protocol: /setup returns {"ok": true} (the runner reads result.get("ok", True)); matches
     // the upstream C# reference conformance server's shape.
     return Results.Ok(new { ok = true });
 });
 
-app.MapPost("/teardown", async (BridgeAdmin admin, CancellationToken ct) =>
+app.MapPost("/teardown", async (BridgeAdmin admin, CancellationToken cancellationToken) =>
 {
-    await admin.WipeAllDataAsync(ct).ConfigureAwait(false);
+    await admin.WipeAllDataAsync(cancellationToken).ConfigureAwait(false);
     return Results.NoContent();
 });
 
-app.MapPost("/clear_all_data", async (BridgeAdmin admin, CancellationToken ct) =>
+app.MapPost("/clear_all_data", async (BridgeAdmin admin, CancellationToken cancellationToken) =>
 {
-    await admin.WipeAllDataAsync(ct).ConfigureAwait(false);
+    await admin.WipeAllDataAsync(cancellationToken).ConfigureAwait(false);
     return Results.NoContent();
 });
 
@@ -94,17 +94,17 @@ app.MapPost("/add_message", async (
     IIdGenerator idGenerator,
     IClock clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // Upstream auto-creates/reuses one conversation per session (Bronze assumption); the server
     // assigns both the conversation id (on first message) and the message id + timestamp.
-    var conversations = await conversationRepo.GetBySessionAsync(req.SessionId, ct).ConfigureAwait(false);
+    var conversations = await conversationRepo.GetBySessionAsync(req.SessionId, cancellationToken).ConfigureAwait(false);
     var conversation = conversations.Count > 0 ? conversations[0] : null;
     string conversationId;
     if (conversation is null)
     {
         conversationId = idGenerator.GenerateId();
-        await shortTerm.AddConversationAsync(conversationId, req.SessionId, userId: null, metadata: null, ct)
+        await shortTerm.AddConversationAsync(conversationId, req.SessionId, userId: null, metadata: null, cancellationToken)
             .ConfigureAwait(false);
     }
     else
@@ -112,7 +112,7 @@ app.MapPost("/add_message", async (
         conversationId = conversation.ConversationId;
     }
 
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Content, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Content, cancellationToken).ConfigureAwait(false);
     var message = new Message
     {
         MessageId = idGenerator.GenerateId(),
@@ -124,7 +124,7 @@ app.MapPost("/add_message", async (
         Embedding = embedding,
         Metadata = req.Metadata ?? new Dictionary<string, object>(),
     };
-    var saved = await shortTerm.AddMessageAsync(message, ct).ConfigureAwait(false);
+    var saved = await shortTerm.AddMessageAsync(message, cancellationToken).ConfigureAwait(false);
     return Results.Ok(ToDto(saved));
 });
 
@@ -132,13 +132,13 @@ app.MapPost("/get_conversation", async (
     GetConversationRequest req,
     IConversationRepository conversationRepo,
     IShortTermMemoryService shortTerm,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var conversations = await conversationRepo.GetBySessionAsync(req.SessionId, ct).ConfigureAwait(false);
+    var conversations = await conversationRepo.GetBySessionAsync(req.SessionId, cancellationToken).ConfigureAwait(false);
     var conversation = conversations.Count > 0 ? conversations[0] : null;
 
     // Chronological (oldest-first), no cap — NOT GetRecentMessagesAsync, which is newest-first.
-    IReadOnlyList<Message> messages = await shortTerm.GetAllSessionMessagesAsync(req.SessionId, ct)
+    IReadOnlyList<Message> messages = await shortTerm.GetAllSessionMessagesAsync(req.SessionId, cancellationToken)
         .ConfigureAwait(false);
     if (req.Limit is int limit)
         messages = messages.Take(limit).ToList();
@@ -162,12 +162,12 @@ app.MapPost("/search_messages", async (
     SearchMessagesRequest req,
     IShortTermMemoryService shortTerm,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, cancellationToken).ConfigureAwait(false);
     var limit = req.Limit ?? 10;
     var minScore = req.Threshold ?? 0.7;
-    var results = await shortTerm.SearchMessagesAsync(req.SessionId, embedding, limit, minScore, ct)
+    var results = await shortTerm.SearchMessagesAsync(req.SessionId, embedding, limit, minScore, cancellationToken)
         .ConfigureAwait(false);
     return Results.Ok(results.Select(ToDto).ToList());
 });
@@ -175,17 +175,17 @@ app.MapPost("/search_messages", async (
 app.MapPost("/list_sessions", async (
     ListSessionsRequest req,
     IConversationRepository conversationRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     var limit = req.Limit ?? 100;
-    var sessions = await conversationRepo.ListSessionsAsync(limit, ct).ConfigureAwait(false);
+    var sessions = await conversationRepo.ListSessionsAsync(limit, cancellationToken).ConfigureAwait(false);
     return Results.Ok(sessions.Select(ToSessionDto).ToList());
 });
 
 app.MapPost("/delete_message", async (
     DeleteMessageRequest req,
     IMessageRepository messageRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // delete_message returns {"deleted": bool} — the confirmed contract: bridge-protocol.adoc's wire
     // spec names a "deleted" field and the TCK runner reads result.get("deleted", False)
@@ -194,19 +194,19 @@ app.MapPost("/delete_message", async (
     // form, while IIdGenerator stores them as unhyphenated 32-char hex ("N" format). Normalize the
     // incoming id to the stored format so the lookup matches regardless of hyphenation.
     var messageId = Guid.TryParse(req.MessageId, out var parsed) ? parsed.ToString("N") : req.MessageId;
-    var deleted = await messageRepo.DeleteAsync(messageId, cascade: true, ct).ConfigureAwait(false);
+    var deleted = await messageRepo.DeleteAsync(messageId, cascade: true, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new { deleted });
 });
 
 app.MapPost("/clear_session", async (
     ClearSessionRequest req,
     IShortTermMemoryService shortTerm,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // Owner-agnostic by design: messages/conversations carry no owner_id in .NET (only reasoning
     // traces do), so ownerId stays null rather than weakening owner scoping to satisfy an upstream
     // assumption that has no .NET equivalent (see plan §5, intentional divergence).
-    await shortTerm.ClearSessionAsync(req.SessionId, ownerId: null, ct).ConfigureAwait(false);
+    await shortTerm.ClearSessionAsync(req.SessionId, ownerId: null, cancellationToken).ConfigureAwait(false);
     return Results.NoContent();
 });
 
@@ -221,9 +221,9 @@ app.MapPost("/add_entity", async (
     IIdGenerator idGenerator,
     IClock clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var embedding = await EmbedTextAsync(embeddingGenerator, $"{req.Name} {req.Description}".Trim(), ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, $"{req.Name} {req.Description}".Trim(), cancellationToken).ConfigureAwait(false);
     var entity = await longTerm.AddEntityAsync(new Entity
     {
         EntityId = idGenerator.GenerateId(),
@@ -233,7 +233,7 @@ app.MapPost("/add_entity", async (
         Confidence = 1.0,
         Embedding = embedding,
         CreatedAtUtc = clock.UtcNow,
-    }, ct).ConfigureAwait(false);
+    }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckEntity(
         entity.EntityId, entity.Name, entity.Type, entity.Subtype, entity.Description,
         entity.Embedding, entity.CanonicalName, entity.CreatedAtUtc));
@@ -245,9 +245,9 @@ app.MapPost("/add_preference", async (
     IIdGenerator idGenerator,
     IClock clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Preference, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Preference, cancellationToken).ConfigureAwait(false);
     var preference = await longTerm.AddPreferenceAsync(new Preference
     {
         PreferenceId = idGenerator.GenerateId(),
@@ -257,7 +257,7 @@ app.MapPost("/add_preference", async (
         Confidence = 1.0,
         Embedding = embedding,
         CreatedAtUtc = clock.UtcNow,
-    }, ct).ConfigureAwait(false);
+    }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckPreference(
         preference.PreferenceId, preference.Category, preference.PreferenceText,
         preference.Context, preference.Embedding));
@@ -269,9 +269,9 @@ app.MapPost("/add_fact", async (
     IIdGenerator idGenerator,
     IClock clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var embedding = await EmbedTextAsync(embeddingGenerator, $"{req.Subject} {req.Predicate} {req.Obj}", ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, $"{req.Subject} {req.Predicate} {req.Obj}", cancellationToken).ConfigureAwait(false);
     var fact = await longTerm.AddFactAsync(new Fact
     {
         FactId = idGenerator.GenerateId(),
@@ -281,7 +281,7 @@ app.MapPost("/add_fact", async (
         Confidence = 1.0,
         Embedding = embedding,
         CreatedAtUtc = clock.UtcNow,
-    }, ct).ConfigureAwait(false);
+    }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckFact(fact.FactId, fact.Subject, fact.Predicate, fact.Object, fact.Embedding));
 });
 
@@ -297,11 +297,11 @@ app.MapPost("/search_entities", async (
     SearchEntitiesRequest req,
     ILongTermMemoryService longTerm,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, cancellationToken).ConfigureAwait(false);
     var limit = req.Limit ?? 10;
-    var results = await longTerm.SearchEntitiesAsync(embedding, limit, minScore: 0.0, scope: sharedScope, ct)
+    var results = await longTerm.SearchEntitiesAsync(embedding, limit, minScore: 0.0, scope: sharedScope, cancellationToken)
         .ConfigureAwait(false);
     return Results.Ok(results.Select(ToEntityDto).ToList());
 });
@@ -310,11 +310,11 @@ app.MapPost("/search_preferences", async (
     SearchPreferencesRequest req,
     ILongTermMemoryService longTerm,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Query, cancellationToken).ConfigureAwait(false);
     var limit = req.Limit ?? 10;
-    var results = await longTerm.SearchPreferencesAsync(embedding, limit, minScore: 0.0, scope: sharedScope, ct)
+    var results = await longTerm.SearchPreferencesAsync(embedding, limit, minScore: 0.0, scope: sharedScope, cancellationToken)
         .ConfigureAwait(false);
     // Category is applied as a post-search filter (not a separate category-only lookup) so /search_preferences
     // stays a single semantic-search call, matching the bridge-protocol shape (query + optional category).
@@ -326,9 +326,9 @@ app.MapPost("/search_preferences", async (
 app.MapPost("/get_entity_by_name", async (
     GetEntityByNameRequest req,
     ILongTermMemoryService longTerm,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var entities = await longTerm.GetEntitiesByNameAsync(req.Name, includeAliases: true, scope: sharedScope, ct)
+    var entities = await longTerm.GetEntitiesByNameAsync(req.Name, includeAliases: true, scope: sharedScope, cancellationToken)
         .ConfigureAwait(false);
     // TCK contract: Entity or null (SPEC-3.6.2). GetEntitiesByNameAsync can return several rows (exact-name
     // plus alias matches) and its Cypher defines no order, so entities[0] would be nondeterministic when
@@ -345,7 +345,7 @@ app.MapPost("/get_related_entities", async (
     GetRelatedEntitiesRequest req,
     ILongTermMemoryService longTerm,
     IEntityRepository entityRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // ILongTermMemoryService has no "related entities" method — GetEntityRelationshipsAsync (the closest
     // graph-traversal primitive) returns Relationship edges (source/target ids), not the entities themselves,
@@ -363,7 +363,7 @@ app.MapPost("/get_related_entities", async (
         var nextFrontier = new HashSet<string>();
         foreach (var id in frontier)
         {
-            var relationships = await longTerm.GetEntityRelationshipsAsync(id, scope: sharedScope, ct).ConfigureAwait(false);
+            var relationships = await longTerm.GetEntityRelationshipsAsync(id, scope: sharedScope, cancellationToken).ConfigureAwait(false);
             foreach (var rel in relationships)
             {
                 if (req.RelationshipType is { Length: > 0 } && rel.RelationshipType != req.RelationshipType)
@@ -382,7 +382,7 @@ app.MapPost("/get_related_entities", async (
     var related = new List<Entity>(relatedIds.Count);
     foreach (var id in relatedIds)
     {
-        var entity = await entityRepo.GetByIdAsync(id, ct).ConfigureAwait(false);
+        var entity = await entityRepo.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         // GetByIdAsync is unscoped; keep only shared-bucket entities so a shared relationship that happens to
         // point at an owned entity can't leak it (defense-in-depth alongside the shared-scope traversal above
         // and the add_relationship guard below).
@@ -401,7 +401,7 @@ app.MapPost("/add_relationship", async (
     IEntityRepository entityRepo,
     IIdGenerator idGenerator,
     IClock clock,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     var sourceId = NormalizeId(req.SourceId);
     var targetId = NormalizeId(req.TargetId);
@@ -410,7 +410,7 @@ app.MapPost("/add_relationship", async (
     // either endpoint already exists and is NOT shared.
     foreach (var (label, id) in new[] { ("source_id", sourceId), ("target_id", targetId) })
     {
-        var existing = await entityRepo.GetByIdAsync(id, ct).ConfigureAwait(false);
+        var existing = await entityRepo.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
         if (existing is { OwnerId: not null })
             return Results.BadRequest(new { error = $"{label} references a non-shared entity" });
     }
@@ -423,7 +423,7 @@ app.MapPost("/add_relationship", async (
         Confidence = 1.0,
         Attributes = req.Properties ?? new Dictionary<string, object>(),
         CreatedAtUtc = clock.UtcNow,
-    }, ct).ConfigureAwait(false);
+    }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckRelationship(
         relationship.RelationshipId, relationship.SourceEntityId, relationship.TargetEntityId,
         relationship.RelationshipType, relationship.Attributes));
@@ -435,7 +435,7 @@ app.MapPost("/add_relationship", async (
 app.MapPost("/merge_duplicate_entities", async (
     MergeDuplicateEntitiesRequest req,
     IEntityRepository entityRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     var sourceId = NormalizeId(req.SourceId);
     var targetId = NormalizeId(req.TargetId);
@@ -446,22 +446,22 @@ app.MapPost("/merge_duplicate_entities", async (
     // Owner-isolation guard (mirrors add_relationship): the scoped MergeEntitiesAsync already no-ops across
     // the isolation boundary, but reject up-front with a clear error if either endpoint is a non-shared
     // (owned) entity, and 404 if either is missing — a merge needs both sides to exist.
-    var source = await entityRepo.GetByIdAsync(sourceId, ct).ConfigureAwait(false);
-    var target = await entityRepo.GetByIdAsync(targetId, ct).ConfigureAwait(false);
+    var source = await entityRepo.GetByIdAsync(sourceId, cancellationToken).ConfigureAwait(false);
+    var target = await entityRepo.GetByIdAsync(targetId, cancellationToken).ConfigureAwait(false);
     if (source is null || target is null)
         return Results.NotFound(new { error = "source_id or target_id not found" });
     if (source.OwnerId is not null || target.OwnerId is not null)
         return Results.BadRequest(new { error = "merge endpoints must reference shared entities" });
 
-    await entityRepo.MergeEntitiesAsync(sourceId, targetId, sharedScope, ct).ConfigureAwait(false);
+    await entityRepo.MergeEntitiesAsync(sourceId, targetId, sharedScope, cancellationToken).ConfigureAwait(false);
 
     // canonical_name is optional in the wire contract (the TCK never sends it, but honor it for
     // completeness): apply it to the surviving target without disturbing the merge's own field updates.
-    var merged = await entityRepo.GetByIdAsync(targetId, ct).ConfigureAwait(false);
+    var merged = await entityRepo.GetByIdAsync(targetId, cancellationToken).ConfigureAwait(false);
     if (merged is null)
         return Results.NotFound(new { error = "target entity not found after merge" });
     if (req.CanonicalName is not null)
-        merged = await entityRepo.UpsertAsync(merged with { CanonicalName = req.CanonicalName }, ct).ConfigureAwait(false);
+        merged = await entityRepo.UpsertAsync(merged with { CanonicalName = req.CanonicalName }, cancellationToken).ConfigureAwait(false);
 
     return Results.Ok(ToEntityDto(merged));
 });
@@ -473,14 +473,14 @@ app.MapPost("/start_trace", async (
     StartTraceRequest req,
     IReasoningMemoryService reasoning,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // Bridge embeds the task explicitly (via the injected IEmbeddingGenerator) rather than relying on
     // ReasoningMemoryService's own auto-embedding, mirroring add_entity/add_preference/add_fact's pattern
     // above — the bridge only has access to the public IEmbeddingGenerator, not the internal orchestrator.
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Task, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Task, cancellationToken).ConfigureAwait(false);
     var trace = await reasoning.StartTraceAsync(
-        req.SessionId, req.Task, taskEmbedding: embedding, ownerId: null, cancellationToken: ct)
+        req.SessionId, req.Task, taskEmbedding: embedding, ownerId: null, cancellationToken: cancellationToken)
         .ConfigureAwait(false);
     return Results.Ok(ToTraceDto(trace, Array.Empty<TckReasoningStep>()));
 });
@@ -496,14 +496,14 @@ app.MapPost("/add_step", async (
     IReasoningMemoryService reasoning,
     IReasoningTraceRepository traceRepo,
     IReasoningStepRepository stepRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // AddStepAsync requires a caller-supplied stepNumber, but the TCK's add_step contract has no such
     // parameter (bridge-protocol.adoc: trace_id, thought?, action?, observation? only) — there is no
     // "peek next step number" primitive either, so the next number is derived the same way a caller would
     // discover it: read the trace's current step count and add one. Costs one extra read per add_step call.
     var traceId = NormalizeId(req.TraceId);
-    await addStepGate.WaitAsync(ct).ConfigureAwait(false);
+    await addStepGate.WaitAsync(cancellationToken).ConfigureAwait(false);
     try
     {
         // Look the trace up via the repository (which returns null on miss) rather than
@@ -511,13 +511,13 @@ app.MapPost("/add_step", async (
         // makes a missing trace a clean 404, and the same OwnerId check keeps mutation confined to the shared
         // bucket — so both a nonexistent AND a non-shared trace are treated as not-found, matching
         // get_trace_with_steps.
-        var trace = await traceRepo.GetByIdAsync(traceId, ct).ConfigureAwait(false);
+        var trace = await traceRepo.GetByIdAsync(traceId, cancellationToken).ConfigureAwait(false);
         if (trace is not { OwnerId: null })
             return Results.NotFound(new { error = "trace not found" });
-        var existingSteps = await stepRepo.GetByTraceAsync(traceId, ct).ConfigureAwait(false);
+        var existingSteps = await stepRepo.GetByTraceAsync(traceId, cancellationToken).ConfigureAwait(false);
         var stepNumber = existingSteps.Count + 1;
         var step = await reasoning.AddStepAsync(
-            traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: ct)
+            traceId, stepNumber, req.Thought, req.Action, req.Observation, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         return Results.Ok(ToStepDto(step, Array.Empty<ToolCall>()));
     }
@@ -530,7 +530,7 @@ app.MapPost("/add_step", async (
 app.MapPost("/record_tool_call", async (
     RecordToolCallRequest req,
     IReasoningMemoryService reasoning,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // RecordToolCallAsync's own default is ToolCallStatus.Pending, but the TCK's BaseAdapter contract default
     // is SUCCESS (record_tool_call(..., status: ToolCallStatus = ToolCallStatus.SUCCESS)); the TCK's HTTP
@@ -558,7 +558,7 @@ app.MapPost("/record_tool_call", async (
         : null;
     var toolCall = await reasoning.RecordToolCallAsync(
         NormalizeId(req.StepId), req.ToolName, argumentsJson, resultJson, status, req.DurationMs, req.Error,
-        cancellationToken: ct)
+        cancellationToken: cancellationToken)
         .ConfigureAwait(false);
     return Results.Ok(ToToolCallDto(toolCall));
 });
@@ -566,9 +566,9 @@ app.MapPost("/record_tool_call", async (
 app.MapPost("/complete_trace", async (
     CompleteTraceRequest req,
     IReasoningMemoryService reasoning,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
-    var trace = await reasoning.CompleteTraceAsync(NormalizeId(req.TraceId), req.Outcome, req.Success, ct)
+    var trace = await reasoning.CompleteTraceAsync(NormalizeId(req.TraceId), req.Outcome, req.Success, cancellationToken)
         .ConfigureAwait(false);
     return Results.Ok(ToTraceDto(trace, Array.Empty<TckReasoningStep>()));
 });
@@ -578,23 +578,23 @@ app.MapPost("/get_trace_with_steps", async (
     IReasoningTraceRepository traceRepo,
     IReasoningStepRepository stepRepo,
     IToolCallRepository toolCallRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // Uses the repositories directly (not IReasoningMemoryService.GetTraceWithStepsAsync, which throws
     // TraceNotFound) so a nonexistent trace_id can return the TCK-mandated 200 null (SPEC-4.5.3) rather than
     // a 500 — the same null-on-not-found convention as Bronze's /get_entity_by_name-style lookups.
     var traceId = NormalizeId(req.TraceId);
-    var trace = await traceRepo.GetByIdAsync(traceId, ct).ConfigureAwait(false);
+    var trace = await traceRepo.GetByIdAsync(traceId, cancellationToken).ConfigureAwait(false);
     TckReasoningTrace? dto = null;
     // Shared-bucket only: a non-shared (owner-scoped) trace is treated as not-found (200 null) so a known/
     // guessed private trace id can't be read through the owner-agnostic bridge.
     if (trace is { OwnerId: null })
     {
-        var steps = await stepRepo.GetByTraceAsync(traceId, ct).ConfigureAwait(false);
+        var steps = await stepRepo.GetByTraceAsync(traceId, cancellationToken).ConfigureAwait(false);
         var stepDtos = new List<TckReasoningStep>(steps.Count);
         foreach (var step in steps)
         {
-            var toolCalls = await toolCallRepo.GetByStepAsync(step.StepId, ct).ConfigureAwait(false);
+            var toolCalls = await toolCallRepo.GetByStepAsync(step.StepId, cancellationToken).ConfigureAwait(false);
             stepDtos.Add(ToStepDto(step, toolCalls));
         }
         dto = ToTraceDto(trace, stepDtos);
@@ -605,13 +605,13 @@ app.MapPost("/get_trace_with_steps", async (
 app.MapPost("/list_traces", async (
     ListTracesRequest req,
     IReasoningMemoryService reasoning,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     var limit = req.Limit ?? 100;
     IReadOnlyList<ReasoningTrace> traces;
     if (!string.IsNullOrEmpty(req.SessionId))
     {
-        traces = await reasoning.ListTracesAsync(req.SessionId, limit, scope: sharedScope, ct).ConfigureAwait(false);
+        traces = await reasoning.ListTracesAsync(req.SessionId, limit, scope: sharedScope, cancellationToken).ConfigureAwait(false);
     }
     else
     {
@@ -619,7 +619,7 @@ app.MapPost("/list_traces", async (
         // first-class IReasoningMemoryService.ListAllTracesAsync (which replaced the earlier raw-Cypher
         // fallback), scoped to this bridge's shared sentinel bucket so it can never surface another owner's
         // private trace.
-        var page = await reasoning.ListAllTracesAsync(scope: sharedScope, limit: limit, cancellationToken: ct).ConfigureAwait(false);
+        var page = await reasoning.ListAllTracesAsync(scope: sharedScope, limit: limit, cancellationToken: cancellationToken).ConfigureAwait(false);
         traces = page.Items;
     }
     return Results.Ok(traces.Select(t => ToTraceDto(t, Array.Empty<TckReasoningStep>())).ToList());
@@ -628,12 +628,12 @@ app.MapPost("/list_traces", async (
 app.MapPost("/get_tool_stats", async (
     GetToolStatsRequest req,
     IToolCallRepository toolCallRepo,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     // Served by the first-class IToolCallRepository.GetStatsAsync (which replaced the earlier raw-Cypher
     // fallback), scoped to this bridge's shared sentinel bucket. The repository query deliberately avoids the
     // global (:Tool) aggregate node (which spans all owners) and classifies success/failure the same way.
-    var stats = await toolCallRepo.GetStatsAsync(req.ToolName, sharedScope, ct).ConfigureAwait(false);
+    var stats = await toolCallRepo.GetStatsAsync(req.ToolName, sharedScope, cancellationToken).ConfigureAwait(false);
     return Results.Ok(stats.Select(s => new TckToolStats(
         s.ToolName, s.TotalCalls, s.SuccessfulCalls, s.FailedCalls, s.SuccessRate, s.AvgDurationMs)).ToList());
 });
@@ -645,7 +645,7 @@ app.MapPost("/get_similar_traces", async (
     GetSimilarTracesRequest req,
     IReasoningMemoryService reasoning,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
-    CancellationToken ct) =>
+    CancellationToken cancellationToken) =>
 {
     var limit = req.Limit ?? 5;
     // Reject a non-positive limit up front with a clear 400: a negative LIMIT throws inside Neo4j (an
@@ -655,9 +655,9 @@ app.MapPost("/get_similar_traces", async (
     // success_only=true (the adapter default) ⇒ only traces with success=true; success_only=false ⇒ no
     // success filter (include unsuccessful/incomplete traces). Map to SearchSimilarTracesAsync's successFilter.
     bool? successFilter = (req.SuccessOnly ?? true) ? true : (bool?)null;
-    var embedding = await EmbedTextAsync(embeddingGenerator, req.Task, ct).ConfigureAwait(false);
+    var embedding = await EmbedTextAsync(embeddingGenerator, req.Task, cancellationToken).ConfigureAwait(false);
     var traces = await reasoning.SearchSimilarTracesAsync(
-        embedding, successFilter, limit, minScore: 0.0, scope: sharedScope, ct).ConfigureAwait(false);
+        embedding, successFilter, limit, minScore: 0.0, scope: sharedScope, cancellationToken).ConfigureAwait(false);
     return Results.Ok(traces.Select(t => ToTraceDto(t, Array.Empty<TckReasoningStep>())).ToList());
 });
 
@@ -724,9 +724,9 @@ static JsonElement? ParseJsonOrNull(string? json)
 // (GenerateAsync with a one-element input, then unwrap the sole result's vector) so the bridge's embedding
 // invocation matches the codebase's canonical MEAI usage rather than inventing a parallel call shape.
 static async Task<float[]> EmbedTextAsync(
-    IEmbeddingGenerator<string, Embedding<float>> generator, string text, CancellationToken ct)
+    IEmbeddingGenerator<string, Embedding<float>> generator, string text, CancellationToken cancellationToken)
 {
-    var generated = await generator.GenerateAsync([text], cancellationToken: ct).ConfigureAwait(false);
+    var generated = await generator.GenerateAsync([text], cancellationToken: cancellationToken).ConfigureAwait(false);
     return generated[0].Vector.ToArray();
 }
 
@@ -734,16 +734,16 @@ static async Task<float[]> EmbedTextAsync(
 // Neo4jIntegrationFixture.WaitForVectorIndexesAsync (vector index population is asynchronous in Neo4j).
 // Bounded so a stuck server can't hang /setup forever.
 static async Task WaitForVectorIndexesOnlineAsync(
-    INeo4jSessionFactory sessionFactory, CancellationToken ct, int timeoutSeconds = 30)
+    INeo4jSessionFactory sessionFactory, CancellationToken cancellationToken, int timeoutSeconds = 30)
 {
-    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
     timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
     var token = timeoutCts.Token;
     while (true)
     {
         // Caller cancellation always propagates; the bounded timeout just ends the wait (best-effort —
         // schema is already bootstrapped, indexes finish coming online shortly after).
-        ct.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             await using var session = sessionFactory.OpenSession(AccessMode.Read);
@@ -779,7 +779,7 @@ static async Task WaitForVectorIndexesOnlineAsync(
         }
     }
 
-    ct.ThrowIfCancellationRequested();
+    cancellationToken.ThrowIfCancellationRequested();
 }
 
 // Exposed so a future WebApplicationFactory<Program>-based integration test (plan §4, Part C item 3)

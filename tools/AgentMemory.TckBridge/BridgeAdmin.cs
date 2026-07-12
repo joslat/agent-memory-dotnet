@@ -20,11 +20,11 @@ internal sealed class BridgeAdmin
     }
 
     /// <summary>Deletes every node and relationship in the configured store database.</summary>
-    public async Task WipeAllDataAsync(CancellationToken ct = default)
+    public async Task WipeAllDataAsync(CancellationToken cancellationToken = default)
     {
         // Uses the resolved store-tier session (honors Neo4jOptions.Database) rather than a bare
         // driver session, so the wipe targets the same database the rest of the bridge writes to.
         await using var session = _sessionFactory.OpenSession(AccessMode.Write);
-        await session.RunAsync("MATCH (n) DETACH DELETE n").WaitAsync(ct).ConfigureAwait(false);
+        await session.RunAsync("MATCH (n) DETACH DELETE n").WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 }

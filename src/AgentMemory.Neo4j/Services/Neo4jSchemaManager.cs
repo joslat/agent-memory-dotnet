@@ -36,29 +36,29 @@ internal sealed class Neo4jSchemaManager : ISchemaManager
     }
 
     /// <inheritdoc />
-    public async Task<EntitySchemaConfig?> LoadSchemaAsync(string name, CancellationToken ct = default)
+    public async Task<EntitySchemaConfig?> LoadSchemaAsync(string name, CancellationToken cancellationToken = default)
     {
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(SchemaPersistenceQueries.LoadActiveByName, new { name }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count == 0 ? null : MapToConfig(records[0]["s"].As<INode>());
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<EntitySchemaConfig?> LoadSchemaVersionAsync(string name, string version, CancellationToken ct = default)
+    public async Task<EntitySchemaConfig?> LoadSchemaVersionAsync(string name, string version, CancellationToken cancellationToken = default)
     {
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(SchemaPersistenceQueries.LoadByNameVersion, new { name, version }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count == 0 ? null : MapToConfig(records[0]["s"].As<INode>());
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task SaveSchemaAsync(EntitySchemaConfig schema, string? createdBy = null, bool setActive = true, CancellationToken ct = default)
+    public async Task SaveSchemaAsync(EntitySchemaConfig schema, string? createdBy = null, bool setActive = true, CancellationToken cancellationToken = default)
     {
         var id = _idGenerator.GenerateId();
         var createdAtUtc = _clock.UtcNow.ToString("O");
@@ -82,13 +82,13 @@ internal sealed class Neo4jSchemaManager : ISchemaManager
                 createdAtUtc,
                 createdBy = (object?)createdBy
             }).ConfigureAwait(false);
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("Saved schema {Name} v{Version} (active={Active})", schema.Name, schema.Version, setActive);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<SchemaListItem>> ListSchemasAsync(string? nameFilter = null, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SchemaListItem>> ListSchemasAsync(string? nameFilter = null, CancellationToken cancellationToken = default)
     {
         return await _tx.ReadAsync(async runner =>
         {
@@ -102,29 +102,29 @@ internal sealed class Neo4jSchemaManager : ISchemaManager
                 VersionCount = r["versionCount"].As<int>(),
                 IsActive = r["isActive"].As<bool>()
             }).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<bool> SchemaExistsAsync(string name, CancellationToken ct = default)
+    public async Task<bool> SchemaExistsAsync(string name, CancellationToken cancellationToken = default)
     {
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(SchemaPersistenceQueries.Exists, new { name }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["exists"].As<bool>();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<bool> DeleteSchemaAsync(string schemaId, CancellationToken ct = default)
+    public async Task<bool> DeleteSchemaAsync(string schemaId, CancellationToken cancellationToken = default)
     {
         return await _tx.WriteAsync(async runner =>
         {
             var cursor = await runner.RunAsync(SchemaPersistenceQueries.DeleteById, new { id = schemaId }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["deleted"].As<bool>();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static EntitySchemaConfig MapToConfig(INode node)

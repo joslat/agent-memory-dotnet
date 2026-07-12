@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **All public `CancellationToken` parameters are now named `cancellationToken`** (previously ~109 were abbreviated `ct`), for a consistent library-wide convention. This is source-breaking only for callers that passed the token by name (`ct:`); positional callers are unaffected, and it is a binary-compatible change.
 - **The decay/maintenance `string nodeLabel` parameters are now a closed `MemoryNodeKind` enum** (`Entity`/`Fact`/`Preference`). `IMemoryDecayService.CalculateRetentionScoreAsync`/`UpdateAccessTimestampAsync` and `IMemoryMaintenance.GenerateEmbeddingsBatchAsync` take the enum — an unsupported label is now a compile error, not a runtime `ArgumentException`, which also removes the label-injection surface in the decay Cypher. The MCP `memory_generate_embeddings` tool keeps its wire-level `nodeLabel` string and parses it to the enum (returning a clear error for an unknown value).
 - **`DuplicatePair.Status` and `EntityResolutionResult.MatchType` are now enums** (`DuplicateStatus` and `EntityMatchType`) instead of strings, for compile-time safety.
 - **Collapsed the two `RecallAsOfAsync` overloads (and the two `AssembleContextAsOfAsync` overloads) into one** method with an optional `DateTimeOffset? systemAsOf = null` — omit it for single-clock recall (both clocks equal), pass it for bitemporal. Same behavior; fewer overloads.

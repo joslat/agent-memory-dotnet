@@ -86,7 +86,7 @@ internal sealed class Neo4jConversationRepository : IConversationRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 50, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Listing sessions, limit={Limit}", limit);
 
@@ -105,7 +105,7 @@ internal sealed class Neo4jConversationRepository : IConversationRepository
                     : null;
                 return new SessionSummary(sessionId, convCount, msgCount, lastPreview, lastActivity);
             }).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Conversation MapToConversation(INode node) =>

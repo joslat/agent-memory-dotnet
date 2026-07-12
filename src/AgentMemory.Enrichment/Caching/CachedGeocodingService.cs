@@ -28,7 +28,7 @@ internal sealed class CachedGeocodingService : IGeocodingService
         _logger = logger;
     }
 
-    public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken ct = default)
+    public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken cancellationToken = default)
     {
         var key = $"geocoding:{_inner.GetType().Name}:{locationText.Trim().ToLowerInvariant()}";
 
@@ -38,7 +38,7 @@ internal sealed class CachedGeocodingService : IGeocodingService
             return cached;
         }
 
-        var result = await _inner.GeocodeAsync(locationText, ct).ConfigureAwait(false);
+        var result = await _inner.GeocodeAsync(locationText, cancellationToken).ConfigureAwait(false);
 
         if (result is not null)
         {

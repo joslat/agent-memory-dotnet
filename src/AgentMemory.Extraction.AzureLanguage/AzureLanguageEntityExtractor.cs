@@ -29,7 +29,7 @@ internal sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEnti
     }
 
     protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var allEntities = new List<AzureRecognizedEntity>();
 
@@ -41,7 +41,7 @@ internal sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEnti
                     continue;
 
                 var entities = await _context.GetOrRecognizeEntitiesAsync(
-                    message.Content, _options.DefaultLanguage, _client, ct).ConfigureAwait(false);
+                    message.Content, _options.DefaultLanguage, _client, cancellationToken).ConfigureAwait(false);
                 allEntities.AddRange(entities);
             }
         }

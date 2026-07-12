@@ -10,12 +10,12 @@ public interface IEmbeddingOrchestrator
 {
     /// <summary>Generates an embedding vector for a single piece of text.</summary>
     /// <returns>The embedding vector, or an empty array when <paramref name="text"/> is blank or generation fails.</returns>
-    Task<float[]> EmbedAsync(string text, CancellationToken ct = default);
+    Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken = default);
 
     /// <summary>Generates embedding vectors for a batch of texts, preserving input order.</summary>
     /// <returns>
     /// One vector per input. Blank inputs yield an empty vector; on a generation failure every
     /// vector is returned empty so positional alignment with <paramref name="texts"/> is preserved.
     /// </returns>
-    Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct = default);
+    Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken = default);
 }

@@ -49,7 +49,7 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
     }
 
     protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
@@ -57,7 +57,7 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
             "Extract entities from this conversation:",
             conversationText,
             ProjectEntities,
-            ct).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

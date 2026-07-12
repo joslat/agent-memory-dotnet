@@ -95,23 +95,23 @@ internal sealed class Neo4jConsolidationService : IConsolidationService
         return report;
     }
 
-    private Task<int> ReadCountAsync(string cypher, object parameters, CancellationToken ct) =>
+    private Task<int> ReadCountAsync(string cypher, object parameters, CancellationToken cancellationToken) =>
         _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var record = await cursor.SingleAsync().ConfigureAwait(false);
             return record["count"].As<int>();
-        }, ct);
+        }, cancellationToken);
 
-    private Task<int> WriteCountAsync(string cypher, object parameters, CancellationToken ct) =>
+    private Task<int> WriteCountAsync(string cypher, object parameters, CancellationToken cancellationToken) =>
         _tx.WriteAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var record = await cursor.SingleAsync().ConfigureAwait(false);
             return record["count"].As<int>();
-        }, ct);
+        }, cancellationToken);
 
-    private Task RecordRunAsync(ConsolidationReport report, DateTimeOffset ranAt, CancellationToken ct) =>
+    private Task RecordRunAsync(ConsolidationReport report, DateTimeOffset ranAt, CancellationToken cancellationToken) =>
         _tx.WriteAsync(async runner =>
         {
             await runner.RunAsync(ConsolidationQueries.RecordConsolidationRun, new
@@ -123,5 +123,5 @@ internal sealed class Neo4jConsolidationService : IConsolidationService
                 duplicateEntities = report.DuplicateEntitiesDetected,
                 longTraceCandidates = report.LongTraceCandidates,
             }).ConfigureAwait(false);
-        }, ct);
+        }, cancellationToken);
 }

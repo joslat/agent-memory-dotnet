@@ -27,9 +27,9 @@ internal sealed class RateLimitedGeocodingService : IGeocodingService, IDisposab
         _logger = logger;
     }
 
-    public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken ct = default)
+    public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken cancellationToken = default)
     {
-        await _semaphore.WaitAsync(ct).ConfigureAwait(false);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var minInterval = TimeSpan.FromSeconds(1.0 / _rateLimitPerSecond);
@@ -39,11 +39,11 @@ internal sealed class RateLimitedGeocodingService : IGeocodingService, IDisposab
             {
                 var delay = minInterval - elapsed;
                 _logger.LogDebug("Rate limiter delaying geocoding request by {DelayMs}ms", delay.TotalMilliseconds);
-                await Task.Delay(delay, ct).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
 
             _lastRequestTime = DateTimeOffset.UtcNow;
-            return await _inner.GeocodeAsync(locationText, ct).ConfigureAwait(false);
+            return await _inner.GeocodeAsync(locationText, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
