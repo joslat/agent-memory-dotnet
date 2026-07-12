@@ -152,8 +152,10 @@ public interface IEntityRepository
     /// search-field refresh, so a scoped caller never bumps another owner's entity. Null scope ⇒ unscoped
     /// (admin/maintenance dedup). Note: arbitrary typed relationships (other than SAME_AS/MENTIONS) are
     /// not yet re-pointed from source to target — see the merge-relationship-transfer follow-up.
+    /// Returns <c>true</c> if the merge matched and ran; <c>false</c> for a guarded / non-existent no-op.
+    /// (The return value future-proofs the relationship-transfer follow-up, which will report edges moved.)
     /// </summary>
-    Task MergeEntitiesAsync(
+    Task<bool> MergeEntitiesAsync(
         string sourceEntityId,
         string targetEntityId,
         MemoryScope? scope = null,

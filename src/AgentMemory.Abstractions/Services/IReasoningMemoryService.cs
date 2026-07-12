@@ -92,6 +92,18 @@ public interface IReasoningMemoryService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists reasoning traces across all sessions, newest first, optionally scoped to an owner (R1) and
+    /// paged. A cross-session trace list is not keyed by a private handle, so when <paramref name="scope"/>
+    /// is set this returns only the owner's own (and, if <c>IncludeShared</c>, shared/global) traces. The
+    /// result carries a <c>HasNextPage</c> flag (N+1 pagination); advance with <paramref name="offset"/>.
+    /// </summary>
+    Task<PagedResult<ReasoningTrace>> ListAllTracesAsync(
+        int limit = 50,
+        int offset = 0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Searches for similar traces by task embedding.
     /// </summary>
     Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsync(

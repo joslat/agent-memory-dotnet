@@ -28,6 +28,16 @@ public interface IReasoningTraceRepository
     /// </summary>
     Task<IReadOnlyList<ReasoningTrace>> ListBySessionAsync(string sessionId, int limit = 10, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Lists traces across all sessions, newest first, paged (fetches one extra to set <c>HasNextPage</c>
+    /// without a COUNT round-trip), optionally scoped to an owner (R1) — never another owner's traces.
+    /// </summary>
+    Task<PagedResult<ReasoningTrace>> ListAllAsync(
+        int limit = 50,
+        int offset = 0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Searches traces by task embedding similarity, optionally scoped to an owner (R1).</summary>
     Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(
         float[] taskEmbedding,

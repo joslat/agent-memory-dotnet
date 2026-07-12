@@ -10,7 +10,7 @@
 
 ## 1. Domain Model Overview
 
-The domain model comprises **47 domain records** (plus 13 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
+The domain model comprises **48 domain records** (plus 13 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
 
 ### Key Design Decisions
 
@@ -155,6 +155,7 @@ graph TD
 | `ReasoningTrace` | Top-level record of an agent reasoning task | `TraceId`, `SessionId`, `Task`, `Outcome?`, `Success?`, `StartedAtUtc`, `CompletedAtUtc?`, `TaskEmbedding?`, `Metadata` |
 | `ReasoningStep` | One step in a reasoning chain | `StepId`, `TraceId`, `StepNumber`, `Thought?`, `Action?`, `Observation?`, `Embedding?`, `Metadata` |
 | `ToolCall` | A tool invocation within a step | `ToolCallId`, `StepId`, `ToolName`, `Arguments`, `Result?`, `Status`, `DurationMs?`, `Error?`, `Metadata` |
+| `ToolCallStats` | Aggregate per-tool usage stats | `ToolName`, `TotalCalls`, `SuccessfulCalls`, `FailedCalls`, `SuccessRate`, `AvgDurationMs?` |
 | `ToolCallStatus` (enum) | Tool call lifecycle | `Pending`, `Success`, `Error`, `Cancelled`, `Failure`, `Timeout` |
 
 **Repository Interfaces:**
@@ -382,7 +383,7 @@ All repository interfaces are defined in `AgentMemory.Abstractions.Repositories`
 | 6 | `IRelationshipRepository` | Relationship CRUD over `RELATED_TO` edges | `UpsertAsync`, `GetByIdAsync`, `GetByEntityAsync`, `GetBySourceEntityAsync`, `GetByTargetEntityAsync` | `(:Entity)-[:RELATED_TO]->(:Entity)` |
 | 7 | `IReasoningTraceRepository` | Trace persistence + search | `AddAsync`, `UpdateAsync`, `GetByIdAsync`, `ListBySessionAsync`, `SearchByTaskVectorAsync` | `:ReasoningTrace` |
 | 8 | `IReasoningStepRepository` | Step persistence | `AddAsync`, `GetByTraceAsync`, `GetByIdAsync` | `:ReasoningStep` |
-| 9 | `IToolCallRepository` | Tool call persistence | `AddAsync`, `UpdateAsync`, `GetByStepAsync`, `GetByIdAsync` | `:ToolCall` |
+| 9 | `IToolCallRepository` | Tool call persistence | `AddAsync`, `UpdateAsync`, `GetByStepAsync`, `GetByIdAsync`, `GetStatsAsync` | `:ToolCall` |
 | 10 | `ISchemaRepository` | Schema + migration management | `InitializeSchemaAsync`, `IsSchemaInitializedAsync`, `GetSchemaVersionAsync`, `ApplyMigrationAsync` | (meta) |
 | 11 | `IExtractorRepository` | Extractor registry + extraction provenance | `GetByNameAsync`, `CreateExtractedByRelationshipAsync`, `GetProvenanceAsync`, `GetExtractorStatsAsync`, `GetExtractionStatsAsync`, `DeleteProvenanceAsync` | `:Extractor` / `EXTRACTED_BY` |
 

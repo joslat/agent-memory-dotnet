@@ -369,7 +369,7 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task MergeEntitiesAsync(string sourceEntityId, string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    public async Task<bool> MergeEntitiesAsync(string sourceEntityId, string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
@@ -394,6 +394,8 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
         // makes such a call a true no-op, not merely a merge-less one.
         if (merged)
             await RefreshEntitySearchFieldsAsync(targetEntityId, cancellationToken).ConfigureAwait(false);
+
+        return merged;
     }
 
     public async Task RefreshEntitySearchFieldsAsync(string entityId, CancellationToken cancellationToken = default)

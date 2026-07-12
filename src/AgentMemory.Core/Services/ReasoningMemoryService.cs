@@ -254,6 +254,16 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         return _traceRepo.ListBySessionAsync(sessionId, limit, scope, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public Task<PagedResult<ReasoningTrace>> ListAllTracesAsync(
+        int limit = 50,
+        int offset = 0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        return _traceRepo.ListAllAsync(limit, offset, scope, cancellationToken);
+    }
+
     /// <inheritdoc/>
     public async Task<IReadOnlyList<ReasoningTrace>> SearchSimilarTracesAsync(
         float[] taskEmbedding,
