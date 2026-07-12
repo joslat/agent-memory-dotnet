@@ -10,7 +10,7 @@ namespace AgentMemory.TckBridge;
 /// (<see cref="AgentMemory.Neo4j.Infrastructure.ISchemaBootstrapper"/> sibling —
 /// mirrors <c>Neo4jIntegrationFixture.CleanDatabaseAsync</c>).
 /// </summary>
-public sealed class BridgeAdmin
+internal sealed class BridgeAdmin
 {
     private readonly INeo4jSessionFactory _sessionFactory;
 

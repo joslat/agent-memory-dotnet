@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts user preferences from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
+internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
 {
     public const string DefaultSystemPrompt =
         """

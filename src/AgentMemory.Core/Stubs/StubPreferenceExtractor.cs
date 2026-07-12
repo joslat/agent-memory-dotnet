@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Stubs;
 /// <summary>
 /// Phase 1 stub: returns no preferences. Replace in Phase 2 with an AI-backed extractor.
 /// </summary>
-public sealed class StubPreferenceExtractor : IPreferenceExtractor
+internal sealed class StubPreferenceExtractor : IPreferenceExtractor
 {
     private readonly ILogger<StubPreferenceExtractor> _logger;
 

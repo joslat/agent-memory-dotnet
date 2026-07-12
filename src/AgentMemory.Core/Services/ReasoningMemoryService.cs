@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for reasoning trace memory operations.
 /// </summary>
-public sealed class ReasoningMemoryService : IReasoningMemoryService
+internal sealed class ReasoningMemoryService : IReasoningMemoryService
 {
     private readonly IReasoningTraceRepository _traceRepo;
     private readonly IReasoningStepRepository _stepRepo;

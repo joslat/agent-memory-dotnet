@@ -12,7 +12,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Entity tools: get entity, provenance, create relationship.
 /// </summary>
 [McpServerToolType]
-public sealed class EntityTools
+internal sealed class EntityTools
 {
     [McpServerTool(Name = "memory_get_entity_provenance"), Description("Get the provenance of an entity for auditability: the source messages it was extracted from (with span/confidence) and the extractors that produced it (with confidence and timing).")]
     public static async Task<string> MemoryGetEntityProvenance(

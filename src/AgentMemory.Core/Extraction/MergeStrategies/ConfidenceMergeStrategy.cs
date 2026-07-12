@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// When duplicate items are found across extractors, keeps the one with the highest confidence.
 /// All unique items are preserved. Effectively a union with confidence-based winner selection.
 /// </summary>
-public sealed class ConfidenceMergeStrategy<T> : IMergeStrategy<T> where T : class
+internal sealed class ConfidenceMergeStrategy<T> : IMergeStrategy<T> where T : class
 {
     private readonly Func<T, string> _keySelector;
     private readonly Func<T, double> _confidenceSelector;

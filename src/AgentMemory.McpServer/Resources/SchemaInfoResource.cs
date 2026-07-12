@@ -9,7 +9,7 @@ namespace AgentMemory.McpServer.Resources;
 /// MCP resource that exposes the current graph schema.
 /// </summary>
 [McpServerResourceType]
-public sealed class SchemaInfoResource
+internal sealed class SchemaInfoResource
 {
     [McpServerResource(UriTemplate = "memory://schema", Name = "memory_schema", MimeType = "application/json"),
      Description("Returns the current graph schema including node labels, relationship types, and property keys.")]

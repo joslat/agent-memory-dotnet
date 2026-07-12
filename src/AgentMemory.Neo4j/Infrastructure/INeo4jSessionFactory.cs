@@ -2,7 +2,7 @@ using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Infrastructure;
 
-public interface INeo4jSessionFactory
+internal interface INeo4jSessionFactory
 {
     /// <summary>
     /// Opens a session against the store database resolved from the ambient

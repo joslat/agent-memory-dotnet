@@ -12,7 +12,7 @@ namespace AgentMemory.Neo4j.Services;
 /// existing lifecycle fields (<c>invalidated_at</c>, <c>valid_until</c>, <c>:SUPERSEDED_BY</c>, provenance)
 /// plus read-audit/access fields into a normalized API/CLI surface.
 /// </summary>
-public sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IMemoryHistoryService
+internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IMemoryHistoryService
 {
     public async Task<IReadOnlyList<MemoryHistoryRecord>> GetHistoryAsync(
         MemoryHistoryQuery query,

@@ -9,7 +9,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// activating the saved one. Schema nodes are global (NOT owner-scoped): they describe the ontology shared
 /// across all users, like <c>:Extractor</c> and <c>:Tool</c>.</para>
 /// </summary>
-public static class SchemaPersistenceQueries
+internal static class SchemaPersistenceQueries
 {
     /// <summary>
     /// Upsert a schema revision by (name, version). <c>id</c>/<c>created_at</c>/<c>created_by</c> are set

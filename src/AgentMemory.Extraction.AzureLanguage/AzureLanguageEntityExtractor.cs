@@ -10,7 +10,7 @@ namespace AgentMemory.Extraction.AzureLanguage;
 /// <summary>
 /// Extracts named entities from conversation messages using Azure AI Text Analytics.
 /// </summary>
-public sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEntity>, IEntityExtractor
+internal sealed class AzureLanguageEntityExtractor : ExtractorBase<ExtractedEntity>, IEntityExtractor
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;

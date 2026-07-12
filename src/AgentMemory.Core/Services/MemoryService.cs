@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Facade service for all memory operations.
 /// </summary>
-public sealed class MemoryService : IMemoryService
+internal sealed class MemoryService : IMemoryService
 {
     private readonly IShortTermMemoryService _shortTerm;
     private readonly IMemoryContextAssembler _assembler;

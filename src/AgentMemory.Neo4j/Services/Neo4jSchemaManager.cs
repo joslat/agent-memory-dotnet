@@ -15,7 +15,7 @@ namespace AgentMemory.Neo4j.Services;
 /// <see cref="SchemaLoader"/>); <c>name</c>/<c>version</c>/<c>description</c> are mirrored as top-level
 /// properties for indexed lookup. Schema nodes are global, not owner-scoped.
 /// </summary>
-public sealed class Neo4jSchemaManager : ISchemaManager
+internal sealed class Neo4jSchemaManager : ISchemaManager
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly IIdGenerator _idGenerator;

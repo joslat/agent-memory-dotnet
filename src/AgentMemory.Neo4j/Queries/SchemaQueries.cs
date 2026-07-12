@@ -4,7 +4,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// Centralized Cypher statements for schema bootstrapping (constraints, indexes)
 /// and migration tracking.
 /// </summary>
-public static class SchemaQueries
+internal static class SchemaQueries
 {
     // ── Constraints ─────────────────────────────────────────────
 

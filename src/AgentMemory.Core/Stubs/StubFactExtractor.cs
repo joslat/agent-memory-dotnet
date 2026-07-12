@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Stubs;
 /// <summary>
 /// Phase 1 stub: returns no facts. Replace in Phase 2 with an AI-backed extractor.
 /// </summary>
-public sealed class StubFactExtractor : IFactExtractor
+internal sealed class StubFactExtractor : IFactExtractor
 {
     private readonly ILogger<StubFactExtractor> _logger;
 

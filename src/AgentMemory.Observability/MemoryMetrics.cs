@@ -5,7 +5,7 @@ namespace AgentMemory.Observability;
 /// <summary>
 /// Centralized <see cref="Meter"/> with counters and histograms for memory operations.
 /// </summary>
-public sealed class MemoryMetrics : IDisposable
+internal sealed class MemoryMetrics : IDisposable
 {
     /// <summary>
     /// The meter name used when registering with OpenTelemetry.

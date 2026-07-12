@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts relationships between entities from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelationship>, IRelationshipExtractor
+internal sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelationship>, IRelationshipExtractor
 {
     public const string DefaultSystemPrompt =
         """

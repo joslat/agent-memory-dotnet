@@ -5,7 +5,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Centralized Cypher queries for Preference operations.
 /// </summary>
-public static class PreferenceQueries
+internal static class PreferenceQueries
 {
     /// <summary>Upsert a Preference node by id.</summary>
     public const string Upsert = @"

@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Assembles memory context from multiple memory layers for a recall request.
 /// </summary>
-public sealed class MemoryContextAssembler : IMemoryContextAssembler
+internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 {
     private readonly IShortTermMemoryService _shortTerm;
     private readonly ILongTermMemoryService _longTerm;

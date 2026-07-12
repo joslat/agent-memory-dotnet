@@ -6,7 +6,7 @@ using Neo4j.Driver;
 namespace AgentMemory.Analytics;
 
 /// <inheritdoc/>
-public sealed class MemoryCommunityService : IMemoryCommunityService
+internal sealed class MemoryCommunityService : IMemoryCommunityService
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly IGdsAvailability _gds;

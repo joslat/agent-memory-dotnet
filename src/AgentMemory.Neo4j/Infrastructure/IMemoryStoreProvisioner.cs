@@ -4,7 +4,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// Ensures the physical store (Neo4j database) for an application exists and is schema-bootstrapped
 /// (R1b). A no-op under the default <see cref="MemoryStorageStrategy.SharedDatabase"/> strategy.
 /// </summary>
-public interface IMemoryStoreProvisioner
+internal interface IMemoryStoreProvisioner
 {
     /// <summary>
     /// Ensures the store for <paramref name="applicationId"/> is ready.

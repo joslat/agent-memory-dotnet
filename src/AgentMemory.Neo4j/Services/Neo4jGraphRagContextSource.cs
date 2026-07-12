@@ -15,7 +15,7 @@ namespace AgentMemory.Neo4j.Services;
 /// Implements <see cref="IGraphRagContextSource"/> by delegating to a Neo4j-backed
 /// <see cref="IRetriever"/>. Supports vector, fulltext, hybrid, and graph-enriched modes.
 /// </summary>
-public sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
+internal sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
 {
     private readonly IRetriever _retriever;
     private readonly GraphRagOptions _options;

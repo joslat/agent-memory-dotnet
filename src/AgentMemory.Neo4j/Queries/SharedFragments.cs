@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Reusable Cypher fragments shared across multiple domain query classes.
 /// </summary>
-public static class SharedFragments
+internal static class SharedFragments
 {
     // ── Embedding operations ───────────────────────────────────────────
 

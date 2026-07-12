@@ -7,7 +7,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// Each constant corresponds to exactly one repository method in
 /// <see cref="AgentMemory.Neo4j.Repositories.Neo4jMessageRepository"/>.
 /// </summary>
-public static class MessageQueries
+internal static class MessageQueries
 {
     // ── AddAsync ───────────────────────────────────────────────────────
 

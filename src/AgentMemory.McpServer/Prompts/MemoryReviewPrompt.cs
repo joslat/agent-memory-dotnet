@@ -8,7 +8,7 @@ namespace AgentMemory.McpServer.Prompts;
 /// MCP prompt that guides the agent through reviewing and auditing stored memories.
 /// </summary>
 [McpServerPromptType]
-public sealed class MemoryReviewPrompt
+internal sealed class MemoryReviewPrompt
 {
     /// <summary>
     /// Returns instructions for reviewing all stored knowledge and flagging contradictions.

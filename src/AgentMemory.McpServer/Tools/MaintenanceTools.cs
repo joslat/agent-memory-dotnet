@@ -12,7 +12,7 @@ namespace AgentMemory.McpServer.Tools;
 /// call never touches another owner's data; a null/blank <c>userId</c> is an unscoped (admin) operation.
 /// </summary>
 [McpServerToolType]
-public sealed class MaintenanceTools
+internal sealed class MaintenanceTools
 {
     [McpServerTool(Name = "memory_invalidate"), Description("Soft-invalidate a long-term memory node (fact, entity, or preference) by id. It drops from live recall but is kept and remains visible to as-of recall for times before invalidation (non-destructive, reversible). Owner-scoped when userId is set.")]
     public static async Task<string> MemoryInvalidate(

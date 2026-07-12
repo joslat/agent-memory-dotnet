@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Centralized Cypher queries for ReasoningTrace and ReasoningStep operations.
 /// </summary>
-public static class ReasoningQueries
+internal static class ReasoningQueries
 {
     // ── ReasoningTrace ──────────────────────────────────────────
 

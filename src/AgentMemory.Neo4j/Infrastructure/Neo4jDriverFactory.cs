@@ -4,7 +4,7 @@ using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Infrastructure;
 
-public sealed class Neo4jDriverFactory : INeo4jDriverFactory
+internal sealed class Neo4jDriverFactory : INeo4jDriverFactory
 {
     private readonly IDriver _driver;
     private readonly ILogger<Neo4jDriverFactory> _logger;

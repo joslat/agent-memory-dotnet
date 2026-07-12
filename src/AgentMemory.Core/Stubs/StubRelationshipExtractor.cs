@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Stubs;
 /// <summary>
 /// Phase 1 stub: returns no relationships. Replace in Phase 2 with an AI-backed extractor.
 /// </summary>
-public sealed class StubRelationshipExtractor : IRelationshipExtractor
+internal sealed class StubRelationshipExtractor : IRelationshipExtractor
 {
     private readonly ILogger<StubRelationshipExtractor> _logger;
 

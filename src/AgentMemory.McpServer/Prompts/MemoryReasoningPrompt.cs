@@ -8,7 +8,7 @@ namespace AgentMemory.McpServer.Prompts;
 /// MCP prompt that guides the agent through structured reasoning with trace recording.
 /// </summary>
 [McpServerPromptType]
-public sealed class MemoryReasoningPrompt
+internal sealed class MemoryReasoningPrompt
 {
     /// <summary>
     /// Returns instructions for recording a structured reasoning trace for a complex task.

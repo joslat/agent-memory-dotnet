@@ -14,7 +14,7 @@ namespace AgentMemory.Core.Extraction.Streaming;
 /// Splits long documents into overlapping chunks and extracts entities from each chunk,
 /// streaming results as they become available.
 /// </summary>
-public sealed class StreamingExtractor : IStreamingExtractor
+internal sealed class StreamingExtractor : IStreamingExtractor
 {
     private static readonly Regex TokenPattern = new(@"\S+", RegexOptions.Compiled);
 

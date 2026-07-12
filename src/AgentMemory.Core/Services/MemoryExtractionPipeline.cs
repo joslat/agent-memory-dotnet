@@ -12,7 +12,7 @@ namespace AgentMemory.Core.Services;
 /// merge, filter, validate, resolve) followed by <see cref="IPersistenceStage"/> (embed, upsert,
 /// wire provenance).  Implements the public <see cref="IMemoryExtractionPipeline"/> interface.
 /// </summary>
-public sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
+internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
 {
     private readonly IExtractionStage _extractionStage;
     private readonly IPersistenceStage _persistenceStage;

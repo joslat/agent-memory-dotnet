@@ -5,7 +5,7 @@ using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Services;
 
-public sealed class Neo4jGraphQueryService : IGraphQueryService
+internal sealed class Neo4jGraphQueryService : IGraphQueryService
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jGraphQueryService> _logger;

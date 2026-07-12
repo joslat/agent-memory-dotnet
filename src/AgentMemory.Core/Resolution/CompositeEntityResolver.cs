@@ -21,7 +21,7 @@ namespace AgentMemory.Core.Resolution;
 /// entity — this is intentional "shared knowledge grows collaboratively" behavior, not a cross-owner
 /// leak (a future opt-in option could make shared knowledge read-only per owner if a deployment needs it).
 /// </remarks>
-public sealed class CompositeEntityResolver : IEntityResolver
+internal sealed class CompositeEntityResolver : IEntityResolver
 {
     private readonly IEntityRepository _entityRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;

@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// Tries each extractor's results in order and returns the first non-empty list.
 /// If all lists are empty, returns an empty list.
 /// </summary>
-public sealed class CascadeMergeStrategy<T> : IMergeStrategy<T> where T : class
+internal sealed class CascadeMergeStrategy<T> : IMergeStrategy<T> where T : class
 {
     /// <inheritdoc/>
     public MergeStrategyType StrategyType => MergeStrategyType.Cascade;

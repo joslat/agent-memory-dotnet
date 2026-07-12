@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// Compresses conversation context using a 3-tier strategy:
 /// tier 1 (reflections) → tier 2 (observations) → tier 3 (recent messages verbatim).
 /// </summary>
-public sealed class ContextCompressor : IContextCompressor
+internal sealed class ContextCompressor : IContextCompressor
 {
     private const int CharsPerToken = 4;
 

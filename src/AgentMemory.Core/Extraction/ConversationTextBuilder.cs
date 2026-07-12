@@ -6,7 +6,7 @@ namespace AgentMemory.Core.Extraction;
 /// Provides helpers for rendering a sequence of conversation messages into a single
 /// plain-text transcript suitable for extraction and processing.
 /// </summary>
-public static class ConversationTextBuilder
+internal static class ConversationTextBuilder
 {
     /// <summary>
     /// Builds a newline-separated transcript from the supplied messages, formatting each

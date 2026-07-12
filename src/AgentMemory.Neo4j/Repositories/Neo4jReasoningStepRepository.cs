@@ -8,7 +8,7 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-public sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
+internal sealed class Neo4jReasoningStepRepository : IReasoningStepRepository
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jReasoningStepRepository> _logger;

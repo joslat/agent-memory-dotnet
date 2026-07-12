@@ -9,7 +9,7 @@ namespace AgentMemory.McpServer.Resources;
 /// MCP resource that lists entities in the knowledge graph.
 /// </summary>
 [McpServerResourceType]
-public sealed class EntityListResource
+internal sealed class EntityListResource
 {
     [McpServerResource(UriTemplate = "memory://entities", Name = "memory_entities", MimeType = "application/json"),
      Description("Returns a paginated list of entities in the knowledge graph.")]

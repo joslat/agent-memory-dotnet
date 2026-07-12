@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Generates session IDs based on the configured <see cref="SessionStrategy"/>.
 /// </summary>
-public sealed class SessionIdGenerator : ISessionIdGenerator
+internal sealed class SessionIdGenerator : ISessionIdGenerator
 {
     private readonly ShortTermMemoryOptions _options;
 

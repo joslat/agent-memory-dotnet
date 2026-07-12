@@ -8,7 +8,7 @@ namespace AgentMemory.Core.Stubs;
 /// <summary>
 /// Phase 1 stub: returns the input entity unchanged with no deduplication. Replace in Phase 2.
 /// </summary>
-public sealed class StubEntityResolver : IEntityResolver
+internal sealed class StubEntityResolver : IEntityResolver
 {
     private readonly ILogger<StubEntityResolver> _logger;
     private readonly IClock _clock;

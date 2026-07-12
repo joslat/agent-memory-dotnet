@@ -14,7 +14,7 @@ namespace AgentMemory.Enrichment;
 /// Enrichment service backed by the Diffbot Knowledge Graph API.
 /// Supports PERSON, ORGANIZATION, LOCATION, OBJECT, and EVENT entity types.
 /// </summary>
-public sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
+internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
 {
     internal const string ClientName = "Diffbot";
 

@@ -11,7 +11,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// <see cref="MemoryStorageStrategy.DatabasePerApplication"/>). Requires Neo4j Enterprise or AuraDB —
 /// Community Edition supports only a single user database and raises an actionable error.
 /// </summary>
-public sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
+internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
 {
     private const string SystemDatabase = "system";
 

@@ -9,7 +9,7 @@ namespace AgentMemory.McpServer.Resources;
 /// MCP resource that lists recent conversations.
 /// </summary>
 [McpServerResourceType]
-public sealed class ConversationListResource
+internal sealed class ConversationListResource
 {
     [McpServerResource(UriTemplate = "memory://conversations", Name = "memory_conversations", MimeType = "application/json"),
      Description("Returns recent conversations with message counts.")]

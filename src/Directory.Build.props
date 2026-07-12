@@ -1,0 +1,36 @@
+<Project>
+  <!-- Chain to the repo-root Directory.Build.props (framework, packaging metadata, warnings-as-errors). -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- 1.0 API-surface lockdown: the concrete implementation types across these packages are being made
+       'internal' (they are only ever resolved through the public Abstractions interfaces). These
+       InternalsVisibleTo grants keep them reachable from the first-party test/bench/cli/tool projects and,
+       pragmatically, from sibling first-party packages that construct a concrete directly. External
+       consumers are unaffected — IVT does not widen the public surface. Scoped to src/ so only the shipped
+       libraries grant friend access. -->
+  <ItemGroup>
+    <!-- Castle DynamicProxy (used by NSubstitute) needs friend access to mock internal interfaces. -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+    <!-- Test / benchmark / tool consumers -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.SemanticKernel" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Performance" />
+    <InternalsVisibleTo Include="AgentMemory.Benchmarks" />
+    <InternalsVisibleTo Include="AgentMemory.Cli" />
+    <InternalsVisibleTo Include="AgentMemory.TckBridge" />
+    <!-- First-party sibling packages -->
+    <InternalsVisibleTo Include="AgentMemory" />
+    <InternalsVisibleTo Include="AgentMemory.Abstractions" />
+    <InternalsVisibleTo Include="AgentMemory.Core" />
+    <InternalsVisibleTo Include="AgentMemory.Neo4j" />
+    <InternalsVisibleTo Include="AgentMemory.AgentFramework" />
+    <InternalsVisibleTo Include="AgentMemory.SemanticKernel" />
+    <InternalsVisibleTo Include="AgentMemory.McpServer" />
+    <InternalsVisibleTo Include="AgentMemory.Analytics" />
+    <InternalsVisibleTo Include="AgentMemory.Enrichment" />
+    <InternalsVisibleTo Include="AgentMemory.Observability" />
+    <InternalsVisibleTo Include="AgentMemory.Extraction.Llm" />
+    <InternalsVisibleTo Include="AgentMemory.Extraction.AzureLanguage" />
+  </ItemGroup>
+</Project>

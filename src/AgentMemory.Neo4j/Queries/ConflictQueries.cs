@@ -9,7 +9,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// query idempotent (a superseded loser drops out, so a re-run finds nothing) and guarantees the
 /// resolution winner is a live fact.
 /// </summary>
-public static class ConflictQueries
+internal static class ConflictQueries
 {
     /// <summary>
     /// Finds fact contradictions among <b>live</b> facts: same subject + predicate + owner with ≥2

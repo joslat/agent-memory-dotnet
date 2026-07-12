@@ -4,7 +4,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// Cypher for batch memory-hygiene (consolidation, PR #113). Count* variants are the dry-run
 /// projections of their mutating counterparts, so a dry run reports exactly what an apply run does.
 /// </summary>
-public static class ConsolidationQueries
+internal static class ConsolidationQueries
 {
     // ── Archive expired conversations ───────────────────────────────────
 

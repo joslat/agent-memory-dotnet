@@ -13,7 +13,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// point throws <see cref="OperationCanceledException"/> if the token is already cancelled
 /// <em>before</em> a session is opened or work is started.
 /// </remarks>
-public sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
+internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
 {
     private readonly INeo4jSessionFactory _sessionFactory;
     private readonly ILogger<Neo4jTransactionRunner> _logger;

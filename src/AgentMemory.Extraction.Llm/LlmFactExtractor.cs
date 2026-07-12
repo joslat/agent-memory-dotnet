@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts Subject-Predicate-Object facts from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtractor
+internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtractor
 {
     public const string DefaultSystemPrompt =
         """

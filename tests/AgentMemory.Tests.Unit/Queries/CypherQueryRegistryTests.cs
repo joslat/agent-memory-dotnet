@@ -71,7 +71,7 @@ public sealed class CypherQueryRegistryTests
         // but independently to catch drift.
         var expectedCount = typeof(CypherQueryRegistry).Assembly
             .GetTypes()
-            .Where(t => t.IsPublic && t.IsAbstract && t.IsSealed
+            .Where(t => !t.IsNested && t.IsAbstract && t.IsSealed // top-level static classes (public or internal)
                         && t.Name.EndsWith("Queries")
                         && t.Namespace == "AgentMemory.Neo4j.Queries")
             .SelectMany(t => t.GetFields(BindingFlags.Public | BindingFlags.Static))

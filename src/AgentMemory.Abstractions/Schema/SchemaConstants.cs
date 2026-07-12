@@ -4,7 +4,7 @@ namespace AgentMemory.Abstractions.Schema;
 /// Canonical Neo4j schema constants matching the Python agent-memory reference implementation.
 /// All relationship types and property names MUST match Python exactly for cross-implementation compatibility.
 /// </summary>
-public static class SchemaConstants
+internal static class SchemaConstants
 {
     /// <summary>Neo4j relationship type names used throughout the memory graph.</summary>
     public static class RelationshipTypes

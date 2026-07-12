@@ -5,7 +5,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// Each constant corresponds to exactly one repository method in
 /// <see cref="AgentMemory.Neo4j.Repositories.Neo4jRelationshipRepository"/>.
 /// </summary>
-public static class RelationshipQueries
+internal static class RelationshipQueries
 {
     // ── UpsertAsync ────────────────────────────────────────────────────
 

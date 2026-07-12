@@ -18,7 +18,7 @@ internal record EnrichmentItem(string EntityId, int RetryCount = 0);
 /// Uses <see cref="System.Threading.Channels.Channel{T}"/> with DropOldest overflow,
 /// a fixed pool of worker tasks (no IHostedService), and configurable retry logic.
 /// </summary>
-public sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDisposable, IAsyncDisposable
+internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, IDisposable, IAsyncDisposable
 {
     private readonly Channel<EnrichmentItem> _channel;
     private readonly IReadOnlyList<IEnrichmentService> _enrichmentServices;

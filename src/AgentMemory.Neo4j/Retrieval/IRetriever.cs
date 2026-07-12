@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Retrieval;
 /// <summary>
 /// Interface for retrieving search results from Neo4j.
 /// </summary>
-public interface IRetriever
+internal interface IRetriever
 {
     /// <summary>
     /// Search Neo4j and return matching results.
