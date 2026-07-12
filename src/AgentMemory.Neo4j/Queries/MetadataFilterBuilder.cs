@@ -13,9 +13,9 @@ internal static class MetadataFilterBuilder
     /// Builds a WHERE clause fragment and a parameter dictionary from <paramref name="filters"/>.
     /// </summary>
     /// <param name="filters">
-    /// Filter spec where each key is a node property name and each value is a
-    /// <c>Dictionary&lt;string,object&gt;</c> containing exactly one operator entry.
-    /// Example: <c>{ "metadata.source": { "$eq": "slack" } }</c>
+    /// Filter spec where each key is a node property name and each value is an
+    /// <c>IReadOnlyDictionary&lt;string,object&gt;</c> of one or more operator entries (each entry contributes
+    /// its own predicate). Example: <c>{ "metadata.source": { "$eq": "slack" } }</c>
     /// </param>
     /// <param name="nodeAlias">Cypher alias used in the generated predicates (default: <c>m</c>).</param>
     /// <returns>
