@@ -172,6 +172,18 @@ public sealed class MetadataFilterBuilderTests
         act.Should().Throw<NotSupportedException>().WithMessage("*$gt*");
     }
 
+    [Fact]
+    public void Build_MalformedOperatorSpec_Throws_InsteadOfSilentlyBroadeningQuery()
+    {
+        // A per-key value that isn't an operator-spec dictionary is a malformed filter — fail fast rather
+        // than silently dropping it (which would return more rows than the caller asked for).
+        var filters = new Dictionary<string, object> { ["metadata.source"] = "slack" };
+
+        var act = () => MetadataFilterBuilder.Build(filters);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*operator spec*");
+    }
+
     // ── Injection prevention ──────────────────────────────────────────────────
 
     [Fact]

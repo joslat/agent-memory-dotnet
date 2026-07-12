@@ -35,10 +35,16 @@ internal static class MetadataFilterBuilder
 
         foreach (var (key, operatorSpec) in filters)
         {
-            // Accept any IReadOnlyDictionary shape for the per-key operator spec (not just a concrete
-            // Dictionary), so a caller passing ReadOnlyDictionary/ImmutableDictionary isn't silently ignored.
+            // Each value must be an operator spec (any IReadOnlyDictionary shape — ReadOnlyDictionary /
+            // ImmutableDictionary all work). Fail fast on a malformed value rather than silently dropping the
+            // filter (which would broaden the query with no signal) — consistent with the throw on an
+            // unsupported operator below.
             if (operatorSpec is not IReadOnlyDictionary<string, object> ops)
-                continue;
+                throw new ArgumentException(
+                    $"Metadata filter for '{key}' must be an operator spec " +
+                    $"(IReadOnlyDictionary<string, object>, e.g. {{ \"$eq\": value }}); got " +
+                    $"{operatorSpec?.GetType().Name ?? "null"}.",
+                    nameof(filters));
 
             foreach (var (op, value) in ops)
             {
