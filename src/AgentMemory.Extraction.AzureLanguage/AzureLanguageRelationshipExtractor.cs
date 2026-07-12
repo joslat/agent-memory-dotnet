@@ -30,7 +30,7 @@ internal sealed class AzureLanguageRelationshipExtractor : ExtractorBase<Extract
     }
 
     protected override async Task<IReadOnlyList<ExtractedRelationship>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var relationships = new List<ExtractedRelationship>();
 
@@ -40,7 +40,7 @@ internal sealed class AzureLanguageRelationshipExtractor : ExtractorBase<Extract
                 continue;
 
             var entityList = await _context.GetOrRecognizeEntitiesAsync(
-                message.Content, _options.DefaultLanguage, _client, ct).ConfigureAwait(false);
+                message.Content, _options.DefaultLanguage, _client, cancellationToken).ConfigureAwait(false);
 
             for (int i = 0; i < entityList.Count - 1; i++)
             {

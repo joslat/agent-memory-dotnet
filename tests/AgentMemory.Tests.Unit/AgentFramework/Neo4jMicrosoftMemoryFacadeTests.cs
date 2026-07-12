@@ -189,7 +189,7 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var messages = new List<ChatMessage> { new(ChatRole.User, "find relevant history") };
-        var act = async () => await _sut.GetContextForRunAsync(messages, "s1", "c1", ct: cts.Token);
+        var act = async () => await _sut.GetContextForRunAsync(messages, "s1", "c1", cancellationToken: cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -227,7 +227,7 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var messages = new List<ChatMessage> { new(ChatRole.User, "Hello") };
-        var act = async () => await _sut.PersistAfterRunAsync(messages, "s1", "c1", ct: cts.Token);
+        var act = async () => await _sut.PersistAfterRunAsync(messages, "s1", "c1", cancellationToken: cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }

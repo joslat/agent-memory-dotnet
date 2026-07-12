@@ -29,17 +29,17 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
     }
 
     /// <inheritdoc/>
-    public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+    public async Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))
             return Array.Empty<float>();
 
         try
         {
-            var result = await _generator.GenerateAsync([text], cancellationToken: ct).ConfigureAwait(false);
+            var result = await _generator.GenerateAsync([text], cancellationToken: cancellationToken).ConfigureAwait(false);
             return result[0].Vector.ToArray();
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // Honor caller cancellation — do not mask it as a successful empty vector.
         }
@@ -51,7 +51,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct = default)
+    public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(texts);
         if (texts.Count == 0)
@@ -79,7 +79,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
 
         try
         {
-            var generated = await _generator.GenerateAsync(nonBlankTexts, cancellationToken: ct).ConfigureAwait(false);
+            var generated = await _generator.GenerateAsync(nonBlankTexts, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (generated.Count != nonBlankTexts.Count)
             {
                 // Contract expects one vector per input; a mismatch means the generator misbehaved.
@@ -91,7 +91,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
             for (int j = 0; j < nonBlankIndices.Count && j < generated.Count; j++)
                 results[nonBlankIndices[j]] = generated[j].Vector.ToArray();
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // Honor caller cancellation — do not mask it as successful empty vectors.
         }

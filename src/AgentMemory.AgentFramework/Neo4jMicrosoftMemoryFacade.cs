@@ -41,7 +41,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
         string sessionId,
         string conversationId,
         string? userId = null,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -52,12 +52,12 @@ public sealed class Neo4jMicrosoftMemoryFacade
                 .Select(m => m.Text));
 
             if (string.IsNullOrWhiteSpace(queryText))
-                return await _messageStore.GetMessagesAsync(sessionId, ct: ct).ConfigureAwait(false);
+                return await _messageStore.GetMessagesAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
 
             // Owner-scope the recall (R1): the write path (PersistAfterRunAsync / StoreMessageAsync) takes a
             // userId, so the read path must too — otherwise a multi-tenant host would recall across owners.
             var recall = await _memoryService
-                .RecallAsync(new RecallRequest { SessionId = sessionId, Query = queryText, UserId = userId }, ct)
+                .RecallAsync(new RecallRequest { SessionId = sessionId, Query = queryText, UserId = userId }, cancellationToken)
                 .ConfigureAwait(false);
 
             // RecentMessages is newest-first (recall orders DESC); reverse it to chronological
@@ -71,7 +71,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -90,7 +90,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
         string sessionId,
         string conversationId,
         string? userId = null,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         if (messages.Count == 0)
             return;
@@ -101,7 +101,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
             foreach (var msg in messages)
             {
                 var stored = await _messageStore
-                    .AddMessageAsync(msg, sessionId, conversationId, ct)
+                    .AddMessageAsync(msg, sessionId, conversationId, cancellationToken)
                     .ConfigureAwait(false);
                 internalMessages.Add(stored);
             }
@@ -116,9 +116,9 @@ public sealed class Neo4jMicrosoftMemoryFacade
                             Messages = internalMessages,
                             SessionId = sessionId,
                             UserId = userId
-                        }, ct).ConfigureAwait(false);
+                        }, cancellationToken).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
@@ -128,7 +128,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
                 }
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -145,12 +145,12 @@ public sealed class Neo4jMicrosoftMemoryFacade
         ChatMessage msg,
         string sessionId,
         string conversationId,
-        CancellationToken ct = default)
-        => _messageStore.AddMessageAsync(msg, sessionId, conversationId, ct);
+        CancellationToken cancellationToken = default)
+        => _messageStore.AddMessageAsync(msg, sessionId, conversationId, cancellationToken);
 
     /// <summary>
     /// Clears all memory for the given session.
     /// </summary>
-    public Task ClearSessionAsync(string sessionId, CancellationToken ct = default)
-        => _messageStore.ClearSessionAsync(sessionId, ct);
+    public Task ClearSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        => _messageStore.ClearSessionAsync(sessionId, cancellationToken);
 }

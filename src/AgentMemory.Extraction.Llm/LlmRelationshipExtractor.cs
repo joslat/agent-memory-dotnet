@@ -45,7 +45,7 @@ internal sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelation
     }
 
     protected override async Task<IReadOnlyList<ExtractedRelationship>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
@@ -53,7 +53,7 @@ internal sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelation
             "Extract relationships from this conversation:",
             conversationText,
             ProjectRelationships,
-            ct).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ExtractedRelationship> ProjectRelationships(LlmExtractionResponse dto)

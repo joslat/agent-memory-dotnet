@@ -30,30 +30,30 @@ public abstract class ExtractorBase<T>
     /// supplied messages.
     /// </summary>
     /// <param name="messages">The messages to extract items from.</param>
-    /// <param name="ct">A token to observe for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe for cancellation requests.</param>
     /// <returns>A task that resolves to the extracted items.</returns>
     protected abstract Task<IReadOnlyList<T>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct);
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken);
 
     /// <summary>
     /// Extracts items from the supplied messages, returning an empty list when no messages
     /// are provided or when the underlying extraction fails.
     /// </summary>
     /// <param name="messages">The messages to extract items from.</param>
-    /// <param name="ct">A token to observe for cancellation requests.</param>
+    /// <param name="cancellationToken">A token to observe for cancellation requests.</param>
     /// <returns>
     /// A task that resolves to the extracted items, or an empty list if there are no
     /// messages or an error occurs during extraction.
     /// </returns>
     public async Task<IReadOnlyList<T>> ExtractAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct = default)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken = default)
     {
         if (messages.Count == 0) return Array.Empty<T>();
         try
         {
-            return await ExtractCoreAsync(messages, ct).ConfigureAwait(false);
+            return await ExtractCoreAsync(messages, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // Honor caller cancellation — do not mask it as a successful empty result.
         }

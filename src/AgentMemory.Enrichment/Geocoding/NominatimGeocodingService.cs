@@ -32,7 +32,7 @@ internal sealed class NominatimGeocodingService : IGeocodingService
         _logger = logger;
     }
 
-    public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken ct = default)
+    public async Task<GeocodingResult?> GeocodeAsync(string locationText, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(locationText))
             return null;
@@ -43,7 +43,7 @@ internal sealed class NominatimGeocodingService : IGeocodingService
             var encodedQuery = Uri.EscapeDataString(locationText);
             var url = $"{_options.BaseUrl.TrimEnd('/')}/search?q={encodedQuery}&format=json&limit=1&addressdetails=1";
 
-            using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
+            using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -52,7 +52,7 @@ internal sealed class NominatimGeocodingService : IGeocodingService
                 return null;
             }
 
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var results = JsonSerializer.Deserialize<NominatimResult[]>(json, JsonOptions);
 
             if (results is null || results.Length == 0)
@@ -81,13 +81,13 @@ internal sealed class NominatimGeocodingService : IGeocodingService
                 Provider = "Nominatim"
             };
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // genuine caller cancellation
         }
         catch (OperationCanceledException ex)
         {
-            // HttpClient.Timeout fired (the caller's ct was NOT cancelled). Surface it as a distinct,
+            // HttpClient.Timeout fired (the caller's cancellationToken was NOT cancelled). Surface it as a distinct,
             // operationally-visible timeout rather than a generic failure indistinguishable from
             // "location not found"; keep the graceful null contract.
             _logger.LogWarning(ex, "Geocoding request for '{LocationText}' timed out", locationText);

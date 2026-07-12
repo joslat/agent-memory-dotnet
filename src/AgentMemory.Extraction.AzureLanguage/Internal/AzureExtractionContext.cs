@@ -13,7 +13,7 @@ internal sealed class AzureExtractionContext
     private readonly ConcurrentDictionary<string, IReadOnlyList<AzureRecognizedEntity>> _entityCache = new();
 
     public async Task<IReadOnlyList<AzureRecognizedEntity>> GetOrRecognizeEntitiesAsync(
-        string content, string? language, ITextAnalyticsClientWrapper client, CancellationToken ct)
+        string content, string? language, ITextAnalyticsClientWrapper client, CancellationToken cancellationToken)
     {
         // The same text analyzed under different languages yields different results, so the
         // cache key must include the language to avoid cross-language collisions.
@@ -22,7 +22,7 @@ internal sealed class AzureExtractionContext
         if (_entityCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var result = await client.RecognizeEntitiesAsync(content, language, ct).ConfigureAwait(false);
+        var result = await client.RecognizeEntitiesAsync(content, language, cancellationToken).ConfigureAwait(false);
         var list = result.ToList();
         _entityCache.TryAdd(cacheKey, list);
         return list;

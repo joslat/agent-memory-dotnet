@@ -6,14 +6,14 @@ namespace AgentMemory.Extraction.AzureLanguage.Internal;
 internal interface ITextAnalyticsClientWrapper
 {
     Task<IReadOnlyList<AzureRecognizedEntity>> RecognizeEntitiesAsync(
-        string document, string? language, CancellationToken ct);
+        string document, string? language, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<string>> ExtractKeyPhrasesAsync(
-        string document, string? language, CancellationToken ct);
+        string document, string? language, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<AzureLinkedEntity>> RecognizeLinkedEntitiesAsync(
-        string document, string? language, CancellationToken ct);
+        string document, string? language, CancellationToken cancellationToken);
 
     Task<AzureSentimentResult> AnalyzeSentimentAsync(
-        string document, string? language, CancellationToken ct);
+        string document, string? language, CancellationToken cancellationToken);
 }

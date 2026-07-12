@@ -200,7 +200,7 @@ public sealed class Neo4jChatMessageStoreTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
-        var act = async () => await _sut.GetMessagesAsync("s1", ct: cts.Token);
+        var act = async () => await _sut.GetMessagesAsync("s1", cancellationToken: cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }

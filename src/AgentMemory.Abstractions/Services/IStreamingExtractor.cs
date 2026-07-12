@@ -25,7 +25,7 @@ public interface IStreamingExtractor
         string text,
         IEntityExtractor extractor,
         StreamingExtractionOptions? options = null,
-        CancellationToken ct = default);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Processes the entire document, collects all chunk results, optionally deduplicates,
@@ -36,5 +36,5 @@ public interface IStreamingExtractor
         IEntityExtractor extractor,
         StreamingExtractionOptions? options = null,
         bool deduplicate = true,
-        CancellationToken ct = default);
+        CancellationToken cancellationToken = default);
 }

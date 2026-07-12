@@ -27,7 +27,7 @@ internal sealed class AzureLanguagePreferenceExtractor : ExtractorBase<Extracted
     }
 
     protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var preferences = new List<ExtractedPreference>();
 
@@ -36,7 +36,7 @@ internal sealed class AzureLanguagePreferenceExtractor : ExtractorBase<Extracted
             if (string.IsNullOrWhiteSpace(message.Content))
                 continue;
 
-            await ExtractPreferencesFromMessage(message, preferences, ct).ConfigureAwait(false);
+            await ExtractPreferencesFromMessage(message, preferences, cancellationToken).ConfigureAwait(false);
         }
 
         return preferences;
@@ -45,13 +45,13 @@ internal sealed class AzureLanguagePreferenceExtractor : ExtractorBase<Extracted
     private async Task ExtractPreferencesFromMessage(
         Message message,
         List<ExtractedPreference> preferences,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         var sentiment = await _client.AnalyzeSentimentAsync(
-            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
+            message.Content, _options.DefaultLanguage, cancellationToken).ConfigureAwait(false);
 
         var keyPhrases = await _client.ExtractKeyPhrasesAsync(
-            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
+            message.Content, _options.DefaultLanguage, cancellationToken).ConfigureAwait(false);
 
         var stronglyPositive = sentiment.PositiveScore >= _options.PreferenceSentimentThreshold;
         var stronglyNegative = sentiment.NegativeScore >= _options.PreferenceSentimentThreshold;

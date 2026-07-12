@@ -63,7 +63,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
     public async Task<EnrichmentResult?> EnrichEntityAsync(
         string entityName,
         string entityType,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(entityName))
             return null;
@@ -84,7 +84,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
             };
         }
 
-        await ApplyRateLimitAsync(ct).ConfigureAwait(false);
+        await ApplyRateLimitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -100,7 +100,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("token", _options.ApiKey);
 
-            using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -145,18 +145,18 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
                 };
             }
 
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var data = JsonNode.Parse(json);
 
             return ParseResponse(data, entityName, entityType);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // genuine caller cancellation
         }
         catch (OperationCanceledException ex)
         {
-            // HttpClient.Timeout fired (caller's ct not cancelled). A timeout is TRANSIENT, so throw rather
+            // HttpClient.Timeout fired (caller's cancellationToken not cancelled). A timeout is TRANSIENT, so throw rather
             // than returning a terminal Error result — otherwise the background queue would count it as a
             // (non-null) success and skip the retry, and the cache would store the poison Error and suppress
             // re-enrichment for the whole cache window. Throwing a non-OCE makes the queue's generic catch
@@ -181,16 +181,16 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
 
     // ---- Private helpers ----
 
-    private async Task ApplyRateLimitAsync(CancellationToken ct)
+    private async Task ApplyRateLimitAsync(CancellationToken cancellationToken)
     {
-        await _rateLock.WaitAsync(ct).ConfigureAwait(false);
+        await _rateLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var elapsed = (DateTimeOffset.UtcNow - _lastRequestTime).TotalSeconds;
             if (elapsed < _options.RateLimitSeconds)
                 await Task.Delay(
                     TimeSpan.FromSeconds(_options.RateLimitSeconds - elapsed),
-                    ct).ConfigureAwait(false);
+                    cancellationToken).ConfigureAwait(false);
 
             _lastRequestTime = DateTimeOffset.UtcNow;
         }

@@ -234,13 +234,13 @@ internal sealed class ExtractionStage : IExtractionStage
     private async Task<IReadOnlyList<T>> ExtractSafeAsync<T>(
         Func<Task<IReadOnlyList<T>>> extractor,
         string extractorTypeName,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
         try
         {
             return await extractor().ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // Honor caller cancellation — do not mask it as an empty result.
         }

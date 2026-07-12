@@ -65,14 +65,14 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         return new KernelSearchResults<TextSearchResult>(BuildTextSearchResults(result.Context, cancellationToken), result.TotalItemsRetrieved);
     }
 
-    private async Task<RecallResult> RecallAsync(string query, CancellationToken ct)
+    private async Task<RecallResult> RecallAsync(string query, CancellationToken cancellationToken)
     {
         try
         {
             return await _memoryService.RecallAsync(
-                new RecallRequest { SessionId = _sessionId, UserId = _userId, Query = query }, ct).ConfigureAwait(false);
+                new RecallRequest { SessionId = _sessionId, UserId = _userId, Query = query }, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Honor cancellation — do not mask it as an empty result.
             throw;
@@ -89,36 +89,36 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
 
     private static async IAsyncEnumerable<string> YieldSingle(
         string value,
-        [EnumeratorCancellation] CancellationToken ct)
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        ct.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
         await Task.CompletedTask.ConfigureAwait(false);
         yield return value;
     }
 
     private static async IAsyncEnumerable<TextSearchResult> BuildTextSearchResults(
         MemoryContext ctx,
-        [EnumeratorCancellation] CancellationToken ct)
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.CompletedTask.ConfigureAwait(false);
         foreach (var msg in ctx.RecentMessages.Items.Concat(ctx.RelevantMessages.Items))
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             yield return new TextSearchResult(msg.Content) { Name = msg.Role };
         }
         foreach (var entity in ctx.RelevantEntities.Items)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             yield return new TextSearchResult(entity.Description ?? entity.Name) { Name = entity.Name };
         }
         foreach (var fact in ctx.RelevantFacts.Items)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             yield return new TextSearchResult($"{fact.Subject} {fact.Predicate} {fact.Object}") { Name = fact.Subject };
         }
         foreach (var pref in ctx.RelevantPreferences.Items)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             yield return new TextSearchResult(pref.PreferenceText) { Name = pref.Category };
         }
     }

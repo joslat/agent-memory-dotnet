@@ -27,7 +27,7 @@ internal sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>,
     }
 
     protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var facts = new List<ExtractedFact>();
 
@@ -36,17 +36,17 @@ internal sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>,
             if (string.IsNullOrWhiteSpace(message.Content))
                 continue;
 
-            await AddKeyPhraseFacts(message, facts, ct).ConfigureAwait(false);
-            await AddLinkedEntityFacts(message, facts, ct).ConfigureAwait(false);
+            await AddKeyPhraseFacts(message, facts, cancellationToken).ConfigureAwait(false);
+            await AddLinkedEntityFacts(message, facts, cancellationToken).ConfigureAwait(false);
         }
 
         return facts;
     }
 
-    private async Task AddKeyPhraseFacts(Message message, List<ExtractedFact> facts, CancellationToken ct)
+    private async Task AddKeyPhraseFacts(Message message, List<ExtractedFact> facts, CancellationToken cancellationToken)
     {
         var keyPhrases = await _client.ExtractKeyPhrasesAsync(
-            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
+            message.Content, _options.DefaultLanguage, cancellationToken).ConfigureAwait(false);
 
         var context = message.Content.Length > 100
             ? message.Content[..100] + "..."
@@ -67,10 +67,10 @@ internal sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>,
         }
     }
 
-    private async Task AddLinkedEntityFacts(Message message, List<ExtractedFact> facts, CancellationToken ct)
+    private async Task AddLinkedEntityFacts(Message message, List<ExtractedFact> facts, CancellationToken cancellationToken)
     {
         var linkedEntities = await _client.RecognizeLinkedEntitiesAsync(
-            message.Content, _options.DefaultLanguage, ct).ConfigureAwait(false);
+            message.Content, _options.DefaultLanguage, cancellationToken).ConfigureAwait(false);
 
         foreach (var entity in linkedEntities)
         {

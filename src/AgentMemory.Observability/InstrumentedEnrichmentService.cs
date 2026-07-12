@@ -21,7 +21,7 @@ internal sealed class InstrumentedEnrichmentService : IEnrichmentService
     public async Task<EnrichmentResult?> EnrichEntityAsync(
         string entityName,
         string entityType,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.enrichment");
         activity?.SetTag("memory.enrichment.entity_name", entityName);
@@ -30,7 +30,7 @@ internal sealed class InstrumentedEnrichmentService : IEnrichmentService
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = await _inner.EnrichEntityAsync(entityName, entityType, ct).ConfigureAwait(false);
+            var result = await _inner.EnrichEntityAsync(entityName, entityType, cancellationToken).ConfigureAwait(false);
             _metrics.EnrichmentRequests.Add(1);
 
             // Providers (e.g. Diffbot) return a status-bearing result instead of throwing, so a non-null

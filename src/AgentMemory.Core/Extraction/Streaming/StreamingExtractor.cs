@@ -43,7 +43,7 @@ internal sealed class StreamingExtractor : IStreamingExtractor
         string text,
         IEntityExtractor extractor,
         StreamingExtractionOptions? options = null,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var chunks = ChunkDocument(text, options);
         _logger.LogInformation(
@@ -52,14 +52,14 @@ internal sealed class StreamingExtractor : IStreamingExtractor
 
         foreach (var chunk in chunks)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             var sw = Stopwatch.StartNew();
             StreamingChunkResult chunkResult;
 
             try
             {
                 var message = BuildMessage(chunk.Text);
-                var entities = await extractor.ExtractAsync(new[] { message }, ct)
+                var entities = await extractor.ExtractAsync(new[] { message }, cancellationToken)
                     .ConfigureAwait(false);
 
                 sw.Stop();
@@ -99,7 +99,7 @@ internal sealed class StreamingExtractor : IStreamingExtractor
         IEntityExtractor extractor,
         StreamingExtractionOptions? options = null,
         bool deduplicate = true,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var chunks = ChunkDocument(text, options);
@@ -110,7 +110,7 @@ internal sealed class StreamingExtractor : IStreamingExtractor
         int successfulChunks = 0;
         int failedChunks = 0;
 
-        await foreach (var chunkResult in ExtractStreamingAsync(text, extractor, options, ct)
+        await foreach (var chunkResult in ExtractStreamingAsync(text, extractor, options, cancellationToken)
             .ConfigureAwait(false))
         {
             chunkResults.Add(chunkResult);

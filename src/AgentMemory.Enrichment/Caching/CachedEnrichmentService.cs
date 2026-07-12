@@ -31,7 +31,7 @@ internal sealed class CachedEnrichmentService : IEnrichmentService
     public async Task<EnrichmentResult?> EnrichEntityAsync(
         string entityName,
         string entityType,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         var key = $"enrichment:{_inner.GetType().Name}:{entityName.Trim().ToLowerInvariant()}:{entityType.Trim().ToLowerInvariant()}";
 
@@ -41,7 +41,7 @@ internal sealed class CachedEnrichmentService : IEnrichmentService
             return cached;
         }
 
-        var result = await _inner.EnrichEntityAsync(entityName, entityType, ct).ConfigureAwait(false);
+        var result = await _inner.EnrichEntityAsync(entityName, entityType, cancellationToken).ConfigureAwait(false);
 
         if (result is not null && IsCacheable(result))
         {

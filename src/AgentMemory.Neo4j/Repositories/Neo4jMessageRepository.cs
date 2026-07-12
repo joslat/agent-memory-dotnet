@@ -242,7 +242,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken ct = default)
+    public async Task<bool> DeleteAsync(string messageId, bool cascade = true, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Deleting message {Id}, cascade={Cascade}", messageId, cascade);
 
@@ -252,7 +252,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
             var cursor = await runner.RunAsync(query, new { id = messageId }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["deleted"].As<bool>();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Message>> GetRecentBySessionAsOfAsync(

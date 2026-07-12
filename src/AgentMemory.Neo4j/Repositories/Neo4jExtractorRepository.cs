@@ -27,7 +27,7 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
     }
 
     /// <inheritdoc />
-    public async Task<Extractor> UpsertAsync(Extractor extractor, CancellationToken ct = default)
+    public async Task<Extractor> UpsertAsync(Extractor extractor, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Upserting extractor {Name}", extractor.Name);
 
@@ -44,11 +44,11 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
             if (records.Count > 0)
                 return MapToExtractor(records[0]["ex"].As<INode>());
             return extractor;
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<Extractor?> GetByNameAsync(string name, CancellationToken ct = default)
+    public async Task<Extractor?> GetByNameAsync(string name, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting extractor by name {Name}", name);
 
@@ -58,11 +58,11 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             return MapToExtractor(records[0]["ex"].As<INode>());
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<Extractor>> ListAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<Extractor>> ListAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Listing all extractors");
 
@@ -71,7 +71,7 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
             var cursor = await runner.RunAsync(ExtractorQueries.List, new { }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r => MapToExtractor(r["ex"].As<INode>())).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -80,7 +80,7 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
         string extractorName,
         double confidence,
         int? extractionTimeMs = null,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Creating EXTRACTED_BY: Entity {EntityId} -> Extractor {Extractor}", entityId, extractorName);
 
@@ -93,14 +93,14 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
                 confidence,
                 extraction_time_ms = (object?)extractionTimeMs
             }).ConfigureAwait(false);
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<(Entity Entity, double Confidence)>> GetEntitiesByExtractorAsync(
         string extractorName,
         int limit = 100,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting entities by extractor {Extractor}, limit={Limit}", extractorName, limit);
 
@@ -114,11 +114,11 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
                 var conf = r["confidence"].As<double>();
                 return (MapToEntity(node), conf);
             }).ToList();
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken ct = default)
+    public async Task<EntityProvenance?> GetProvenanceAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
@@ -158,11 +158,11 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
                 .ToList();
 
             return new EntityProvenance(id, sources, extractors);
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<ExtractionStats> GetExtractionStatsAsync(CancellationToken ct = default)
+    public async Task<ExtractionStats> GetExtractionStatsAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting extraction stats");
 
@@ -177,11 +177,11 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
                 record["totalEntities"].As<int>(),
                 record["totalMessages"].As<int>(),
                 record["avgPerMessage"].As<double>());
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<ExtractorStats?> GetExtractorStatsAsync(string extractorName, CancellationToken ct = default)
+    public async Task<ExtractorStats?> GetExtractorStatsAsync(string extractorName, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting stats for extractor {Extractor}", extractorName);
 
@@ -200,11 +200,11 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
                 record["entityCount"].As<int>(),
                 record["avgConfidence"] is not null ? record["avgConfidence"].As<double>() : 0.0,
                 record["totalExtractions"].As<int>());
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<int> DeleteProvenanceAsync(string entityId, CancellationToken ct = default)
+    public async Task<int> DeleteProvenanceAsync(string entityId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Deleting provenance for entity {EntityId}", entityId);
 
@@ -213,7 +213,7 @@ internal sealed class Neo4jExtractorRepository : IExtractorRepository
             var cursor = await runner.RunAsync(ExtractorQueries.DeleteEntityProvenance, new { entityId }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 ? records[0]["deleted"].As<int>() : 0;
-        }, ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static Extractor MapToExtractor(INode node)

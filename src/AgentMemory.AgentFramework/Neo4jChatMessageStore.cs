@@ -35,16 +35,16 @@ public sealed class Neo4jChatMessageStore
         ChatMessage chatMessage,
         string sessionId,
         string conversationId,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         try
         {
             var message = MafTypeMapper.ToInternalMessage(chatMessage, sessionId, conversationId, _clock, _idGenerator);
             return await _memoryService
-                .AddMessageAsync(message.SessionId, message.ConversationId, message.Role, message.Content, message.Metadata, ct)
+                .AddMessageAsync(message.SessionId, message.ConversationId, message.Role, message.Content, message.Metadata, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -65,7 +65,7 @@ public sealed class Neo4jChatMessageStore
     public async Task<IReadOnlyList<ChatMessage>> GetMessagesAsync(
         string sessionId,
         int limit = 50,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -75,7 +75,7 @@ public sealed class Neo4jChatMessageStore
                     SessionId = sessionId,
                     Query = string.Empty,
                     Options = new Abstractions.Options.RecallOptions { MaxRecentMessages = limit }
-                }, ct).ConfigureAwait(false);
+                }, cancellationToken).ConfigureAwait(false);
 
             // RecentMessages is newest-first (recall orders DESC); return chat history chronologically
             // (oldest-first) so the agent reads the conversation in the order it happened.
@@ -84,7 +84,7 @@ public sealed class Neo4jChatMessageStore
                 .Select(MafTypeMapper.ToChatMessage)
                 .ToList();
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -98,13 +98,13 @@ public sealed class Neo4jChatMessageStore
     /// <summary>
     /// Clears all memory for the given session.
     /// </summary>
-    public async Task ClearSessionAsync(string sessionId, CancellationToken ct = default)
+    public async Task ClearSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         try
         {
-            await _memoryService.ClearSessionAsync(sessionId, cancellationToken: ct).ConfigureAwait(false);
+            await _memoryService.ClearSessionAsync(sessionId, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }

@@ -35,7 +35,7 @@ internal sealed class WikimediaEnrichmentService : IEnrichmentService
     public async Task<EnrichmentResult?> EnrichEntityAsync(
         string entityName,
         string entityType,
-        CancellationToken ct = default)
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(entityName))
             return null;
@@ -51,7 +51,7 @@ internal sealed class WikimediaEnrichmentService : IEnrichmentService
             var baseUrl = _options.WikipediaBaseUrl.Replace("{lang}", lang).TrimEnd('/');
             var url = $"{baseUrl}/page/summary/{title}";
 
-            using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
+            using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
@@ -66,7 +66,7 @@ internal sealed class WikimediaEnrichmentService : IEnrichmentService
                 return null;
             }
 
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var summary = JsonSerializer.Deserialize<WikipediaSummaryResponse>(json, JsonOptions);
 
             if (summary is null)
@@ -83,13 +83,13 @@ internal sealed class WikimediaEnrichmentService : IEnrichmentService
                 RetrievedAtUtc = DateTimeOffset.UtcNow
             };
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw; // genuine caller cancellation
         }
         catch (OperationCanceledException ex)
         {
-            // HttpClient.Timeout fired (caller's ct not cancelled). Surface a distinct timeout log; keep
+            // HttpClient.Timeout fired (caller's cancellationToken not cancelled). Surface a distinct timeout log; keep
             // the graceful null contract.
             _logger.LogWarning(ex, "Enrichment request for entity '{EntityName}' timed out", entityName);
             return null;

@@ -46,7 +46,7 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     }
 
     protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(
-        IReadOnlyList<Message> messages, CancellationToken ct)
+        IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
@@ -54,7 +54,7 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,
-            ct).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ExtractedFact> ProjectFacts(LlmExtractionResponse dto)
