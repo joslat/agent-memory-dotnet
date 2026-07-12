@@ -142,18 +142,20 @@ public interface IEntityRepository
     Task<bool> InvalidateAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Merges a source (duplicate) entity into a target (canonical) entity: transfers the source's
-    /// <c>MENTIONS</c> and <c>SAME_AS</c> edges to the target, folds the source's name/aliases and
-    /// description into the target, stamps <c>merged_into</c>/<c>merged_at</c> on the source, and clears
-    /// the target's embedding for re-derivation. When <paramref name="scope"/> is supplied (R1) BOTH
-    /// endpoints must be the owner's own (or shared) — a merge can never reach across the isolation
-    /// boundary into another owner's entity. A cross-boundary (or otherwise non-matching) call is a true
-    /// no-op: it matches no rows and leaves both entities untouched, including skipping the post-merge
-    /// search-field refresh, so a scoped caller never bumps another owner's entity. Null scope ⇒ unscoped
-    /// (admin/maintenance dedup). Note: arbitrary typed relationships (other than SAME_AS/MENTIONS) are
-    /// not yet re-pointed from source to target — see the merge-relationship-transfer follow-up.
-    /// Returns <c>true</c> if the merge matched and ran; <c>false</c> for a guarded / non-existent no-op.
-    /// (The return value future-proofs the relationship-transfer follow-up, which will report edges moved.)
+    /// Merges a source (duplicate) entity into a target (canonical) entity: re-points the source's
+    /// <c>MENTIONS</c>, <c>SAME_AS</c>, and all typed <c>RELATED_TO</c> relationships (both directions, with
+    /// every property incl. the stable relationship id preserved) onto the target, folds the source's
+    /// name/aliases and description into the target, stamps <c>merged_into</c>/<c>merged_at</c> on the source,
+    /// and clears the target's embedding for re-derivation. The relationship move is non-destructive: only
+    /// edges that would collapse into a target→target self-loop are dropped, and duplicate same-typed edges are
+    /// left for the consolidation layer, so temporally-distinct facts survive. When <paramref name="scope"/> is
+    /// supplied (R1) BOTH endpoints must be the owner's own (or shared), and only the owner's own (or shared)
+    /// <c>RELATED_TO</c> edges are moved — a merge can never reach across the isolation boundary into another
+    /// owner's entity or relationship. A cross-boundary (or otherwise non-matching) call is a true no-op: it
+    /// matches no rows and leaves both entities untouched, including skipping the post-merge search-field
+    /// refresh, so a scoped caller never bumps another owner's entity. A self-merge (source id == target id) is
+    /// likewise a no-op. Null scope ⇒ unscoped (admin/maintenance dedup).
+    /// Returns <c>true</c> if the merge matched and ran; <c>false</c> for a guarded / non-existent / self-merge no-op.
     /// </summary>
     Task<bool> MergeEntitiesAsync(
         string sourceEntityId,
