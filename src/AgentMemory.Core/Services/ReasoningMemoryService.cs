@@ -256,9 +256,9 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
 
     /// <inheritdoc />
     public Task<PagedResult<ReasoningTrace>> ListAllTracesAsync(
-        MemoryScope? scope = null,
         int limit = 50,
         int offset = 0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
         return _traceRepo.ListAllAsync(limit, offset, scope, cancellationToken);

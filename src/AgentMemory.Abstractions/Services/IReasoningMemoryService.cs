@@ -98,9 +98,9 @@ public interface IReasoningMemoryService
     /// result carries a <c>HasNextPage</c> flag (N+1 pagination); advance with <paramref name="offset"/>.
     /// </summary>
     Task<PagedResult<ReasoningTrace>> ListAllTracesAsync(
-        MemoryScope? scope = null,
         int limit = 50,
         int offset = 0,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
