@@ -79,7 +79,9 @@ public static class ServiceCollectionExtensions
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
-            if (services[i].ServiceType == typeof(T))
+            // Keyed descriptors are handled separately; their non-keyed implementation
+            // accessors throw, so the unkeyed decoration path must skip them.
+            if (services[i].ServiceType == typeof(T) && !services[i].IsKeyedService)
             {
                 return services[i];
             }
@@ -177,17 +179,74 @@ public static class ServiceCollectionExtensions
 
     private static void DecorateEnrichmentService(IServiceCollection services)
     {
+        // Default (unkeyed) enrichment provider, e.g. Wikimedia via AddEnrichmentServices.
         var descriptor = FindDescriptor<IEnrichmentService>(services);
-        if (descriptor is null) return;
-        services.Remove(descriptor);
-        services.Add(new ServiceDescriptor(
-            typeof(IEnrichmentService),
-            provider =>
+        if (descriptor is not null)
+        {
+            services.Remove(descriptor);
+            services.Add(new ServiceDescriptor(
+                typeof(IEnrichmentService),
+                provider =>
+                {
+                    var inner = CreateInstance<IEnrichmentService>(provider, descriptor);
+                    var metrics = provider.GetRequiredService<MemoryMetrics>();
+                    return new InstrumentedEnrichmentService(inner, metrics);
+                },
+                descriptor.Lifetime));
+        }
+
+        // Keyed enrichment providers, e.g. Diffbot via AddDiffbotEnrichment.
+        DecorateKeyedEnrichmentServices(services);
+    }
+
+    private static void DecorateKeyedEnrichmentServices(IServiceCollection services)
+    {
+        // Snapshot the keyed IEnrichmentService descriptors before mutating the collection.
+        var keyed = new List<ServiceDescriptor>();
+        foreach (var d in services)
+        {
+            if (d.ServiceType == typeof(IEnrichmentService) && d.IsKeyedService)
             {
-                var inner = CreateInstance<IEnrichmentService>(provider, descriptor);
-                var metrics = provider.GetRequiredService<MemoryMetrics>();
-                return new InstrumentedEnrichmentService(inner, metrics);
-            },
-            descriptor.Lifetime));
+                keyed.Add(d);
+            }
+        }
+
+        foreach (var descriptor in keyed)
+        {
+            services.Remove(descriptor);
+            services.Add(new ServiceDescriptor(
+                typeof(IEnrichmentService),
+                descriptor.ServiceKey,
+                (provider, _) =>
+                {
+                    var inner = CreateKeyedInstance<IEnrichmentService>(provider, descriptor);
+                    var metrics = provider.GetRequiredService<MemoryMetrics>();
+                    return new InstrumentedEnrichmentService(inner, metrics);
+                },
+                descriptor.Lifetime));
+        }
+    }
+
+    private static T CreateKeyedInstance<T>(IServiceProvider provider, ServiceDescriptor descriptor)
+        where T : notnull
+    {
+        if (descriptor.KeyedImplementationInstance is T instance)
+        {
+            return instance;
+        }
+
+        if (descriptor.KeyedImplementationFactory is not null)
+        {
+            return (T)descriptor.KeyedImplementationFactory(provider, descriptor.ServiceKey);
+        }
+
+        if (descriptor.KeyedImplementationType is not null)
+        {
+            return (T)ActivatorUtilities.CreateInstance(provider, descriptor.KeyedImplementationType);
+        }
+
+        throw new InvalidOperationException(
+            $"Cannot resolve inner keyed service for {typeof(T).Name}. " +
+            "The service descriptor has no implementation instance, factory, or type.");
     }
 }

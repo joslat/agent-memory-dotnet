@@ -1,6 +1,7 @@
 using System.Net;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using AgentMemory.Abstractions.Domain.Enrichment;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Enrichment;
@@ -17,8 +18,12 @@ public sealed class DiffbotEnrichmentServiceTests
     {
         var opts = options ?? new DiffbotEnrichmentOptions { ApiKey = "test-key" };
         var client = new HttpClient(handler) { Timeout = opts.Timeout };
+        // The service now resolves its client per request via IHttpClientFactory (handler rotation);
+        // stub the factory to hand back the mock-backed client for the "Diffbot" named client.
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(Arg.Any<string>()).Returns(client);
         return new DiffbotEnrichmentService(
-            client,
+            factory,
             Microsoft.Extensions.Options.Options.Create(opts),
             NullLogger<DiffbotEnrichmentService>.Instance);
     }

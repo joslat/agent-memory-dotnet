@@ -42,7 +42,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly DiffbotEnrichmentOptions _options;
     private readonly ILogger<DiffbotEnrichmentService> _logger;
 
@@ -51,11 +51,11 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
     private DateTimeOffset _lastRequestTime = DateTimeOffset.MinValue;
 
     public DiffbotEnrichmentService(
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         IOptions<DiffbotEnrichmentOptions> options,
         ILogger<DiffbotEnrichmentService> logger)
     {
-        _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
         _options = options.Value;
         _logger = logger;
     }
@@ -88,6 +88,11 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
 
         try
         {
+            // Resolve the client per request from the factory so its handler rotates on the factory's
+            // schedule. This service is a singleton (shared rate-limit state), so injecting a single
+            // HttpClient would pin its handler for the process lifetime (captive dependency); mirroring
+            // WikimediaEnrichmentService avoids that while keeping the semaphore shared.
+            var client = _httpClientFactory.CreateClient(ClientName);
             var diffbotType = TypeMapping[entityType];
             // Escape DQL string-literal metacharacters (backslash FIRST, then the double quote) so a name
             // like John "Jack" Doe doesn't produce a malformed query that silently returns nothing.
@@ -100,7 +105,7 @@ internal sealed class DiffbotEnrichmentService : IEnrichmentService, IDisposable
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("token", _options.ApiKey);
 
-            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
