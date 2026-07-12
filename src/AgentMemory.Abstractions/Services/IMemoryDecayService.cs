@@ -29,5 +29,8 @@ public interface IMemoryDecayService
     /// <summary>
     /// Bumps <c>last_accessed_at</c> and increments <c>access_count</c> on a memory node.
     /// </summary>
+    /// <param name="nodeId">The id property of the node.</param>
+    /// <param name="nodeKind">The kind of memory node (Entity, Fact, or Preference).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     Task UpdateAccessTimestampAsync(string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default);
 }
