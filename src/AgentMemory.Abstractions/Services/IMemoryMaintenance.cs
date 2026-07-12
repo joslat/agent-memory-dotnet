@@ -25,6 +25,7 @@ public interface IMemoryMaintenance
     /// </summary>
     /// <param name="nodeKind">The kind of memory node to backfill (Entity, Fact, or Preference).</param>
     /// <param name="batchSize">Number of nodes to process per batch.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// The number of nodes actually updated — i.e. for which a non-empty embedding was generated and
     /// persisted. Nodes whose embedding generation degraded to an empty vector (and were therefore skipped)
