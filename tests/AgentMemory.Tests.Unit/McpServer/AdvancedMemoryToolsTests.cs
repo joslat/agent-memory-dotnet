@@ -137,7 +137,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryExportGraph_ThrowsMcpExceptionWhenGraphQueryDisabled()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = false });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = false });
 
         var act = () => AdvancedMemoryTools.MemoryExportGraph(_graphQueryService, options);
 
@@ -147,7 +147,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryExportGraph_CallsQueryAsyncForNodesAndRelationships()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         _graphQueryService.QueryAsync(
                 Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(),
                 Arg.Any<CancellationToken>())
@@ -164,7 +164,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryExportGraph_ReturnsJsonWithNodeAndRelationshipCount()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         _graphQueryService.QueryAsync(
                 Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(),
                 Arg.Any<CancellationToken>())
@@ -182,7 +182,7 @@ public sealed class AdvancedMemoryToolsTests
     {
         // cycle-3: the stored schema uses snake_case `session_id` and `id` (not `sessionId`/`entityId`).
         // The old camelCase names made a session-scoped export return zero nodes and null endpoint ids.
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         var captured = new List<string>();
         _graphQueryService.QueryAsync(
                 Arg.Do<string>(q => captured.Add(q)),
@@ -205,7 +205,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryFindDuplicates_ThrowsMcpExceptionWhenGraphQueryDisabled()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = false });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = false });
 
         var act = () => AdvancedMemoryTools.MemoryFindDuplicates(_graphQueryService, options);
 
@@ -215,7 +215,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryFindDuplicates_CallsQueryAsyncWithThresholdParameter()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         _graphQueryService.QueryAsync(
                 Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(),
                 Arg.Any<CancellationToken>())
@@ -232,7 +232,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryFindDuplicates_UsesIdProperty_NotEntityId()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         var captured = new List<string>();
         _graphQueryService.QueryAsync(
                 Arg.Do<string>(q => captured.Add(q)),
@@ -249,7 +249,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task MemoryFindDuplicates_ReturnsJsonWithPairCount()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         _graphQueryService.QueryAsync(
                 Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(),
                 Arg.Any<CancellationToken>())
@@ -266,7 +266,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task ExtractAndPersist_CallsExtractAndPersistAsyncWithBuiltMessage()
     {
-        var options = Options.Create(new McpServerOptions { DefaultSessionId = "ses-default" });
+        var options = Options.Create(new AgentMemoryMcpOptions { DefaultSessionId = "ses-default" });
         var extractionResult = new ExtractionResult
         {
             Entities = Array.Empty<ExtractedEntity>(),
@@ -293,7 +293,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task ExtractAndPersist_UsesDefaultSessionIdFromOptions()
     {
-        var options = Options.Create(new McpServerOptions { DefaultSessionId = "ses-default" });
+        var options = Options.Create(new AgentMemoryMcpOptions { DefaultSessionId = "ses-default" });
         var extractionResult = new ExtractionResult
         {
             Entities = Array.Empty<ExtractedEntity>(),
@@ -316,7 +316,7 @@ public sealed class AdvancedMemoryToolsTests
     [Fact]
     public async Task ExtractAndPersist_ReturnsJsonWithExtractedCounts()
     {
-        var options = Options.Create(new McpServerOptions { DefaultSessionId = "ses-default" });
+        var options = Options.Create(new AgentMemoryMcpOptions { DefaultSessionId = "ses-default" });
         var extractionResult = new ExtractionResult
         {
             Entities = new[] { new ExtractedEntity { Name = "Alice", Type = "Person", Confidence = 0.9 } },

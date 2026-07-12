@@ -12,5 +12,5 @@ public sealed record RelatedEntity
     public required string Relation { get; init; }
 
     /// <summary>Diffbot URI for the related entity, if available.</summary>
-    public string? DiffbotUri { get; init; }
+    public string? ProviderUri { get; init; }
 }

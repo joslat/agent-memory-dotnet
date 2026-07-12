@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renamed `AgentMemory.McpServer.McpServerOptions` → `AgentMemoryMcpOptions`** to end the name collision (CS0104) with the MCP SDK's `ModelContextProtocol.Server.McpServerOptions`. `AddAgentMemoryMcpTools(Action<AgentMemoryMcpOptions>)` updated accordingly.
+- **Renamed `EnrichmentOptions` → `WikimediaEnrichmentOptions`** (its members are Wikimedia-specific, mirroring `DiffbotEnrichmentOptions`); `AddEnrichmentServices` / the meta-package `WithEnrichment` parameter types updated.
+- **Renamed `EnrichmentResult.DiffbotUri` and `RelatedEntity.DiffbotUri` → `ProviderUri`** (provider-neutral, complementing the existing `Provider` field).
+- **`ToolCallStatus` now has explicit ordinals** and clarified docs distinguishing `Error` (raised an exception) from `Failure` (returned an unsuccessful result); both, with `Timeout`, classify as failed in tool-usage stats. (Status persists by enum name, so ordinals are stability-only.)
 - **`IToolCallRepository.UpdateAsync` now returns `Task<ToolCall?>`** (was `Task<ToolCall>`): `null` when no tool call with that id exists (concurrent clear/prune), matching `IReasoningTraceRepository.UpdateAsync`.
 - **`AgentTraceRecorder.StartTraceAsync` parameter order is now `(sessionId, task, …)`** (was `(task, sessionId, …)`), matching `IReasoningMemoryService.StartTraceAsync` — the two strings were easy to transpose.
 - **`Message.ToolCallIds` is now a non-nullable `IReadOnlyList<string>` defaulting to empty** (was a nullable, undefaulted collection), matching the record's other collection members.
@@ -29,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`IEntityRepository.MergeEntitiesAsync` now returns `Task<bool>`** (was `Task`): `true` when the merge matched and ran, `false` for a guarded / non-existent no-op. Future-proofs the deferred merge-relationship-transfer fix (it can report edges moved without another signature break).
 - **1.0 API-surface lockdown — implementation types internalized.** Concrete implementation classes that are only ever resolved through the public Abstractions interfaces (the memory/reasoning services, Neo4j repositories/services/query holders/infrastructure, MCP tools/resources/prompts, extraction providers, enrichment decorators, GDS analytics services, merge strategies, and stubs) are now `internal`, shrinking the public surface from ~331 to ~203 types ahead of the SemVer-stable `1.0`. Accessibility-only: no behavior, signature, or DI-wiring change — DI resolves the internal types (via their still-public constructors) unchanged. The public contract is the Abstractions interfaces/records/options/enums, each package's `ServiceCollectionExtensions` + options, the Microsoft Agent Framework and Semantic Kernel adapters, and a small set of deliberate seams (`INeo4jTransactionRunner`, `ISchemaBootstrapper`, `IMigrationRunner`, `MemoryActivitySource`, `MemoryMetrics.MeterName`, the stub/clock/id helpers, `ExtractorBase`).
 - **`SchemaConstants` and the schema-parity kit are now internal.** `SchemaConstants` (raw Neo4j backend label/property/edge strings) and the parity types (`SchemaParityVerifier`, `SchemaDescriptor`, `SchemaParityPolicy`, `SchemaParityReport`, `UpstreamSchemaRegistry`, `DotNetSchema`) — previously described as a reusable library component in `AgentMemory.Neo4j.Schema.Parity` — are implementation details for `1.0`. Schema-parity verification remains available through the `agentmemory schema-parity` CLI command; it is no longer a library API.
+
+### Removed
+
+- **Deleted the obsolete `MemoryTool` API surface** — `MemoryTool`, `MemoryToolRequest`, `MemoryToolResponse`, and `MemoryToolFactory.CreateTools()` (which was `[Obsolete]`). Use `MemoryToolFactory.CreateAIFunctions()` (MAF-compatible `AIFunction` instances) instead — the only tool surface samples use.
+- **Deleted the dead `SchemaConstants.ToolCallStatusValues`** — an unused, non-authoritative string duplicate of the `ToolCallStatus` enum.
 
 ## [0.1.0-preview.4] - 2026-06-21
 

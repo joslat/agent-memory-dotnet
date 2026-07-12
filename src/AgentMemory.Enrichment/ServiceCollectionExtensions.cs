@@ -21,7 +21,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddEnrichmentServices(
         this IServiceCollection services,
         Action<GeocodingOptions>? configureGeocoding = null,
-        Action<EnrichmentOptions>? configureEnrichment = null,
+        Action<WikimediaEnrichmentOptions>? configureEnrichment = null,
         Action<EnrichmentCacheOptions>? configureCaching = null)
     {
         // Options
@@ -36,7 +36,7 @@ public static class ServiceCollectionExtensions
             .Validate(o => o.MaxRetries >= 0, "Geocoding MaxRetries must be non-negative.")
             .ValidateOnStart();
 
-        var enrichOptions = services.AddOptions<EnrichmentOptions>();
+        var enrichOptions = services.AddOptions<WikimediaEnrichmentOptions>();
         if (configureEnrichment is not null)
             enrichOptions.Configure(configureEnrichment);
         enrichOptions
@@ -66,12 +66,12 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient(WikimediaEnrichmentService.ClientName, (sp, client) =>
         {
-            var opts = sp.GetRequiredService<IOptions<EnrichmentOptions>>().Value;
+            var opts = sp.GetRequiredService<IOptions<WikimediaEnrichmentOptions>>().Value;
             client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AgentMemory/1.0");
         })
         .AddHttpMessageHandler(sp => new RetryHttpMessageHandler(
-            sp.GetRequiredService<IOptions<EnrichmentOptions>>().Value.MaxRetries,
+            sp.GetRequiredService<IOptions<WikimediaEnrichmentOptions>>().Value.MaxRetries,
             sp.GetService<ILogger<RetryHttpMessageHandler>>()));
 
         // Register concrete implementations for direct resolution

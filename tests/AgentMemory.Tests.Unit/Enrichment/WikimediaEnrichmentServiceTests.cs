@@ -27,7 +27,7 @@ public sealed class WikimediaEnrichmentServiceTests
 
     private static WikimediaEnrichmentService CreateSut(
         MockHttpMessageHandler handler,
-        EnrichmentOptions? options = null)
+        WikimediaEnrichmentOptions? options = null)
     {
         var httpClient = new HttpClient(handler);
         var factory = Substitute.For<IHttpClientFactory>();
@@ -35,7 +35,7 @@ public sealed class WikimediaEnrichmentServiceTests
 
         return new WikimediaEnrichmentService(
             factory,
-            Options.Create(options ?? new EnrichmentOptions()),
+            Options.Create(options ?? new WikimediaEnrichmentOptions()),
             NullLogger<WikimediaEnrichmentService>.Instance);
     }
 
@@ -95,7 +95,7 @@ public sealed class WikimediaEnrichmentServiceTests
     public async Task Enrich_SetsCorrectUrl()
     {
         var handler = new MockHttpMessageHandler(ValidWikipediaResponse);
-        var options = new EnrichmentOptions { WikipediaLanguage = "en" };
+        var options = new WikimediaEnrichmentOptions { WikipediaLanguage = "en" };
         var sut = CreateSut(handler, options);
 
         await sut.EnrichEntityAsync("London", "City");
@@ -112,7 +112,7 @@ public sealed class WikimediaEnrichmentServiceTests
         // The configured WikipediaBaseUrl (with the {lang} token) must actually drive the request — e.g. a
         // mirror or internal caching proxy. Previously the host was hardcoded and the option was ignored.
         var handler = new MockHttpMessageHandler(ValidWikipediaResponse);
-        var options = new EnrichmentOptions
+        var options = new WikimediaEnrichmentOptions
         {
             WikipediaLanguage = "de",
             WikipediaBaseUrl = "https://wiki-proxy.internal/{lang}/rest_v1"

@@ -68,7 +68,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection WithEnrichment(
         this IServiceCollection services,
         Action<GeocodingOptions>? configureGeocoding = null,
-        Action<EnrichmentOptions>? configureEnrichment = null,
+        Action<WikimediaEnrichmentOptions>? configureEnrichment = null,
         Action<EnrichmentCacheOptions>? configureCaching = null)
     {
         ArgumentNullException.ThrowIfNull(services);

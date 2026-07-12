@@ -377,26 +377,4 @@ internal static class SchemaConstants
         /// <summary>Surrounding context property.</summary>
         public const string Context = "context";
     }
-
-    /// <summary>Allowed status values for tool call nodes.</summary>
-    public static class ToolCallStatusValues
-    {
-        /// <summary>Tool call is queued but not yet executed.</summary>
-        public const string Pending = "pending";
-
-        /// <summary>Tool call completed successfully.</summary>
-        public const string Success = "success";
-
-        /// <summary>Tool call failed.</summary>
-        public const string Failure = "failure";
-
-        /// <summary>Tool call raised an error.</summary>
-        public const string Error = "error";
-
-        /// <summary>Tool call exceeded its time limit.</summary>
-        public const string Timeout = "timeout";
-
-        /// <summary>Tool call was cancelled.</summary>
-        public const string Cancelled = "cancelled";
-    }
 }

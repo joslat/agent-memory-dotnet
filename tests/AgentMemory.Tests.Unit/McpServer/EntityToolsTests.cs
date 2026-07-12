@@ -17,7 +17,7 @@ public sealed class EntityToolsTests
     private readonly IExtractorRepository _extractorRepo = Substitute.For<IExtractorRepository>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
-    private readonly IOptions<McpServerOptions> _options = Options.Create(new McpServerOptions());
+    private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
 

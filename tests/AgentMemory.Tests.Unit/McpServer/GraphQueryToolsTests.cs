@@ -18,7 +18,7 @@ public sealed class GraphQueryToolsTests
     [Fact]
     public async Task GraphQuery_ThrowsMcpExceptionWhenEnableGraphQueryIsFalse()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = false });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = false });
 
         var act = () => GraphQueryTools.GraphQuery(_graphQueryService, options, "MATCH (n) RETURN n");
 
@@ -28,7 +28,7 @@ public sealed class GraphQueryToolsTests
     [Fact]
     public async Task GraphQuery_ThrowsMcpExceptionWithDescriptiveMessage()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = false });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = false });
 
         var act = () => GraphQueryTools.GraphQuery(_graphQueryService, options, "MATCH (n) RETURN n");
 
@@ -41,7 +41,7 @@ public sealed class GraphQueryToolsTests
     [Fact]
     public async Task GraphQuery_CallsQueryAsyncWhenEnabled()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         _graphQueryService.QueryAsync(
                 Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(),
                 Arg.Any<CancellationToken>())
@@ -58,7 +58,7 @@ public sealed class GraphQueryToolsTests
     [Fact]
     public async Task GraphQuery_ReturnsJsonWithRowCountAndRows()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         var rows = new List<IReadOnlyDictionary<string, object?>>
         {
             new Dictionary<string, object?> { ["name"] = "Alice" },
@@ -79,7 +79,7 @@ public sealed class GraphQueryToolsTests
     [Fact]
     public async Task GraphQuery_ReturnsEmptyResultsCorrectly()
     {
-        var options = Options.Create(new McpServerOptions { EnableGraphQuery = true });
+        var options = Options.Create(new AgentMemoryMcpOptions { EnableGraphQuery = true });
         _graphQueryService.QueryAsync(
                 Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(),
                 Arg.Any<CancellationToken>())
