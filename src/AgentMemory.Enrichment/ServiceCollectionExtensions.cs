@@ -101,9 +101,19 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers <see cref="DiffbotEnrichmentService"/> as a typed HTTP client.
-    /// The service is available via <see cref="DiffbotEnrichmentService"/> directly.
+    /// Registers Diffbot as a <b>keyed, opt-in</b> <see cref="IEnrichmentService"/> (key:
+    /// <see cref="EnrichmentServiceKeys.Diffbot"/>), wrapped in the shared cache decorator for parity
+    /// with the Wikimedia chain and decorated for observability by <c>AddAgentMemoryObservability</c>.
     /// </summary>
+    /// <remarks>
+    /// Because Diffbot is registered <i>by key</i>, it does <b>not</b> participate in the automatic
+    /// background enrichment queue: that queue resolves the unkeyed
+    /// <c>IEnumerable&lt;IEnrichmentService&gt;</c>, and .NET DI never surfaces keyed registrations
+    /// through an unkeyed enumerable. This is deliberate — Diffbot is a paid API, so it is opt-in rather
+    /// than firing on every enqueued entity. To use it, resolve it explicitly via
+    /// <c>GetRequiredKeyedService&lt;IEnrichmentService&gt;(EnrichmentServiceKeys.Diffbot)</c> or
+    /// <c>[FromKeyedServices(EnrichmentServiceKeys.Diffbot)]</c> and invoke it yourself.
+    /// </remarks>
     public static IServiceCollection AddDiffbotEnrichment(
         this IServiceCollection services,
         Action<DiffbotEnrichmentOptions> configure)
@@ -116,11 +126,32 @@ public static class ServiceCollectionExtensions
             .Validate(o => o.Timeout > TimeSpan.Zero, "Diffbot Timeout must be positive.")
             .ValidateOnStart();
 
-        services.AddHttpClient<DiffbotEnrichmentService>((sp, client) =>
+        // Cache options default when Diffbot is registered standalone (without AddEnrichmentServices).
+        services.AddOptions<EnrichmentCacheOptions>();
+        services.AddMemoryCache();
+
+        // Named HTTP client resolved per request via IHttpClientFactory (see DiffbotEnrichmentService),
+        // mirroring the Wikimedia registration so the handler rotates on the factory's schedule instead
+        // of being pinned for the process lifetime by the keyed singleton below (captive dependency).
+        services.AddHttpClient(DiffbotEnrichmentService.ClientName, (sp, client) =>
         {
             var opts = sp.GetRequiredService<IOptions<DiffbotEnrichmentOptions>>().Value;
             client.Timeout = opts.Timeout;
         });
+
+        // Single shared instance so the rate-limit semaphore / last-request time apply across all calls.
+        services.TryAddSingleton<DiffbotEnrichmentService>();
+
+        // Enrichment decorator chain: Cache → Diffbot, registered against the abstraction as a KEYED,
+        // opt-in service. It coexists with the default unkeyed IEnrichmentService (Wikimedia) but is
+        // excluded from the unkeyed IEnumerable<IEnrichmentService> the background enrichment queue
+        // consumes, so it never auto-runs — callers resolve it by key (see the method docs above).
+        services.TryAddKeyedSingleton<IEnrichmentService>(EnrichmentServiceKeys.Diffbot, (sp, _) =>
+            new CachedEnrichmentService(
+                sp.GetRequiredService<DiffbotEnrichmentService>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<IOptions<EnrichmentCacheOptions>>(),
+                sp.GetRequiredService<ILogger<CachedEnrichmentService>>()));
 
         return services;
     }
