@@ -5,7 +5,7 @@
 > [`Memory_Review_and_Implementation_Plan.md`](archive/Memory_Review_and_Implementation_Plan.md); for completed
 > review records see [`reviews/`](reviews/); for the deferred-ideas backlog see
 > [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md).
-> **Last updated: 2026-07-11.**
+> **Last updated: 2026-07-13.**
 
 ---
 
@@ -13,16 +13,17 @@
 
 > For an even shorter landing, see [`../CONTINUE-HERE.md`](../CONTINUE-HERE.md) at the repo root.
 
-- **The library is feature-complete and published.** Latest release: **`0.1.0-preview.4`** (NuGet, 2026-06-21).
+- **The library is feature-complete and published.** Latest release: **`0.1.0-preview.4`** (NuGet, 2026-06-21); **`1.0.0` is being cut now** (not yet on NuGet).
 - **It is heavily hardened.** Beyond the original 6 review cycles, it went through **six rounds of full-repo
   adversarial bug-hunting plus a final exhaustive convergence-verification pass** — **80+ confirmed defects
   found and fixed** (PRs #25–#69), each with a regression test targeting the trigger. See
   [Quality & hardening](#quality--hardening).
 - **`main` is green and clean** in the 2026-06-21 release record: Release build **0 warnings**; **2654 unit + 236 integration tests passing**. This 2026-07-09 work now records **2658 Release unit tests passing**, plus a **5-test live Neo4j shakedown passing** for the golden-path/history changes; the earlier docs cleanup also recorded **34 Semantic Kernel tests passing**.
 - **Behavioral compatibility pack is merged to `main`.** Local TCK-style mirrors, a compatibility catalog, real-provider golden-path task/docs, read-audit/history expansion, and recency/frequency reranking are implemented and verified.
-- **Upstream TCK HTTP bridge is merged to `main` through the Gold tier** (PR #70 Bronze, #73 Silver, + the Gold PR): `tools/AgentMemory.TckBridge` passes **Bronze 93/93, Silver 67/67, Gold 18/18 (178 total)** against `neo4j-labs/agent-memory-tck` @ `4603b91f`. Only **Platinum** (hosted-service ops) remains, out of scope for a self-hosted library. (Those conformance runs also fixed 2 real Cypher bugs — see [Quality & hardening](#quality--hardening).)
-- **What's genuinely left is not bug-fixing** — it's preview soak + ecosystem breadth + API stabilization
-  toward `1.0`. See [Next steps](#next-steps).
+- **Upstream TCK HTTP bridge is merged to `main` through the Gold tier** (PR #70 Bronze, #73 Silver, #74 Gold): `tools/AgentMemory.TckBridge` passes **Bronze 93/93, Silver 67/67, Gold 18/18 (178 total)** against `neo4j-labs/agent-memory-tck` @ `4603b91f`. Only **Platinum** (hosted-service ops) remains, out of scope for a self-hosted library. (Those conformance runs also fixed 2 real Cypher bugs — see [Quality & hardening](#quality--hardening).)
+- **What's genuinely left is not bug-fixing, and no longer API stabilization either** — the `1.0` API-surface
+  lockdown has landed on `main` (PRs #75–#83). The remaining arc is cutting `1.0.0` (in progress now) plus
+  optional ecosystem breadth. See [Next steps](#next-steps).
 
 ---
 
@@ -30,13 +31,13 @@
 
 | | |
 |---|---|
-| **Version** | `0.1.0-preview.4` — published to NuGet 2026-06-21 (12 packages: `AgentMemory` + `AgentMemory.*`) |
-| **Maturity** | Feature-complete; in public preview, stabilizing toward `1.0` |
+| **Version** | `0.1.0-preview.4` — last published to NuGet 2026-06-21 (12 packages: `AgentMemory` + `AgentMemory.*`); **`1.0.0` being cut now** (not yet on NuGet) |
+| **Maturity** | Feature-complete; public API surface locked under SemVer (PRs #75–#83); cutting `1.0.0` now |
 | **Tests** | 2658 Release unit tests and a 5-test live Neo4j shakedown passed locally on 2026-07-09; 34 Semantic Kernel tests were also recorded in the earlier 2026-07-09 docs cleanup; 236 live-Neo4j integration tests are the latest full ROADMAP record (2026-06-21); CI (build-test) on every PR |
 | **Build** | Release builds with **0 warnings** (`TreatWarningsAsErrors` on for `src`; library code is CA2007-enforced) |
 | **Hardening** | 6 review cycles + capstone, **then 6 rounds of adversarial bug-hunting + a convergence-verification pass** — 80+ confirmed defects fixed (see below) |
-| **Active branch** | `main` contains the behavioral compatibility pack **and the upstream TCK bridge through Gold** (Bronze 93/93 + Silver 67/67 + Gold 18/18). Only Platinum (hosted-service ops) remains, out of scope. |
-| **Open work** | No known bugs/regressions in the documented release state. Forward work is the API-surface audit, preview soak, and cutting `1.0` — see [Next steps](#next-steps) |
+| **Active branch** | `main` (HEAD `6421bed`) contains the behavioral compatibility pack, **the upstream TCK bridge through Gold** (Bronze 93/93 + Silver 67/67 + Gold 18/18), **and the completed `1.0` API-surface lockdown** (PRs #75–#83). Only TCK Platinum (hosted-service ops) remains, out of scope. |
+| **Open work** | No known bugs/regressions, and **0 open PRs/issues**. The API-surface audit is complete (PRs #75–#83); the only remaining step is cutting `1.0.0`, in progress now — see [Next steps](#next-steps) |
 
 **What it is:** a native .NET 9 implementation of graph-native persistent memory for AI agents, backed by
 Neo4j, with GraphRAG interop and first-class adapters for the Microsoft Agent Framework, Semantic Kernel,
@@ -118,13 +119,13 @@ Nothing below is a bug or regression — `main` is clean. TCK compatibility is c
 |---|------|-------|
 | ✅ | **TCK Bronze bridge + `SCN-*` mapping** — **DONE (PR #70, 2026-07-11).** | `tools/AgentMemory.TckBridge` (12 Bronze endpoints), `SCN-B-*` catalog mapping, full upstream Bronze conformance **93/93**. Also fixed 2 real Cypher bugs found by the run. |
 | ✅ | **TCK Silver tier** — **DONE (PR #73, 2026-07-11).** | 12 long-term-search + reasoning endpoints; **Silver 67/67**. Folded in post-Bronze hardening (docs sync, MQ005 de-flake closing #71, live-Neo4j EXPLAIN sweep). 8-round Copilot review to zero. |
-| ✅ | **TCK Gold tier** — **DONE (2026-07-11).** | `merge_duplicate_entities` + `get_similar_traces`; **Gold 18/18** (178 total, all tiers green). Exposed `IEntityRepository.MergeEntitiesAsync` on the interface. Surfaced one tracked follow-up: merge doesn't re-point arbitrary typed relationships source→target (SAME_AS/MENTIONS only). |
-| 1 | **API-surface audit → `1.0` candidate** | Lock the public surface under SemVer. Fold in preview.4's surface changes (nullable `UpdateAsync`, owner-scoped `ClearSession`/`DeleteBySession`) + the newly-exposed `MergeEntitiesAsync`. Decide the two library follow-ups the Silver/Gold wiring surfaced (first-class owner-scoped/paged `ListAllTracesAsync` + `IToolCallRepository.GetStatsAsync(toolName?)` — remove the bridge's raw-Cypher fallbacks) and the merge-relationship-transfer gap. |
-| 2 | **Preview soak + real-world feedback** | Drive the `AgentWithMemory` sample end-to-end; validate the install/usage path on `0.1.0-preview.4`; iterate on ergonomics. This is the gate to `1.0`. |
-| 3 | **Cut `1.0`** | Bump `Directory.Build.props`, finalize `CHANGELOG.md`, tag `v1.0.0` → `squad-release.yml`. |
-| 4 | **Docs–code reconciliation** | Periodic drift check. Keep `architecture.md` / `design.md` / `schema.md` synced; prefer dated facts over "durable" counts. |
-| 5 | **Ecosystem-breadth gaps** (the real .NET-vs-Python deltas) | Optional, demand-driven: local NLP extractors (GLiNER/ONNX), a concrete local embedding adapter (sentence-transformers via ONNX/MEAI), more framework integrations (AutoGen.NET, LangChain.NET), Opik-style LLM observability. See `nextsteps.md` §2 and the backlog. |
-| 6 | **TCK Platinum** (optional) | Hosted-service ops (`create_conversation`, `get_entity_history`, `merge_entities`, `get_entity_graph`, `explain_step`, provenance) — 11 tests, only relevant if a NAMS-style hosted backend is pursued. |
+| ✅ | **TCK Gold tier** — **DONE (PR #74, 2026-07-11).** | `merge_duplicate_entities` + `get_similar_traces`; **Gold 18/18** (178 total, all tiers green). Exposed `IEntityRepository.MergeEntitiesAsync` on the interface. The follow-up it surfaced — merge not re-pointing arbitrary typed relationships source→target — is now **fixed (PR #83)**: merge re-points **all** typed `RELATED_TO` relationships, non-destructively and owner-scoped. |
+| ✅ | **API-surface audit → `1.0` lockdown** — **DONE (PRs #75–#83).** | Public surface locked under SemVer: internalized impl types (~331→~203 public types, #75); interface follow-ups incl. `ListAllTracesAsync`, `GetStatsAsync`, `MergeEntitiesAsync`→`Task<bool>` (#76); correctness/contract-honesty (#77); naming/enum/deprecated-surface freeze — `McpServerOptions`→`AgentMemoryMcpOptions`, `EnrichmentOptions`→`WikimediaEnrichmentOptions`, `DiffbotUri`→`ProviderUri`, `MemoryTool` API removed (#78); type-safety shapes — `DuplicateStatus`/`EntityMatchType` enums, `RecallAsOf` overload collapse, `SearchByVector`→`IReadOnlyDictionary` (#79); `MemoryNodeKind` enum replacing `nodeLabel` strings (#80); `ct`→`cancellationToken` sweep (#81); Diffbot keyed-DI (#82); merge-relationship-transfer gap closed (#83). |
+| ✅ | **Preview soak → `1.0` gate** | The preview-soak gate to `1.0` has been passed; `1.0.0` is being cut now. |
+| ▶ | **Cut `1.0.0`** — **in progress now.** | Bump `Directory.Build.props` (`0.1.0-preview.4`→`1.0.0`), finalize `CHANGELOG.md`, tag `v1.0.0` → `squad-release.yml`. This is an irreversible public NuGet publish. |
+| 1 | **Docs–code reconciliation** | Periodic drift check. Keep `architecture.md` / `design.md` / `schema.md` synced; prefer dated facts over "durable" counts. |
+| 2 | **Ecosystem-breadth gaps** (the real .NET-vs-Python deltas) | Optional, demand-driven: local NLP extractors (GLiNER/ONNX), a concrete local embedding adapter (sentence-transformers via ONNX/MEAI), more framework integrations (AutoGen.NET, LangChain.NET), Opik-style LLM observability. See `nextsteps.md` §2 and the backlog. |
+| 3 | **TCK Platinum** (optional) | Hosted-service ops (`create_conversation`, `get_entity_history`, `merge_entities`, `get_entity_graph`, `explain_step`, provenance) — 11 tests, only relevant if a NAMS-style hosted backend is pursued. |
 
 > Granular/older task tracking and the full .NET-vs-Python assessment live in [`nextsteps.md`](nextsteps.md);
 > deferred future ideas live in [`Improvement-Ideas-Backlog.md`](Improvement-Ideas-Backlog.md).

@@ -13,9 +13,9 @@ Start here:
 
 ## Status
 
-The current documented release is `0.1.0-preview.4`, published to NuGet on 2026-06-21. The library is feature-complete for preview and hardening-focused, with the remaining forward work centered on preview soak, API stabilization toward `1.0`, ecosystem-breadth gaps, and release/docs ergonomics.
+`1.0.0` is the first stable release: the public API surface is locked under Semantic Versioning. The library is feature-complete — three-tier graph memory (short-term / long-term / reasoning), bitemporal recall with non-destructive decay, multi-tenant owner isolation, GraphRAG retrieval, consolidation/hygiene, and first-class adapters for the Microsoft Agent Framework, Semantic Kernel, MCP, and direct .NET use. It passes the upstream agent-memory compatibility kit (TCK) through the Gold tier.
 
-Local verification on 2026-07-09 now includes 2658 Release unit tests and a 5-test live Neo4j shakedown for the golden-path/history changes; the earlier 2026-07-09 docs cleanup also recorded 34 Semantic Kernel tests. The latest full live-Neo4j integration record remains the 2026-06-21 ROADMAP entry: 236 integration tests passing.
+The library ships from a warning-free Release build with a full unit + Semantic Kernel + live-Neo4j integration suite green on `main`.
 
 ## What It Provides
 
