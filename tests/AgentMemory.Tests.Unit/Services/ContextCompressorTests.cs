@@ -71,7 +71,7 @@ public sealed class ContextCompressorTests
         var result = await sut.CompressAsync(messages, _defaultOptions);
 
         result.WasCompressed.Should().BeFalse();
-        result.RecentMessages.Should().BeEquivalentTo(messages);
+        result.RecentMessages.Should().Equal(messages, "passthrough keeps the messages verbatim and in order");
         result.Observations.Should().BeEmpty();
         result.Reflections.Should().BeEmpty();
     }
