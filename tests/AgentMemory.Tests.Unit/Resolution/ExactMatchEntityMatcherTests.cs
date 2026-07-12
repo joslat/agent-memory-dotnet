@@ -33,7 +33,7 @@ public sealed class ExactMatchEntityMatcherTests
 
         result.Should().NotBeNull();
         result!.Confidence.Should().Be(1.0);
-        result.MatchType.Should().Be("exact");
+        result.MatchType.Should().Be(EntityMatchType.Exact);
         result.ResolvedEntity.Name.Should().Be("Alice");
     }
 
@@ -86,6 +86,6 @@ public sealed class ExactMatchEntityMatcherTests
     [Fact]
     public void MatchType_IsExact()
     {
-        _sut.MatchType.Should().Be("exact");
+        _sut.MatchType.Should().Be(EntityMatchType.Exact);
     }
 }

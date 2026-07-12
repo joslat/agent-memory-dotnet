@@ -37,7 +37,7 @@ public sealed class FuzzyMatchEntityMatcherTests
         var result = await sut.TryMatchAsync(MakeCandidate("Smith John"), existing);
 
         result.Should().NotBeNull();
-        result!.MatchType.Should().Be("fuzzy");
+        result!.MatchType.Should().Be(EntityMatchType.Fuzzy);
         result.Confidence.Should().BeGreaterThanOrEqualTo(0.85);
     }
 
@@ -89,7 +89,7 @@ public sealed class FuzzyMatchEntityMatcherTests
     [Fact]
     public void MatchType_IsFuzzy()
     {
-        CreateSut().MatchType.Should().Be("fuzzy");
+        CreateSut().MatchType.Should().Be(EntityMatchType.Fuzzy);
     }
 
     [Fact]

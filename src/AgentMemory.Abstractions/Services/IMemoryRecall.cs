@@ -16,29 +16,18 @@ public interface IMemoryRecall
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Recalls memory context as it existed at a specific point in time (single-clock). Returns the recent
-    /// messages, entities, facts, preferences, and similar reasoning traces that existed at
-    /// <paramref name="asOf"/> — i.e. created on or before it and not yet invalidated by that time.
-    /// Equivalent to the bitemporal overload with both clocks equal to <paramref name="asOf"/>.
+    /// Point-in-time recall over one or two clocks. <paramref name="asOf"/> is the <b>valid-time</b> clock
+    /// ("what was true in the world") and additionally bounds a fact's validity window. The optional
+    /// <paramref name="systemAsOf"/> is the <b>transaction-time</b> clock ("what the system had recorded /
+    /// believed") and bounds every record's existence (<c>created_at</c>/<c>invalidated_at</c>); when
+    /// omitted it defaults to <paramref name="asOf"/> (single-clock recall — both clocks equal). Passing
+    /// both lets you ask "what was true at <c>asOf</c>, as we knew it at <c>systemAsOf</c>" — e.g. reproduce
+    /// a past decision, or audit a belief before a later correction. Returns the recent messages, entities,
+    /// facts, preferences, and similar reasoning traces that existed at the requested time(s).
     /// </summary>
     Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Bitemporal point-in-time recall (D6) over two independent clocks. <paramref name="validAsOf"/>
-    /// is the <b>valid-time</b> clock ("what was true in the world") and additionally bounds a fact's
-    /// validity window; <paramref name="systemAsOf"/> is the <b>transaction-time</b> clock ("what the
-    /// system had recorded / believed") and bounds every record's existence
-    /// (<c>created_at</c>/<c>invalidated_at</c>). This lets you ask "what was true at <c>validAsOf</c>,
-    /// as we knew it at <c>systemAsOf</c>" — e.g. reproduce a past decision, or audit a belief before a
-    /// later correction. The single-clock <see cref="RecallAsOfAsync(RecallRequest,DateTimeOffset,CancellationToken)"/>
-    /// delegates here with both clocks equal.
-    /// </summary>
-    Task<RecallResult> RecallAsOfAsync(
-        RecallRequest request,
-        DateTimeOffset validAsOf,
-        DateTimeOffset systemAsOf,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default);
 }

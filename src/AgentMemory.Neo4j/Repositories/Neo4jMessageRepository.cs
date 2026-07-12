@@ -199,7 +199,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         string? sessionId = null,
         int limit = 10,
         double minScore = 0.0,
-        Dictionary<string, object>? metadataFilters = null,
+        IReadOnlyDictionary<string, object>? metadataFilters = null,
         CancellationToken cancellationToken = default)
     {
         // Boundary invariant: a zero-dimension (empty/degraded) query embedding has no semantic signal and

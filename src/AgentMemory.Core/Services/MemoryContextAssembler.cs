@@ -249,13 +249,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     public Task<MemoryContext> AssembleContextAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
-        // Single-clock recall is the bitemporal recall with both clocks equal (D6): identical behaviour
-        // to before — validAsOf == systemAsOf binds every filter to the same instant.
-        => AssembleContextAsOfAsync(request, asOf, asOf, cancellationToken);
+        // Single-clock recall is the bitemporal recall with both clocks equal (D6): default systemAsOf to
+        // asOf — validAsOf == systemAsOf binds every filter to the same instant.
+        => AssembleContextAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, cancellationToken);
 
-    /// <inheritdoc/>
-    public async Task<MemoryContext> AssembleContextAsOfAsync(
+    private async Task<MemoryContext> AssembleContextAsOfCoreAsync(
         RecallRequest request,
         DateTimeOffset validAsOf,
         DateTimeOffset systemAsOf,

@@ -60,7 +60,7 @@ public sealed class SemanticMatchEntityMatcherTests
         var result = await sut.TryMatchAsync(MakeCandidate("Alice"), existing);
 
         result.Should().NotBeNull();
-        result!.MatchType.Should().Be("semantic");
+        result!.MatchType.Should().Be(EntityMatchType.Semantic);
         result.Confidence.Should().BeApproximately(1.0, 0.001);
     }
 
@@ -182,6 +182,6 @@ public sealed class SemanticMatchEntityMatcherTests
     {
         var orchestrator = Substitute.For<IEmbeddingOrchestrator>();
         new SemanticMatchEntityMatcher(orchestrator, new EntityResolutionOptions())
-            .MatchType.Should().Be("semantic");
+            .MatchType.Should().Be(EntityMatchType.Semantic);
     }
 }

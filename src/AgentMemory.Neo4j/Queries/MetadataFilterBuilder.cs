@@ -13,9 +13,9 @@ internal static class MetadataFilterBuilder
     /// Builds a WHERE clause fragment and a parameter dictionary from <paramref name="filters"/>.
     /// </summary>
     /// <param name="filters">
-    /// Filter spec where each key is a node property name and each value is a
-    /// <c>Dictionary&lt;string,object&gt;</c> containing exactly one operator entry.
-    /// Example: <c>{ "metadata.source": { "$eq": "slack" } }</c>
+    /// Filter spec where each key is a node property name and each value is an
+    /// <c>IReadOnlyDictionary&lt;string,object&gt;</c> of one or more operator entries (each entry contributes
+    /// its own predicate). Example: <c>{ "metadata.source": { "$eq": "slack" } }</c>
     /// </param>
     /// <param name="nodeAlias">Cypher alias used in the generated predicates (default: <c>m</c>).</param>
     /// <returns>
@@ -23,7 +23,7 @@ internal static class MetadataFilterBuilder
     /// The caller is responsible for merging the returned parameters into their own parameter map.
     /// </returns>
     public static (string WhereClause, Dictionary<string, object> Parameters) Build(
-        Dictionary<string, object>? filters,
+        IReadOnlyDictionary<string, object>? filters,
         string nodeAlias = "m")
     {
         if (filters is null || filters.Count == 0)
@@ -35,8 +35,16 @@ internal static class MetadataFilterBuilder
 
         foreach (var (key, operatorSpec) in filters)
         {
-            if (operatorSpec is not Dictionary<string, object> ops)
-                continue;
+            // Each value must be an operator spec (any IReadOnlyDictionary shape — ReadOnlyDictionary /
+            // ImmutableDictionary all work). Fail fast on a malformed value rather than silently dropping the
+            // filter (which would broaden the query with no signal) — consistent with the throw on an
+            // unsupported operator below.
+            if (operatorSpec is not IReadOnlyDictionary<string, object> ops)
+                throw new ArgumentException(
+                    $"Metadata filter for '{key}' must be an operator spec " +
+                    $"(IReadOnlyDictionary<string, object>, e.g. {{ \"$eq\": value }}); got " +
+                    $"{operatorSpec?.GetType().Name ?? "null"}.",
+                    nameof(filters));
 
             foreach (var (op, value) in ops)
             {

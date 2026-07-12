@@ -48,11 +48,12 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     public Task<RecallResult> RecallAsOfAsync(
         RecallRequest request,
         DateTimeOffset asOf,
+        DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
-        // Single-clock recall == bitemporal recall with both clocks equal (D6).
-        => RecallAsOfAsync(request, asOf, asOf, cancellationToken);
+        // Single-clock recall == bitemporal recall with both clocks equal (D6): default systemAsOf to asOf.
+        => RecallAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, cancellationToken);
 
-    public async Task<RecallResult> RecallAsOfAsync(
+    private async Task<RecallResult> RecallAsOfCoreAsync(
         RecallRequest request,
         DateTimeOffset validAsOf,
         DateTimeOffset systemAsOf,

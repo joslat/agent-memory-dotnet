@@ -656,8 +656,8 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
                 var source = MapToEntity(r["a"].As<INode>(), ReadEmbedding(r["a"].As<INode>()));
                 var target = MapToEntity(r["b"].As<INode>(), ReadEmbedding(r["b"].As<INode>()));
                 var similarity = r["similarity"].As<double>();
-                var status = r["status"].As<string>();
-                return new DuplicatePair(source, target, similarity, status);
+                // This API returns only pending pairs — GetPendingDuplicates hard-filters status: 'pending'.
+                return new DuplicatePair(source, target, similarity, DuplicateStatus.Pending);
             }).ToList();
         }, ct).ConfigureAwait(false);
     }

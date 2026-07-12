@@ -21,7 +21,7 @@ internal sealed class SemanticMatchEntityMatcher : IEntityMatcher
         _options = options;
     }
 
-    public string MatchType => "semantic";
+    public EntityMatchType MatchType => EntityMatchType.Semantic;
 
     public async Task<EntityResolutionResult?> TryMatchAsync(
         ExtractedEntity candidate,
