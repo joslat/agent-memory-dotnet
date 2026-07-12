@@ -6,8 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`IReasoningMemoryService.ListAllTracesAsync` — owner-scoped, paged, cross-session trace listing.** Returns a `PagedResult<ReasoningTrace>` (newest-first, N+1 `HasNextPage`, `offset`-advanced), optionally owner-scoped (R1). Mirrored on `IReasoningTraceRepository.ListAllAsync`. Added pre-`1.0` because extending a public interface after the freeze breaks every third-party implementer.
+- **`IToolCallRepository.GetStatsAsync(toolName?)` + a `ToolCallStats` record — per-tool usage aggregates.** Groups tool calls by name (total / successful / failed / success-rate / avg-duration) over calls reachable through owner-scoped reasoning traces; never reads the cross-owner global `:Tool` node. Same pre-`1.0` interface-stability rationale.
+- These two additions let the upstream-TCK bridge drop its last two raw-Cypher fallbacks (`list_traces` with no session, `get_tool_stats`) in favor of the first-class services.
+
 ### Changed
 
+- **`IEntityRepository.MergeEntitiesAsync` now returns `Task<bool>`** (was `Task`): `true` when the merge matched and ran, `false` for a guarded / non-existent no-op. Future-proofs the deferred merge-relationship-transfer fix (it can report edges moved without another signature break).
 - **1.0 API-surface lockdown — implementation types internalized.** Concrete implementation classes that are only ever resolved through the public Abstractions interfaces (the memory/reasoning services, Neo4j repositories/services/query holders/infrastructure, MCP tools/resources/prompts, extraction providers, enrichment decorators, GDS analytics services, merge strategies, and stubs) are now `internal`, shrinking the public surface from ~331 to ~203 types ahead of the SemVer-stable `1.0`. Accessibility-only: no behavior, signature, or DI-wiring change — DI resolves the internal types (via their still-public constructors) unchanged. The public contract is the Abstractions interfaces/records/options/enums, each package's `ServiceCollectionExtensions` + options, the Microsoft Agent Framework and Semantic Kernel adapters, and a small set of deliberate seams (`INeo4jTransactionRunner`, `ISchemaBootstrapper`, `IMigrationRunner`, `MemoryActivitySource`, `MemoryMetrics.MeterName`, the stub/clock/id helpers, `ExtractorBase`).
 - **`SchemaConstants` and the schema-parity kit are now internal.** `SchemaConstants` (raw Neo4j backend label/property/edge strings) and the parity types (`SchemaParityVerifier`, `SchemaDescriptor`, `SchemaParityPolicy`, `SchemaParityReport`, `UpstreamSchemaRegistry`, `DotNetSchema`) — previously described as a reusable library component in `AgentMemory.Neo4j.Schema.Parity` — are implementation details for `1.0`. Schema-parity verification remains available through the `agentmemory schema-parity` CLI command; it is no longer a library API.
 

@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
 
@@ -25,4 +26,17 @@ public interface IToolCallRepository
 
     /// <summary>Creates a TRIGGERED_BY relationship from a tool call to the message that triggered it.</summary>
     Task CreateTriggeredByRelationshipAsync(string toolCallId, string messageId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Aggregates tool-usage statistics grouped by tool name, over tool calls reachable through reasoning
+    /// traces within the given owner scope (R1). Tool calls carry no owner of their own, so the scope is
+    /// applied at the owning <c>ReasoningTrace</c> tier — the aggregate never spans owners. When
+    /// <paramref name="toolName"/> is set, returns at most the single matching tool's stats; otherwise one
+    /// entry per tool, ordered by name. Deliberately does not read the global aggregate <c>:Tool</c> node
+    /// (which accumulates across all owners). <paramref name="scope"/> null ⇒ unscoped (all owners).
+    /// </summary>
+    Task<IReadOnlyList<ToolCallStats>> GetStatsAsync(
+        string? toolName = null,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
 }

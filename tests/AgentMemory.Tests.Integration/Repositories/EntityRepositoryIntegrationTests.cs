@@ -200,8 +200,9 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         var bobBefore = await _repo.GetByIdAsync(bobId);
 
         // bob's scope must not be able to merge alice's entity into bob's.
-        await _repo.MergeEntitiesAsync(aliceId, bobId, MemoryScope.For("bob"));
+        var merged = await _repo.MergeEntitiesAsync(aliceId, bobId, MemoryScope.For("bob"));
 
+        merged.Should().BeFalse("a guarded cross-owner merge matches nothing and is a no-op");
         (await _repo.GetByIdAsync(aliceId)).Should().NotBeNull("the cross-owner merge must no-op");
         var bobAfter = await _repo.GetByIdAsync(bobId);
         bobAfter!.Aliases.Should().NotContain("AliceCo", "bob's entity must not absorb alice's name");
@@ -209,6 +210,19 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
         // which would otherwise bump bob's updated_at — a scoped call silently writing another owner's node.
         bobAfter.UpdatedAtUtc.Should().Be(bobBefore!.UpdatedAtUtc,
             "a no-op merge must not touch bob's entity at all (no post-merge refresh)");
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_SameOwner_ReturnsTrue_AndAbsorbsSourceName()
+    {
+        var targetId = await SeedOwnedEntityAsync("Alice Johnson", "alice");
+        var sourceId = await SeedOwnedEntityAsync("A. Johnson", "alice");
+
+        var merged = await _repo.MergeEntitiesAsync(sourceId, targetId, MemoryScope.For("alice"));
+
+        merged.Should().BeTrue("both endpoints are alice's own entities, so the merge matches and runs");
+        (await _repo.GetByIdAsync(targetId))!.Aliases.Should().Contain("A. Johnson",
+            "the surviving target absorbs the source's name as an alias");
     }
 
     [Fact]

@@ -605,7 +605,6 @@ app.MapPost("/get_trace_with_steps", async (
 app.MapPost("/list_traces", async (
     ListTracesRequest req,
     IReasoningMemoryService reasoning,
-    INeo4jSessionFactory sessionFactory,
     CancellationToken ct) =>
 {
     var limit = req.Limit ?? 100;
@@ -616,59 +615,27 @@ app.MapPost("/list_traces", async (
     }
     else
     {
-        // Judgment call (openQuestions): neither IReasoningMemoryService.ListTracesAsync nor
-        // IReasoningTraceRepository can list traces across every session — both require a session_id — yet
-        // SPEC-4.6.1 (list_traces with no session_id) requires exactly "all traces, any session". Read-only
-        // raw Cypher against the same ReasoningTrace schema Neo4jReasoningTraceRepository maintains, mirroring
-        // BridgeAdmin's own "no high-level service for X, so run raw Cypher" precedent — filtered to the
-        // shared/global bucket (owner_id IS NULL) to match this bridge's owner-agnostic design (see
-        // /clear_session's comment), so this fallback can never surface another owner's private trace.
-        await using var session = sessionFactory.OpenSession(AccessMode.Read);
-        var cursor = await session.RunAsync(
-            "MATCH (t:ReasoningTrace) WHERE t.owner_id IS NULL RETURN t ORDER BY t.started_at DESC LIMIT $limit",
-            new { limit }).ConfigureAwait(false);
-        var records = await cursor.ToListAsync(ct).ConfigureAwait(false);
-        traces = records.Select(r => MapTraceNode(r["t"].As<INode>())).ToList();
+        // SPEC-4.6.1: list_traces with no session_id returns all traces across sessions. Served by the
+        // first-class IReasoningMemoryService.ListAllTracesAsync (which replaced the earlier raw-Cypher
+        // fallback), scoped to this bridge's shared sentinel bucket so it can never surface another owner's
+        // private trace.
+        var page = await reasoning.ListAllTracesAsync(scope: sharedScope, limit: limit, cancellationToken: ct).ConfigureAwait(false);
+        traces = page.Items;
     }
     return Results.Ok(traces.Select(t => ToTraceDto(t, Array.Empty<TckReasoningStep>())).ToList());
 });
 
 app.MapPost("/get_tool_stats", async (
     GetToolStatsRequest req,
-    INeo4jSessionFactory sessionFactory,
+    IToolCallRepository toolCallRepo,
     CancellationToken ct) =>
 {
-    // No IToolCallRepository/service exposes tool-usage aggregates, so this is read-only raw Cypher
-    // (mirroring BridgeAdmin's "no high-level service for X" precedent). We deliberately do NOT read the
-    // global (:Tool) aggregate node — it accumulates across ALL owners and carries no owner_id, so on a
-    // multi-owner store it would leak cross-owner usage stats. Instead we aggregate ToolCall nodes reached
-    // only through shared-bucket traces (owner_id IS NULL), keeping the bridge owner-agnostic and consistent
-    // with /list_traces. Success/failure classification matches ToolCallQueries.UpsertToolInstance
-    // (failed = error/failure/timeout).
-    await using var session = sessionFactory.OpenSession(AccessMode.Read);
-    var cursor = await session.RunAsync(
-        "MATCH (t:ReasoningTrace)-[:HAS_STEP]->(:ReasoningStep)-[:USES_TOOL]->(tc:ToolCall) " +
-        "WHERE t.owner_id IS NULL AND ($toolName IS NULL OR tc.tool_name = $toolName) " +
-        "WITH tc.tool_name AS name, count(tc) AS total_calls, " +
-        "sum(CASE WHEN tc.status = 'success' THEN 1 ELSE 0 END) AS successful_calls, " +
-        "sum(CASE WHEN tc.status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END) AS failed_calls, " +
-        "sum(coalesce(tc.duration_ms, 0)) AS total_duration_ms " +
-        "RETURN name, total_calls, successful_calls, failed_calls, total_duration_ms ORDER BY name",
-        new { toolName = (object?)req.ToolName }).ConfigureAwait(false);
-    var records = await cursor.ToListAsync(ct).ConfigureAwait(false);
-    var stats = records.Select(r =>
-    {
-        var totalCalls = checked((int)r["total_calls"].As<long>());
-        var totalDurationMs = r["total_duration_ms"].As<long?>() ?? 0;
-        return new TckToolStats(
-            r["name"].As<string>(),
-            totalCalls,
-            checked((int)r["successful_calls"].As<long>()),
-            checked((int)r["failed_calls"].As<long>()),
-            totalCalls > 0 ? (double)r["successful_calls"].As<long>() / totalCalls : 0.0,
-            totalCalls > 0 ? (double)totalDurationMs / totalCalls : null);
-    }).ToList();
-    return Results.Ok(stats);
+    // Served by the first-class IToolCallRepository.GetStatsAsync (which replaced the earlier raw-Cypher
+    // fallback), scoped to this bridge's shared sentinel bucket. The repository query deliberately avoids the
+    // global (:Tool) aggregate node (which spans all owners) and classifies success/failure the same way.
+    var stats = await toolCallRepo.GetStatsAsync(req.ToolName, sharedScope, ct).ConfigureAwait(false);
+    return Results.Ok(stats.Select(s => new TckToolStats(
+        s.ToolName, s.TotalCalls, s.SuccessfulCalls, s.FailedCalls, s.SuccessRate, s.AvgDurationMs)).ToList());
 });
 
 // get_similar_traces (Gold tier): find reasoning traces whose task is semantically similar to a query task.
@@ -752,41 +719,6 @@ static JsonElement? ParseJsonOrNull(string? json)
     using var doc = JsonDocument.Parse(json);
     return doc.RootElement.Clone();
 }
-
-// Duplicates AgentMemory.Neo4j.Infrastructure.Neo4jDateTimeHelper's tiny conversion logic: that helper is
-// `internal` to AgentMemory.Neo4j (no InternalsVisibleTo for this bridge project), and is only needed here
-// for the /list_traces "no session_id" raw-Cypher fallback (see MapTraceNode below).
-static DateTimeOffset ReadTraceDateTimeOffset(object? value) => value switch
-{
-    ZonedDateTime zdt => zdt.ToDateTimeOffset(),
-    string s => DateTimeOffset.Parse(s, null, System.Globalization.DateTimeStyles.RoundtripKind),
-    // This is only reached for started_at (a required trace property); completed_at's legitimate null is
-    // handled by ReadTraceNullableDateTimeOffset before it gets here. A null started_at is corrupt data /
-    // a schema mismatch — fail loudly rather than fabricating a plausible, nondeterministic "now".
-    null => throw new InvalidOperationException("ReasoningTrace.started_at is null — a trace must have a start time"),
-    _ => throw new InvalidOperationException($"Unexpected datetime type: {value.GetType()}")
-};
-
-static DateTimeOffset? ReadTraceNullableDateTimeOffset(object? value) =>
-    value is null ? null : ReadTraceDateTimeOffset(value);
-
-// Maps a raw :ReasoningTrace node (from the /list_traces "all sessions" fallback query) the same way
-// Neo4jReasoningTraceRepository.MapToTrace does, minus TaskEmbedding/Metadata/OwnerId (not needed on the
-// TckReasoningTrace wire DTO, which only ever sets Steps to an empty list for /list_traces).
-static ReasoningTrace MapTraceNode(INode node) => new()
-{
-    TraceId = node["id"].As<string>(),
-    SessionId = node["session_id"].As<string>(),
-    Task = node["task"].As<string>(),
-    Outcome = node.Properties.TryGetValue("outcome", out var outcome) ? outcome.As<string>() : null,
-    Success = node.Properties.TryGetValue("success", out var success) && success is not null
-        ? success.As<bool?>()
-        : null,
-    StartedAtUtc = ReadTraceDateTimeOffset(node["started_at"]),
-    CompletedAtUtc = node.Properties.TryGetValue("completed_at", out var completedAt)
-        ? ReadTraceNullableDateTimeOffset(completedAt)
-        : null,
-};
 
 // Mirrors the single-string embedding call shape used by AgentMemory.Core.Services.EmbeddingOrchestrator
 // (GenerateAsync with a one-element input, then unwrap the sole result's vector) so the bridge's embedding

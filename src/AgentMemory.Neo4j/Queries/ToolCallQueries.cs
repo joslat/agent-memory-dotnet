@@ -5,6 +5,28 @@ namespace AgentMemory.Neo4j.Queries;
 /// </summary>
 internal static class ToolCallQueries
 {
+    /// <summary>
+    /// Aggregates tool-usage stats grouped by tool name over ToolCall nodes reached through
+    /// ReasoningTrace→ReasoningStep→ToolCall, optionally owner-scoped at the trace tier (R1) and optionally
+    /// filtered to one tool. Success/failure classification matches UpsertToolInstance (status is stored
+    /// lowercase: success vs error/failure/timeout). Deliberately does not read the global :Tool node.
+    /// </summary>
+    public static string GetStats(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (t.owner_id = $ownerId OR t.owner_id IS NULL)"
+                            : " AND t.owner_id = $ownerId";
+        return @"
+            MATCH (t:ReasoningTrace)-[:HAS_STEP]->(:ReasoningStep)-[:USES_TOOL]->(tc:ToolCall)
+            WHERE ($toolName IS NULL OR tc.tool_name = $toolName)" + owner + @"
+            WITH tc.tool_name AS name, count(tc) AS total_calls,
+                 sum(CASE WHEN tc.status = 'success' THEN 1 ELSE 0 END) AS successful_calls,
+                 sum(CASE WHEN tc.status IN ['error', 'failure', 'timeout'] THEN 1 ELSE 0 END) AS failed_calls,
+                 sum(coalesce(tc.duration_ms, 0)) AS total_duration_ms
+            RETURN name, total_calls, successful_calls, failed_calls, total_duration_ms
+            ORDER BY name";
+    }
+
     /// <summary>Create a new ToolCall node and link it to its parent ReasoningStep.</summary>
     public const string Add = @"
             MATCH (s:ReasoningStep {id: $stepId})

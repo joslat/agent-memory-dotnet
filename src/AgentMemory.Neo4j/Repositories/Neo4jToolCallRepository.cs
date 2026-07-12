@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
@@ -124,6 +125,40 @@ internal sealed class Neo4jToolCallRepository : IToolCallRepository
             await runner.RunAsync(
                 ToolCallQueries.CreateTriggeredByRelationship,
                 new { toolCallId, messageId }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<ToolCallStats>> GetStatsAsync(
+        string? toolName = null,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+        _logger.LogDebug("Aggregating tool stats, tool={Tool}, owner={Owner}", toolName, scope?.OwnerId);
+
+        var cypher = ToolCallQueries.GetStats(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?> { ["toolName"] = toolName };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r =>
+            {
+                var totalCalls = checked((int)r["total_calls"].As<long>());
+                var successful = checked((int)r["successful_calls"].As<long>());
+                var failed = checked((int)r["failed_calls"].As<long>());
+                var totalDurationMs = r["total_duration_ms"].As<long?>() ?? 0;
+                return new ToolCallStats(
+                    r["name"].As<string>(),
+                    totalCalls,
+                    successful,
+                    failed,
+                    totalCalls > 0 ? (double)successful / totalCalls : 0.0,
+                    totalCalls > 0 ? (double)totalDurationMs / totalCalls : null);
+            }).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 }

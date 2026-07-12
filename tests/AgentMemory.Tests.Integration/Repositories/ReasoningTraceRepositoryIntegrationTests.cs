@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
@@ -316,5 +317,60 @@ public class ReasoningTraceRepositoryIntegrationTests : IAsyncLifetime
         });
 
         count.Should().Be(1);
+    }
+
+    // ---- ListAllAsync (cross-session, paged, owner-scoped) ----
+
+    private ReasoningTrace NewTrace(string session, string task, DateTimeOffset started, string? owner = null) => new()
+    {
+        TraceId = $"trace-{Guid.NewGuid():N}",
+        SessionId = session,
+        Task = task,
+        OwnerId = owner,
+        StartedAtUtc = started,
+    };
+
+    [Fact]
+    public async Task ListAllAsync_ReturnsTracesAcrossSessions_NewestFirst()
+    {
+        await _repo.AddAsync(NewTrace("s1", "task A", new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+        await _repo.AddAsync(NewTrace("s2", "task B", new DateTimeOffset(2025, 2, 1, 0, 0, 0, TimeSpan.Zero)));
+        await _repo.AddAsync(NewTrace("s3", "task C", new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero)));
+
+        var page = await _repo.ListAllAsync(limit: 10);
+
+        page.Items.Should().HaveCount(3);
+        page.Items.Select(t => t.Task).Should().ContainInOrder("task C", "task B", "task A");
+        page.HasNextPage.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ListAllAsync_Paging_SetsHasNextPage_AndAdvancesByOffset()
+    {
+        for (var i = 0; i < 3; i++)
+            await _repo.AddAsync(NewTrace($"s{i}", $"task {i}", new DateTimeOffset(2025, 1, 1 + i, 0, 0, 0, TimeSpan.Zero)));
+
+        var page1 = await _repo.ListAllAsync(limit: 2, offset: 0);
+        page1.Items.Should().HaveCount(2);
+        page1.HasNextPage.Should().BeTrue("a 4th row was fetched beyond the page of 2");
+
+        var page2 = await _repo.ListAllAsync(limit: 2, offset: 2);
+        page2.Items.Should().HaveCount(1);
+        page2.HasNextPage.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ListAllAsync_OwnerScoped_ExcludesOtherOwners()
+    {
+        var now = new DateTimeOffset(2025, 4, 1, 0, 0, 0, TimeSpan.Zero);
+        await _repo.AddAsync(NewTrace("s", "alice task", now, owner: "alice"));
+        await _repo.AddAsync(NewTrace("s", "bob task", now, owner: "bob"));
+        await _repo.AddAsync(NewTrace("s", "shared task", now, owner: null));
+
+        var page = await _repo.ListAllAsync(limit: 10, scope: MemoryScope.For("alice"));
+        var tasks = page.Items.Select(t => t.Task).ToList();
+
+        tasks.Should().Contain("alice task").And.Contain("shared task");
+        tasks.Should().NotContain("bob task", "bob's traces are outside alice's scope");
     }
 }

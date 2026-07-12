@@ -60,6 +60,26 @@ internal static class ReasoningQueries
     }
 
     /// <summary>
+    /// Lists traces across ALL sessions, newest first, paged via SKIP/LIMIT. Callers fetch one extra row
+    /// ($limit is size+1) to detect a next page. Optionally owner-scoped (R1) — a cross-session list is not
+    /// keyed by a private handle, so when scoped it returns only the owner's own (and, if includeShared,
+    /// shared/global) traces.
+    /// </summary>
+    public static string ListAllTraces(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (t.owner_id = $ownerId OR t.owner_id IS NULL)"
+                            : " AND t.owner_id = $ownerId";
+        return @"
+            MATCH (t:ReasoningTrace)
+            WHERE true" + owner + @"
+            RETURN t
+            ORDER BY t.started_at DESC
+            SKIP $offset
+            LIMIT $limit";
+    }
+
+    /// <summary>
     /// Delete ReasoningTrace nodes for a session (and their child ReasoningStep nodes), confined to a
     /// single R1 owner bucket so a session-keyed destructive write can never cross owners (the twin of the
     /// #56 <see cref="PruneSessionTraces"/> hardening — ReasoningTrace carries <c>owner_id</c>, and
