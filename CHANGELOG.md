@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **1.0 API-surface lockdown — implementation types internalized.** Concrete implementation classes that are only ever resolved through the public Abstractions interfaces (the memory/reasoning services, Neo4j repositories/services/query holders/infrastructure, MCP tools/resources/prompts, extraction providers, enrichment decorators, GDS analytics services, merge strategies, and stubs) are now `internal`, shrinking the public surface from ~331 to ~203 types ahead of the SemVer-stable `1.0`. Accessibility-only: no behavior, signature, or DI-wiring change — DI resolves the internal types (via their still-public constructors) unchanged. The public contract is the Abstractions interfaces/records/options/enums, each package's `ServiceCollectionExtensions` + options, the Microsoft Agent Framework and Semantic Kernel adapters, and a small set of deliberate seams (`INeo4jTransactionRunner`, `ISchemaBootstrapper`, `IMigrationRunner`, `MemoryActivitySource`, `MemoryMetrics.MeterName`, the stub/clock/id helpers, `ExtractorBase`).
+- **`SchemaConstants` and the schema-parity kit are now internal.** `SchemaConstants` (raw Neo4j backend label/property/edge strings) and the parity types (`SchemaParityVerifier`, `SchemaDescriptor`, `SchemaParityPolicy`, `SchemaParityReport`, `UpstreamSchemaRegistry`, `DotNetSchema`) — previously described as a reusable library component in `AgentMemory.Neo4j.Schema.Parity` — are implementation details for `1.0`. Schema-parity verification remains available through the `agentmemory schema-parity` CLI command; it is no longer a library API.
+
 ## [0.1.0-preview.4] - 2026-06-21
 
 This release is dominated by a sustained correctness-hardening effort: **six rounds** of adversarial

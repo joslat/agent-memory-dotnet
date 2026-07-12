@@ -17,7 +17,7 @@ public sealed class MemoryMetrics : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="MemoryMetrics"/> class.
     /// </summary>
-    internal MemoryMetrics()
+    public MemoryMetrics()
     {
         _meter = new Meter(MeterName, "1.0.0");
 
