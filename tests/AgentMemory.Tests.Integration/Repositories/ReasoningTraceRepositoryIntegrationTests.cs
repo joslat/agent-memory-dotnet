@@ -352,7 +352,7 @@ public class ReasoningTraceRepositoryIntegrationTests : IAsyncLifetime
 
         var page1 = await _repo.ListAllAsync(limit: 2, offset: 0);
         page1.Items.Should().HaveCount(2);
-        page1.HasNextPage.Should().BeTrue("a 4th row was fetched beyond the page of 2");
+        page1.HasNextPage.Should().BeTrue("a 3rd row was fetched (N+1) beyond the page of 2");
 
         var page2 = await _repo.ListAllAsync(limit: 2, offset: 2);
         page2.Items.Should().HaveCount(1);

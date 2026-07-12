@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`IReasoningMemoryService.ListAllTracesAsync` — owner-scoped, paged, cross-session trace listing.** Returns a `PagedResult<ReasoningTrace>` (newest-first, N+1 `HasNextPage`, `offset`-advanced), optionally owner-scoped (R1). Mirrored on `IReasoningTraceRepository.ListAllAsync`. Added pre-`1.0` because extending a public interface after the freeze breaks every third-party implementer.
-- **`IToolCallRepository.GetStatsAsync(toolName?)` + a `ToolCallStats` record — per-tool usage aggregates.** Groups tool calls by name (total / successful / failed / success-rate / avg-duration) over calls reachable through owner-scoped reasoning traces; never reads the cross-owner global `:Tool` node. Same pre-`1.0` interface-stability rationale.
+- **`IToolCallRepository.GetStatsAsync(toolName?, scope?)` + a `ToolCallStats` record — per-tool usage aggregates.** Groups tool calls by name (total / successful / failed / success-rate / avg-duration) over calls reachable through owner-scoped reasoning traces; never reads the cross-owner global `:Tool` node. Same pre-`1.0` interface-stability rationale.
 - These two additions let the upstream-TCK bridge drop its last two raw-Cypher fallbacks (`list_traces` with no session, `get_tool_stats`) in favor of the first-class services.
 
 ### Changed

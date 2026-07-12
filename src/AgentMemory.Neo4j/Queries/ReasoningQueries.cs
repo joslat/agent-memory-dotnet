@@ -70,11 +70,13 @@ internal static class ReasoningQueries
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (t.owner_id = $ownerId OR t.owner_id IS NULL)"
                             : " AND t.owner_id = $ownerId";
+        // Tie-break on id so SKIP/LIMIT paging is stable when traces share a started_at — without it,
+        // equal-timestamp rows can reorder between page fetches, causing duplicates or missed rows.
         return @"
             MATCH (t:ReasoningTrace)
             WHERE true" + owner + @"
             RETURN t
-            ORDER BY t.started_at DESC
+            ORDER BY t.started_at DESC, t.id DESC
             SKIP $offset
             LIMIT $limit";
     }

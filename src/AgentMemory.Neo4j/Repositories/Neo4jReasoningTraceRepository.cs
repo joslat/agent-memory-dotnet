@@ -109,13 +109,16 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 
     public async Task<PagedResult<ReasoningTrace>> ListAllAsync(int limit = 50, int offset = 0, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
+        // Predictable failures for invalid paging input, and no wraparound on the N+1 fetch below.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         _logger.LogDebug("Listing all reasoning traces, limit={Limit}, offset={Offset}, owner={Owner}", limit, offset, scope?.OwnerId);
 
         var cypher = ReasoningQueries.ListAllTraces(hasOwner, includeShared);
         // Fetch one extra row (N+1) to set HasNextPage without a separate COUNT round-trip.
-        var parameters = new Dictionary<string, object> { ["offset"] = offset, ["limit"] = limit + 1 };
+        var parameters = new Dictionary<string, object> { ["offset"] = offset, ["limit"] = checked(limit + 1) };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
 
         return await _tx.ReadAsync(async runner =>
