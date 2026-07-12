@@ -421,19 +421,19 @@ public sealed class ConfigurationValidationTests
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void EnrichmentOptions_Default_WikipediaLanguageIsEn()
+    public void WikimediaEnrichmentOptions_Default_WikipediaLanguageIsEn()
     {
         new WikimediaEnrichmentOptions().WikipediaLanguage.Should().Be("en");
     }
 
     [Fact]
-    public void EnrichmentOptions_Default_TimeoutSecondsIsPositive()
+    public void WikimediaEnrichmentOptions_Default_TimeoutSecondsIsPositive()
     {
         new WikimediaEnrichmentOptions().TimeoutSeconds.Should().BePositive();
     }
 
     [Fact]
-    public void EnrichmentOptions_Default_MaxRetriesIsNonNegative()
+    public void WikimediaEnrichmentOptions_Default_MaxRetriesIsNonNegative()
     {
         new WikimediaEnrichmentOptions().MaxRetries.Should().BeGreaterThanOrEqualTo(0);
     }
@@ -549,31 +549,31 @@ public sealed class ConfigurationValidationTests
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void McpServerOptions_Default_ServerNameIsNotEmpty()
+    public void AgentMemoryMcpOptions_Default_ServerNameIsNotEmpty()
     {
         new AgentMemoryMcpOptions().ServerName.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void McpServerOptions_Default_ServerVersionIsNotEmpty()
+    public void AgentMemoryMcpOptions_Default_ServerVersionIsNotEmpty()
     {
         new AgentMemoryMcpOptions().ServerVersion.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void McpServerOptions_Default_EnableGraphQueryIsFalse()
+    public void AgentMemoryMcpOptions_Default_EnableGraphQueryIsFalse()
     {
         new AgentMemoryMcpOptions().EnableGraphQuery.Should().BeFalse();
     }
 
     [Fact]
-    public void McpServerOptions_Default_DefaultSessionIdIsNotEmpty()
+    public void AgentMemoryMcpOptions_Default_DefaultSessionIdIsNotEmpty()
     {
         new AgentMemoryMcpOptions().DefaultSessionId.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
-    public void McpServerOptions_Default_DefaultConfidenceIsInValidRange()
+    public void AgentMemoryMcpOptions_Default_DefaultConfidenceIsInValidRange()
     {
         var o = new AgentMemoryMcpOptions();
         o.DefaultConfidence.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(1.0);
