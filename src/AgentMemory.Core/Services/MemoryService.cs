@@ -279,21 +279,18 @@ internal sealed class MemoryService : IMemoryService
 
     /// <inheritdoc/>
     public async Task<int> GenerateEmbeddingsBatchAsync(
-        string nodeLabel,
+        MemoryNodeKind nodeKind,
         int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeLabel);
-        _logger.LogDebug("Batch embedding generation for label '{NodeLabel}', batchSize={BatchSize}", nodeLabel, batchSize);
+        _logger.LogDebug("Batch embedding generation for {NodeKind}, batchSize={BatchSize}", nodeKind, batchSize);
 
-        return nodeLabel switch
+        return nodeKind switch
         {
-            "Entity"     => await BackfillEntityEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
-            "Fact"       => await BackfillFactEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
-            "Preference" => await BackfillPreferenceEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
-            _ => throw new ArgumentException(
-                $"Unsupported node label '{nodeLabel}'. Supported values: Entity, Fact, Preference.",
-                nameof(nodeLabel))
+            MemoryNodeKind.Entity     => await BackfillEntityEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
+            MemoryNodeKind.Fact       => await BackfillFactEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
+            MemoryNodeKind.Preference => await BackfillPreferenceEmbeddingsAsync(batchSize, cancellationToken).ConfigureAwait(false),
+            _ => throw new ArgumentOutOfRangeException(nameof(nodeKind), nodeKind, "Unknown MemoryNodeKind.")
         };
     }
 
@@ -393,13 +390,13 @@ internal sealed class MemoryService : IMemoryService
             var tasks = new List<Task>();
 
             foreach (var entity in context.RelevantEntities.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(entity.EntityId, "Entity", cancellationToken));
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(entity.EntityId, MemoryNodeKind.Entity, cancellationToken));
 
             foreach (var fact in context.RelevantFacts.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(fact.FactId, "Fact", cancellationToken));
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(fact.FactId, MemoryNodeKind.Fact, cancellationToken));
 
             foreach (var pref in context.RelevantPreferences.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, "Preference", cancellationToken));
+                tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, MemoryNodeKind.Preference, cancellationToken));
 
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }

@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
@@ -99,11 +100,10 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
 
     /// <inheritdoc />
     public async Task<double> CalculateRetentionScoreAsync(
-        string nodeId, string nodeLabel, CancellationToken cancellationToken = default)
+        string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeLabel);
-        var label = ValidateLabel(nodeLabel);
+        var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
 
         var cypher = DecayQueries.GetRetentionFields(label);
 
@@ -129,11 +129,10 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
 
     /// <inheritdoc />
     public async Task UpdateAccessTimestampAsync(
-        string nodeId, string nodeLabel, CancellationToken cancellationToken = default)
+        string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeLabel);
-        var label = ValidateLabel(nodeLabel);
+        var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
 
         var cypher = DecayQueries.UpdateAccessTimestamp(label);
         string now = _clock.UtcNow.ToString("O");
@@ -157,15 +156,4 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
         return confidence * Math.Exp(-lambda * daysSince) + _options.AccessBoostFactor * accessCount;
     }
-
-    /// <summary>
-    /// Validates a caller-supplied label against the allowlist. The decay queries interpolate the label
-    /// directly into Cypher (it cannot be a bound parameter), so this guards against injection.
-    /// </summary>
-    private static string ValidateLabel(string label) =>
-        AllowedLabels.Contains(label)
-            ? label
-            : throw new ArgumentException(
-                $"Unsupported memory label '{label}'. Allowed: {string.Join(", ", PrunableLabels)}.",
-                nameof(label));
 }

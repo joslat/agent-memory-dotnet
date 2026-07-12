@@ -242,11 +242,19 @@ internal sealed class AdvancedMemoryTools
         [Description("Number of nodes to process per batch (default: 100)")] int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
-        var count = await memoryService.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken).ConfigureAwait(false);
+        if (!Enum.TryParse<MemoryNodeKind>(nodeLabel, ignoreCase: true, out var nodeKind))
+        {
+            return ToolJsonContext.Serialize(new
+            {
+                error = $"Unsupported node label '{nodeLabel}'. Supported values: Entity, Fact, Preference."
+            });
+        }
+
+        var count = await memoryService.GenerateEmbeddingsBatchAsync(nodeKind, batchSize, cancellationToken).ConfigureAwait(false);
 
         return ToolJsonContext.Serialize(new
         {
-            nodeLabel,
+            nodeLabel = nodeKind.ToString(),
             nodesUpdated = count
         });
     }

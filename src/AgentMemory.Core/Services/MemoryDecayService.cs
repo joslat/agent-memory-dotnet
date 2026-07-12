@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
@@ -63,11 +64,10 @@ internal sealed class MemoryDecayService : IMemoryDecayService
     /// <inheritdoc />
     public Task<double> CalculateRetentionScoreAsync(
         string nodeId,
-        string nodeLabel,
+        MemoryNodeKind nodeKind,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeLabel);
 
         // This is a pure computation—in the real Neo4j implementation the fields would
         // be fetched from the database. For the Core service we expose the formula so
@@ -97,16 +97,15 @@ internal sealed class MemoryDecayService : IMemoryDecayService
     /// <inheritdoc />
     public Task UpdateAccessTimestampAsync(
         string nodeId,
-        string nodeLabel,
+        MemoryNodeKind nodeKind,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeLabel);
 
         // The actual timestamp update is performed in the repository layer
         // (Neo4j Cypher query). This Core implementation is a no-op pass-through
         // so the interface compiles; the real work is done by the Neo4j adapter.
-        _logger.LogDebug("Access timestamp update requested for {Label} {NodeId}", nodeLabel, nodeId);
+        _logger.LogDebug("Access timestamp update requested for {NodeKind} {NodeId}", nodeKind, nodeId);
         return Task.CompletedTask;
     }
 }

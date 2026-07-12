@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Services;
@@ -20,13 +21,13 @@ public interface IMemoryDecayService
     /// Calculates the retention score for a single memory node.
     /// </summary>
     /// <param name="nodeId">The id property of the node.</param>
-    /// <param name="nodeLabel">The Neo4j label (Entity, Fact, or Preference).</param>
+    /// <param name="nodeKind">The kind of memory node (Entity, Fact, or Preference).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Computed retention score in [0, ∞).</returns>
-    Task<double> CalculateRetentionScoreAsync(string nodeId, string nodeLabel, CancellationToken cancellationToken = default);
+    Task<double> CalculateRetentionScoreAsync(string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Bumps <c>last_accessed_at</c> and increments <c>access_count</c> on a memory node.
     /// </summary>
-    Task UpdateAccessTimestampAsync(string nodeId, string nodeLabel, CancellationToken cancellationToken = default);
+    Task UpdateAccessTimestampAsync(string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default);
 }

@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
@@ -26,7 +27,7 @@ public sealed class RetroactiveToolsTests
             .Returns(Task.CompletedTask);
 
         _memoryService
-            .GenerateEmbeddingsBatchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .GenerateEmbeddingsBatchAsync(Arg.Any<MemoryNodeKind>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(42);
     }
 
@@ -72,7 +73,7 @@ public sealed class RetroactiveToolsTests
         await AdvancedMemoryTools.MemoryGenerateEmbeddings(_memoryService, "Entity");
 
         await _memoryService.Received(1)
-            .GenerateEmbeddingsBatchAsync("Entity", Arg.Any<int>(), Arg.Any<CancellationToken>());
+            .GenerateEmbeddingsBatchAsync(MemoryNodeKind.Entity, Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -81,7 +82,7 @@ public sealed class RetroactiveToolsTests
         await AdvancedMemoryTools.MemoryGenerateEmbeddings(_memoryService, "Fact", batchSize: 50);
 
         await _memoryService.Received(1)
-            .GenerateEmbeddingsBatchAsync("Fact", 50, Arg.Any<CancellationToken>());
+            .GenerateEmbeddingsBatchAsync(MemoryNodeKind.Fact, 50, Arg.Any<CancellationToken>());
     }
 
     [Fact]
