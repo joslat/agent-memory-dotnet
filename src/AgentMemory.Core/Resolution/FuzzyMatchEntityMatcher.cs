@@ -17,7 +17,7 @@ internal sealed class FuzzyMatchEntityMatcher : IEntityMatcher
         _options = options;
     }
 
-    public string MatchType => "fuzzy";
+    public EntityMatchType MatchType => EntityMatchType.Fuzzy;
 
     public Task<EntityResolutionResult?> TryMatchAsync(
         ExtractedEntity candidate,

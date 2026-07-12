@@ -159,7 +159,7 @@ public sealed class Neo4jEntityRepositoryDeduplicationTests
         result[0].Target.EntityId.Should().Be("ent-2");
         result[0].Target.Name.Should().Be("Target Entity");
         result[0].Similarity.Should().Be(0.95);
-        result[0].Status.Should().Be("pending");
+        result[0].Status.Should().Be(DuplicateStatus.Pending);
     }
 
     [Fact]

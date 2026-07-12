@@ -225,7 +225,7 @@ public sealed class ShortTermMemoryServiceTests
         _messageRepo
             .SearchByVectorAsync(
                 Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<double>(),
-                Arg.Any<Dictionary<string, object>?>(), Arg.Any<CancellationToken>())
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<(Message, double)>>(new[] { (message, 0.95) }));
         var sut = CreateSut();
 

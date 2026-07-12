@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`DuplicatePair.Status` and `EntityResolutionResult.MatchType` are now enums** (`DuplicateStatus` and `EntityMatchType`) instead of strings, for compile-time safety.
+- **Collapsed the two `RecallAsOfAsync` overloads (and the two `AssembleContextAsOfAsync` overloads) into one** method with an optional `DateTimeOffset? systemAsOf = null` — omit it for single-clock recall (both clocks equal), pass it for bitemporal. Same behavior; fewer overloads.
+- **`IMessageRepository.SearchByVectorAsync`'s `metadataFilters` parameter is now `IReadOnlyDictionary<string, object>?`** (was `Dictionary<string, object>?`) — a source-only change for implementers, not callers.
 - **Renamed `AgentMemory.McpServer.McpServerOptions` → `AgentMemoryMcpOptions`** to end the name collision (CS0104) with the MCP SDK's `ModelContextProtocol.Server.McpServerOptions`. `AddAgentMemoryMcpTools(Action<AgentMemoryMcpOptions>)` updated accordingly.
 - **Renamed `EnrichmentOptions` → `WikimediaEnrichmentOptions`** (its members are Wikimedia-specific, mirroring `DiffbotEnrichmentOptions`); `AddEnrichmentServices` / the meta-package `WithEnrichment` parameter types updated.
 - **Renamed `EnrichmentResult.DiffbotUri` and `RelatedEntity.DiffbotUri` → `ProviderUri`** (provider-neutral, complementing the existing `Provider` field).

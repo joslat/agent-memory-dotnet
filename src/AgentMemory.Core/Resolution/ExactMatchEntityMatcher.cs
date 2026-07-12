@@ -8,7 +8,7 @@ namespace AgentMemory.Core.Resolution;
 /// </summary>
 internal sealed class ExactMatchEntityMatcher : IEntityMatcher
 {
-    public string MatchType => "exact";
+    public EntityMatchType MatchType => EntityMatchType.Exact;
 
     public Task<EntityResolutionResult?> TryMatchAsync(
         ExtractedEntity candidate,

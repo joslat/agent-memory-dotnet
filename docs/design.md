@@ -10,7 +10,7 @@
 
 ## 1. Domain Model Overview
 
-The domain model comprises **48 domain records** (plus 13 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
+The domain model comprises **48 domain records** (plus 15 enums) organized across three memory layers, plus supporting types for context assembly, extraction, GraphRAG integration, ranking, conflict detection, consolidation, and configuration. All domain types are defined in `AgentMemory.Abstractions`. (Counts are enforced by `AbstractionsContractGuardTests`.)
 
 ### Key Design Decisions
 

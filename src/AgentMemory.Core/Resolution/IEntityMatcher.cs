@@ -4,7 +4,7 @@ namespace AgentMemory.Core.Resolution;
 
 internal interface IEntityMatcher
 {
-    string MatchType { get; } // "exact", "fuzzy", "semantic"
+    EntityMatchType MatchType { get; }
 
     Task<EntityResolutionResult?> TryMatchAsync(
         ExtractedEntity candidate,

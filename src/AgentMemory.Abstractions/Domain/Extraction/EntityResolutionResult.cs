@@ -8,8 +8,8 @@ public sealed record EntityResolutionResult
     /// <summary>The resolved (canonical) entity to use going forward.</summary>
     public required Entity ResolvedEntity { get; init; }
 
-    /// <summary>"exact", "fuzzy", "semantic", or "new"</summary>
-    public required string MatchType { get; init; }
+    /// <summary>How the entity was resolved (exact / fuzzy / semantic / new).</summary>
+    public required EntityMatchType MatchType { get; init; }
 
     /// <summary>Confidence score from 0.0 to 1.0.</summary>
     public required double Confidence { get; init; }

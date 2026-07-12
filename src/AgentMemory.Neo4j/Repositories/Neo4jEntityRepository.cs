@@ -656,7 +656,9 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
                 var source = MapToEntity(r["a"].As<INode>(), ReadEmbedding(r["a"].As<INode>()));
                 var target = MapToEntity(r["b"].As<INode>(), ReadEmbedding(r["b"].As<INode>()));
                 var similarity = r["similarity"].As<double>();
-                var status = r["status"].As<string>();
+                // Stored lowercase (pending/confirmed/rejected/merged); the query hard-filters 'pending'.
+                var status = Enum.TryParse<DuplicateStatus>(r["status"].As<string>(), ignoreCase: true, out var s)
+                    ? s : DuplicateStatus.Pending;
                 return new DuplicatePair(source, target, similarity, status);
             }).ToList();
         }, ct).ConfigureAwait(false);

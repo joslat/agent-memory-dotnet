@@ -23,7 +23,7 @@ internal static class MetadataFilterBuilder
     /// The caller is responsible for merging the returned parameters into their own parameter map.
     /// </returns>
     public static (string WhereClause, Dictionary<string, object> Parameters) Build(
-        Dictionary<string, object>? filters,
+        IReadOnlyDictionary<string, object>? filters,
         string nodeAlias = "m")
     {
         if (filters is null || filters.Count == 0)
