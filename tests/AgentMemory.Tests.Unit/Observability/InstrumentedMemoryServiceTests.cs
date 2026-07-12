@@ -307,15 +307,15 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
         // cycle-4: the method must be async/await so the `using` activity stays open across the inner
         // async work. A synchronous body would dispose the span the instant it returned the pending Task,
         // yielding a ~0-duration span. We assert the captured span's duration reflects the inner delay.
-        _inner.GenerateEmbeddingsBatchAsync("Entity", 100, Arg.Any<CancellationToken>())
+        _inner.GenerateEmbeddingsBatchAsync(MemoryNodeKind.Entity, 100, Arg.Any<CancellationToken>())
             .Returns(async _ => { await Task.Delay(60); return 7; });
 
-        var result = await _sut.GenerateEmbeddingsBatchAsync("Entity", 100);
+        var result = await _sut.GenerateEmbeddingsBatchAsync(MemoryNodeKind.Entity, 100);
 
         result.Should().Be(7);
         var activity = _capturedActivities.Should().ContainSingle(
             a => a.OperationName == "memory.generate_embeddings_batch").Subject;
-        activity.GetTagItem("memory.node_label").Should().Be("Entity");
+        activity.GetTagItem("memory.node_kind").Should().Be("Entity");
         activity.Duration.Should().BeGreaterThan(TimeSpan.FromMilliseconds(20),
             "the span must enclose the awaited work, not close at ~0ms before it runs");
     }

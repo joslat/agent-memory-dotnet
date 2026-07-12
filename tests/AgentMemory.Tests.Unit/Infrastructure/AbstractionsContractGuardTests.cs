@@ -19,7 +19,7 @@ public sealed class AbstractionsContractGuardTests
     private const int DocumentedServiceInterfaces = 38; // R1b store + IC8 owner contexts, +IConsolidationService (PR#113), +IConflictDetectionService, +IMemoryRankingContext/+IWritable (D3)
     private const int DocumentedRepositoryInterfaces = 11;
     private const int DocumentedDomainRecords = 48; // +ToolCallStats (PR2 — IToolCallRepository.GetStatsAsync)
-    private const int DocumentedEnums = 15; // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType (stringly->enum)
+    private const int DocumentedEnums = 16; // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType, +MemoryNodeKind
 
     private static IEnumerable<Type> PublicTypes() =>
         Abstractions.GetTypes().Where(t => t.IsPublic);

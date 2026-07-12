@@ -41,7 +41,7 @@ public sealed class MemoryServiceAccessTrackingTests
         _idGenerator.GenerateId().Returns("generated-msg-id");
 
         _decayService
-            .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<MemoryNodeKind>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
     }
 
@@ -80,8 +80,8 @@ public sealed class MemoryServiceAccessTrackingTests
         // Give fire-and-forget time to execute
         await Task.Delay(100);
 
-        await _decayService.Received().UpdateAccessTimestampAsync("ent-1", "Entity", Arg.Any<CancellationToken>());
-        await _decayService.Received().UpdateAccessTimestampAsync("ent-2", "Entity", Arg.Any<CancellationToken>());
+        await _decayService.Received().UpdateAccessTimestampAsync("ent-1", MemoryNodeKind.Entity, Arg.Any<CancellationToken>());
+        await _decayService.Received().UpdateAccessTimestampAsync("ent-2", MemoryNodeKind.Entity, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class MemoryServiceAccessTrackingTests
         await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
         await Task.Delay(100);
 
-        await _decayService.Received().UpdateAccessTimestampAsync("fact-1", "Fact", Arg.Any<CancellationToken>());
+        await _decayService.Received().UpdateAccessTimestampAsync("fact-1", MemoryNodeKind.Fact, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public sealed class MemoryServiceAccessTrackingTests
         await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
         await Task.Delay(100);
 
-        await _decayService.Received().UpdateAccessTimestampAsync("pref-1", "Preference", Arg.Any<CancellationToken>());
+        await _decayService.Received().UpdateAccessTimestampAsync("pref-1", MemoryNodeKind.Preference, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class MemoryServiceAccessTrackingTests
         await Task.Delay(100);
 
         await _decayService.DidNotReceive()
-            .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<MemoryNodeKind>(), Arg.Any<CancellationToken>());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

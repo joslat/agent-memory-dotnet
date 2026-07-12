@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -157,7 +158,7 @@ public sealed class MemoryDecayServiceTests
     {
         var sut = CreateSut();
 
-        var act = () => sut.UpdateAccessTimestampAsync("node-1", "Entity");
+        var act = () => sut.UpdateAccessTimestampAsync("node-1", MemoryNodeKind.Entity);
 
         await act.Should().NotThrowAsync();
     }
@@ -167,17 +168,7 @@ public sealed class MemoryDecayServiceTests
     {
         var sut = CreateSut();
 
-        var act = () => sut.UpdateAccessTimestampAsync(null!, "Entity");
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
-    public async Task UpdateAccessTimestampAsync_ThrowsForEmptyLabel()
-    {
-        var sut = CreateSut();
-
-        var act = () => sut.UpdateAccessTimestampAsync("node-1", "");
+        var act = () => sut.UpdateAccessTimestampAsync(null!, MemoryNodeKind.Entity);
 
         await act.Should().ThrowAsync<ArgumentException>();
     }
@@ -189,20 +180,11 @@ public sealed class MemoryDecayServiceTests
     {
         var sut = CreateSut();
 
-        var act = () => sut.CalculateRetentionScoreAsync(null!, "Entity");
+        var act = () => sut.CalculateRetentionScoreAsync(null!, MemoryNodeKind.Entity);
 
         await act.Should().ThrowAsync<ArgumentException>();
     }
 
-    [Fact]
-    public async Task CalculateRetentionScoreAsync_ThrowsForEmptyLabel()
-    {
-        var sut = CreateSut();
-
-        var act = () => sut.CalculateRetentionScoreAsync("node-1", " ");
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
 
     // ── MemoryDecayOptions defaults ─────────────────────────────────────
 

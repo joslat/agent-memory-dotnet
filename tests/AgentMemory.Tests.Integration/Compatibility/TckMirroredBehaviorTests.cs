@@ -275,7 +275,7 @@ public sealed class TckMirroredBehaviorTests : IAsyncLifetime
 
         (await longTerm.SupersedeFactAsync(loser.FactId, winner.FactId, Alice))
             .Should().BeTrue();
-        await decay.UpdateAccessTimestampAsync(winner.FactId, "Fact");
+        await decay.UpdateAccessTimestampAsync(winner.FactId, MemoryNodeKind.Fact);
 
         var records = await history.GetHistoryAsync(new MemoryHistoryQuery
         {

@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Domain;
+
 namespace AgentMemory.Abstractions.Services;
 
 /// <summary>
@@ -18,17 +20,19 @@ public interface IMemoryMaintenance
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Generates and persists embeddings for all nodes of the given label that
+    /// Generates and persists embeddings for all nodes of the given <paramref name="nodeKind"/> that
     /// currently have a null embedding. Processes in batches of <paramref name="batchSize"/>.
-    /// Supported labels: <c>Entity</c>, <c>Fact</c>, <c>Preference</c>.
     /// </summary>
+    /// <param name="nodeKind">The kind of memory node to backfill (Entity, Fact, or Preference).</param>
+    /// <param name="batchSize">Number of nodes to process per batch.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// The number of nodes actually updated — i.e. for which a non-empty embedding was generated and
     /// persisted. Nodes whose embedding generation degraded to an empty vector (and were therefore skipped)
     /// are not counted.
     /// </returns>
     Task<int> GenerateEmbeddingsBatchAsync(
-        string nodeLabel,
+        MemoryNodeKind nodeKind,
         int batchSize = 100,
         CancellationToken cancellationToken = default);
 }

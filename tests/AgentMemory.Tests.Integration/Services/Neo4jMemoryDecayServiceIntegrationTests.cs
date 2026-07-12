@@ -109,7 +109,7 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
     {
         var id = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 2, ownerId: "user-A");
 
-        await _service.UpdateAccessTimestampAsync(id, "Entity");
+        await _service.UpdateAccessTimestampAsync(id, MemoryNodeKind.Entity);
 
         await using var session = _fixture.Driver.AsyncSession();
         var cursor = await session.RunAsync(
@@ -137,24 +137,18 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
         var freshId = await SeedAsync("Entity", confidence: 1.0, daysOld: 0, accessCount: 0);
         var halfLifeId = await SeedAsync("Fact", confidence: 1.0, daysOld: 30, accessCount: 0);
 
-        (await _service.CalculateRetentionScoreAsync(freshId, "Entity")).Should().BeApproximately(1.0, 0.05);
-        (await _service.CalculateRetentionScoreAsync(halfLifeId, "Fact")).Should().BeApproximately(0.5, 0.05);
+        (await _service.CalculateRetentionScoreAsync(freshId, MemoryNodeKind.Entity)).Should().BeApproximately(1.0, 0.05);
+        (await _service.CalculateRetentionScoreAsync(halfLifeId, MemoryNodeKind.Fact)).Should().BeApproximately(0.5, 0.05);
     }
 
     [Fact]
     public async Task CalculateRetentionScoreAsync_MissingNode_ReturnsZero()
     {
-        (await _service.CalculateRetentionScoreAsync($"missing-{Guid.NewGuid():N}", "Entity")).Should().Be(0.0);
+        (await _service.CalculateRetentionScoreAsync($"missing-{Guid.NewGuid():N}", MemoryNodeKind.Entity)).Should().Be(0.0);
     }
 
-    [Theory]
-    [InlineData("Message")]
-    [InlineData("Entity); DROP")]
-    public async Task UnsupportedLabel_Throws(string label)
-    {
-        var act = () => _service.CalculateRetentionScoreAsync("any", label);
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
+    // (Former UnsupportedLabel_Throws theory removed: MemoryNodeKind is a closed enum, so an unsupported /
+    // injection label can no longer be passed — it's a compile error, and the label is never caller-supplied.)
 
     [Fact]
     public async Task CalculateRetentionScoreAsync_NullCreatedAt_ReturnsZero()
@@ -167,7 +161,7 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
             "CREATE (n:Entity {id: $id, confidence: 0.9, access_count: 0})", // no created_at
             new { id });
 
-        (await _service.CalculateRetentionScoreAsync(id, "Entity")).Should().Be(0.0);
+        (await _service.CalculateRetentionScoreAsync(id, MemoryNodeKind.Entity)).Should().Be(0.0);
     }
 
     [Fact]

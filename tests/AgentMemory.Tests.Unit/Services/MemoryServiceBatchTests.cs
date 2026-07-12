@@ -203,7 +203,7 @@ public sealed class MemoryServiceBatchTests
             .Returns(Task.FromResult(new float[] { 0.1f }));
 
         var sut = CreateSut();
-        var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
+        var count = await sut.GenerateEmbeddingsBatchAsync(MemoryNodeKind.Entity, batchSize: 100);
 
         count.Should().Be(2);
         await _embeddingOrchestrator.Received(2).EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -227,7 +227,7 @@ public sealed class MemoryServiceBatchTests
             .Returns(Task.FromResult(Array.Empty<float>())); // persistent generation failure ⇒ empty vector
 
         var sut = CreateSut();
-        var count = await sut.GenerateEmbeddingsBatchAsync("Entity", batchSize: 100);
+        var count = await sut.GenerateEmbeddingsBatchAsync(MemoryNodeKind.Entity, batchSize: 100);
 
         count.Should().Be(0, "the stalled page's node had an empty (degraded) embedding that was not persisted, " +
             "so it is not counted as updated — and the back-fill then stops");
@@ -248,7 +248,7 @@ public sealed class MemoryServiceBatchTests
             .Returns(Task.FromResult(new float[] { 0.5f }));
 
         var sut = CreateSut();
-        await sut.GenerateEmbeddingsBatchAsync("Fact", batchSize: 100);
+        await sut.GenerateEmbeddingsBatchAsync(MemoryNodeKind.Fact, batchSize: 100);
 
         await _embeddingOrchestrator.Received(1)
             .EmbedAsync("Alice works_at Acme", Arg.Any<CancellationToken>());
@@ -268,17 +268,19 @@ public sealed class MemoryServiceBatchTests
             .Returns(Task.FromResult(new float[] { 0.3f }));
 
         var sut = CreateSut();
-        await sut.GenerateEmbeddingsBatchAsync("Preference", batchSize: 100);
+        await sut.GenerateEmbeddingsBatchAsync(MemoryNodeKind.Preference, batchSize: 100);
 
         await _embeddingOrchestrator.Received(1)
             .EmbedAsync("Prefers dark mode", Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task GenerateEmbeddingsBatchAsync_UnsupportedLabel_ThrowsArgumentException()
+    public async Task GenerateEmbeddingsBatchAsync_UnknownNodeKind_ThrowsArgumentOutOfRange()
     {
         var sut = CreateSut();
-        var act = () => sut.GenerateEmbeddingsBatchAsync("Message");
-        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*Message*");
+        // A valid MemoryNodeKind can't be an unsupported label (it's compile-checked); only an out-of-range
+        // cast can reach the switch default.
+        var act = () => sut.GenerateEmbeddingsBatchAsync((MemoryNodeKind)999);
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
     }
 }

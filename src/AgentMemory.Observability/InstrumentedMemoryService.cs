@@ -233,15 +233,15 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     }
 
     public async Task<int> GenerateEmbeddingsBatchAsync(
-        string nodeLabel,
+        MemoryNodeKind nodeKind,
         int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
         // Must be async/await: a synchronous method would dispose the activity the moment it returns the
         // still-pending Task, so the span would close with ~0 duration, disconnected from the actual work.
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.generate_embeddings_batch");
-        activity?.SetTag("memory.node_label", nodeLabel);
+        activity?.SetTag("memory.node_kind", nodeKind.ToString());
         activity?.SetTag("memory.batch_size", batchSize);
-        return await _inner.GenerateEmbeddingsBatchAsync(nodeLabel, batchSize, cancellationToken).ConfigureAwait(false);
+        return await _inner.GenerateEmbeddingsBatchAsync(nodeKind, batchSize, cancellationToken).ConfigureAwait(false);
     }
 }

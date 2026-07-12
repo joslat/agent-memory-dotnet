@@ -147,7 +147,7 @@ public sealed class TemporalRecallTests
 
         // Temporal recall is read-only; should NOT update access timestamps.
         await _decayService.DidNotReceive()
-            .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<MemoryNodeKind>(), Arg.Any<CancellationToken>());
     }
 
     // ── RecallAsOfAsync (bitemporal, two-clock — D6) ─────────────────────
