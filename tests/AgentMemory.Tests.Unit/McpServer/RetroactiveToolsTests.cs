@@ -94,4 +94,17 @@ public sealed class RetroactiveToolsTests
         doc.RootElement.GetProperty("nodeLabel").GetString().Should().Be("Preference");
         doc.RootElement.GetProperty("nodesUpdated").GetInt32().Should().Be(42);
     }
+
+    [Theory]
+    [InlineData("1")]        // a numeric string parses to a defined enum value — must still be rejected
+    [InlineData("999")]      // out-of-range
+    [InlineData("Message")]  // unknown label
+    public async Task MemoryGenerateEmbeddings_NonNamedLabel_ReturnsError_AndDoesNotCallService(string label)
+    {
+        var result = await AdvancedMemoryTools.MemoryGenerateEmbeddings(_memoryService, label);
+
+        JsonDocument.Parse(result).RootElement.TryGetProperty("error", out _).Should().BeTrue();
+        await _memoryService.DidNotReceive()
+            .GenerateEmbeddingsBatchAsync(Arg.Any<MemoryNodeKind>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
 }

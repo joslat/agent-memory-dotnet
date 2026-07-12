@@ -242,10 +242,12 @@ internal sealed class AdvancedMemoryTools
         [Description("Number of nodes to process per batch (default: 100)")] int batchSize = 100,
         CancellationToken cancellationToken = default)
     {
-        // Enum.TryParse also succeeds for numeric strings ("999") and out-of-range values, so require the
-        // parsed value to be a defined MemoryNodeKind — otherwise return the clear tool error rather than
-        // letting an undefined value reach (and throw from) the service.
-        if (!Enum.TryParse<MemoryNodeKind>(nodeLabel, ignoreCase: true, out var nodeKind) || !Enum.IsDefined(nodeKind))
+        // Enum.TryParse also accepts numeric strings ("1", "999"), so additionally require the input to match
+        // a defined MemoryNodeKind *name* (not its numeric value) — keeps the tool contract exactly the
+        // documented Entity/Fact/Preference and independent of the enum's underlying numbers.
+        if (!Enum.TryParse<MemoryNodeKind>(nodeLabel, ignoreCase: true, out var nodeKind)
+            || !Enum.IsDefined(nodeKind)
+            || !string.Equals(nodeKind.ToString(), nodeLabel, StringComparison.OrdinalIgnoreCase))
         {
             return ToolJsonContext.Serialize(new
             {
