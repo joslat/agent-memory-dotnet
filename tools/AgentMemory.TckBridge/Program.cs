@@ -750,10 +750,11 @@ static async Task WaitForVectorIndexesOnlineAsync(
             // NOTE: SHOW INDEXES needs an explicit YIELD before a WHERE/RETURN can reference its columns —
             // "SHOW INDEXES WHERE ... RETURN ..." is a syntax error in Neo4j 5.x, which the catch below would
             // swallow and turn into a full-timeout busy-loop. Keep the YIELD.
+            // WaitAsync(token) bounds the query execution itself: if the driver hangs before returning the
+            // cursor, the bounded timeout still ends the wait (SingleAsync(token) alone only bounds the fetch).
             var result = await session.RunAsync(
                 "SHOW INDEXES YIELD type, state WHERE type = 'VECTOR' AND state <> 'ONLINE' RETURN count(*) AS pending")
-                .ConfigureAwait(false);
-            // Pass the bounded token so a stalled driver call cannot run past the timeout.
+                .WaitAsync(token).ConfigureAwait(false);
             var record = await result.SingleAsync(token).ConfigureAwait(false);
             if (record["pending"].As<long>() == 0) return;
         }
