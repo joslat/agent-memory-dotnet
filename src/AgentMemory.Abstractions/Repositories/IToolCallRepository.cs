@@ -15,8 +15,13 @@ public interface IToolCallRepository
     /// <summary>Adds a tool call.</summary>
     Task<ToolCall> AddAsync(ToolCall toolCall, CancellationToken cancellationToken = default);
 
-    /// <summary>Updates a tool call.</summary>
-    Task<ToolCall> UpdateAsync(ToolCall toolCall, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Updates a tool call. Returns <c>null</c> if no tool call with the given id exists — e.g. it was
+    /// concurrently removed (a session clear / trace prune) between a read and this write — so callers get a
+    /// clean "not found" rather than a sequence-empty exception (the same contract as
+    /// <see cref="IReasoningTraceRepository.UpdateAsync"/>).
+    /// </summary>
+    Task<ToolCall?> UpdateAsync(ToolCall toolCall, CancellationToken cancellationToken = default);
 
     /// <summary>Gets tool calls for a step.</summary>
     Task<IReadOnlyList<ToolCall>> GetByStepAsync(string stepId, CancellationToken cancellationToken = default);

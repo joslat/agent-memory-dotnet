@@ -16,9 +16,9 @@ public sealed class LlmExtractionOptions
     public int MaxRetries { get; set; } = 2;
 
     /// <summary>
-    /// Model identifier to use. Empty string means use the IChatClient default.
+    /// Model identifier to use. <c>null</c> (the default) means use the <c>IChatClient</c> default.
     /// </summary>
-    public string ModelId { get; set; } = "";
+    public string? ModelId { get; set; }
 
     /// <summary>
     /// POLE+O entity types recognised by the entity extractor.

@@ -292,7 +292,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
             Embedding      = embedding,
             ToolCallIds    = node.Properties.TryGetValue("tool_call_ids", out var tc)
                                 ? tc.As<IList<object>>().Select(v => v.ToString()!).ToList()
-                                : null,
+                                : [],
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 

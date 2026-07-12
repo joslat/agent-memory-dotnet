@@ -92,7 +92,7 @@ public sealed class AgentTraceRecorderTests
     {
         var sut = CreateSut(persist: false);
 
-        var trace = await sut.StartTraceAsync("task", "session-1", ownerId: "alice");
+        var trace = await sut.StartTraceAsync("session-1", "task", ownerId: "alice");
         var step = await sut.RecordStepAsync(trace.TraceId, "action", "did x");
         var call = await sut.RecordToolCallAsync(step.StepId, "tool", "{}");
         await sut.CompleteTraceAsync(trace.TraceId, "done");
@@ -121,7 +121,7 @@ public sealed class AgentTraceRecorderTests
     {
         var sut = CreateSut();
 
-        var trace = await sut.StartTraceAsync("summarize document", "session-1");
+        var trace = await sut.StartTraceAsync("session-1", "summarize document");
 
         trace.Task.Should().Be("summarize document");
         trace.SessionId.Should().Be("session-1");
@@ -135,7 +135,7 @@ public sealed class AgentTraceRecorderTests
     public async Task RecordStep_AddsStepToTrace()
     {
         var sut = CreateSut();
-        await sut.StartTraceAsync("task", "session-1");
+        await sut.StartTraceAsync("session-1", "task");
 
         var step = await sut.RecordStepAsync("trace-1", "thought", "I should search for Alice");
 
@@ -167,7 +167,7 @@ public sealed class AgentTraceRecorderTests
     public async Task CompleteTrace_SetsOutcomeAndDuration()
     {
         var sut = CreateSut();
-        await sut.StartTraceAsync("task", "session-1");
+        await sut.StartTraceAsync("session-1", "task");
 
         await sut.CompleteTraceAsync("trace-1", "Task completed successfully");
 
@@ -198,8 +198,8 @@ public sealed class AgentTraceRecorderTests
             });
 
         var sut = CreateSut();
-        var t1 = await sut.StartTraceAsync("task one", "session-1");
-        var t2 = await sut.StartTraceAsync("task two", "session-1");
+        var t1 = await sut.StartTraceAsync("session-1", "task one");
+        var t2 = await sut.StartTraceAsync("session-1", "task two");
 
         t1.TraceId.Should().NotBe(t2.TraceId);
     }
@@ -208,7 +208,7 @@ public sealed class AgentTraceRecorderTests
     public async Task RecordStep_IncrementsStepNumber()
     {
         var sut = CreateSut();
-        await sut.StartTraceAsync("task", "session-1");
+        await sut.StartTraceAsync("session-1", "task");
 
         await sut.RecordStepAsync("trace-1", "thought", "step one");
         await sut.RecordStepAsync("trace-1", "action", "step two");

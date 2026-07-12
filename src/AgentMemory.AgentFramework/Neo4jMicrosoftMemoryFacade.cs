@@ -40,6 +40,7 @@ public sealed class Neo4jMicrosoftMemoryFacade
         IReadOnlyList<ChatMessage> messages,
         string sessionId,
         string conversationId,
+        string? userId = null,
         CancellationToken ct = default)
     {
         try
@@ -53,8 +54,10 @@ public sealed class Neo4jMicrosoftMemoryFacade
             if (string.IsNullOrWhiteSpace(queryText))
                 return await _messageStore.GetMessagesAsync(sessionId, ct: ct).ConfigureAwait(false);
 
+            // Owner-scope the recall (R1): the write path (PersistAfterRunAsync / StoreMessageAsync) takes a
+            // userId, so the read path must too — otherwise a multi-tenant host would recall across owners.
             var recall = await _memoryService
-                .RecallAsync(new RecallRequest { SessionId = sessionId, Query = queryText }, ct)
+                .RecallAsync(new RecallRequest { SessionId = sessionId, Query = queryText, UserId = userId }, ct)
                 .ConfigureAwait(false);
 
             // RecentMessages is newest-first (recall orders DESC); reverse it to chronological

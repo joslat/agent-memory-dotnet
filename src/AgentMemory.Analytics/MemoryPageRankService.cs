@@ -29,6 +29,9 @@ internal sealed class MemoryPageRankService : IMemoryPageRankService
     public async Task<IReadOnlyList<EntityRank>> RankEntitiesAsync(
         int? topN = null, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
+        if (topN is not null)
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(topN.Value, nameof(topN));
+
         if (!await _gds.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
         {
             _logger.LogWarning("PageRank skipped — Neo4j GDS plugin not installed; returning no ranks.");

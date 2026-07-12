@@ -15,10 +15,14 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddGdsMemoryAnalytics(
         this IServiceCollection services, Action<GdsAnalyticsOptions>? configure = null)
     {
+        var optionsBuilder = services.AddOptions<GdsAnalyticsOptions>();
         if (configure is not null)
-            services.Configure(configure);
-        else
-            services.AddOptions<GdsAnalyticsOptions>();
+            optionsBuilder.Configure(configure);
+        // A non-positive DefaultTopN flows straight into a Neo4j LIMIT and errors at query time; fail fast at
+        // startup instead (per-call topN is guarded separately in MemoryPageRankService.RankEntitiesAsync).
+        optionsBuilder
+            .Validate(o => o.DefaultTopN > 0, "GdsAnalyticsOptions.DefaultTopN must be greater than 0.")
+            .ValidateOnStart();
 
         services.TryAddScoped<IGdsAvailability, GdsAvailability>();
         services.TryAddScoped<IMemoryPageRankService, MemoryPageRankService>();

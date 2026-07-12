@@ -93,6 +93,12 @@ public static class ServiceCollectionExtensions
             truncationStrategies: sp.GetServices<ITruncationStrategy>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
 
+        // Context compressor (reflection/observation summarization). It uses an IChatClient when one is
+        // registered and degrades to a verbatim passthrough when not, so this binding is always safe to
+        // resolve. Without it, IContextCompressor consumers — e.g. the MCP memory-observations tool — fail
+        // to resolve at runtime (it was previously injected but registered by no AddX).
+        services.TryAddScoped<IContextCompressor, ContextCompressor>();
+
         // Role interfaces (ISP): bind each to the same scoped IMemoryService instance so consumers
         // can depend on a narrow contract (recall / ingestion / maintenance) without a second object.
         services.TryAddScoped<IMemoryRecall>(sp => sp.GetRequiredService<IMemoryService>());
