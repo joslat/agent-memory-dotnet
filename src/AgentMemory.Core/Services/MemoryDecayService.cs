@@ -68,6 +68,8 @@ internal sealed class MemoryDecayService : IMemoryDecayService
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        if (!Enum.IsDefined(nodeKind))
+            throw new ArgumentOutOfRangeException(nameof(nodeKind), nodeKind, "Unknown MemoryNodeKind.");
 
         // This is a pure computation—in the real Neo4j implementation the fields would
         // be fetched from the database. For the Core service we expose the formula so
@@ -101,6 +103,8 @@ internal sealed class MemoryDecayService : IMemoryDecayService
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        if (!Enum.IsDefined(nodeKind))
+            throw new ArgumentOutOfRangeException(nameof(nodeKind), nodeKind, "Unknown MemoryNodeKind.");
 
         // The actual timestamp update is performed in the repository layer
         // (Neo4j Cypher query). This Core implementation is a no-op pass-through
