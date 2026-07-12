@@ -371,6 +371,11 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
 
     public async Task<bool> MergeEntitiesAsync(string sourceEntityId, string targetEntityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
+        // A self-merge (same id for source and target) is meaningless and, run through the merge Cypher, would
+        // tombstone the entity (merged_into = itself) and destroy its own now-self-looping relationships — no-op.
+        if (string.Equals(sourceEntityId, targetEntityId, StringComparison.Ordinal))
+            return false;
+
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         _logger.LogDebug("Merging entity {SourceId} into {TargetId}, owner={Owner}", sourceEntityId, targetEntityId, scope?.OwnerId);

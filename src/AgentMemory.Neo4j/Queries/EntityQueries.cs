@@ -220,9 +220,15 @@ internal static class EntityQueries
     // ── MergeEntitiesAsync ─────────────────────────────────────────────
 
     /// <summary>
-    /// Merge a source entity into a target entity, transferring relationships and aliases. When scoped
-    /// (R1) BOTH source and target must be the owner's own (or shared) — so a merge can never reach
-    /// across the isolation boundary into another owner's entity. Null scope ⇒ unscoped (admin).
+    /// Merge a source entity into a target entity, transferring relationships and aliases. Moves MENTIONS
+    /// (message provenance), SAME_AS (dedup links), and all typed <c>RELATED_TO</c> relationships — both
+    /// outgoing and incoming, with every property (incl. the stable relationship id) preserved — from the
+    /// source onto the target. The merge is non-destructive: only edges that would collapse into a
+    /// target→target self-loop are dropped; every real relationship is re-pointed, never discarded (duplicate
+    /// same-typed edges are left for the consolidation layer, so temporally-distinct facts survive). When
+    /// scoped (R1) BOTH source and target must be the owner's own (or shared) — so a merge can never reach
+    /// across the isolation boundary into another owner's entity. Null scope ⇒ unscoped (admin). A self-merge
+    /// (source id == target id) is guarded as a no-op by the repository.
     /// </summary>
     public static string MergeEntities(bool hasOwnerFilter, bool includeShared)
     {
@@ -244,6 +250,34 @@ internal static class EntityQueries
                 WHERE other <> target AND NOT (target)-[:SAME_AS]-(other)
                 MERGE (target)-[:SAME_AS {confidence: r.confidence, match_type: r.match_type, created_at: datetime()}]-(other)
                 RETURN count(*) AS sameAsTransferred
+            }
+            // Re-point OUTGOING typed relationships: (source)-[RELATED_TO]->(x) ⇒ (target)-[RELATED_TO]->(x).
+            // RELATED_TO is a single fixed edge type carrying the semantic relation as the relation_type
+            // property, so every typed rel moves in pure Cypher (no APOC): recreate on target preserving every
+            // property (incl. the stable id) via properties(r), then delete the source edge. The ONLY edges
+            // dropped are those that would collapse into a self-loop (other end is target or source) — every
+            // real relationship is re-pointed, never discarded, so no fact/provenance/temporal history is lost.
+            // Duplicate same-typed edges are intentionally left for the dedup/consolidation layer: the merge is
+            // deliberately NON-DESTRUCTIVE (matching the library's soft-invalidate model — it never hard-deletes
+            // a real relationship, so temporally-distinct facts and their ids survive).
+            CALL (source, target) {
+                MATCH (source)-[r:RELATED_TO]->(x:Entity)
+                FOREACH (_ IN CASE WHEN x <> target AND x <> source THEN [1] ELSE [] END |
+                    CREATE (target)-[nr:RELATED_TO]->(x)
+                    SET nr = properties(r), nr.source_entity_id = target.id, nr.updated_at = datetime()
+                )
+                DELETE r
+                RETURN count(r) AS relatedOutgoingMoved
+            }
+            // Re-point INCOMING typed relationships: (y)-[RELATED_TO]->(source) ⇒ (y)-[RELATED_TO]->(target).
+            CALL (source, target) {
+                MATCH (y:Entity)-[r:RELATED_TO]->(source)
+                FOREACH (_ IN CASE WHEN y <> target AND y <> source THEN [1] ELSE [] END |
+                    CREATE (y)-[nr:RELATED_TO]->(target)
+                    SET nr = properties(r), nr.target_entity_id = target.id, nr.updated_at = datetime()
+                )
+                DELETE r
+                RETURN count(r) AS relatedIncomingMoved
             }
             SET source.merged_into = target.id, source.merged_at = datetime()
             WITH source, target,

@@ -225,6 +225,160 @@ public class EntityRepositoryIntegrationTests : IAsyncLifetime
             "the surviving target absorbs the source's name as an alias");
     }
 
+    // ── Merge re-points typed RELATED_TO relationships (1.0 completeness) ──
+
+    [Fact]
+    public async Task MergeEntitiesAsync_MovesOutgoingTypedRelationship_PreservingIdAndProperties()
+    {
+        var targetId = await SeedOwnedEntityAsync("Acme", "alice");
+        var sourceId = await SeedOwnedEntityAsync("Acme Corp", "alice");
+        var placeId = await SeedOwnedEntityAsync("London", "alice");
+        var relId = $"rel-{Guid.NewGuid():N}";
+        await SeedRelatedToAsync(relId, sourceId, placeId, "LOCATED_IN", "alice", confidence: 0.77);
+
+        (await _repo.MergeEntitiesAsync(sourceId, targetId, MemoryScope.For("alice")))
+            .Should().BeTrue();
+
+        (await CountRelatedToAsync(sourceId, placeId, "LOCATED_IN"))
+            .Should().Be(0, "the source's typed edge is moved off the tombstoned source");
+        (await CountRelatedToAsync(targetId, placeId, "LOCATED_IN"))
+            .Should().Be(1, "the typed relationship is re-pointed onto the surviving target");
+
+        var rel = await ReadRelByIdAsync(relId);
+        rel.Should().NotBeNull("the relationship keeps its stable id across the merge");
+        rel!.StartId.Should().Be(targetId);
+        rel.EndId.Should().Be(placeId);
+        rel.SourceProp.Should().Be(targetId, "source_entity_id is rewritten to the survivor");
+        rel.Confidence.Should().Be(0.77, "all other properties are preserved verbatim");
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_MovesIncomingTypedRelationship()
+    {
+        var targetId = await SeedOwnedEntityAsync("Acme", "alice");
+        var sourceId = await SeedOwnedEntityAsync("Acme Corp", "alice");
+        var personId = await SeedOwnedEntityAsync("Jane", "alice");
+        var relId = $"rel-{Guid.NewGuid():N}";
+        await SeedRelatedToAsync(relId, personId, sourceId, "WORKS_AT", "alice", confidence: 0.66);
+
+        (await _repo.MergeEntitiesAsync(sourceId, targetId, MemoryScope.For("alice")))
+            .Should().BeTrue();
+
+        (await CountRelatedToAsync(personId, sourceId, "WORKS_AT")).Should().Be(0);
+        (await CountRelatedToAsync(personId, targetId, "WORKS_AT"))
+            .Should().Be(1, "incoming typed relationships re-point to the survivor");
+
+        var rel = await ReadRelByIdAsync(relId);
+        rel!.StartId.Should().Be(personId);
+        rel.EndId.Should().Be(targetId);
+        rel.TargetProp.Should().Be(targetId, "target_entity_id is rewritten to the survivor");
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_DropsSelfLoops_ButPreservesEveryRealTypedRelationship()
+    {
+        var targetId = await SeedOwnedEntityAsync("Acme", "alice");
+        var sourceId = await SeedOwnedEntityAsync("Acme Corp", "alice");
+        var placeId = await SeedOwnedEntityAsync("London", "alice");
+
+        // (a) source → target itself: after the merge this collapses to a target→target self-loop, which is dropped.
+        await SeedRelatedToAsync($"rel-{Guid.NewGuid():N}", sourceId, targetId, "RENAMED_TO", "alice");
+        // (b) source AND target already point to place with the SAME relation_type: BOTH survive — the merge is
+        //     non-destructive and never discards a real relationship (a later consolidation pass may collapse them).
+        await SeedRelatedToAsync($"rel-{Guid.NewGuid():N}", sourceId, placeId, "LOCATED_IN", "alice");
+        await SeedRelatedToAsync($"rel-{Guid.NewGuid():N}", targetId, placeId, "LOCATED_IN", "alice");
+        // (c) source has a type target does NOT have to place: it moves.
+        await SeedRelatedToAsync($"rel-{Guid.NewGuid():N}", sourceId, placeId, "FOUNDED_IN", "alice");
+
+        (await _repo.MergeEntitiesAsync(sourceId, targetId, MemoryScope.For("alice")))
+            .Should().BeTrue();
+
+        (await CountRelatedToAsync(targetId, targetId, "RENAMED_TO"))
+            .Should().Be(0, "a collapsed self-loop is dropped, not created on the survivor");
+        (await CountRelatedToAsync(targetId, placeId, "LOCATED_IN"))
+            .Should().Be(2, "both the pre-existing and the re-pointed same-typed edge survive — merge is non-destructive");
+        (await CountRelatedToAsync(targetId, placeId, "FOUNDED_IN"))
+            .Should().Be(1, "a typed edge the target didn't have moves onto the target");
+        (await CountAnyRelatedOnAsync(sourceId))
+            .Should().Be(0, "the tombstoned source keeps no typed relationships after the merge");
+    }
+
+    [Fact]
+    public async Task MergeEntitiesAsync_SelfMerge_IsNoOp_AndPreservesRelationships()
+    {
+        var entityId = await SeedOwnedEntityAsync("Acme", "alice");
+        var placeId = await SeedOwnedEntityAsync("London", "alice");
+        var relId = $"rel-{Guid.NewGuid():N}";
+        await SeedRelatedToAsync(relId, entityId, placeId, "LOCATED_IN", "alice");
+
+        // Merging an entity into itself is meaningless; it must no-op — never tombstone the entity or
+        // destroy its own (now self-looping) relationships.
+        (await _repo.MergeEntitiesAsync(entityId, entityId, MemoryScope.For("alice")))
+            .Should().BeFalse("a self-merge (same id for source and target) is a guarded no-op");
+
+        (await _repo.GetByIdAsync(entityId)).Should().NotBeNull("the entity must not be tombstoned by a self-merge");
+        (await CountRelatedToAsync(entityId, placeId, "LOCATED_IN"))
+            .Should().Be(1, "the entity's own relationships must be left untouched");
+        (await ReadRelByIdAsync(relId)).Should().NotBeNull("no relationship is deleted by a self-merge");
+    }
+
+    private sealed record RelInfo(string StartId, string EndId, string SourceProp, string TargetProp, double Confidence);
+
+    private Task SeedRelatedToAsync(string relId, string fromEntityId, string toEntityId, string relationType, string? owner, double confidence = 0.9) =>
+        _fixture.TransactionRunner.WriteAsync(async runner =>
+        {
+            await runner.RunAsync(
+                @"MATCH (s:Entity {id: $fromId})
+                  MATCH (t:Entity {id: $toId})
+                  CREATE (s)-[r:RELATED_TO {id: $relId}]->(t)
+                  SET r.relation_type = $relationType,
+                      r.owner_id = $owner,
+                      r.source_entity_id = $fromId,
+                      r.target_entity_id = $toId,
+                      r.confidence = $confidence,
+                      r.created_at = datetime(),
+                      r.updated_at = datetime()",
+                new { relId, fromId = fromEntityId, toId = toEntityId, relationType, owner = (object?)owner, confidence });
+        });
+
+    private Task<long> CountRelatedToAsync(string fromEntityId, string toEntityId, string relationType) =>
+        _fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                @"MATCH (s:Entity {id: $fromId})-[r:RELATED_TO {relation_type: $rt}]->(t:Entity {id: $toId})
+                  RETURN count(r) AS c",
+                new { fromId = fromEntityId, toId = toEntityId, rt = relationType });
+            var rec = await cursor.SingleAsync();
+            return global::Neo4j.Driver.ValueExtensions.As<long>(rec["c"]);
+        });
+
+    private Task<long> CountAnyRelatedOnAsync(string entityId) =>
+        _fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                "MATCH (e:Entity {id: $id})-[r:RELATED_TO]-() RETURN count(r) AS c",
+                new { id = entityId });
+            var rec = await cursor.SingleAsync();
+            return global::Neo4j.Driver.ValueExtensions.As<long>(rec["c"]);
+        });
+
+    private Task<RelInfo?> ReadRelByIdAsync(string relId) =>
+        _fixture.TransactionRunner.ReadAsync<RelInfo?>(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                @"MATCH (a)-[r:RELATED_TO {id: $id}]->(b)
+                  RETURN a.id AS s, b.id AS e, r.source_entity_id AS srcp, r.target_entity_id AS tgtp, r.confidence AS conf",
+                new { id = relId });
+            if (!await cursor.FetchAsync()) return null;
+            var rec = cursor.Current;
+            return new RelInfo(
+                global::Neo4j.Driver.ValueExtensions.As<string>(rec["s"]),
+                global::Neo4j.Driver.ValueExtensions.As<string>(rec["e"]),
+                global::Neo4j.Driver.ValueExtensions.As<string>(rec["srcp"]),
+                global::Neo4j.Driver.ValueExtensions.As<string>(rec["tgtp"]),
+                global::Neo4j.Driver.ValueExtensions.As<double>(rec["conf"]));
+        });
+
     [Fact]
     public async Task SearchByLocationAsync_OwnerScoped_ExcludesOtherOwners()
     {
