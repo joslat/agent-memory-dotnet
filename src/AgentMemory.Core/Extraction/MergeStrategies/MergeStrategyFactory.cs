@@ -6,7 +6,7 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// <summary>
 /// Factory that creates the correct merge strategy for a given <see cref="MergeStrategyType"/>.
 /// </summary>
-public static class MergeStrategyFactory
+internal static class MergeStrategyFactory
 {
     /// <summary>
     /// Creates a merge strategy for <see cref="ExtractedEntity"/> items.

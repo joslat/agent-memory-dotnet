@@ -8,7 +8,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// Each method returns a new immutable instance, making instances safe to share across threads.
 /// Parameters always use <c>$paramName</c> syntax — never interpolated values.
 /// </remarks>
-public sealed class CypherBuilder
+internal sealed class CypherBuilder
 {
     private readonly IReadOnlyList<string> _lines;
     private readonly bool _whereStarted;

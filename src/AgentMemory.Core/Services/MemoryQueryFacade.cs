@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Services;
 /// store-preference/fact commands previously duplicated inside the framework adapters. Cancellation
 /// is propagated; all other failures are logged and returned as a failed <see cref="MemoryQueryResult"/>.
 /// </summary>
-public sealed class MemoryQueryFacade : IMemoryQueryFacade
+internal sealed class MemoryQueryFacade : IMemoryQueryFacade
 {
     private readonly ILongTermMemoryService _longTerm;
     private readonly IReasoningMemoryService _reasoning;

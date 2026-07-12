@@ -8,7 +8,7 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-public sealed class Neo4jConversationRepository : IConversationRepository
+internal sealed class Neo4jConversationRepository : IConversationRepository
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jConversationRepository> _logger;

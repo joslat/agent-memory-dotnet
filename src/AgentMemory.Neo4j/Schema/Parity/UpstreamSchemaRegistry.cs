@@ -10,7 +10,7 @@ namespace AgentMemory.Neo4j.Schema.Parity;
 /// <see cref="SchemaParityPolicy"/>). Parsing the rich capture down to a <see cref="SchemaDescriptor"/>
 /// (labels / relationship types / property names) lives here so the verifier stays format-agnostic.
 /// </summary>
-public sealed class UpstreamSchemaRegistry
+internal sealed class UpstreamSchemaRegistry
 {
     private const string ResourcePrefix = "AgentMemory.Neo4j.Schema.Parity.Snapshots.";
     private const string ResourceSuffix = ".json";

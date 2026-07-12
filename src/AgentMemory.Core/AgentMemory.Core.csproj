@@ -24,6 +24,13 @@
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+    <!-- Shared internal helpers (ConversationTextBuilder, SchemaLoader, MemoryContextFormatter,
+         MemoryQueryFacade) are consumed by these first-party provider/integration packages. Targeted
+         grants (not a blanket first-party list) keep the internal friend surface minimal. -->
+    <InternalsVisibleTo Include="AgentMemory.Neo4j" />
+    <InternalsVisibleTo Include="AgentMemory.Extraction.Llm" />
+    <InternalsVisibleTo Include="AgentMemory.SemanticKernel" />
+    <InternalsVisibleTo Include="AgentMemory.AgentFramework" />
   </ItemGroup>
 
 </Project>

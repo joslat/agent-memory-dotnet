@@ -11,7 +11,7 @@ namespace AgentMemory.Neo4j.Services;
 /// Cypher; dry runs use the <c>Count*</c> projection of each mutating query, so the reported counts
 /// match what an apply run does. Applied runs write a <c>:ConsolidationRun</c> audit node.
 /// </summary>
-public sealed class Neo4jConsolidationService : IConsolidationService
+internal sealed class Neo4jConsolidationService : IConsolidationService
 {
     // A "duplicate group" is 2+ nodes sharing the same key; we keep one and report/remove the rest.
     private const int DuplicateGroupMinSize = 2;

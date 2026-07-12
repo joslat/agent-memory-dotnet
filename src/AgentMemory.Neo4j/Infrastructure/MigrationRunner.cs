@@ -8,7 +8,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// Runs Cypher migration scripts in version order, tracking applied migrations
 /// in a (:Migration {version, appliedAtUtc}) node.
 /// </summary>
-public sealed class MigrationRunner : IMigrationRunner
+internal sealed class MigrationRunner : IMigrationRunner
 {
     private const string MigrationFolder = "Schema/Migrations";
 

@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.Llm;
 /// <summary>
 /// Extracts named entities from conversation messages using an LLM.
 /// </summary>
-public sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntityExtractor
+internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEntityExtractor
 {
     /// <summary>The canonical POLE+O entity types, used when no custom set is configured.</summary>
     internal static readonly IReadOnlyList<string> DefaultEntityTypes =

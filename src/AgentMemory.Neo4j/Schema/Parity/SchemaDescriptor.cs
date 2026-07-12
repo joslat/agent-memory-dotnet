@@ -6,7 +6,7 @@ namespace AgentMemory.Neo4j.Schema.Parity;
 /// <see cref="AgentMemory.Abstractions.Schema.SchemaConstants"/>) and a captured upstream snapshot are
 /// projected into this shape so they can be compared by <see cref="SchemaParityVerifier"/>.
 /// </summary>
-public sealed record SchemaDescriptor(
+internal sealed record SchemaDescriptor(
     string Version,
     IReadOnlySet<string> NodeLabels,
     IReadOnlySet<string> RelationshipTypes,

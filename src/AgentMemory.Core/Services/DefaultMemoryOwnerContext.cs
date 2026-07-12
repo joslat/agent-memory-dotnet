@@ -8,7 +8,7 @@ namespace AgentMemory.Core.Services;
 /// under concurrency: each request/agent-run flow sees its own value (set e.g. by the MAF provider for
 /// that turn), and concurrent flows cannot bleed into one another (IC8, mirrors the store context).
 /// </summary>
-public sealed class DefaultMemoryOwnerContext : IWritableMemoryOwnerContext
+internal sealed class DefaultMemoryOwnerContext : IWritableMemoryOwnerContext
 {
     private readonly AsyncLocal<string?> _userId = new();
 

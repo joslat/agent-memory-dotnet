@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Centralized Cypher queries for ToolCall operations.
 /// </summary>
-public static class ToolCallQueries
+internal static class ToolCallQueries
 {
     /// <summary>Create a new ToolCall node and link it to its parent ReasoningStep.</summary>
     public const string Add = @"

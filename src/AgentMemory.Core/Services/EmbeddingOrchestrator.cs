@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// failures are logged and degraded to empty vectors so callers always receive an array aligned
 /// with their input.
 /// </summary>
-public sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
+internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
 {
     private readonly IEmbeddingGenerator<string, Embedding<float>> _generator;
     private readonly ILogger<EmbeddingOrchestrator> _logger;

@@ -17,7 +17,7 @@ namespace AgentMemory.Neo4j.Services;
 /// when non-destructive is disabled. When a <see cref="MemoryScope"/> with an owner is supplied (R1) the prune is
 /// owner-scoped (own nodes only — never another owner's, never shared/global); a null scope prunes globally (admin).
 /// </summary>
-public sealed class Neo4jMemoryDecayService : IMemoryDecayService
+internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
 {
     /// <summary>Labels whose decay/pruning is supported. Guards the label-interpolating Cypher against injection.</summary>
     private static readonly IReadOnlyList<string> PrunableLabels = new[] { "Entity", "Fact", "Preference" };

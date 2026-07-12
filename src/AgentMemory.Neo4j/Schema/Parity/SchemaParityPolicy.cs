@@ -6,7 +6,7 @@ namespace AgentMemory.Neo4j.Schema.Parity;
 /// these allowlists (a dropped label, a renamed property, a brand-new undocumented divergence, or an
 /// upstream version that caught up to a .NET superset) is reported as a compatibility break.
 /// </summary>
-public sealed record SchemaParityPolicy(
+internal sealed record SchemaParityPolicy(
     string UpstreamVersion,
     IReadOnlySet<string> UpstreamOnlyLabels,
     IReadOnlySet<string> NetOnlyLabels,

@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Stubs;
 /// registered (the default) this performs full extraction; the legacy type name is retained for
 /// source compatibility.
 /// </summary>
-public sealed class StubExtractionPipeline : IMemoryExtractionPipeline
+internal sealed class StubExtractionPipeline : IMemoryExtractionPipeline
 {
     private readonly IEntityExtractor _entityExtractor;
     private readonly IFactExtractor _factExtractor;

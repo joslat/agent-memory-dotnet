@@ -8,7 +8,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// ("what was true in the world at that time"). A single-clock caller passes both equal. The by-id AsOf
 /// constants remain single-clock (<c>$asOf</c>) — a direct handle lookup has no need for two clocks.
 /// </summary>
-public static class TemporalQueries
+internal static class TemporalQueries
 {
     /// <summary>The owner/shared AsOf-search AND-clause for node alias <c>node</c>, or empty when unscoped (R1).</summary>
     private static string OwnerAnd(bool hasOwnerFilter, bool includeShared) =>

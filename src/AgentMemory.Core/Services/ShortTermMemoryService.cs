@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for short-term (conversational) memory operations.
 /// </summary>
-public sealed class ShortTermMemoryService : IShortTermMemoryService
+internal sealed class ShortTermMemoryService : IShortTermMemoryService
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;

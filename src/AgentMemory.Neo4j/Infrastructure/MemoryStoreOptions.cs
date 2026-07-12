@@ -59,7 +59,7 @@ public sealed class MemoryStoreOptions
 /// Concurrent requests therefore cannot corrupt each other's store routing (R1b). Setting it flows to
 /// every awaited call downstream on the same logical async context — including the session factory.
 /// </summary>
-public sealed class DefaultMemoryStoreContext : IWritableMemoryStoreContext
+internal sealed class DefaultMemoryStoreContext : IWritableMemoryStoreContext
 {
     private readonly AsyncLocal<string?> _applicationId = new();
 

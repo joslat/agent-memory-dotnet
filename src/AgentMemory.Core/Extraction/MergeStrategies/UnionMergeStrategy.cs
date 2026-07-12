@@ -8,7 +8,7 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// For entities: case-insensitive name. For facts: (subject, predicate, object) triple.
 /// When duplicates exist, keeps the one with the highest confidence.
 /// </summary>
-public sealed class UnionMergeStrategy<T> : IMergeStrategy<T> where T : class
+internal sealed class UnionMergeStrategy<T> : IMergeStrategy<T> where T : class
 {
     private readonly Func<T, string> _keySelector;
     private readonly Func<T, double> _confidenceSelector;

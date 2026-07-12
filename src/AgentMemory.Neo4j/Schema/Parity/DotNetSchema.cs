@@ -9,7 +9,7 @@ namespace AgentMemory.Neo4j.Schema.Parity;
 /// of truth for "what the .NET port's schema actually is" — used by both the parity test and the CLI
 /// self-verification, so they can never disagree.
 /// </summary>
-public static class DotNetSchema
+internal static class DotNetSchema
 {
     /// <summary>Builds a descriptor of the current .NET schema.</summary>
     public static SchemaDescriptor Describe() => new(

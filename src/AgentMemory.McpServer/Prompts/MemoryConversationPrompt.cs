@@ -8,7 +8,7 @@ namespace AgentMemory.McpServer.Prompts;
 /// MCP prompt that initializes a memory-aware conversation session.
 /// </summary>
 [McpServerPromptType]
-public sealed class MemoryConversationPrompt
+internal sealed class MemoryConversationPrompt
 {
     /// <summary>
     /// Returns system instructions for starting a memory-aware conversation.

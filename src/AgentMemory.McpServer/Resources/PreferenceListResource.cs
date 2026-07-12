@@ -9,7 +9,7 @@ namespace AgentMemory.McpServer.Resources;
 /// MCP resource that lists preferences grouped by category.
 /// </summary>
 [McpServerResourceType]
-public sealed class PreferenceListResource
+internal sealed class PreferenceListResource
 {
     [McpServerResource(UriTemplate = "memory://preferences", Name = "memory_preferences", MimeType = "application/json"),
      Description("Returns preferences grouped by category.")]

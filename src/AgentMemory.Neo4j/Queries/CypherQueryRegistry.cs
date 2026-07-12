@@ -5,7 +5,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Discovers all centralized Cypher query constants via reflection for EXPLAIN validation.
 /// </summary>
-public static class CypherQueryRegistry
+internal static class CypherQueryRegistry
 {
     /// <summary>
     /// Returns all (name, cypherText) pairs from all *Queries classes in this assembly.
@@ -14,7 +14,7 @@ public static class CypherQueryRegistry
     {
         var queryTypes = typeof(CypherQueryRegistry).Assembly
             .GetTypes()
-            .Where(t => t.IsPublic && t.IsAbstract && t.IsSealed // static classes
+            .Where(t => !t.IsNested && t.IsAbstract && t.IsSealed // top-level static classes (public or internal)
                         && t.Name.EndsWith("Queries")
                         && t.Namespace == "AgentMemory.Neo4j.Queries");
 

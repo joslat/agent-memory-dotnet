@@ -15,4 +15,10 @@
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.5.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- SchemaConstants (internal Neo4j backend label/property/edge strings) is consumed by the Neo4j
+         provider package. Targeted grant only. -->
+    <InternalsVisibleTo Include="AgentMemory.Neo4j" />
+  </ItemGroup>
+
 </Project>

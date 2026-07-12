@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.AzureLanguage;
 /// Extracts facts from conversation messages using Azure AI Text Analytics
 /// (key phrases and linked entity recognition).
 /// </summary>
-public sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, IFactExtractor
+internal sealed class AzureLanguageFactExtractor : ExtractorBase<ExtractedFact>, IFactExtractor
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;

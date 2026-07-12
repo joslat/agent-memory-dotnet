@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Stubs;
 /// <summary>
 /// Phase 1 stub: returns no entities. Replace in Phase 2 with an AI-backed extractor.
 /// </summary>
-public sealed class StubEntityExtractor : IEntityExtractor
+internal sealed class StubEntityExtractor : IEntityExtractor
 {
     private readonly ILogger<StubEntityExtractor> _logger;
 

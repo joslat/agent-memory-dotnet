@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Services;
 /// Score formula: baseConfidence × e^(−λ × daysSinceLastAccess) + accessBoost × accessCount
 /// where λ = ln(2) / halfLifeDays.
 /// </summary>
-public sealed class MemoryDecayService : IMemoryDecayService
+internal sealed class MemoryDecayService : IMemoryDecayService
 {
     private readonly IEntityRepository _entityRepo;
     private readonly IFactRepository _factRepo;

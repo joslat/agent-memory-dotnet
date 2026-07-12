@@ -9,7 +9,7 @@ namespace AgentMemory.Core.Schema;
 /// and provides built-in POLE+O and legacy schema factories.
 /// YAML is not supported to avoid third-party dependencies; use JSON.
 /// </summary>
-public static class SchemaLoader
+internal static class SchemaLoader
 {
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {

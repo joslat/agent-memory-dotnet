@@ -5,7 +5,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Cypher for normalized memory-history reads over long-term memory nodes.
 /// </summary>
-public static class HistoryQueries
+internal static class HistoryQueries
 {
     public static string List(MemoryHistoryKind? kind)
     {

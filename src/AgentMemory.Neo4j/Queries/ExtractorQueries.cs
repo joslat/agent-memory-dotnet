@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Centralized Cypher queries for Extractor operations.
 /// </summary>
-public static class ExtractorQueries
+internal static class ExtractorQueries
 {
     /// <summary>Upsert an Extractor node by name.</summary>
     public const string Upsert = @"

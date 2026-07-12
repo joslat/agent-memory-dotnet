@@ -12,7 +12,7 @@ namespace AgentMemory.Neo4j.Repositories;
 /// <summary>
 /// Neo4j implementation of <see cref="IExtractorRepository"/>.
 /// </summary>
-public sealed class Neo4jExtractorRepository : IExtractorRepository
+internal sealed class Neo4jExtractorRepository : IExtractorRepository
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jExtractorRepository> _logger;

@@ -10,7 +10,7 @@ namespace AgentMemory.Neo4j.Services;
 /// Neo4j-backed <see cref="IConflictDetectionService"/>. Detect-only: runs read Cypher grouping facts
 /// by subject + predicate within an owner scope and reports groups with multiple distinct objects.
 /// </summary>
-public sealed class Neo4jConflictDetectionService : IConflictDetectionService
+internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly IClock _clock;

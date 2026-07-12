@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.AzureLanguage;
 /// Extracts relationships between co-occurring entities in conversation messages
 /// using Azure AI Text Analytics.
 /// </summary>
-public sealed class AzureLanguageRelationshipExtractor : ExtractorBase<ExtractedRelationship>, IRelationshipExtractor
+internal sealed class AzureLanguageRelationshipExtractor : ExtractorBase<ExtractedRelationship>, IRelationshipExtractor
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;

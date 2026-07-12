@@ -13,7 +13,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Token-budget-aware observation retrieval tool for MCP.
 /// </summary>
 [McpServerToolType]
-public sealed class ObservationTools
+internal sealed class ObservationTools
 {
     [McpServerTool(Name = "memory_get_observations"), Description("Get compressed observations from memory within a token budget. Retrieves recent context and compresses it to fit the specified token limit.")]
     public static async Task<string> MemoryGetObservations(

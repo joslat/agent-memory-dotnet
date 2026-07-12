@@ -9,7 +9,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// distinct from <c>schema-parity</c> (static check that the .NET schema is compatible with the upstream
 /// Python snapshot).
 /// </summary>
-public static class SchemaConformance
+internal static class SchemaConformance
 {
     /// <summary>
     /// The names of every constraint and index the bootstrap creates for the given embedding

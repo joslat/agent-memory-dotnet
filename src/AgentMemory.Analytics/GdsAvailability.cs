@@ -5,7 +5,7 @@ using Neo4j.Driver;
 namespace AgentMemory.Analytics;
 
 /// <inheritdoc/>
-public sealed class GdsAvailability : IGdsAvailability
+internal sealed class GdsAvailability : IGdsAvailability
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<GdsAvailability> _logger;

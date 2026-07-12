@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Centralized Cypher queries for Conversation operations.
 /// </summary>
-public static class ConversationQueries
+internal static class ConversationQueries
 {
     /// <summary>Upsert a Conversation node by id.</summary>
     public const string Upsert = @"

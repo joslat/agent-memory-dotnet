@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for long-term (structured knowledge) memory operations.
 /// </summary>
-public sealed class LongTermMemoryService : ILongTermMemoryService
+internal sealed class LongTermMemoryService : ILongTermMemoryService
 {
     private readonly IEntityRepository _entityRepo;
     private readonly IFactRepository _factRepo;

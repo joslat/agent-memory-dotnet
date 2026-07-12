@@ -3,7 +3,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// <summary>
 /// Cypher queries for memory decay, access tracking, and pruning.
 /// </summary>
-public static class DecayQueries
+internal static class DecayQueries
 {
     /// <summary>
     /// Updates <c>last_accessed_at</c> to now, increments <c>access_count</c>, and records a

@@ -9,7 +9,7 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 /// In the multi-extractor pipeline, failed extractors return empty lists,
 /// so this effectively uses the first extractor that didn't throw.
 /// </summary>
-public sealed class FirstSuccessMergeStrategy<T> : IMergeStrategy<T> where T : class
+internal sealed class FirstSuccessMergeStrategy<T> : IMergeStrategy<T> where T : class
 {
     /// <inheritdoc/>
     public MergeStrategyType StrategyType => MergeStrategyType.FirstSuccess;

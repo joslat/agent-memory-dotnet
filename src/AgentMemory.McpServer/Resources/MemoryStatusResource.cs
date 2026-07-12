@@ -13,7 +13,7 @@ namespace AgentMemory.McpServer.Resources;
 /// these counts are additionally physically isolated per store.
 /// </summary>
 [McpServerResourceType]
-public sealed class MemoryStatusResource
+internal sealed class MemoryStatusResource
 {
     [McpServerResource(UriTemplate = "memory://status", Name = "memory_status", MimeType = "application/json"),
      Description("Returns current memory statistics: entity count, fact count, preference count, conversation count, message count.")]

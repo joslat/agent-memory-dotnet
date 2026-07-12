@@ -6,7 +6,7 @@ using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Infrastructure;
 
-public sealed class SchemaBootstrapper : ISchemaBootstrapper
+internal sealed class SchemaBootstrapper : ISchemaBootstrapper
 {
     private readonly INeo4jTransactionRunner _txRunner;
     private readonly ILogger<SchemaBootstrapper> _logger;

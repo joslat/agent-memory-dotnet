@@ -10,7 +10,7 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-public sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
+internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jReasoningTraceRepository> _logger;

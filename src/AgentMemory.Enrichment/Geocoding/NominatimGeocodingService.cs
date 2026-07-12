@@ -10,7 +10,7 @@ namespace AgentMemory.Enrichment;
 /// <summary>
 /// Geocoding service backed by the Nominatim OpenStreetMap API.
 /// </summary>
-public sealed class NominatimGeocodingService : IGeocodingService
+internal sealed class NominatimGeocodingService : IGeocodingService
 {
     internal const string ClientName = "Nominatim";
     private static readonly JsonSerializerOptions JsonOptions = new()

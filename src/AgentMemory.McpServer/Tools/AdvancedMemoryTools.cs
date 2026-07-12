@@ -11,7 +11,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Advanced memory tools: record tool calls, export graph, find duplicates, extract and persist.
 /// </summary>
 [McpServerToolType]
-public sealed class AdvancedMemoryTools
+internal sealed class AdvancedMemoryTools
 {
     [McpServerTool(Name = "memory_record_tool_call"), Description("Records a tool call for a reasoning trace step. Associates a tool invocation with an existing reasoning step.")]
     public static async Task<string> MemoryRecordToolCall(

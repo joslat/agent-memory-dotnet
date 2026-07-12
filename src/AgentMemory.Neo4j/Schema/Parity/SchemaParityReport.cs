@@ -8,7 +8,7 @@ namespace AgentMemory.Neo4j.Schema.Parity;
 /// empty; the <see cref="DocumentedDivergences"/> list records the intentional deltas that were present
 /// (informational, never a failure).
 /// </summary>
-public sealed record SchemaParityReport(
+internal sealed record SchemaParityReport(
     string UpstreamVersion,
     IReadOnlyList<string> MissingLabels,
     IReadOnlyList<string> MissingRelationshipTypes,

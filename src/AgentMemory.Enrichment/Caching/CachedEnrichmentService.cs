@@ -9,7 +9,7 @@ namespace AgentMemory.Enrichment;
 /// <summary>
 /// Caching decorator for <see cref="IEnrichmentService"/> using in-memory cache.
 /// </summary>
-public sealed class CachedEnrichmentService : IEnrichmentService
+internal sealed class CachedEnrichmentService : IEnrichmentService
 {
     private readonly IEnrichmentService _inner;
     private readonly IMemoryCache _cache;

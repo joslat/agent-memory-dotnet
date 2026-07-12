@@ -10,7 +10,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Graph query tool: execute arbitrary Cypher queries.
 /// </summary>
 [McpServerToolType]
-public sealed class GraphQueryTools
+internal sealed class GraphQueryTools
 {
     [McpServerTool(Name = "graph_query"), Description("Execute a Cypher query against the Neo4j knowledge graph. Only available when explicitly enabled in server configuration.")]
     public static async Task<string> GraphQuery(

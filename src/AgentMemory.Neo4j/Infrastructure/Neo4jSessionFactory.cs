@@ -11,7 +11,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// resolution collapses to the configured <see cref="Neo4jOptions.Database"/> — identical to the
 /// original single-store behavior.
 /// </summary>
-public sealed class Neo4jSessionFactory : INeo4jSessionFactory
+internal sealed class Neo4jSessionFactory : INeo4jSessionFactory
 {
     private readonly INeo4jDriverFactory _driverFactory;
     private readonly MemoryStoreOptions _storeOptions;

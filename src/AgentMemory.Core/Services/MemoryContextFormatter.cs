@@ -9,7 +9,7 @@ namespace AgentMemory.Core.Services;
 /// logic lives in Core so framework adapters (e.g. the Semantic Kernel plugin) remain thin and do
 /// not carry formatting code of their own.
 /// </summary>
-public static class MemoryContextFormatter
+internal static class MemoryContextFormatter
 {
     /// <summary>
     /// Formats the recalled context as Markdown, or returns an empty string when nothing was retrieved.

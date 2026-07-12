@@ -9,7 +9,7 @@ namespace AgentMemory.Enrichment;
 /// <summary>
 /// Caching decorator for <see cref="IGeocodingService"/> using in-memory cache.
 /// </summary>
-public sealed class CachedGeocodingService : IGeocodingService
+internal sealed class CachedGeocodingService : IGeocodingService
 {
     private readonly IGeocodingService _inner;
     private readonly IMemoryCache _cache;

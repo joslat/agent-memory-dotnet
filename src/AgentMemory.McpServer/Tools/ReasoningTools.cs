@@ -9,7 +9,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Reasoning trace tools: start, record step, complete.
 /// </summary>
 [McpServerToolType]
-public sealed class ReasoningTools
+internal sealed class ReasoningTools
 {
     [McpServerTool(Name = "memory_start_trace"), Description("Start a new reasoning trace to track an agent's multi-step problem solving process.")]
     public static async Task<string> MemoryStartTrace(

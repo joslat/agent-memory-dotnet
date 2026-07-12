@@ -7,7 +7,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// Supported operators: <c>$eq</c>, <c>$ne</c>, <c>$contains</c>, <c>$in</c>, <c>$exists</c>.
 /// Values are always bound as parameters to prevent Cypher injection.
 /// </remarks>
-public static class MetadataFilterBuilder
+internal static class MetadataFilterBuilder
 {
     /// <summary>
     /// Builds a WHERE clause fragment and a parameter dictionary from <paramref name="filters"/>.

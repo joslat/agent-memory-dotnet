@@ -11,7 +11,7 @@ namespace AgentMemory.Extraction.AzureLanguage;
 /// Extracts user preferences from conversation messages using Azure AI Text Analytics
 /// (sentiment analysis combined with key phrase extraction).
 /// </summary>
-public sealed class AzureLanguagePreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
+internal sealed class AzureLanguagePreferenceExtractor : ExtractorBase<ExtractedPreference>, IPreferenceExtractor
 {
     private readonly ITextAnalyticsClientWrapper _client;
     private readonly AzureLanguageOptions _options;

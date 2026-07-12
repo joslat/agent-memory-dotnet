@@ -7,7 +7,7 @@ namespace AgentMemory.Core.Validation;
 /// Static utility for validating extracted entities before persistence.
 /// Ports the 221-stopword validation logic from the Python reference implementation.
 /// </summary>
-public static class EntityValidator
+internal static class EntityValidator
 {
     // ~221 common English stopwords — case-insensitive comparison applied at call site
     private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)

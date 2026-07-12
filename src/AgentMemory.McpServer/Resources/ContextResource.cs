@@ -11,7 +11,7 @@ namespace AgentMemory.McpServer.Resources;
 /// MCP resource that returns assembled memory context for a session.
 /// </summary>
 [McpServerResourceType]
-public sealed class ContextResource
+internal sealed class ContextResource
 {
     [McpServerResource(UriTemplate = "memory://context/{session_id}", Name = "memory_context", MimeType = "application/json"),
      Description("Returns assembled memory context for a given session, including recent messages, relevant entities, facts, and preferences.")]

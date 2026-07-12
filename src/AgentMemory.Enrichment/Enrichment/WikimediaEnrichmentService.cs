@@ -10,7 +10,7 @@ namespace AgentMemory.Enrichment;
 /// <summary>
 /// Enrichment service backed by the Wikipedia REST API (Wikimedia).
 /// </summary>
-public sealed class WikimediaEnrichmentService : IEnrichmentService
+internal sealed class WikimediaEnrichmentService : IEnrichmentService
 {
     internal const string ClientName = "Wikipedia";
     private static readonly JsonSerializerOptions JsonOptions = new()

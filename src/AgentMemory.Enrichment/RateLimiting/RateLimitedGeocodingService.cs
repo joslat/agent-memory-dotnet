@@ -9,7 +9,7 @@ namespace AgentMemory.Enrichment;
 /// Rate-limiting decorator for <see cref="IGeocodingService"/>.
 /// Ensures at most N requests per second are forwarded to the inner service.
 /// </summary>
-public sealed class RateLimitedGeocodingService : IGeocodingService, IDisposable
+internal sealed class RateLimitedGeocodingService : IGeocodingService, IDisposable
 {
     private readonly IGeocodingService _inner;
     private readonly int _rateLimitPerSecond;

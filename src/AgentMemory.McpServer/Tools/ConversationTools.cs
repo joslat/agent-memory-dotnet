@@ -10,7 +10,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Conversation tools: get conversation history, list sessions.
 /// </summary>
 [McpServerToolType]
-public sealed class ConversationTools
+internal sealed class ConversationTools
 {
     [McpServerTool(Name = "memory_get_conversation"), Description("Get the message history for a specific conversation.")]
     public static async Task<string> MemoryGetConversation(

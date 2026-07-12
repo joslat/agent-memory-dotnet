@@ -6,7 +6,7 @@ namespace AgentMemory.Neo4j.Schema.Parity;
 /// <see cref="SchemaParityReport"/>. Reusable across the unit/regression test and the
 /// <c>agentmemory schema-parity</c> CLI self-verification, so both judge compatibility identically.
 /// </summary>
-public static class SchemaParityVerifier
+internal static class SchemaParityVerifier
 {
     /// <summary>
     /// Verifies the live .NET schema against the embedded upstream snapshot for

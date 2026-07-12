@@ -13,7 +13,7 @@ namespace AgentMemory.McpServer.Tools;
 /// Core memory tools: search, context, store, add entity/preference/fact.
 /// </summary>
 [McpServerToolType]
-public sealed class CoreMemoryTools
+internal sealed class CoreMemoryTools
 {
     [McpServerTool(Name = "memory_search"), Description("Search agent memory for relevant context matching a query. Returns assembled memory context with recent messages, entities, facts, and preferences.")]
     public static async Task<string> MemorySearch(

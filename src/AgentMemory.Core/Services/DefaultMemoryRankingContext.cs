@@ -9,7 +9,7 @@ namespace AgentMemory.Core.Services;
 /// each recall flow sees its own per-request ranking override (set by the assembler from the recall's
 /// <c>Intent</c>), and concurrent recalls cannot bleed into one another (mirrors the owner/store contexts).
 /// </summary>
-public sealed class DefaultMemoryRankingContext : IWritableMemoryRankingContext
+internal sealed class DefaultMemoryRankingContext : IWritableMemoryRankingContext
 {
     private readonly AsyncLocal<MemoryRankingOptions?> _current = new();
 
