@@ -35,7 +35,9 @@ internal static class MetadataFilterBuilder
 
         foreach (var (key, operatorSpec) in filters)
         {
-            if (operatorSpec is not Dictionary<string, object> ops)
+            // Accept any IReadOnlyDictionary shape for the per-key operator spec (not just a concrete
+            // Dictionary), so a caller passing ReadOnlyDictionary/ImmutableDictionary isn't silently ignored.
+            if (operatorSpec is not IReadOnlyDictionary<string, object> ops)
                 continue;
 
             foreach (var (op, value) in ops)
