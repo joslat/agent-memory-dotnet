@@ -20,12 +20,6 @@ namespace AgentMemory.Neo4j.Services;
 /// </summary>
 internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
 {
-    /// <summary>Labels whose decay/pruning is supported. Guards the label-interpolating Cypher against injection.</summary>
-    private static readonly IReadOnlyList<string> PrunableLabels = new[] { "Entity", "Fact", "Preference" };
-
-    private static readonly HashSet<string> AllowedLabels =
-        new(PrunableLabels, StringComparer.Ordinal);
-
     private readonly INeo4jTransactionRunner _tx;
     private readonly IClock _clock;
     private readonly MemoryDecayOptions _options;
@@ -103,6 +97,10 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        // The label is interpolated into Cypher, so guard against an out-of-range cast (which would ToString()
+        // to a numeric label and cause a Neo4j syntax error) — fail fast with a clear argument error instead.
+        if (!Enum.IsDefined(nodeKind))
+            throw new ArgumentOutOfRangeException(nameof(nodeKind), nodeKind, "Unknown MemoryNodeKind.");
         var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
 
         var cypher = DecayQueries.GetRetentionFields(label);
@@ -132,6 +130,10 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        // The label is interpolated into Cypher, so guard against an out-of-range cast (which would ToString()
+        // to a numeric label and cause a Neo4j syntax error) — fail fast with a clear argument error instead.
+        if (!Enum.IsDefined(nodeKind))
+            throw new ArgumentOutOfRangeException(nameof(nodeKind), nodeKind, "Unknown MemoryNodeKind.");
         var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
 
         var cypher = DecayQueries.UpdateAccessTimestamp(label);
