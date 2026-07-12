@@ -49,13 +49,16 @@ public sealed class AgentTraceRecorder
     }
 
     /// <summary>Starts a new reasoning trace for an agent run.</summary>
-    /// <param name="task">Human-readable description of the task the agent is performing.</param>
     /// <param name="sessionId">Session identifier that scopes this trace to a conversation.</param>
+    /// <param name="task">Human-readable description of the task the agent is performing.</param>
+    /// <param name="ownerId">Optional owner id that scopes the trace to a user (R1).</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The created <see cref="ReasoningTrace"/> with its assigned <c>TraceId</c>.</returns>
+    // Parameter order is (sessionId, task) to match IReasoningMemoryService.StartTraceAsync — the two strings
+    // are easy to transpose, and a mismatch here would silently tag traces with the task as the session.
     public async Task<ReasoningTrace> StartTraceAsync(
-        string task,
         string sessionId,
+        string task,
         string? ownerId = null,
         CancellationToken cancellationToken = default)
     {

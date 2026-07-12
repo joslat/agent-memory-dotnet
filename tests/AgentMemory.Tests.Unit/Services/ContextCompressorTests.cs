@@ -29,7 +29,7 @@ public sealed class ContextCompressorTests
             .GetResponseAsync(Arg.Any<IList<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>())
             .Returns(ci => new ChatResponse([new ChatMessage(ChatRole.Assistant, "Summary of conversation.")]));
 
-        _sut = new ContextCompressor(_chatClient, NullLogger<ContextCompressor>.Instance);
+        _sut = new ContextCompressor(NullLogger<ContextCompressor>.Instance, _chatClient);
     }
 
     [Fact]
@@ -56,6 +56,24 @@ public sealed class ContextCompressorTests
         var result = await _sut.CompressAsync(messages, _defaultOptions);
 
         result.WasCompressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CompressAsync_OverThreshold_NoChatClient_DegradesToPassthrough()
+    {
+        // Without an IChatClient there is no way to summarize; the compressor must keep messages verbatim
+        // rather than throw, so it can be resolved in deployments that never registered an LLM.
+        var sut = new ContextCompressor(NullLogger<ContextCompressor>.Instance, chatClient: null);
+        var messages = Enumerable.Range(1, 6)
+            .Select(i => CreateMessage($"m{i}", new string('x', 100)))
+            .ToArray();
+
+        var result = await sut.CompressAsync(messages, _defaultOptions);
+
+        result.WasCompressed.Should().BeFalse();
+        result.RecentMessages.Should().Equal(messages, "passthrough keeps the messages verbatim and in order");
+        result.Observations.Should().BeEmpty();
+        result.Reflections.Should().BeEmpty();
     }
 
     [Fact]

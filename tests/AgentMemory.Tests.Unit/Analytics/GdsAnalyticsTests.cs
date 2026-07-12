@@ -143,4 +143,22 @@ public sealed class GdsAnalyticsTests
         scope.ServiceProvider.GetRequiredService<IMemoryPageRankService>().Should().NotBeNull();
         scope.ServiceProvider.GetRequiredService<IMemoryCommunityService>().Should().NotBeNull();
     }
+
+    // ── RankEntitiesAsync: topN input guard (runs before the GDS-availability probe) ──
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task RankEntitiesAsync_NonPositiveTopN_Throws(int topN)
+    {
+        var sut = new MemoryPageRankService(
+            Substitute.For<INeo4jTransactionRunner>(),
+            Substitute.For<IGdsAvailability>(),
+            Options.Create(new GdsAnalyticsOptions()),
+            NullLogger<MemoryPageRankService>.Instance);
+
+        var act = async () => await sut.RankEntitiesAsync(topN: topN);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
 }

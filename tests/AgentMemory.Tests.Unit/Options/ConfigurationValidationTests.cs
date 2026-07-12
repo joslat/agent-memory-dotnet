@@ -323,9 +323,9 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
-    public void LlmExtractionOptions_Default_ModelIdIsEmpty()
+    public void LlmExtractionOptions_Default_ModelIdIsNull()
     {
-        new LlmExtractionOptions().ModelId.Should().BeEmpty();
+        new LlmExtractionOptions().ModelId.Should().BeNull();
     }
 
     [Fact]

@@ -14,20 +14,22 @@ internal sealed class ContextCompressor : IContextCompressor
 {
     private const int CharsPerToken = 4;
 
-    private readonly IChatClient _chatClient;
+    private readonly IChatClient? _chatClient;
     private readonly ILogger<ContextCompressor> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ContextCompressor"/> class.
     /// </summary>
-    /// <param name="chatClient">The chat client used to generate observation summaries and reflections.</param>
     /// <param name="logger">The logger used to record compression diagnostics.</param>
+    /// <param name="chatClient">The chat client used to generate observation summaries and reflections.
+    /// Optional: when no <see cref="IChatClient"/> is registered, compression degrades to a passthrough
+    /// (messages are kept verbatim), so the compressor can be resolved in deployments without an LLM.</param>
     public ContextCompressor(
-        IChatClient chatClient,
-        ILogger<ContextCompressor> logger)
+        ILogger<ContextCompressor> logger,
+        IChatClient? chatClient = null)
     {
-        _chatClient = chatClient;
         _logger = logger;
+        _chatClient = chatClient;
     }
 
     /// <inheritdoc/>
@@ -54,6 +56,23 @@ internal sealed class ContextCompressor : IContextCompressor
 
         if (originalTokenCount <= options.TokenThreshold)
         {
+            return new CompressedContext
+            {
+                RecentMessages = messages,
+                WasCompressed = false,
+                OriginalTokenCount = originalTokenCount,
+                CompressedTokenCount = originalTokenCount
+            };
+        }
+
+        // No LLM available: keep everything verbatim rather than failing. Compression (observation/reflection
+        // summarization) is inherently LLM-backed, so without an IChatClient the honest behavior is a
+        // passthrough — the caller still gets a usable (uncompressed) context.
+        if (_chatClient is null)
+        {
+            _logger.LogDebug(
+                "Context compression skipped: {Tokens} tokens exceeds threshold {Threshold}, but no IChatClient is registered.",
+                originalTokenCount, options.TokenThreshold);
             return new CompressedContext
             {
                 RecentMessages = messages,
@@ -140,7 +159,8 @@ internal sealed class ContextCompressor : IContextCompressor
                 new(ChatRole.User, conversationText)
             };
 
-            var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken).ConfigureAwait(false);
+            // Non-null here: these summarization helpers run only after CompressAsync's null-IChatClient guard.
+            var response = await _chatClient!.GetResponseAsync(chatMessages, cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.Text?.Trim() ?? string.Empty;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -171,7 +191,8 @@ internal sealed class ContextCompressor : IContextCompressor
                 new(ChatRole.User, $"Observations:\n{observationText}")
             };
 
-            var response = await _chatClient.GetResponseAsync(chatMessages, cancellationToken: cancellationToken).ConfigureAwait(false);
+            // Non-null here: these summarization helpers run only after CompressAsync's null-IChatClient guard.
+            var response = await _chatClient!.GetResponseAsync(chatMessages, cancellationToken: cancellationToken).ConfigureAwait(false);
             return response.Text?.Trim() ?? string.Empty;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

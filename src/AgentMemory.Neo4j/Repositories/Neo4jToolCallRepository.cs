@@ -43,7 +43,7 @@ internal sealed class Neo4jToolCallRepository : IToolCallRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<ToolCall> UpdateAsync(ToolCall toolCall, CancellationToken cancellationToken = default)
+    public async Task<ToolCall?> UpdateAsync(ToolCall toolCall, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Updating tool call {Id}", toolCall.ToolCallId);
 
@@ -51,8 +51,11 @@ internal sealed class Neo4jToolCallRepository : IToolCallRepository
         {
             var parameters = BuildToolCallParameters(toolCall);
             var cursor = await runner.RunAsync(ToolCallQueries.Update, parameters).ConfigureAwait(false);
-            var record = await cursor.SingleAsync().ConfigureAwait(false);
-            return MapToToolCall(record["tc"].As<INode>());
+            // The Update Cypher is MATCH ... RETURN, so a concurrently-cleared grandchild (a session clear /
+            // trace prune between a read and this write) yields no row. Return null instead of throwing a
+            // sequence-empty exception — the same clean not-found contract as IReasoningTraceRepository.UpdateAsync.
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count > 0 ? MapToToolCall(records[0]["tc"].As<INode>()) : null;
         }, cancellationToken).ConfigureAwait(false);
     }
 

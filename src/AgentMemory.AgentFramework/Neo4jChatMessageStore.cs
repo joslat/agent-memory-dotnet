@@ -50,16 +50,12 @@ public sealed class Neo4jChatMessageStore
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to add message for session {SessionId}.", sessionId);
-            return new Message
-            {
-                MessageId = _idGenerator.GenerateId(),
-                SessionId = sessionId,
-                ConversationId = conversationId,
-                Role = MafTypeMapper.ToInternalRole(chatMessage.Role),
-                Content = chatMessage.Text ?? string.Empty,
-                TimestampUtc = _clock.UtcNow
-            };
+            // Do NOT fabricate a success Message on failure — that silently hides data loss from the caller
+            // and would let PersistAfterRun's extraction step run over messages that were never stored.
+            // Surface the failure by rethrowing; the caller decides how to log it (the facade's
+            // PersistAfterRunAsync logs it at the run boundary). Debug-level here to avoid a duplicate entry.
+            _logger.LogDebug(ex, "Failed to add message for session {SessionId}; rethrowing.", sessionId);
+            throw;
         }
     }
 

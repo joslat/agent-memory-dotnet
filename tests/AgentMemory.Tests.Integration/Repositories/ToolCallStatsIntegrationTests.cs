@@ -100,6 +100,23 @@ public class ToolCallStatsIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpdateAsync_NonexistentToolCall_ReturnsNull_DoesNotThrow()
+    {
+        // The Update Cypher is MATCH ... RETURN; a concurrently-removed grandchild (session clear / trace
+        // prune between a read and this write) must return null, not throw a sequence-empty exception.
+        var result = await _toolRepo.UpdateAsync(new ToolCall
+        {
+            ToolCallId = $"tc-{Guid.NewGuid():N}",
+            StepId = $"step-{Guid.NewGuid():N}",
+            ToolName = "ghost",
+            ArgumentsJson = "{}",
+            Status = ToolCallStatus.Success,
+        });
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetStatsAsync_OwnerScoped_ExcludesOtherOwnersToolCalls()
     {
         var aliceStep = await SeedStepAsync(owner: "alice");

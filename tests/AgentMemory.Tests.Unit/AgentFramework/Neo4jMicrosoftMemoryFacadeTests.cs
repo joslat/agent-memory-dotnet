@@ -189,9 +189,32 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var messages = new List<ChatMessage> { new(ChatRole.User, "find relevant history") };
-        var act = async () => await _sut.GetContextForRunAsync(messages, "s1", "c1", cts.Token);
+        var act = async () => await _sut.GetContextForRunAsync(messages, "s1", "c1", ct: cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task GetContextForRunAsync_PassesUserId_ToRecallForOwnerScoping()
+    {
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RecallResult
+            {
+                Context = new MemoryContext
+                {
+                    SessionId = "s1",
+                    AssembledAtUtc = _now,
+                    RecentMessages = new MemoryContextSection<Message> { Items = [] },
+                    RelevantMessages = new MemoryContextSection<Message> { Items = [] }
+                }
+            });
+
+        var messages = new List<ChatMessage> { new(ChatRole.User, "find relevant history") };
+        await _sut.GetContextForRunAsync(messages, "s1", "c1", userId: "alice");
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.UserId == "alice" && r.SessionId == "s1"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

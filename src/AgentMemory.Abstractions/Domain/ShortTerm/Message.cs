@@ -41,9 +41,10 @@ public sealed record Message
     public float[]? Embedding { get; init; }
 
     /// <summary>
-    /// Optional tool call identifiers if this message involved tool usage.
+    /// Tool call identifiers if this message involved tool usage; empty when none (never null), matching the
+    /// other collection members on this record.
     /// </summary>
-    public IReadOnlyList<string>? ToolCallIds { get; init; }
+    public IReadOnlyList<string> ToolCallIds { get; init; } = [];
 
     /// <summary>
     /// Additional metadata for the message.

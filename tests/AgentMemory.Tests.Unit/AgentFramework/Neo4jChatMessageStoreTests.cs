@@ -69,17 +69,18 @@ public sealed class Neo4jChatMessageStoreTests
     }
 
     [Fact]
-    public async Task AddMessageAsync_ServiceThrows_ReturnsFallbackMessage()
+    public async Task AddMessageAsync_ServiceThrows_PropagatesInsteadOfFabricatingSuccess()
     {
+        // A persist failure must surface, not be hidden behind a fabricated "success" Message (which would
+        // also let the facade's extraction step run over messages that were never stored). The facade's
+        // PersistAfterRunAsync catches this at the run boundary.
         _memoryService.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("DB error"));
 
-        var result = await _sut.AddMessageAsync(new ChatMessage(ChatRole.User, "Hello"), "s1", "c1");
+        var act = async () => await _sut.AddMessageAsync(new ChatMessage(ChatRole.User, "Hello"), "s1", "c1");
 
-        result.Should().NotBeNull();
-        result.Content.Should().Be("Hello");
-        result.Role.Should().Be("user");
+        await act.Should().ThrowAsync<Exception>().WithMessage("DB error");
     }
 
     // ── GetMessagesAsync ───────────────────────────────────────────────────
