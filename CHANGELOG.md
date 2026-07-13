@@ -6,7 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2026-07-13
+### Changed
+
+- **Internal planning docs moved out of the published tree.** `CONTINUE-HERE.md`, `loop.md`, and the
+  `docs/ROADMAP.md`, `docs/DOING-RIGHT-NOW.md`, `docs/Improvement-Ideas-Backlog.md`, `docs/design.md`,
+  `docs/nextsteps.md`, `docs/core/`, `docs/archive/`, `docs/reviews/`, and `docs/reference/` sets now
+  live in a local, gitignored `strategy/` folder rather than the repository. `docs/` keeps only the
+  user-facing reference set: `getting-started.md`, `architecture.md`, `agent-framework.md`, `schema.md`,
+  and `specification.md`. The root README now leads with `docs/getting-started.md`. Documentation-only;
+  no code or API change.
 
 ### Fixed
 

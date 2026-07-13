@@ -88,5 +88,5 @@ collection rather than per-test:
   `IMemoryContextAssembler`, asserted via mock) but — unlike the Entity/Preference/Conversation list
   resources — has no live-Neo4j isolation test.
 
-See `docs/archive/Memory_Review_and_Implementation_Plan.md` (Part 0 = fix log, Part III = review annex) for the
-isolation design and the full per-finding history.
+The isolation design and full per-finding history are recorded in the maintainers' internal project archive
+(not part of the published docs).

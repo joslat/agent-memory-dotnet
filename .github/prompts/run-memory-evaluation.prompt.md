@@ -2,7 +2,7 @@
 
 You are running the Agent Memory deterministic memory-layer evaluation.
 
-1. Read `docs/core/performance-quality-evaluation.md` and `docs/core/adr/0016-memory-evaluation-boundary.md`.
+1. Read `strategy/core/performance-quality-evaluation.md` and `strategy/core/adr/0016-memory-evaluation-boundary.md` if present (internal docs, local-only).
 2. Prefer the VS Code task `AgentMemory: evaluation (local Neo4j JSON)`.
 3. If local Neo4j is not available, run `AgentMemory: compatibility smoke (Testcontainers)` and `AgentMemory: performance smoke (Testcontainers)` instead.
 4. Open the JSON report under `artifacts/evaluation/` when one is produced.

@@ -13,8 +13,8 @@ Run deterministic memory-layer evaluation and summarize whether the memory syste
 
 Read these first when relevant:
 
-- `docs/core/performance-quality-evaluation.md`
-- `docs/core/adr/0016-memory-evaluation-boundary.md`
+- `strategy/core/performance-quality-evaluation.md` (internal doc, local-only)
+- `strategy/core/adr/0016-memory-evaluation-boundary.md` (internal doc, local-only)
 - `tests/AgentMemory.Tests.Integration/Compatibility/TckMirroredBehaviorTests.cs`
 - `tools/AgentMemory.Cli/Commands/EvaluationCommand.cs`
 - `.vscode/tasks.json`

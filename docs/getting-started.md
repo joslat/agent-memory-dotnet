@@ -349,10 +349,10 @@ builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
 | Resource | Description |
 |----------|-------------|
 | [`README.md`](../README.md) | Project overview and architecture summary |
-| [`docs/core/`](core/) | Canonical core docs — philosophy, requirements, design, specification, ADRs, summaries |
 | [`docs/architecture.md`](architecture.md) | Full architecture walkthrough — packages, layers, boundaries |
+| [`docs/agent-framework.md`](agent-framework.md) | Using AgentMemory with the Microsoft Agent Framework |
 | [`docs/schema.md`](schema.md) | Neo4j graph schema — node types, relationships, indexes |
-| [`docs/ROADMAP.md`](ROADMAP.md) | Current roadmap and forward-looking status |
+| [`docs/specification.md`](specification.md) | Current specification — product identity, requirements |
 | [`samples/AgentMemory.Sample.AgentWithMemory`](../samples/AgentMemory.Sample.AgentWithMemory/) | Flagship MAF golden path: context provider, memory tools, identity scoping, session serialize/restore, durable cross-session recall |
 | [`samples/AgentMemory.Sample.MinimalAgent`](../samples/AgentMemory.Sample.MinimalAgent/) | Lower-level facade sample for pre-run context, post-run persistence, tools, and traces |
 | [`samples/AgentMemory.Sample.BlendedAgent`](../samples/AgentMemory.Sample.BlendedAgent/) | Blended GraphRAG + memory sample |

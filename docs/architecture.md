@@ -3,7 +3,6 @@
 **Last Updated:** 2026-07-11 (preview.4 reality check)
 **Author:** Deckard (Lead Architect)
 **Canonical Specification:** [specification.md](specification.md)
-**Implementation Plan (historical):** [archive/full-implementation-plan.md](archive/full-implementation-plan.md)
 
 ---
 

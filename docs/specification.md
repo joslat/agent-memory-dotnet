@@ -2,10 +2,8 @@
 
 **Status:** Current, code-aligned specification
 **Last updated:** 2026-07-09
-**Primary detailed spec:** [`core/specification.md`](core/specification.md)
-**Project status source:** [`ROADMAP.md`](ROADMAP.md)
 
-This document is the short active specification for the shipped preview. The detailed normative specification now lives in `docs/core/specification.md`; this file exists to preserve the long-standing `docs/specification.md` entry point without carrying obsolete pre-release design assumptions.
+This document is the active specification for the shipped preview.
 
 ## Product Identity
 
@@ -100,13 +98,9 @@ The project must provide:
 
 The shipped preview does not attempt to bundle a model, host Neo4j, provide a SaaS backend, require Python, or implement every Python ecosystem integration. Local ONNX embeddings, local NLP extractors, LangChain.NET, Opik-specific observability, and richer CLI import/export/stat commands are deferred until there is demand or ecosystem maturity.
 
-## Detailed Documents
+## Related Documents
 
-For the full current documentation set, read:
-
-- [`core/philosophy.md`](core/philosophy.md)
-- [`core/requirements-and-constraints.md`](core/requirements-and-constraints.md)
-- [`core/design-document.md`](core/design-document.md)
-- [`core/specification.md`](core/specification.md)
-- [`core/adr/`](core/adr/)
-- [`core/summaries.md`](core/summaries.md)
+- [`getting-started.md`](getting-started.md) — install, configure, first memory store
+- [`architecture.md`](architecture.md) — packages, layers, boundaries, dependency rules
+- [`agent-framework.md`](agent-framework.md) — Microsoft Agent Framework integration
+- [`schema.md`](schema.md) — Neo4j schema reference

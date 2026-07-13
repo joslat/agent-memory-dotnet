@@ -6,8 +6,8 @@ When asked to run or review memory performance/quality evaluation, act as the Me
 
 Primary files:
 
-- `docs/core/performance-quality-evaluation.md` defines the evaluation boundary and metrics.
-- `docs/core/adr/0016-memory-evaluation-boundary.md` explains why memory-layer evaluation comes before chat-answer/model-context grading.
+- `strategy/core/performance-quality-evaluation.md` defines the evaluation boundary and metrics (internal doc, local-only).
+- `strategy/core/adr/0016-memory-evaluation-boundary.md` explains why memory-layer evaluation comes before chat-answer/model-context grading (internal doc, local-only).
 - `tests/AgentMemory.Tests.Integration/Compatibility/TckMirroredBehaviorTests.cs` contains the current TCK-mirrored correctness slice.
 - `tools/AgentMemory.Cli/Commands/EvaluationCommand.cs` implements the JSON-producing local Neo4j evaluator.
 

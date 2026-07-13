@@ -10,8 +10,8 @@ Run the repository's memory-layer evaluation. Do not evaluate chat-answer qualit
 
 ## Read First
 
-- `docs/core/performance-quality-evaluation.md`
-- `docs/core/adr/0016-memory-evaluation-boundary.md`
+- `strategy/core/performance-quality-evaluation.md` (internal doc, local-only)
+- `strategy/core/adr/0016-memory-evaluation-boundary.md` (internal doc, local-only)
 - `.vscode/tasks.json`
 - `tools/AgentMemory.Cli/Commands/EvaluationCommand.cs`
 

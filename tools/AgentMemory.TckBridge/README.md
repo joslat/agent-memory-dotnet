@@ -127,5 +127,5 @@ implemented or conformance-run.
 
 ## Design rationale
 
-See [`docs/core/tck-bridge-implementation-plan.md`](../../docs/core/tck-bridge-implementation-plan.md) for
-the full design rationale, protocol notes, and open verification items.
+The full design rationale, protocol notes, and open verification items are recorded in the maintainers'
+internal implementation plan (not part of the published docs).

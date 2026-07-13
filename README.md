@@ -6,10 +6,9 @@ Persistent graph-native memory for AI agents in .NET, backed by Neo4j and built 
 
 Start here:
 
-- [CONTINUE-HERE.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CONTINUE-HERE.md) - 30-second current-state landing.
-- [docs/ROADMAP.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/ROADMAP.md) - current release status, shipped capabilities, and next work.
-- [docs/core/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs/core) - canonical project philosophy, requirements, design, specification, ADRs, and summaries.
 - [docs/getting-started.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md) - install and first-run guide.
+- [docs/architecture.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md) - packages, layers, boundaries, and the Neo4j graph model.
+- [docs/agent-framework.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md) - using AgentMemory with the Microsoft Agent Framework.
 
 ## Status
 
@@ -106,14 +105,13 @@ GraphRAG retrieval is implemented inside `AgentMemory.Neo4j` and registered expl
 
 ## Documentation
 
-Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs). The canonical core set is [docs/core/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs/core):
+Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs):
 
-- [Philosophy](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/philosophy.md)
-- [Requirements and Constraints](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/requirements-and-constraints.md)
-- [Design Document](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/design-document.md)
-- [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/specification.md)
-- [ADRs](https://github.com/joslat/agent-memory-dotnet/tree/main/docs/core/adr)
-- [Summaries](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/summaries.md)
+- [Getting Started](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md)
+- [Architecture](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md)
+- [Agent Framework Integration](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md)
+- [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
+- [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
 
 ## Contributing
 
