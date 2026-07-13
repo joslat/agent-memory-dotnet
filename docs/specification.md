@@ -7,7 +7,7 @@ This document is the active specification for the shipped preview.
 
 ## Product Identity
 
-Agent Memory for .NET is an independent community .NET implementation (multi-targeting net8.0 and net9.0) of graph-native persistent memory for AI agents. It is inspired by `neo4j-labs/agent-memory`, interoperates with Neo4j and Microsoft agent ecosystems, and is not an official Neo4j product.
+Agent Memory for .NET is an independent community .NET implementation (multi-targeting net8.0, net9.0, and net10.0) of graph-native persistent memory for AI agents. It is inspired by `neo4j-labs/agent-memory`, interoperates with Neo4j and Microsoft agent ecosystems, and is not an official Neo4j product.
 
 ## Product Goal
 

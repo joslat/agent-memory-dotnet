@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-14
+
+### Added
+
+- **Multi-target net8.0 and net10.0 alongside net9.0** for all 12 publishable packages. Every referenced
+  dependency (Neo4j.Driver, Microsoft.Extensions.AI.Abstractions, Microsoft.Agents.AI.Abstractions,
+  Microsoft.SemanticKernel, ModelContextProtocol) ships binaries for all three TFMs at the exact pinned
+  versions used here; verified with real builds and executed tests on all three, not just compiled. Lets
+  consumers on .NET 8 LTS or the newest .NET 10 use the library without adopting a different runtime.
+  Purely additive — no public API change.
+- **NuGet package icon and README logo.**
+- **A prominent "Memory Governance" section in the README** answering ownership, provenance, temporal
+  history, recall auditability, invalidation/deletion, tenant isolation, and retention/privacy — each
+  grounded in a real, verified mechanism (`owner_id`/`MemoryScope`, `source_message_ids` +
+  `EXTRACTED_FROM`/`EXTRACTED_BY`, bitemporal valid/transaction time, `:MemoryReadAudit`,
+  non-destructive-by-default decay).
+- **`GoldenPathDocumentationTests`** — compiles and executes the exact MAF registration shown in
+  `docs/agent-framework.md`, so a future signature change that breaks the doc sample fails a test instead
+  of shipping silently.
+
 ### Changed
 
 - **Internal planning docs moved out of the published tree.** `CONTINUE-HERE.md`, `loop.md`, and the
@@ -15,6 +35,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user-facing reference set: `getting-started.md`, `architecture.md`, `agent-framework.md`, `schema.md`,
   and `specification.md`. The root README now leads with `docs/getting-started.md`. Documentation-only;
   no code or API change.
+- **README rewritten as a short, marketing-led introduction.** Dropped the version-pinned Status section,
+  the full package-topology table, and the isolation-model internals in favor of a concise "Why" list and
+  Quick Start; deeper detail lives in `docs/` already. No claims added beyond what the docs substantiate.
+- **"Port"/"ported" wording replaced with "reimplementation"** throughout the README and samples — the
+  library shares no code with the upstream Python project; it's an independent .NET implementation
+  verified against the same schema and compatibility kit.
+- **Internal agent-orchestration machinery (`.squad/`) untracked** from the repository (152 files) and
+  gitignored; files remain on disk locally. Not part of the published project.
+
+### Fixed
+
+- **The MAF golden-path code sample in `docs/agent-framework.md` didn't actually compile as written.** It
+  imported the `AgentMemory` meta-package namespace but called the low-level single-delegate
+  `AddNeo4jAgentMemory` overload (from a different namespace) plus a separate `AddAgentMemoryCore()` — the
+  two same-named overloads don't mix. Corrected to the one meta-package call
+  (`configureMemory`/`configureNeo4j`), which already registers Core internally. Also fixed a matching
+  namespace/parameter-name mismatch in `docs/getting-started.md`'s `DatabasePerApplication` example.
+- **`docs/architecture.md` listed an internal squad-persona name ("Deckard") as author** in three places;
+  corrected to the real author.
+- **`tools/AgentMemory.TckBridge/README.md` claimed the Gold and Platinum TCK tiers were unimplemented.**
+  Gold (18/18) actually shipped in PR #74 and its endpoints exist in `Program.cs`; corrected to the real
+  state (178/178 across Bronze, Silver, and Gold — only Platinum remains).
 
 ## [1.0.1] - 2026-07-13
 

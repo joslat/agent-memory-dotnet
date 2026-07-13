@@ -15,13 +15,16 @@
 
   <!-- Multi-target the publishable src/ libraries: every dependency they reference (Neo4j.Driver,
        Microsoft.Extensions.AI.Abstractions, Microsoft.Agents.AI.Abstractions, Microsoft.SemanticKernel,
-       ModelContextProtocol, OpenTelemetry.Api) ships net8.0 binaries at the exact pinned versions used
-       here, so net8.0 costs nothing to add and lets consumers on the still-widely-deployed .NET 8 LTS
-       use the library without adopting net9.0. Scoped the same way as the packaging metadata below, plus
-       excluding the two non-packable tools/ console apps (Cli, TckBridge), which stay single-targeted. -->
+       ModelContextProtocol) ships net8.0 and net10.0 binaries at the exact pinned versions used here
+       (OpenTelemetry.Api 1.12.0 has no net10.0-specific asset but falls back to its netstandard2.0 build,
+       which builds and runs cleanly under net10.0). net8.0 costs nothing to add and lets consumers on the
+       still-widely-deployed .NET 8 LTS use the library without adopting a newer runtime; net10.0 keeps
+       pace with the newest release. Verified with real builds and executed tests on all three TFMs, not
+       just compiled. Scoped the same way as the packaging metadata below, plus excluding the two
+       non-packable tools/ console apps (Cli, TckBridge), which stay single-targeted. -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample')) and '$(MSBuildProjectName)' != 'AgentMemory.Cli' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge'">
     <TargetFramework></TargetFramework>
-    <TargetFrameworks>net9.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
   </PropertyGroup>
 
   <!-- Shared NuGet packaging metadata for the publishable src/ libraries. Scoped by project name
@@ -29,7 +32,7 @@
        and never leaks into non-published projects. Per-package Description/PackageTags live in each
        .csproj. NuGet package IDs default to the (already de-Neo4j-renamed) project names. -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Jose Luis Latorre Millas</Authors>
     <Company>Jose Luis Latorre Millas</Company>
     <Product>AgentMemory for .NET</Product>
@@ -39,6 +42,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>logoIcon.png</PackageIcon>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
@@ -47,5 +51,6 @@
 
   <ItemGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)resources\logoIcon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 </Project>
