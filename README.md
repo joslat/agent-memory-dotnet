@@ -75,9 +75,15 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 
 ## Relationship to Upstream
 
-This project is inspired by [`neo4j-labs/agent-memory`](https://github.com/neo4j-labs/agent-memory) and
-preserves compatible graph concepts where useful, but it's implemented independently for .NET — not an
-official Neo4j repository or product.
+This project is inspired by [`neo4j-labs/agent-memory`](https://github.com/neo4j-labs/agent-memory) — the
+Python reference implementation — and preserves compatible graph concepts from its
+[schema](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md) where useful. But it's a
+**from-scratch .NET reimplementation, not a port**: it shares no code with the Python project. Most of
+what it needs — the Neo4j driver integration, extraction pipeline, embeddings, DI wiring, and the
+Microsoft Agent Framework/Semantic Kernel/MCP adapters — has no ready-made equivalent in the .NET
+ecosystem to lean on, so it was built natively rather than bound or ported. It is not an official Neo4j
+repository or product; schema and behavioral compatibility with the original are verified explicitly (see
+[Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md)).
 
 ## Contributing
 
