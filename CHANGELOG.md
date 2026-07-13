@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `specification.md`. The root README now leads with `docs/getting-started.md`. Documentation-only;
   no code or API change.
 
+## [1.0.1] - 2026-07-13
+
 ### Fixed
 
 - **Packaged README links now resolve on the NuGet gallery.** The README is embedded in every package, but its repo-relative links (`docs/`, `CONTINUE-HERE.md`, `LICENSE`, `CONTRIBUTING.md`, …) do not resolve on nuget.org, so they rendered as broken links on each package's gallery page. They are now absolute `https://github.com/joslat/agent-memory-dotnet/...` URLs. Documentation-only; no code or API change.
