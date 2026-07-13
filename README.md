@@ -1,56 +1,30 @@
 # Agent Memory for .NET
 
+> *At last — an agentic memory system for .NET, ported from one of the best: Neo4j Agent Memory.*
+
 > Independent community project. Not affiliated with, endorsed by, or supported by Neo4j, Inc.
 
-Persistent graph-native memory for AI agents in .NET, backed by Neo4j and built for Microsoft Agent Framework, Semantic Kernel, direct .NET usage, and MCP clients.
+Give your .NET agents a memory that actually lasts. Agent Memory for .NET is a persistent,
+**graph-native** memory engine for AI agents, backed by Neo4j — so what your agent learns in one
+conversation is still there, structured and queryable, in the next one. Built for the Microsoft Agent
+Framework, Semantic Kernel, direct .NET usage, and MCP clients.
 
-Start here:
+## Why Agent Memory for .NET
 
-- [docs/getting-started.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md) - install and first-run guide.
-- [docs/architecture.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md) - packages, layers, boundaries, and the Neo4j graph model.
-- [docs/agent-framework.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md) - using AgentMemory with the Microsoft Agent Framework.
-
-## Status
-
-`1.0.0` is the first stable release: the public API surface is locked under Semantic Versioning. The library is feature-complete — three-tier graph memory (short-term / long-term / reasoning), bitemporal recall with non-destructive decay, multi-tenant owner isolation, GraphRAG retrieval, consolidation/hygiene, and first-class adapters for the Microsoft Agent Framework, Semantic Kernel, MCP, and direct .NET use. It passes the upstream agent-memory compatibility kit (TCK) through the Gold tier.
-
-The library ships from a warning-free Release build with a full unit + Semantic Kernel + live-Neo4j integration suite green on `main`.
-
-## What It Provides
-
-Agent Memory for .NET provides three memory layers:
-
-- Short-term memory: conversations, messages, ordering, sessions, roles, timestamps, and embeddings.
-- Long-term memory: entities, facts, preferences, relationships, provenance, owner scope, confidence, and temporal state.
-- Reasoning memory: traces, steps, tool calls, tool aggregate nodes, task embeddings, and prior execution patterns.
-
-It supports:
-
-- Neo4j-backed graph persistence.
-- Vector, fulltext, hybrid, and graph traversal retrieval.
-- Optional GraphRAG context retrieval from `AgentMemory.Neo4j`.
-- Microsoft Agent Framework context, chat-store, tools, and trace-recording integration.
-- Semantic Kernel plugin integration.
-- Model Context Protocol server surface.
-- LLM and Azure Language extraction backends.
-- OpenTelemetry observability, geocoding/entity enrichment, optional GDS analytics, schema bootstrap/migration, and CLI maintenance workflows.
-
-## Package Topology
-
-| Package | Purpose |
-|---|---|
-| `AgentMemory.Abstractions` | Domain models, service/repository interfaces, options, schema constants. |
-| `AgentMemory.Core` | Memory services, context assembly, extraction pipeline, entity resolution, stubs. |
-| `AgentMemory.Neo4j` | Neo4j repositories, Cypher queries, schema bootstrap, migrations, GraphRAG retrieval. |
-| `AgentMemory.Extraction.Llm` | LLM-backed extractors through Microsoft.Extensions.AI. |
-| `AgentMemory.Extraction.AzureLanguage` | Azure Language extraction support. |
-| `AgentMemory.AgentFramework` | Microsoft Agent Framework adapter. |
-| `AgentMemory.SemanticKernel` | Semantic Kernel adapter. |
-| `AgentMemory.McpServer` | MCP tools/resources/prompts surface. |
-| `AgentMemory.Observability` | Optional OpenTelemetry decorators and metrics. |
-| `AgentMemory.Enrichment` | Optional geocoding and entity enrichment. |
-| `AgentMemory.Analytics` | Optional Neo4j GDS PageRank/Louvain analytics. |
-| `AgentMemory` | Convenience meta-package for the common stack. |
+- **Memory that survives the session.** Conversations, facts, preferences, and relationships persist as
+  a real knowledge graph, not a scratchpad that evaporates when the process exits.
+- **Three memory layers, not one.** Short-term conversation history, long-term facts/preferences/entities,
+  and reasoning traces (steps, tool calls, prior executions) are all first-class citizens.
+- **Graph-native, not just vectors.** Vector, fulltext, hybrid, and graph-traversal retrieval, plus
+  optional GraphRAG context — because "similar text" and "connected knowledge" are different questions.
+- **Multi-tenant from day one.** Owner and store isolation are enforced deep in the persistence layer,
+  not bolted on at the API edge.
+- **Time-aware.** Bitemporal recall and non-destructive decay mean memory can answer "what did we believe
+  back then" as well as "what do we believe now."
+- **Drops into the ecosystem you already use.** First-class adapters for the Microsoft Agent Framework,
+  Semantic Kernel, and MCP, plus a direct .NET API for everything else.
+- **Faithful to its roots.** Verified against the upstream Python `neo4j-labs/agent-memory` project's own
+  compatibility kit, so the .NET port isn't just inspired by the original — it's checked against it.
 
 ## Quick Start
 
@@ -85,27 +59,12 @@ var memory = provider.GetRequiredService<IMemoryService>();
 await memory.AddMessageAsync("session-01", "conversation-01", "user", "I prefer dark mode.");
 ```
 
-For production semantic search, register a real `IEmbeddingGenerator<string, Embedding<float>>` from `Microsoft.Extensions.AI`; the core stubs are safe defaults, not production embeddings.
-
-## Isolation Model
-
-Memory is scoped as store -> owner -> session.
-
-- Store: `ApplicationId`, default shared database, optional database per application for Enterprise/AuraDB.
-- Owner: `owner_id`, `owner_key`, and `MemoryScope`; null owner means shared/global.
-- Session: `session_id` and conversation IDs for run-local context.
-
-Owner and store scope are enforced in repository, recall, GraphRAG, reasoning, maintenance, and temporal paths rather than only in adapters.
-
-## Relationship to Upstream Projects
-
-This project is inspired by `neo4j-labs/agent-memory` and preserves compatible graph concepts where useful. It is implemented independently in .NET and is not an official Neo4j repository or product.
-
-GraphRAG retrieval is implemented inside `AgentMemory.Neo4j` and registered explicitly with `AddGraphRagAdapter(...)`; there is no separate current GraphRAG adapter package.
+For production semantic search, register a real `IEmbeddingGenerator<string, Embedding<float>>` from
+`Microsoft.Extensions.AI`; the core stubs are safe defaults, not production embeddings.
 
 ## Documentation
 
-Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs):
+Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs) — start with Getting Started:
 
 - [Getting Started](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md)
 - [Architecture](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md)
@@ -113,6 +72,12 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 - [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
 - [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
 - [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md) - schema-parity/TCK compatibility tooling and the review process behind releases
+
+## Relationship to Upstream
+
+This project is inspired by [`neo4j-labs/agent-memory`](https://github.com/neo4j-labs/agent-memory) and
+preserves compatible graph concepts where useful, but it's implemented independently for .NET — not an
+official Neo4j repository or product.
 
 ## Contributing
 
