@@ -12,6 +12,10 @@ Semantic Kernel.
 > entities/preferences/facts, reasoning traces) backed by a Neo4j knowledge graph, surfaced to MAF
 > through an `AIContextProvider` and a set of memory tools.
 
+> **New to the MAF integration?** Start with the guide:
+> [Using AgentMemory with the Microsoft Agent Framework](../docs/agent-framework.md) — how the
+> `AIContextProvider` lifecycle works, the memory tools, identity/scoping, and the design rationale.
+
 ## API mapping (official Python ↔ this library)
 
 The samples follow the canonical MAF memory pattern shown in the official
