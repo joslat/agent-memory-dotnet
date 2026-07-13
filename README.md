@@ -6,10 +6,10 @@ Persistent graph-native memory for AI agents in .NET, backed by Neo4j and built 
 
 Start here:
 
-- [CONTINUE-HERE.md](CONTINUE-HERE.md) - 30-second current-state landing.
-- [docs/ROADMAP.md](docs/ROADMAP.md) - current release status, shipped capabilities, and next work.
-- [docs/core/](docs/core/) - canonical project philosophy, requirements, design, specification, ADRs, and summaries.
-- [docs/getting-started.md](docs/getting-started.md) - install and first-run guide.
+- [CONTINUE-HERE.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CONTINUE-HERE.md) - 30-second current-state landing.
+- [docs/ROADMAP.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/ROADMAP.md) - current release status, shipped capabilities, and next work.
+- [docs/core/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs/core) - canonical project philosophy, requirements, design, specification, ADRs, and summaries.
+- [docs/getting-started.md](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md) - install and first-run guide.
 
 ## Status
 
@@ -106,19 +106,19 @@ GraphRAG retrieval is implemented inside `AgentMemory.Neo4j` and registered expl
 
 ## Documentation
 
-Full documentation lives in [docs/](docs/). The canonical core set is [docs/core/](docs/core/):
+Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs). The canonical core set is [docs/core/](https://github.com/joslat/agent-memory-dotnet/tree/main/docs/core):
 
-- [Philosophy](docs/core/philosophy.md)
-- [Requirements and Constraints](docs/core/requirements-and-constraints.md)
-- [Design Document](docs/core/design-document.md)
-- [Specification](docs/core/specification.md)
-- [ADRs](docs/core/adr/)
-- [Summaries](docs/core/summaries.md)
+- [Philosophy](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/philosophy.md)
+- [Requirements and Constraints](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/requirements-and-constraints.md)
+- [Design Document](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/design-document.md)
+- [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/specification.md)
+- [ADRs](https://github.com/joslat/agent-memory-dotnet/tree/main/docs/core/adr)
+- [Summaries](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/core/summaries.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and contribution guidance.
+See [CONTRIBUTING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CONTRIBUTING.md) for build, test, and contribution guidance.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSE).

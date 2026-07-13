@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-13
+
+### Fixed
+
+- **Packaged README links now resolve on the NuGet gallery.** The README is embedded in every package, but its repo-relative links (`docs/`, `CONTINUE-HERE.md`, `LICENSE`, `CONTRIBUTING.md`, …) do not resolve on nuget.org, so they rendered as broken links on each package's gallery page. They are now absolute `https://github.com/joslat/agent-memory-dotnet/...` URLs. Documentation-only; no code or API change.
+
 ## [1.0.0] - 2026-07-13
 
 ### Fixed
@@ -368,7 +374,8 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.4...v1.0.0
 [0.1.0-preview.4]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.3...v0.1.0-preview.4
 [0.1.0-preview.3]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.2...v0.1.0-preview.3
