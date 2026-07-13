@@ -1,7 +1,7 @@
 # Architecture Overview — Agent Memory for .NET
 
 **Last Updated:** 2026-07-11 (preview.4 reality check)
-**Author:** Deckard (Lead Architect)
+**Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
 ---
@@ -641,7 +641,7 @@ All 6 implementation phases plus the gap closure and hardening work are complete
 ## 9. Package Strategy Analysis
 
 **Added:** 2026-04-17
-**Author:** Deckard (Lead Architect)
+**Author:** Jose Luis Latorre Millas
 
 ### 9.1 Package Dependency Isolation Audit
 
@@ -735,7 +735,7 @@ The only debatable merge is **Extraction.Llm → Core**, and even that should be
 ## 10. DateTime Storage — Native `datetime()` (Completed)
 
 **Added:** 2026-04-17 (analysis) | **Completed:** Gap Closure Sprint Wave B (G1)
-**Author:** Deckard (Lead Architect)
+**Author:** Jose Luis Latorre Millas
 
 ### 10.1 Completed State
 

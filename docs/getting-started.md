@@ -138,7 +138,8 @@ Out of the box the strategy is `SharedDatabase`: a single database, with tenants
 For *physical* isolation, switch to `DatabasePerApplication`: each `ApplicationId` routes to its **own** Neo4j database (`<prefix><appId>`, default prefix `mem-`), which the library **creates and schema-bootstraps automatically on first use** — you never run `CREATE DATABASE` by hand. (Requires Enterprise or AuraDB; Community supports a single user database.)
 
 ```csharp
-using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory;                       // the meta-package AddNeo4jAgentMemory overload used below
+using AgentMemory.Neo4j.Infrastructure;  // MemoryStorageStrategy
 
 builder.Services.AddNeo4jAgentMemory(
     configureMemory: _ => { },
@@ -156,7 +157,7 @@ builder.Services.AddNeo4jAgentMemory(
     });
 ```
 
-> The meta-package `AddNeo4jAgentMemory(configureMemory, configureNeo4j, configureLlm, configureStore)` forwards `configureStore`; the `AgentMemory.Neo4j` registration `AddNeo4jAgentMemory(configureNeo4j, configureStore)` accepts it directly.
+> The meta-package `AddNeo4jAgentMemory(configureMemory, configureNeo4j, configureLlm, configureStore)` forwards `configureStore` and registers Core internally; the lower-level `AgentMemory.Neo4j` registration `AddNeo4jAgentMemory(configure, configureStore)` accepts it directly but does **not** register Core — pair it with a separate `AddAgentMemoryCore(...)` call, as the §3.1 DI registration example above does.
 
 **Route per request** by setting the ambient store context — it's `AsyncLocal`-backed, so concurrent requests don't cross:
 

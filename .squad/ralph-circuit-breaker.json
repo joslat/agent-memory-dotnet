@@ -1,9 +1,0 @@
-{
-  "status": "closed",
-  "openedAt": null,
-  "cooldownMinutes": 2,
-  "consecutiveFailures": 0,
-  "consecutiveSuccesses": 0,
-  "lastRateLimitRemaining": 4986,
-  "lastRateLimitTotal": 5000
-}

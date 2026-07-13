@@ -1,6 +1,7 @@
 # Agent Memory for .NET
 
-> *At last — an agentic memory system for .NET, ported from one of the best: Neo4j Agent Memory.*
+> *A native .NET reimplementation of graph-native agent memory, inspired by Neo4j Agent Memory and
+> verified against its compatibility kit.*
 
 > Independent community project. Not affiliated with, endorsed by, or supported by Neo4j, Inc.
 
@@ -24,7 +25,8 @@ Framework, Semantic Kernel, direct .NET usage, and MCP clients.
 - **Drops into the ecosystem you already use.** First-class adapters for the Microsoft Agent Framework,
   Semantic Kernel, and MCP, plus a direct .NET API for everything else.
 - **Faithful to its roots.** Verified against the upstream Python `neo4j-labs/agent-memory` project's own
-  compatibility kit, so the .NET port isn't just inspired by the original — it's checked against it.
+  compatibility kit, so the .NET reimplementation isn't just inspired by the original — it's checked
+  against it.
 
 ## Quick Start
 

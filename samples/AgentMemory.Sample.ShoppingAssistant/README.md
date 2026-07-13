@@ -1,6 +1,6 @@
 # Shopping Assistant — AgentMemory + Microsoft Agent Framework
 
-The **.NET port of the official Neo4j Agent Memory "retail assistant"** example for the Microsoft
+The **.NET reimplementation of the official Neo4j Agent Memory "retail assistant"** example for the Microsoft
 Agent Framework
 ([`microsoft_agent_retail_assistant`](https://github.com/neo4j-labs/agent-memory/tree/main/examples/microsoft_agent_retail_assistant),
 referenced from the [Learn integration page](https://learn.microsoft.com/en-us/agent-framework/integrations/neo4j-memory)).

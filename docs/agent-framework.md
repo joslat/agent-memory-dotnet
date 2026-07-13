@@ -94,14 +94,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
 
-// 1. Memory + Neo4j
-services.AddNeo4jAgentMemory(neo4j =>
-{
-    neo4j.Uri      = "bolt://localhost:7687";
-    neo4j.Username = "neo4j";
-    neo4j.Password = "password";
-});
-services.AddAgentMemoryCore(_ => { });
+// 1. Memory + Neo4j (this single call registers Core internally — no separate AddAgentMemoryCore needed)
+services.AddNeo4jAgentMemory(
+    configureMemory: _ => { },
+    configureNeo4j: neo4j =>
+    {
+        neo4j.Uri      = "bolt://localhost:7687";
+        neo4j.Username = "neo4j";
+        neo4j.Password = "password";
+    });
 
 // 2. Your chat + embedding providers (swap the stubs for real MEAI providers in production)
 services.AddSingleton<IChatClient>(/* your OpenAI/Azure chat client */);
