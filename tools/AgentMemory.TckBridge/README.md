@@ -1,6 +1,6 @@
 # AgentMemory.TckBridge
 
-A thin ASP.NET Core Minimal API HTTP bridge implementing the **Bronze and Silver tiers** of the upstream
+A thin ASP.NET Core Minimal API HTTP bridge implementing the **Bronze, Silver, and Gold tiers** of the upstream
 [`neo4j-labs/agent-memory-tck`](https://github.com/neo4j-labs/agent-memory-tck) bridge protocol, so the
 Python TCK conformance runner can drive this .NET implementation out-of-process (one `POST` per adapter
 method, snake_case JSON wire contract).
@@ -99,11 +99,22 @@ IDs that round-trip through the Python TCK client's `UUID()` formatting (entity/
 normalized to the bridge's stored id format before lookup, the same treatment already applied to
 `delete_message`'s `message_id` in the Bronze tier.
 
+## Endpoints (Gold)
+
+The Gold tier adds cross-memory integration scenarios. Most of the 18 Gold tests already pass on the
+Silver bridge via the existing cross-memory endpoints plus `add_relationship`; two endpoints were added
+specifically for Gold:
+
+| Route | Purpose |
+|---|---|
+| `POST /merge_duplicate_entities` | Folds a duplicate (source) entity into a canonical (target) one; the target survives and keeps its id. Owner-isolation guarded (mirrors `add_relationship`): both entities must be shared, else 400/404. Rejects a self-merge (`source_id == target_id`) with 400. |
+| `POST /get_similar_traces` | Embeds the query task and vector-searches shared-bucket reasoning traces via `IReasoningMemoryService.SearchSimilarTracesAsync`; returns `[]` on an empty store; maps `success_only` to a success filter. |
+
 ## Scope
 
-Full Bronze tier (93/93) and full Silver tier (67/67) — schema, short-term memory, long-term
-search/lookup/relationships, and reasoning memory. Gold/Platinum tiers are future follow-up slices and are
-not implemented by this bridge.
+Full Bronze tier (93/93), full Silver tier (67/67), and full Gold tier (18/18) — schema, short-term
+memory, long-term search/lookup/relationships, reasoning memory, and cross-memory integration. Only
+**Platinum** (hosted-service operations) remains unimplemented — out of scope for a self-hosted library.
 
 ## Conformance
 
@@ -121,9 +132,15 @@ pytest -m silver --bridge-url http://localhost:3001
 
 Verified result: **67 passed, 0 failed** (the full Silver tier).
 
-Both runs were against upstream [`neo4j-labs/agent-memory-tck`](https://github.com/neo4j-labs/agent-memory-tck)
-commit `4603b91f` driving this bridge over HTTP against a live Neo4j 5.26. Gold/Platinum tiers are not yet
-implemented or conformance-run.
+```bash
+pytest -m gold --bridge-url http://localhost:3001
+```
+
+Verified result: **18 passed, 0 failed** (the full Gold tier) — **178/178 total** across all three tiers.
+
+All runs were against upstream [`neo4j-labs/agent-memory-tck`](https://github.com/neo4j-labs/agent-memory-tck)
+commit `4603b91f` driving this bridge over HTTP against a live Neo4j 5.26. Only Platinum remains
+unimplemented and unrun.
 
 ## Design rationale
 

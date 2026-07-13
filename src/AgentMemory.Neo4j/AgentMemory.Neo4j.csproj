@@ -33,11 +33,12 @@
   </ItemGroup>
 
   <!-- Frozen upstream schema snapshots embedded for the parity compatibility kit (TCK). The canonical
-       capture lives under docs/reference; embedding it (single source of truth) lets SchemaParityVerifier
-       and the `agentmemory schema-parity` CLI self-verify without a docs/ path dependency. Add a new
-       version by dropping its schema.json and adding an <EmbeddedResource> with the matching LogicalName. -->
+       capture lives under Schema/Parity/Snapshots; embedding it (single source of truth) lets
+       SchemaParityVerifier and the `agentmemory schema-parity` CLI self-verify with no external path
+       dependency. Add a new version by dropping its schema.json and adding an <EmbeddedResource> with
+       the matching LogicalName. -->
   <ItemGroup>
-    <EmbeddedResource Include="..\..\docs\reference\neo4j-agent-memory\python-v0.5.0\schema.json">
+    <EmbeddedResource Include="Schema\Parity\Snapshots\python-v0.5.0\schema.json">
       <LogicalName>AgentMemory.Neo4j.Schema.Parity.Snapshots.0.5.0.json</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
