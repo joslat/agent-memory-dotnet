@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-07-14
+
+### Fixed
+
+- **The README logo did not render on the NuGet gallery.** 1.0.2 embedded it as raw HTML
+  (`<p align="center"><img ... /></p>`), but NuGet.org's README renderer escapes raw HTML instead of
+  rendering it — the tag showed up as literal text on the package page instead of an image. Replaced with
+  standard Markdown image syntax (`![alt](url)`), which renders correctly on both GitHub and NuGet.org.
+  Documentation-only; no code or API change.
+
 ## [1.0.2] - 2026-07-14
 
 ### Added

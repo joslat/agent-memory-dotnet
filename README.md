@@ -1,8 +1,6 @@
 # Agent Memory for .NET
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/joslat/agent-memory-dotnet/main/resources/logo.png" alt="Agent Memory for .NET logo" width="500" />
-</p>
+![Agent Memory for .NET logo](https://raw.githubusercontent.com/joslat/agent-memory-dotnet/main/resources/logo.png)
 
 > *A native .NET reimplementation of graph-native agent memory, inspired by Neo4j Agent Memory and
 > verified against its compatibility kit.*
