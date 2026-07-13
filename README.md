@@ -112,6 +112,7 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 - [Agent Framework Integration](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md)
 - [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
 - [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
+- [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md) - schema-parity/TCK compatibility tooling and the review process behind releases
 
 ## Contributing
 
