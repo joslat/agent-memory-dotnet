@@ -13,6 +13,17 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <!-- Multi-target the publishable src/ libraries: every dependency they reference (Neo4j.Driver,
+       Microsoft.Extensions.AI.Abstractions, Microsoft.Agents.AI.Abstractions, Microsoft.SemanticKernel,
+       ModelContextProtocol, OpenTelemetry.Api) ships net8.0 binaries at the exact pinned versions used
+       here, so net8.0 costs nothing to add and lets consumers on the still-widely-deployed .NET 8 LTS
+       use the library without adopting net9.0. Scoped the same way as the packaging metadata below, plus
+       excluding the two non-packable tools/ console apps (Cli, TckBridge), which stay single-targeted. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample')) and '$(MSBuildProjectName)' != 'AgentMemory.Cli' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge'">
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net9.0;net8.0</TargetFrameworks>
+  </PropertyGroup>
+
   <!-- Shared NuGet packaging metadata for the publishable src/ libraries. Scoped by project name
        (test projects contain ".Tests", samples contain ".Sample") so it is correct cross-platform
        and never leaks into non-published projects. Per-package Description/PackageTags live in each

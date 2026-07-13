@@ -14,7 +14,6 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
   </ItemGroup>
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>Microsoft Agent Framework (MAF) adapter for AgentMemory for .NET — AIContext provider, chat message store, and memory tools.</Description>

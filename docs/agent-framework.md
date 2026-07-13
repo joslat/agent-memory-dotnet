@@ -61,7 +61,7 @@ explicitly (search memory, remember a preference, find entity connections) via
 
 ## Prerequisites
 
-- **.NET 9** SDK.
+- **.NET 8 or 9** SDK.
 - A **Neo4j 5.x** instance (self-hosted or AuraDB). Quick local start:
   ```bash
   docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26

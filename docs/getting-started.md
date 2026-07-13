@@ -1,6 +1,6 @@
 # Getting Started — Agent Memory for .NET
 
-**Prerequisites covered:** .NET 9, Neo4j, NuGet packages, DI configuration, first memory store.
+**Prerequisites covered:** .NET 8 or 9, Neo4j, NuGet packages, DI configuration, first memory store.
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| .NET SDK | **9.0+** | [Download](https://dotnet.microsoft.com/download) |
+| .NET SDK | **8.0 or 9.0** | [Download](https://dotnet.microsoft.com/download) |
 | Neo4j | **5.x** | Local, Docker, or [Neo4j Aura](https://neo4j.com/cloud/platform/aura-graph-database/) |
 | Embedding provider | Any MEAI-compatible | OpenAI, Azure OpenAI, or another `IEmbeddingGenerator<string, Embedding<float>>` implementation |
 

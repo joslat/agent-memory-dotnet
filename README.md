@@ -24,6 +24,8 @@ Framework, Semantic Kernel, direct .NET usage, and MCP clients.
   back then" as well as "what do we believe now."
 - **Drops into the ecosystem you already use.** First-class adapters for the Microsoft Agent Framework,
   Semantic Kernel, and MCP, plus a direct .NET API for everything else.
+- **Fits the .NET you already run.** Multi-targets net8.0 and net9.0, so adopting it doesn't mean
+  adopting a new runtime first.
 - **Faithful to its roots.** Verified against the upstream Python `neo4j-labs/agent-memory` project's own
   compatibility kit, so the .NET reimplementation isn't just inspired by the original — it's checked
   against it.

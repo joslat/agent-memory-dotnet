@@ -10,7 +10,6 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
   </ItemGroup>
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>LLM-based structured extraction backend for AgentMemory for .NET — extracts entities, relationships, facts, and preferences from conversations.</Description>

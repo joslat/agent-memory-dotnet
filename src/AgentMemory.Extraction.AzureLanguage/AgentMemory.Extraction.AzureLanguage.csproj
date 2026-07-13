@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>Azure AI Language extraction backend for AgentMemory for .NET. Entity recognition uses Azure NER; fact, preference, and relationship extraction are heuristic (Azure Text Analytics has no dedicated API for these).</Description>

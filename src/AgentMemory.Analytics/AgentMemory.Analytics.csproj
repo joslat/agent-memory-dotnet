@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>Optional Neo4j Graph Data Science (GDS) analytics for AgentMemory for .NET — PageRank (memory importance) and Louvain community detection (topic clustering) over the entity graph. Opt-in; degrades to a graceful no-op when the GDS plugin is not installed.</Description>

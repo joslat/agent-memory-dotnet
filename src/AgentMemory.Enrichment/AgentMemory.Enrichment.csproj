@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>Entity enrichment for AgentMemory for .NET — Nominatim geocoding and Wikimedia/Diffbot enrichment with caching, queuing, and rate limiting.</Description>
