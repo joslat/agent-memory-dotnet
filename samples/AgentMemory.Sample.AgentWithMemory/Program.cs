@@ -5,6 +5,9 @@
 // (https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory),
 // backed by DURABLE Neo4j memory instead of session-scoped in-memory state.
 //
+// Full guide: docs/agent-framework.md — the .NET equivalent of the official (Python-only) Neo4j
+// Memory Provider for Agent Framework (https://learn.microsoft.com/en-us/agent-framework/integrations/neo4j-memory).
+//
 // It demonstrates the full canonical "agent with memory" flow:
 //   1. A ChatClientAgent with Neo4jMemoryContextProvider (an AIContextProvider) + memory tools.
 //   2. A multi-turn AgentSession — messages are persisted to Neo4j after each turn.

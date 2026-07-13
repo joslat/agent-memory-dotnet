@@ -152,6 +152,7 @@ Nothing below is a bug or regression — `main` is clean. TCK compatibility is c
 |---|---|
 | **[`ROADMAP.md`](ROADMAP.md)** | **This file — the authoritative current status & next steps.** |
 | [`getting-started.md`](getting-started.md) | Install, configure, first memory store, multi-tenant setup |
+| [`agent-framework.md`](agent-framework.md) | **Using AgentMemory with the Microsoft Agent Framework** — the `AIContextProvider` guide, lifecycle, and the scoped-vs-singleton design rationale |
 | [`core/`](core/) | Canonical current documentation set: philosophy, requirements, design, specification, ADRs, summaries |
 | [`architecture.md`](architecture.md) · [`design.md`](design.md) · [`schema.md`](schema.md) | Current reference — layers/boundaries, type/interface catalogs, Neo4j graph model |
 | [`specification.md`](specification.md) | Short current specification entry point; detailed specification lives in [`core/specification.md`](core/specification.md) |

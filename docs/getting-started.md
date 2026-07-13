@@ -250,32 +250,48 @@ var snapshot = await memory.RecallAsOfAsync(
 
 ## 5. Microsoft Agent Framework Integration
 
+Register the adapter, then attach the **context provider** and **memory tools** to a MAF agent — the
+agent then recalls relevant memory before each run and persists new memory after, automatically:
+
 ```csharp
-using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework;        // Neo4jMemoryContextProvider, WithMemoryIdentity
+using AgentMemory.AgentFramework.Tools;  // MemoryToolFactory
+using Microsoft.Agents.AI;
 
 builder.Services.AddAgentMemoryFramework(options =>
 {
-    options.AutoExtractOnPersist           = true;
-    options.ContextFormat.IncludeEntities  = true;
-    options.ContextFormat.IncludeFacts     = true;
+    options.AutoExtractOnPersist             = true;
+    options.ContextFormat.IncludeEntities    = true;
+    options.ContextFormat.IncludeFacts       = true;
     options.ContextFormat.IncludePreferences = true;
 });
-// AgentTraceRecorder and MemoryToolFactory are registered by AddAgentMemoryFramework(...).
+
+// ...after building the host and creating a scope (sp):
+var memoryProvider = sp.GetRequiredService<Neo4jMemoryContextProvider>();
+var memoryTools    = sp.GetRequiredService<MemoryToolFactory>().CreateAIFunctions();
+
+AIAgent agent = chatClient.AsAIAgent(new ChatClientAgentOptions
+{
+    ChatOptions        = new() { Instructions = "…", Tools = [.. memoryTools] },
+    AIContextProviders = [memoryProvider],   // the canonical MAF registration point
+});
+
+var session = (await agent.CreateSessionAsync())
+    .WithMemoryIdentity(userId: "user-123", sessionId: "session-a", applicationId: "my-app");
+await agent.RunAsync("I prefer window seats on flights.", session);
 ```
 
-Use the facade in an agent pipeline:
+> **Full guide:** [Using AgentMemory with the Microsoft Agent Framework](agent-framework.md) covers how
+> the `AIContextProvider` lifecycle works, the memory tools, identity/scoping, and the whole integration
+> surface. AgentMemory is the .NET equivalent of the (Python-only) official Neo4j memory provider.
+
+**Lower-level facade (manual loop).** If you drive the agent loop yourself instead of using the context
+provider, `Neo4jMicrosoftMemoryFacade` exposes the same behavior as explicit pre-/post-run calls:
 
 ```csharp
-await using var scope = host.Services.CreateAsyncScope();
 var facade = scope.ServiceProvider.GetRequiredService<Neo4jMicrosoftMemoryFacade>();
-
-// Pre-run: inject prior memory context into the agent
-var priorMessages = await facade.GetContextForRunAsync([], sessionId, conversationId);
-
-// Post-run: persist the agent's output messages
-// newMessages is the list of ChatMessage objects produced by the agent run
-IList<ChatMessage> newMessages = agentResult.Messages.ToList();
-await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);
+var priorMessages = await facade.GetContextForRunAsync([], sessionId, conversationId);   // pre-run
+await facade.PersistAfterRunAsync(newMessages, sessionId, conversationId);               // post-run
 ```
 
 > **Optional — GraphRAG retrieval:** If you want `IGraphRagContextSource` for blended retrieval, call
