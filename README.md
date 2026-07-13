@@ -28,6 +28,21 @@ Framework, Semantic Kernel, direct .NET usage, and MCP clients.
   compatibility kit, so the .NET reimplementation isn't just inspired by the original — it's checked
   against it.
 
+## Memory Governance
+
+Any memory system that spans tenants, sessions, and time needs to answer these questions structurally —
+not by convention. AgentMemory does:
+
+| Question | How it's answered |
+|---|---|
+| **Who owns a memory?** | Every long-term record carries an `owner_id`/`MemoryScope`; `null` means shared/global — ownership is never ambiguous. |
+| **Where did it come from?** | `source_message_ids` plus `EXTRACTED_FROM`/`EXTRACTED_BY` graph edges trace every fact, entity, and preference back to the message and extractor that produced it. |
+| **What changed, and when?** | A bitemporal model separates valid-time (`valid_from`/`valid_until`) from transaction-time (`created_at`/`invalidated_at`); contradictions resolve via non-destructive `SUPERSEDED_BY`, and point-in-time recall can answer "what did we believe back then." |
+| **Why was it recalled?** | Every long-term read is logged to a read/access audit trail (who, what, when, how often); ranking is driven by explicit, configurable recency/structural signals — not an opaque score. |
+| **How is it invalidated or deleted?** | Long-term memory soft-invalidates by default (kept, recoverable); hard deletion is opt-in. Short-term session data can be cleared explicitly, always scoped to a single owner. |
+| **Can tenants see one another's memory?** | No. Owner/store isolation is enforced in the repository, recall, GraphRAG, reasoning, and maintenance layers — not just at the API surface — with an optional database-per-application tier for physical separation. |
+| **How do applications meet retention and privacy requirements?** | Scoped decay/pruning, non-destructive-by-default invalidation, the read-audit trail, and physical per-application isolation are the building blocks — wire them into whatever retention or privacy policy your application needs. |
+
 ## Quick Start
 
 ```bash
