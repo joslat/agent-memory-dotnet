@@ -178,6 +178,35 @@ The store tier routes across **databases within one instance**, not across insta
 
 ---
 
+## Owner isolation
+
+AgentMemory distinguishes between **scoped** and **unscoped** operations.
+
+- `MemoryScope.For("alice")` returns Alice's records and, by default, shared records.
+- `MemoryScope.Global` intentionally permits cross-owner administrative access.
+- A null read scope preserves the global, backward-compatible behavior.
+- A null write owner stores the memory as shared/global.
+
+In multi-tenant applications, establish an owner scope around the complete agent run, including any
+tool calls, by resolving `IWritableMemoryOwnerContext` from DI:
+
+```csharp
+// agent/session are whatever your MAF or Semantic Kernel integration already builds (§5/§6 below)
+using (ownerContext.BeginOwnerScope(userId))
+{
+    await agent.RunAsync(message, session);
+}
+```
+
+**Do not accept an owner ID supplied by an LLM or untrusted client as proof of authorization.** The host
+application must derive the owner from its authenticated user or tenant context. This matters
+concretely for MCP hosts: the built-in `memory://context/{session_id}` resource (`ContextResource`)
+accepts a caller-supplied `userId` parameter directly — if an untrusted MCP client or the model itself
+can set that parameter, it can request another owner's memory. Only expose it to trusted callers, or
+have the host validate/override it before the request reaches the resource.
+
+---
+
 ## 4. First Memory Store
 
 The primary facade is `IMemoryService`. Resolve it from DI:
@@ -201,7 +230,8 @@ var message = await memory.AddMessageAsync(
 
 Console.WriteLine($"Stored message: {message.MessageId}");
 
-// Recall context for a follow-up query
+// Recall context for a follow-up query. No UserId/Scope here ⇒ global/unscoped recall (fine for this
+// single-user walkthrough, but NOT for a multi-tenant app — see "Owner isolation" above).
 var recall = await memory.RecallAsync(new RecallRequest
 {
     SessionId = sessionId,

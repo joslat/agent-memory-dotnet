@@ -20,8 +20,10 @@ Framework, Semantic Kernel, direct .NET usage, and MCP clients.
   and reasoning traces (steps, tool calls, prior executions) are all first-class citizens.
 - **Graph-native, not just vectors.** Vector, fulltext, hybrid, and graph-traversal retrieval, plus
   optional GraphRAG context — because "similar text" and "connected knowledge" are different questions.
-- **Multi-tenant from day one.** Owner and store isolation are enforced deep in the persistence layer,
-  not bolted on at the API edge.
+- **Multi-tenant capable.** Owner and store isolation are enforced throughout scoped repository,
+  recall, GraphRAG, reasoning, maintenance, and agent-tool operations.
+  Multi-tenant hosts must establish an owner scope for every agent run. Unscoped operations retain
+  global behavior for administrative and single-tenant scenarios.
 - **Time-aware.** Bitemporal recall and non-destructive decay mean memory can answer "what did we believe
   back then" as well as "what do we believe now."
 - **Drops into the ecosystem you already use.** First-class adapters for the Microsoft Agent Framework,
@@ -44,7 +46,7 @@ not by convention. AgentMemory does:
 | **What changed, and when?** | A bitemporal model separates valid-time (`valid_from`/`valid_until`) from transaction-time (`created_at`/`invalidated_at`); contradictions resolve via non-destructive `SUPERSEDED_BY`, and point-in-time recall can answer "what did we believe back then." |
 | **Why was it recalled?** | Every long-term read is logged to a read/access audit trail (who, what, when, how often); ranking is driven by explicit, configurable recency/structural signals — not an opaque score. |
 | **How is it invalidated or deleted?** | Long-term memory soft-invalidates by default (kept, recoverable); hard deletion is opt-in. Short-term session data can be cleared explicitly, always scoped to a single owner. |
-| **Can tenants see one another's memory?** | No. Owner/store isolation is enforced in the repository, recall, GraphRAG, reasoning, and maintenance layers — not just at the API surface — with an optional database-per-application tier for physical separation. |
+| **Can scoped tenants see one another's memory?** | No. Owner-scoped operations return only that owner's memory and, when enabled, shared memory. Unscoped reads are global in the default compatibility mode, so multi-tenant hosts must establish an owner scope for every operation. |
 | **How do applications meet retention and privacy requirements?** | Scoped decay/pruning, non-destructive-by-default invalidation, the read-audit trail, and physical per-application isolation are the building blocks — wire them into whatever retention or privacy policy your application needs. |
 
 ## Quick Start

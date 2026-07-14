@@ -20,6 +20,10 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 - **Neo4j graph-native persistence**: direct Neo4j driver usage, no ORM, with schema bootstrapping and migration support *(Plan §7.3)*
 - **Context assembly**: configurable recall with budget enforcement and truncation strategies *(Spec §3.4, Plan §14)*
 - **Extraction pipeline**: pluggable extraction from conversations to structured long-term memory *(Plan §13)*
+- **Owner/store scoping**: `MemoryScope`/`owner_id` isolation runs through the repository, recall,
+  GraphRAG, reasoning, and maintenance layers, but it is opt-in per call — a null scope (the
+  backward-compatible default) is global, not isolated. Multi-tenant hosts must establish an owner scope
+  for every agent run; see [Owner isolation](getting-started.md#owner-isolation).
 
 ### What It Does NOT Do
 
@@ -500,7 +504,7 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 | **B7** | No adapter may contain business logic that belongs in Core | Adapters are thin translation layers only |
 | **B8** | Adapters depend on Core/Abstractions — never the reverse | Dependency inversion; core doesn't know about adapters |
 
-**Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the Squad CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
+**Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
 
 **Current Verification (as of Gap Closure Sprint + MEAI adoption D-AR2-1):**
 - ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.5.1 (approved, B1)
