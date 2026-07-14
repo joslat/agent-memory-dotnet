@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="AgentMemory" Version="$(ConsumerPackageVersion)" />
+  </ItemGroup>
+
+</Project>

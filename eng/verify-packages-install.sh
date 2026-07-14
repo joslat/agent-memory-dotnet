@@ -1,43 +1,41 @@
 #!/usr/bin/env bash
-# Installs every manifest package from a freshly-packed artifacts directory into throwaway
-# consumer projects (one per target framework) and builds them. Catches packaging/dependency
-# issues an in-solution project-reference build can't see: missing lib/ assets for a TFM,
-# unresolvable transitive dependencies, version conflicts across the 12 packages, etc.
+# Installs each dedicated consumer project (eng/package-consumers/Consumer.*) from a freshly-packed
+# artifacts directory and runs it for every target framework. Each consumer references only the
+# packages a real user of that entry point would install (not all 12 at once, which would mask
+# package-boundary mistakes), and actually calls the public DI registration surface, validating the
+# graph via ServiceProviderOptions.ValidateOnBuild rather than merely restoring/building.
 set -euo pipefail
 
 VERSION="${1:?usage: verify-packages-install.sh <version> [artifacts-dir]}"
 ARTIFACTS="${2:-artifacts}"
-MANIFEST="eng/release-packages.txt"
+CONSUMERS_DIR="eng/package-consumers"
 TFMS=(net8.0 net9.0 net10.0)
 
 ARTIFACTS_ABS="$(cd "$ARTIFACTS" && pwd)"
-workdir="$(mktemp -d)"
-trap 'rm -rf "$workdir"' EXIT
 
-for tfm in "${TFMS[@]}"; do
-  consumer="$workdir/consumer-$tfm"
-  mkdir -p "$consumer"
-  dotnet new console -f "$tfm" -o "$consumer" --force >/dev/null
+for consumer in "$CONSUMERS_DIR"/Consumer.*/; do
+  name="$(basename "$consumer")"
+  proj="${consumer}${name}.csproj"
 
-  cat > "$consumer/NuGet.config" <<EOF
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="release-artifacts" value="$ARTIFACTS_ABS" />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-  </packageSources>
-</configuration>
-EOF
+  echo "== $name: restore =="
+  dotnet restore "$proj" \
+    -p:ConsumerPackageVersion="$VERSION" \
+    --source "$ARTIFACTS_ABS" \
+    --source https://api.nuget.org/v3/index.json
 
-  echo "== $tfm: adding manifest packages =="
-  while IFS='|' read -r package_id project; do
-    [[ -z "$package_id" || "$package_id" == \#* ]] && continue
-    dotnet add "$consumer" package "$package_id" --version "$VERSION" --source "$ARTIFACTS_ABS"
-  done < "$MANIFEST"
+  for tfm in "${TFMS[@]}"; do
+    echo "== $name ($tfm): build =="
+    dotnet build "$proj" -c Release --no-restore -f "$tfm" -p:ConsumerPackageVersion="$VERSION"
 
-  echo "== $tfm: restore + build =="
-  dotnet build "$consumer" -c Release
+    echo "== $name ($tfm): run =="
+    output="$(dotnet run --project "$proj" -c Release --no-build -f "$tfm" -p:ConsumerPackageVersion="$VERSION")"
+    echo "$output"
+
+    if [[ "$output" != *"AgentMemory.Abstractions.Services.IMemoryService"* ]]; then
+      echo "::error::$name ($tfm) did not print the expected IMemoryService type name -- got: $output"
+      exit 1
+    fi
+  done
 done
 
-echo "All target frameworks (${TFMS[*]}) installed and built cleanly from the packed artifacts."
+echo "All consumers (${TFMS[*]}) installed, built, and resolved their DI graph cleanly."

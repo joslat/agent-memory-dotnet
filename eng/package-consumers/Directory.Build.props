@@ -1,0 +1,18 @@
+<Project>
+  <!-- Deliberately does NOT import the repo root Directory.Build.props: these throwaway consumer
+       programs test the packaged NuGet surface, not the in-repo source, so none of the root's
+       packaging metadata / TreatWarningsAsErrors / src-only multi-targeting conditions apply. -->
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- None of the AgentMemory.* packages reference the concrete logging implementation (only
+         Logging.Abstractions), so a real consumer needs this to satisfy ILogger<T> at DI time. -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+  </ItemGroup>
+</Project>
