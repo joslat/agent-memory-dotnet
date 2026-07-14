@@ -90,6 +90,7 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 - [Getting Started](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/getting-started.md)
 - [Architecture](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/architecture.md)
 - [Agent Framework Integration](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md)
+- [Microsoft Agent Framework shopping-assistant sample PR](https://github.com/microsoft/agent-framework/pull/7096) — proposed upstream sample using the published AgentMemory packages
 - [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
 - [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
 - [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md) - schema-parity/TCK compatibility tooling and the review process behind releases
