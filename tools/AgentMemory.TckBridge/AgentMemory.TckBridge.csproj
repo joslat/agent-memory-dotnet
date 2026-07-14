@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <!-- Meta-package transitively exposes Abstractions + Core + Neo4j + extraction + observability. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
   </ItemGroup>
 
