@@ -7,4 +7,5 @@
 
 > Independent community project. Not affiliated with, endorsed by, or supported by Neo4j, Inc.
 
-Give your .NET agents a memory that actually lasts.
+Give your .NET agents a memory that actually lasts. Agent Memory for .NET is a persistent,
+**graph
