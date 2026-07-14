@@ -26,8 +26,9 @@ so no bespoke agent loop is required: you register the provider on the agent and
   facts, preferences, and relationships into the graph (with a real LLM configured).
 - **Cross-session recall.** A brand-new session for the same owner/application recalls prior memory,
   because the knowledge lives in the graph rather than the MAF session state.
-- **Multi-tenant isolation.** Recall and persistence are scoped by owner and application, so one
-  tenant never sees another's memory.
+- **Multi-tenant capable.** Recall and persistence are scoped by owner and application once the host
+  establishes an owner scope for the run (see [Owner isolation](getting-started.md#owner-isolation));
+  unscoped operations remain global (shared/admin) by default.
 
 ## The three memory types
 
@@ -160,7 +161,8 @@ uses. From there, MAF drives the provider's before/after hooks on every `RunAsyn
 `WithMemoryIdentity(userId, sessionId, conversationId?, applicationId?)` stamps the run's identity onto
 the MAF session. AgentMemory reads it on every invocation to scope recall and writes:
 
-- **owner** (`userId`) — the multi-tenant isolation boundary; null means shared/global.
+- **owner** (`userId`) — the multi-tenant isolation boundary when set; null means shared/global (no
+  isolation) — always pass it from an authenticated user/tenant context, never from LLM/client input.
 - **application** (`applicationId`) — routes the memory store (shared DB by default; optionally a
   database per application).
 - **session** / **conversation** — short-term ordering and per-run context.
