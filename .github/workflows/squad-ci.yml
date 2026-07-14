@@ -8,7 +8,11 @@ on:
     branches: [dev, preview, main, insider]
     types: [opened, synchronize, reopened]
   push:
-    branches: [dev, insider]
+    branches: [main, dev, insider]
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

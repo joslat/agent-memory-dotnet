@@ -1,0 +1,15 @@
+# Canonical inventory of packages published to NuGet on release.
+# Format: <PackageId>|<ProjectPath>
+# Adding a project under src/ does NOT publish it — it must be listed here first.
+AgentMemory|src/AgentMemory/AgentMemory.csproj
+AgentMemory.Abstractions|src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj
+AgentMemory.AgentFramework|src/AgentMemory.AgentFramework/AgentMemory.AgentFramework.csproj
+AgentMemory.Analytics|src/AgentMemory.Analytics/AgentMemory.Analytics.csproj
+AgentMemory.Core|src/AgentMemory.Core/AgentMemory.Core.csproj
+AgentMemory.Enrichment|src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj
+AgentMemory.Extraction.AzureLanguage|src/AgentMemory.Extraction.AzureLanguage/AgentMemory.Extraction.AzureLanguage.csproj
+AgentMemory.Extraction.Llm|src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj
+AgentMemory.McpServer|src/AgentMemory.McpServer/AgentMemory.McpServer.csproj
+AgentMemory.Neo4j|src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj
+AgentMemory.Observability|src/AgentMemory.Observability/AgentMemory.Observability.csproj
+AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj
