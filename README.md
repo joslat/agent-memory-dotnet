@@ -95,6 +95,10 @@ Full documentation lives in [docs/](https://github.com/joslat/agent-memory-dotne
 - [Schema Reference](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/schema.md)
 - [Specification](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/specification.md)
 - [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md) - schema-parity/TCK compatibility tooling and the review process behind releases
+- [Threat Model](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/threat-model.md) - what isolation/authorization properties hold today, what's a documented gap, and who owns closing it
+- [Production Checklist](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/production-checklist.md) - what a deployment must configure itself (AgentMemory can't guarantee these alone)
+
+See [SECURITY.md](https://github.com/joslat/agent-memory-dotnet/blob/main/SECURITY.md) to report a vulnerability.
 
 ## Relationship to Upstream
 
