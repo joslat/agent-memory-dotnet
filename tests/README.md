@@ -65,9 +65,12 @@ collection rather than per-test:
 - **R1 multi-user isolation suite** (multi-subsystem, live): `OwnerScopeIsolationIntegrationTests`,
   `EntityResolutionOwnerScopeIntegrationTests`, `McpResourceIsolationIntegrationTests`,
   `Neo4jMemoryDecayServiceIntegrationTests`, `ExtractorProvenanceScopeIntegrationTests`,
-  `OverFetchStarvationIntegrationTests`, plus the `*ReadScope` / `*OwnerScope` repository tests. The
-  shared pattern: seed `alice` / `bob` / shared(`null`) rows and assert a scoped read returns the
-  owner's + shared rows and **never** another owner's.
+  `OverFetchStarvationIntegrationTests`, `ExtractionOwnerStampIntegrationTests`, plus the
+  `*ReadScope` / `*OwnerScope` repository tests. The shared pattern: seed `alice` / `bob` /
+  shared(`null`) rows and assert a scoped read returns the owner's + shared rows and **never**
+  another owner's. `ExtractionOwnerStampIntegrationTests` is the one that runs the real DI-registered
+  `IMemoryExtractionPipeline` (deterministic test extractors standing in for an LLM) end to end, rather
+  than seeding repositories directly.
 
 ## Conventions & guardrails
 
@@ -79,14 +82,10 @@ collection rather than per-test:
 
 ## Known coverage gaps / follow-ups
 
-- **End-to-end owner-stamp on extraction** is verified at the *pipeline* unit level
-  (`MemoryExtractionPipelineTests`: `request.UserId` → resolution scope + persistence owner-stamp) but
-  there is no *live* test that supplying a `userId` to `extract_and_persist` / `memory_extract_session`
-  results in owner-stamped persisted nodes through the full ingest path (the stub extractors produce no
-  entities, so a live test would need a real-ish extractor).
-- **MCP `ContextResource`** owner-confinement is unit-covered (it routes through
-  `IMemoryContextAssembler`, asserted via mock) but — unlike the Entity/Preference/Conversation list
-  resources — has no live-Neo4j isolation test.
+None currently tracked here. The two gaps previously listed — end-to-end owner-stamp verification
+through the full extraction/persistence path, and live-Neo4j isolation for the MCP `ContextResource` —
+were closed by `ExtractionOwnerStampIntegrationTests` and the `ContextResource_*` tests added to
+`McpResourceIsolationIntegrationTests`, respectively (see issue #99).
 
 The isolation design and full per-finding history are recorded in the maintainers' internal project archive
 (not part of the published docs).
