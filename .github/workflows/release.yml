@@ -1,0 +1,198 @@
+name: Release
+# Tag-gated NuGet release for the AgentMemory.* packages, in two phases:
+#   package  - verify the tag, run the full test suite, pack the manifest projects, validate the
+#              inventory, smoke-install into clean consumers, upload the result as an artifact.
+#   publish  - download that artifact and push it, unchanged, to nuget.org. Never rebuilds.
+# Trigger by pushing a SemVer tag, e.g. git tag v1.1.0 && git push origin v1.1.0
+# (or a prerelease tag, e.g. v1.1.0-rc.1). The package version is taken from the tag (the 'v'
+# prefix is stripped), overriding the default Version in Directory.Build.props.
+#
+# Requires on nuget.org: a Trusted Publishing policy for this repo + workflow file (release.yml),
+# and a NUGET_USER repo secret set to the nuget.org profile name (not email) that owns the policy.
+# See https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  package:
+    name: Verify and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Fail fast on a malformed tag, a tag on a commit not merged to main, or a missing
+      # CHANGELOG entry — before spending time on the full build/test suite below.
+      - name: Validate tag, main ancestry, and changelog
+        run: bash eng/validate-release-tag.sh
+
+      - name: Restore
+        run: dotnet restore AgentMemory.slnx
+
+      - name: Build
+        run: dotnet build AgentMemory.slnx -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Repository consistency checks
+        run: |
+          missing=0
+
+          while IFS='|' read -r package_id project; do
+            [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+            if [[ ! -f "$project" ]]; then
+              echo "::error::eng/release-packages.txt references a missing project: $project"
+              missing=1
+            fi
+          done < eng/release-packages.txt
+
+          manifest_ids="$(grep -v '^#' eng/release-packages.txt | grep -v '^$' | cut -d'|' -f1 | sort)"
+          actual_ids="$(find src -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"
+          unlisted="$(comm -23 <(echo "$actual_ids") <(echo "$manifest_ids"))"
+          if [[ -n "$unlisted" ]]; then
+            echo "::error::src/ project(s) not listed in eng/release-packages.txt:"
+            echo "$unlisted"
+            missing=1
+          fi
+
+          [[ "$missing" -eq 0 ]] || exit 1
+          echo "eng/release-packages.txt matches src/*/ exactly."
+
+      - name: Unit + SemanticKernel tests
+        run: >
+          dotnet test AgentMemory.slnx -c Release --no-build
+          --filter "Category!=Integration&Category!=Performance"
+          --logger "trx;LogFileName=unit.trx"
+          --results-directory TestResults
+
+      # Testcontainers spins up neo4j:5.26 automatically — no manual service container needed.
+      - name: Integration tests
+        run: >
+          dotnet test tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj
+          -c Release --no-build
+          --filter "Category=Integration"
+          --logger "trx;LogFileName=integration.trx"
+          --results-directory TestResults
+
+      - name: Performance smoke tests
+        run: >
+          dotnet test tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=performance.trx"
+          --results-directory TestResults
+
+      - name: Static upstream schema parity
+        run: >
+          dotnet run --project tools/AgentMemory.Cli/AgentMemory.Cli.csproj
+          -c Release --no-build --
+          schema-parity --upstream-version 0.5.0
+
+      - name: Sample smoke builds
+        run: |
+          dotnet build samples/AgentMemory.Sample.AgentWithMemory/AgentMemory.Sample.AgentWithMemory.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.RealAgent/AgentMemory.Sample.RealAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.MemoryToolsAgent/AgentMemory.Sample.MemoryToolsAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.ChatHistoryProvider/AgentMemory.Sample.ChatHistoryProvider.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj -c Release --no-restore
+          dotnet build samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj -c Release --no-restore
+          dotnet build samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj -c Release --no-restore
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: ignore
+
+      - name: Pack explicit packages
+        run: |
+          while IFS='|' read -r package_id project; do
+            [[ -z "$package_id" || "$package_id" == \#* ]] && continue
+            dotnet pack "$project" -c Release --no-build \
+              -p:Version=${{ steps.version.outputs.version }} \
+              -o artifacts
+          done < eng/release-packages.txt
+
+      - name: Validate package inventory
+        run: bash eng/validate-release.sh artifacts
+
+      - name: Install packages into clean consumers
+        run: bash eng/verify-packages-install.sh ${{ steps.version.outputs.version }} artifacts
+
+      # upload-artifact v4+ artifacts are immutable once uploaded (can't be overwritten within a run).
+      - name: Upload packages as immutable artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: nuget-packages
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Publish
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # create the GitHub release
+      id-token: write     # OIDC for NuGet trusted publishing + attestation signing
+      attestations: write # generate build provenance attestations
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download verified packages
+        uses: actions/download-artifact@v5
+        with:
+          name: nuget-packages
+          path: artifacts
+
+      - name: NuGet login (OIDC -> temp API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to NuGet
+        run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Generate build provenance attestations
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "artifacts/*.nupkg"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          --prerelease=${{ contains(github.ref_name, '-') }}
+          artifacts/*.nupkg

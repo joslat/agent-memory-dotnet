@@ -72,7 +72,7 @@ No team exists yet. Propose one — but **DO NOT create any files until the user
 
 **Seeding:** Each agent's `history.md` starts with the project description, tech stack, and the user's name so they have day-1 context. Agent folder names are the cast name in lowercase (e.g., `.squad/agents/ripley/`). The Scribe's charter includes maintaining `decisions.md` and cross-agent context sharing.
 
-**Team.md structure:** `team.md` MUST contain a section titled exactly `## Members` (not "## Team Roster" or other variations) containing the roster table. This header is hard-coded in GitHub workflows (`squad-heartbeat.yml`, `squad-issue-assign.yml`, `squad-triage.yml`, `sync-squad-labels.yml`) for label automation. If the header is missing or titled differently, label routing breaks.
+**Team.md structure:** `team.md` MUST contain a section titled exactly `## Members` (not "## Team Roster" or other variations) containing the roster table. In repos that instantiate the Squad GitHub Actions layer (`squad-heartbeat.yml`, `squad-issue-assign.yml`, `squad-triage.yml`, `sync-squad-labels.yml` — see `.squad/templates/workflows/`), this header is hard-coded there for label automation and breaks routing if missing or retitled. This repo has removed that GitHub Actions layer in favor of native GitHub labels, issue forms, and manual triage — the header convention still applies to local Squad CLI tooling (`ralph-triage.js`, `squad-cli watch`), just not to any cloud automation.
 
 **Merge driver for append-only files:** Create or update `.gitattributes` at the repo root to enable conflict-free merging of `.squad/` state across branches:
 ```
@@ -1211,7 +1211,7 @@ This runs as a standalone local process (not inside Copilot) that:
 |-------|------|-----|
 | **In-session** | You're at the keyboard | "Ralph, go" — active loop while work exists |
 | **Local watchdog** | You're away but machine is on | `npx @bradygaster/squad-cli watch --interval 10` |
-| **Cloud heartbeat** | Fully unattended | `squad-heartbeat.yml` — event-based only (cron disabled) |
+| **Cloud heartbeat** | Fully unattended | Removed from this repo — see `.squad/templates/workflows/squad-heartbeat.yml` to reinstate |
 
 ### Ralph State
 
