@@ -23,7 +23,9 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 - **Owner/store scoping**: `MemoryScope`/`owner_id` isolation runs through the repository, recall,
   GraphRAG, reasoning, and maintenance layers, but it is opt-in per call — a null scope (the
   backward-compatible default) is global, not isolated. Multi-tenant hosts must establish an owner scope
-  for every agent run; see [Owner isolation](getting-started.md#owner-isolation).
+  for every agent run; see [Owner isolation](getting-started.md#owner-isolation) and the
+  [threat model](security/threat-model.md) for exactly which isolation properties hold today, which are
+  partial, and which are open gaps with an owner and a plan.
 
 ### What It Does NOT Do
 
