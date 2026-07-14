@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # AgentMemory.slnx at the repo root pulls in every src/, tests/, samples/, and tools/ project.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      microsoft-extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+      microsoft-ai:
+        patterns:
+          - "Microsoft.SemanticKernel*"
+          - "Microsoft.Agents.AI*"
+      azure:
+        patterns:
+          - "Azure.*"
+      neo4j:
+        patterns:
+          - "Neo4j.*"
+          - "Testcontainers.Neo4j"
+      xunit:
+        patterns:
+          - "xunit*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
