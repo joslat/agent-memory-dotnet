@@ -197,15 +197,14 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         try
         {
             // Response messages are persisted as new :Message nodes, as before. Request messages are
-            // deliberately NOT persisted here (#89): a host may already have a Neo4jChatHistoryProvider,
-            // Neo4jChatMessageStore, or their own component persisting the same request messages on this
-            // agent, and there is no idempotency mechanism (no MERGE-by-id, no caller-supplied id) that
-            // would let this provider safely avoid creating a second, duplicate :Message node for the
-            // same logical message. Building transient (never-persisted) Message objects for extraction
-            // only avoids that risk entirely while still capturing what the user said. Filtered to
-            // ChatRole.User -- the same filter recall already applies (BuildContextAsync above) -- so a
-            // system prompt or other non-user content accumulated in RequestMessages doesn't get minted
-            // into spurious entities/facts/preferences every turn.
+            // deliberately NOT persisted here (#89): ChatMessage.MessageId (used below for response-side
+            // dedup) is essentially never populated on caller-constructed request messages, so it can't
+            // help there -- request-message persistence ownership intentionally stays solely with
+            // Neo4jChatHistoryProvider. Building transient (never-persisted) Message objects for extraction
+            // only captures what the user said without risking a duplicate node. Filtered to ChatRole.User
+            // -- the same filter recall already applies (BuildContextAsync above) -- so a system prompt or
+            // other non-user content accumulated in RequestMessages doesn't get minted into spurious
+            // entities/facts/preferences every turn.
             var transientRequestMessages = requestMessages
                 .Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text))
                 .Select(msg => MafTypeMapper.ToInternalMessage(msg, sessionId, conversationId, _clock, _idGenerator))
@@ -216,13 +215,27 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             {
                 if (string.IsNullOrWhiteSpace(msg.Text)) continue;
 
-                var stored = await _memoryService
-                    .AddMessageAsync(
-                        sessionId, conversationId,
-                        MafTypeMapper.ToInternalRole(msg.Role),
-                        msg.Text,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                // When the underlying IChatClient stamps a provider-native MessageId on this response
+                // message, persist it under a deterministic id (#89): if another persisting component
+                // (e.g. Neo4jChatHistoryProvider, Neo4jChatMessageStore) configured on the same agent
+                // observes the same response, it converges on this same :Message node instead of creating
+                // a duplicate. Falls back to today's fresh-id behavior when absent (no regression).
+                var providerId = MafTypeMapper.TryGetProviderMessageId(msg);
+                var stored = providerId is not null
+                    ? await _memoryService
+                        .AddMessageWithIdAsync(
+                            sessionId, conversationId,
+                            MafTypeMapper.ToInternalRole(msg.Role),
+                            msg.Text, providerId,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false)
+                    : await _memoryService
+                        .AddMessageAsync(
+                            sessionId, conversationId,
+                            MafTypeMapper.ToInternalRole(msg.Role),
+                            msg.Text,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 storedMessages.Add(stored);
             }
 

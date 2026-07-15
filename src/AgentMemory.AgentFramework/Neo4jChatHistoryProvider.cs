@@ -39,7 +39,17 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         ILogger<Neo4jChatHistoryProvider> logger,
         IMemoryStoreContext? storeContext = null,
         IWritableMemoryOwnerContext? ownerContext = null)
-        : base(null, null, null)
+        // storeInputRequestMessageFilter narrows MAF's own default (which excludes only ChatHistory-sourced
+        // messages) down to External-only. Without this, when a host also configures an AIContextProvider
+        // (e.g. Neo4jMemoryContextProvider) on the same agent, that provider's injected messages (recalled
+        // memory, wrapped as system-role content) show up in RequestMessages here too and get persisted as
+        // brand-new :Message nodes every single turn (#89). Trade-off: a host using a DIFFERENT,
+        // legitimate AIContextProvider whose injected content they actually want captured as persisted
+        // history would now have it silently excluded too -- treating provider-injected context as
+        // ephemeral (not history) is the correct default for this library, but it is a real behavior
+        // change from MAF's own out-of-the-box default for that uncommon case.
+        : base(null, static msgs => msgs.Where(
+            m => m.GetAgentRequestMessageSourceType() == AgentRequestMessageSourceType.External), null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -140,18 +150,31 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                 storedRequests.Add(stored);
             }
 
-            // Persist response messages
+            // Persist response messages. When the underlying IChatClient stamps a provider-native
+            // MessageId, persist under a deterministic id (#89) so another persisting component observing
+            // the same response (e.g. Neo4jMemoryContextProvider, Neo4jChatMessageStore) converges on the
+            // same :Message node instead of creating a duplicate. Falls back to today's fresh-id behavior
+            // when absent.
             var storedResponses = new List<Abstractions.Domain.Message>();
             foreach (var msg in responseMessages)
             {
                 if (string.IsNullOrWhiteSpace(msg.Text)) continue;
-                var stored = await _memoryService
-                    .AddMessageAsync(
-                        sessionId, conversationId,
-                        MafTypeMapper.ToInternalRole(msg.Role),
-                        msg.Text,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                var providerId = MafTypeMapper.TryGetProviderMessageId(msg);
+                var stored = providerId is not null
+                    ? await _memoryService
+                        .AddMessageWithIdAsync(
+                            sessionId, conversationId,
+                            MafTypeMapper.ToInternalRole(msg.Role),
+                            msg.Text, providerId,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false)
+                    : await _memoryService
+                        .AddMessageAsync(
+                            sessionId, conversationId,
+                            MafTypeMapper.ToInternalRole(msg.Role),
+                            msg.Text,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 storedResponses.Add(stored);
             }
 

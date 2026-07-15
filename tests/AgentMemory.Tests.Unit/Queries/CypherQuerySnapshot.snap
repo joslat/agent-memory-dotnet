@@ -358,17 +358,16 @@ MERGE (conv:Conversation {id: $conversationId})
             ON CREATE SET conv.session_id = $sessionId,
                           conv.created_at = datetime($timestamp),
                           conv.updated_at = datetime($timestamp)
-            CREATE (m:Message {
-                id:              $id,
-                conversation_id: $conversationId,
-                session_id:      $sessionId,
-                role:            $role,
-                content:         $content,
-                timestamp:       datetime($timestamp),
-                tool_call_ids:   $toolCallIds,
-                metadata:        $metadata
-            })
-            CREATE (conv)-[:HAS_MESSAGE]->(m)
+            MERGE (m:Message {id: $id})
+            ON CREATE SET
+                m.conversation_id = $conversationId,
+                m.session_id      = $sessionId,
+                m.role            = $role,
+                m.content         = $content,
+                m.timestamp       = datetime($timestamp),
+                m.tool_call_ids   = $toolCallIds,
+                m.metadata        = $metadata
+            MERGE (conv)-[:HAS_MESSAGE]->(m)
             RETURN m
 
 ## MessageQueries.AddBatch
@@ -377,17 +376,16 @@ UNWIND $messages AS msg
             ON CREATE SET conv.session_id = msg.session_id,
                           conv.created_at = datetime(msg.timestamp),
                           conv.updated_at = datetime(msg.timestamp)
-            CREATE (m:Message {
-                id:              msg.id,
-                conversation_id: msg.conversation_id,
-                session_id:      msg.session_id,
-                role:            msg.role,
-                content:         msg.content,
-                timestamp:       datetime(msg.timestamp),
-                tool_call_ids:   msg.tool_call_ids,
-                metadata:        msg.metadata
-            })
-            CREATE (conv)-[:HAS_MESSAGE]->(m)
+            MERGE (m:Message {id: msg.id})
+            ON CREATE SET
+                m.conversation_id = msg.conversation_id,
+                m.session_id      = msg.session_id,
+                m.role            = msg.role,
+                m.content         = msg.content,
+                m.timestamp       = datetime(msg.timestamp),
+                m.tool_call_ids   = msg.tool_call_ids,
+                m.metadata        = msg.metadata
+            MERGE (conv)-[:HAS_MESSAGE]->(m)
             RETURN m
 
 ## MessageQueries.CreateFirstMessageLink
@@ -396,7 +394,7 @@ MATCH (conv:Conversation {id: $conversationId}), (m:Message {id: $id})
                 MERGE (conv)-[:FIRST_MESSAGE]->(m)
 
 ## MessageQueries.CreateNextMessageLink
-MATCH (prev:Message {id: $prevId}), (next:Message {id: $nextId}) CREATE (prev)-[:NEXT_MESSAGE]->(next)
+MATCH (prev:Message {id: $prevId}), (next:Message {id: $nextId}) MERGE (prev)-[:NEXT_MESSAGE]->(next)
 
 ## MessageQueries.DeleteBySession
 MATCH (m:Message {session_id: $sessionId}) DETACH DELETE m
@@ -438,14 +436,14 @@ MATCH (conv:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(prev:Message)
                     WHERE NOT prev.id IN $batchIds
                     WITH prev ORDER BY prev.timestamp DESC LIMIT 1
                     MATCH (first:Message {id: $firstId})
-                    CREATE (prev)-[:NEXT_MESSAGE]->(first)
+                    MERGE (prev)-[:NEXT_MESSAGE]->(first)
 
 ## MessageQueries.LinkNextMessage
 MATCH (conv:Conversation {id: $conversationId})-[:HAS_MESSAGE]->(prev:Message)
             WHERE prev.id <> $id
             WITH prev ORDER BY prev.timestamp DESC LIMIT 1
             MATCH (m:Message {id: $id})
-            CREATE (prev)-[:NEXT_MESSAGE]->(m)
+            MERGE (prev)-[:NEXT_MESSAGE]->(m)
 
 ## PreferenceQueries.CreateAboutRelationship
 MATCH (p:Preference {id: $preferenceId}), (e:Entity {id: $entityId})

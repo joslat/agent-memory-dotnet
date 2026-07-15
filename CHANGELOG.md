@@ -50,10 +50,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user-stated preference was invisible unless the assistant repeated it. Extraction now considers the
   complete turn. `Neo4jChatHistoryProvider` (which already persisted both request and response messages)
   gained full-provenance extraction from both at no new risk. `Neo4jMemoryContextProvider` deliberately
-  does not start persisting request messages as new `:Message` nodes (there is no idempotency mechanism to
-  avoid duplicating what a chat-history provider/store may already persist) — captured facts/preferences
-  are correct, but their provenance link to the literal source message is best-effort in that path, not
+  does not start persisting request messages as new `:Message` nodes — request-message persistence
+  ownership intentionally stays solely with `Neo4jChatHistoryProvider` — so captured facts/preferences are
+  correct, but their provenance link to the literal source message is best-effort in that path, not
   guaranteed; documented, not silently accepted.
+- **Enabling more than one MAF message-persisting component could duplicate `:Message` nodes (#89).**
+  `Neo4jChatHistoryProvider` now narrows MAF's default request-message filter to
+  `AgentRequestMessageSourceType.External` only, so it no longer re-persists another configured
+  `AIContextProvider`'s (e.g. `Neo4jMemoryContextProvider`'s) injected recalled-memory messages as new
+  nodes every turn — a real, previously-undiscovered bug found while investigating this issue, not merely
+  one of its stated acceptance criteria. On the response side, message persistence is now idempotent by
+  id: `Neo4jMessageRepository`'s writes are `MERGE`-by-id instead of `CREATE` (a no-op, first-write-wins,
+  for a repeated id — safe because `message_id` already has a uniqueness constraint, and no existing
+  caller ever supplied a repeated id), and `Neo4jMemoryContextProvider`/`Neo4jChatHistoryProvider`/
+  `Neo4jChatMessageStore` now persist a response message under a deterministic id derived from the
+  underlying `ChatMessage.MessageId` when the `IChatClient` populates one — so two of these components
+  observing the same response converge on one node instead of duplicating it. When the client doesn't
+  populate `MessageId`, today's fresh-id behavior remains (no regression, but the gap remains for that
+  client) — a disclosed limitation, not a silent one; see `docs/agent-framework.md`. Also explicitly
+  documents the non-text-content policy for `Neo4jMemoryContextProvider`/`Neo4jChatHistoryProvider`: a
+  message carrying only function/tool calls, function/tool results, or reasoning content is excluded from
+  both persistence and extraction in those two providers (previously true as a side effect of the
+  empty-text filter, now an explicit, tested contract for them specifically — the lower-level
+  `Neo4jChatMessageStore`/`Neo4jMicrosoftMemoryFacade` path does not have this guard and persists every
+  message it's given). #89 is now fully closed.
 
 ## [1.0.3] - 2026-07-14
 

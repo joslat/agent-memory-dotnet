@@ -191,6 +191,36 @@ internal sealed class MemoryService : IMemoryService
     }
 
     /// <inheritdoc/>
+    public async Task<Message> AddMessageWithIdAsync(
+        string sessionId,
+        string conversationId,
+        string role,
+        string content,
+        string messageId,
+        IReadOnlyDictionary<string, object>? metadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+        ArgumentNullException.ThrowIfNull(content);
+
+        var message = new Message
+        {
+            MessageId = messageId,
+            SessionId = sessionId,
+            ConversationId = conversationId,
+            Role = role,
+            Content = content,
+            TimestampUtc = _clock.UtcNow,
+            Metadata = metadata ?? new Dictionary<string, object>()
+        };
+
+        return await _shortTerm.AddMessageAsync(message, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public Task<IReadOnlyList<Message>> AddMessagesAsync(
         IEnumerable<Message> messages,
         CancellationToken cancellationToken = default)
