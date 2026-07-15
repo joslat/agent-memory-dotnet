@@ -284,6 +284,34 @@ mechanism is the one its scoped services require, and it does strictly more (mul
   which memory kinds to inject into the prompt.
 - `ContextFormat.MaxContextMessages` / `ContextPrefix` — shape the injected context block.
 
+**Trust boundary (#92 Phase 1).** Recalled entities/facts/preferences/reasoning traces/GraphRAG content
+may originate from users, external documents, tool results, or the model itself — it is not injected as a
+raw, unrestricted system instruction. Each block is delimited and angle-bracket-escaped
+(`<recalled_memory category="...">...</recalled_memory>`, with `<`/`>` in the content escaped so it can't
+forge or prematurely close its own boundary), and the default `ContextPrefix` explicitly tells the model
+this content is untrusted reference data, not instructions to follow.
+
+Be clear about what this does and doesn't cover:
+- The escaping defeats *boundary forgery* specifically (a recalled value can't fake or close the
+  `<recalled_memory>` tag). It does **not** detect or block injection techniques that don't rely on that
+  tag — role-header conventions, code fences, or a plain-language instruction like "ignore previous
+  instructions" all pass through unescaped inside the block. The `ContextPrefix` instruction is what
+  actually asks the model not to follow them; the delimiter only guarantees the model can tell where the
+  untrusted block starts and ends. An instruction-like-content detector is explicit future work (#92).
+- **Recalled conversation history (`RelevantMessages` — messages resurfaced by semantic search, not the
+  current turn's recent chat) is not wrapped by this mitigation and keeps its originally-persisted role.**
+  If a prior turn's history ever contained a `system`-role message, recalling it replays it with full
+  system authority. This is a known, disclosed gap, not silently dropped — the Phase-1 slice covers
+  exactly the categories named in its scope (entities/facts/preferences/traces/GraphRAG); recalled message
+  history is a separate surface for a future pass.
+- Setting `ContextPrefix` to `string.Empty` — or having already customized it before this default changed
+  — removes the trust framing (the content stays wrapped in `<recalled_memory>` tags, but nothing tells
+  the model what those mean). A host with a pre-existing custom `ContextPrefix` should add equivalent
+  framing to it; the new default only helps hosts using the out-of-the-box value.
+
+This is a first, intentionally small slice of the full trust model proposed in #92 (trust metadata, an
+admission policy, configurable message roles, and instruction-like-content detection remain open work).
+
 ## Real providers vs. offline defaults
 
 AgentMemory ships deterministic **stub** providers (`StubEmbeddingGenerator`, and the samples use a
