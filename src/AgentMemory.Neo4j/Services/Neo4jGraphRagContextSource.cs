@@ -20,6 +20,7 @@ internal sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
     private readonly IRetriever _retriever;
     private readonly GraphRagOptions _options;
     private readonly ILogger<Neo4jGraphRagContextSource> _logger;
+    private readonly IMemoryIsolationPolicy? _isolationPolicy;
 
     /// <summary>
     /// Production constructor resolved via DI.
@@ -29,7 +30,8 @@ internal sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IOptions<GraphRagOptions> options,
         ILogger<Neo4jGraphRagContextSource> logger,
-        IOptions<MemoryRankingOptions>? ranking = null)
+        IOptions<MemoryRankingOptions>? ranking = null,
+        IMemoryIsolationPolicy? isolationPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(driver);
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
@@ -38,6 +40,13 @@ internal sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
 
         _options = options.Value;
         _logger = logger;
+        // #100 Stage 2: optional dep, same reasoning as `ranking` below -- GraphRAG must still resolve
+        // when only the Neo4j package (no Core) is registered. Without Core there is no
+        // IMemoryIsolationPolicy implementation to register, so StrictMultiTenant enforcement simply
+        // isn't available in that configuration (today's exact pass-through behavior); every composition
+        // this library ships (AgentMemory.ServiceCollectionExtensions.AddNeo4jAgentMemory) registers Core
+        // first, so this resolves in every supported/tested scenario.
+        _isolationPolicy = isolationPolicy;
         // D2 — structural hop decay γ for Graph mode (parity default 1.0 = off). Optional dep so the
         // GraphRAG source still resolves when only the Neo4j package (no Core) is registered.
         var gamma = (ranking?.Value ?? MemoryRankingOptions.Default).EffectiveStructuralDecayGamma;
@@ -50,11 +59,13 @@ internal sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
     internal Neo4jGraphRagContextSource(
         IRetriever retriever,
         GraphRagOptions options,
-        ILogger<Neo4jGraphRagContextSource> logger)
+        ILogger<Neo4jGraphRagContextSource> logger,
+        IMemoryIsolationPolicy? isolationPolicy = null)
     {
         _retriever = retriever;
         _options = options;
         _logger = logger;
+        _isolationPolicy = isolationPolicy;
     }
 
     /// <inheritdoc/>
@@ -62,11 +73,19 @@ internal sealed class Neo4jGraphRagContextSource : IGraphRagContextSource
         GraphRagContextRequest request,
         CancellationToken cancellationToken = default)
     {
+        // Resolved BEFORE the resilient try/catch below (#100 Stage 2): a StrictMultiTenant
+        // MemoryOwnerScopeRequiredException must propagate to the caller, not be swallowed into a
+        // "best-effort empty result" the way a genuine retrieval failure is.
+        var resolvedOwnerId = _isolationPolicy is null
+            ? request.UserId
+            : _isolationPolicy.ResolveReadScope(
+                explicitScope: null, request.UserId, nameof(GetContextAsync), MemoryOperationAccess.Tenant).OwnerId;
+
         try
         {
             var topK = request.TopK > 0 ? request.TopK : _options.TopK;
             // R1: scope GraphRAG retrieval to the requesting owner (plus shared/global).
-            var result = await _retriever.SearchAsync(request.Query, topK, request.UserId, cancellationToken)
+            var result = await _retriever.SearchAsync(request.Query, topK, resolvedOwnerId, cancellationToken)
                 .ConfigureAwait(false);
 
             var items = result.Items.Select(MapItem).ToList();

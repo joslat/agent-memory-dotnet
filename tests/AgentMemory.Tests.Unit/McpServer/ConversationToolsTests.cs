@@ -1,9 +1,13 @@
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.McpServer;
 using AgentMemory.McpServer.Tools;
 using NSubstitute;
@@ -15,6 +19,8 @@ public sealed class ConversationToolsTests
     private readonly IShortTermMemoryService _shortTermMemory = Substitute.For<IShortTermMemoryService>();
     private readonly IConversationRepository _conversationRepo = Substitute.For<IConversationRepository>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
+    private readonly IMemoryIsolationPolicy _isolationPolicy =
+        new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance);
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
 
@@ -26,7 +32,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
-        await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, "conv-1");
+        await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1");
 
         await _shortTermMemory.Received(1).GetConversationMessagesAsync("conv-1", Arg.Any<CancellationToken>());
     }
@@ -58,7 +64,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(messages);
 
-        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, "conv-1");
+        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -73,7 +79,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
-        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, "conv-1");
+        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -92,7 +98,7 @@ public sealed class ConversationToolsTests
             });
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, "conv-1", userId: "bob");
+            _shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1", userId: "bob");
 
         JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(0);
         await _shortTermMemory.DidNotReceive().GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -114,7 +120,7 @@ public sealed class ConversationToolsTests
             });
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, "conv-1", userId: "alice");
+            _shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1", userId: "alice");
 
         JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
     }
@@ -136,7 +142,7 @@ public sealed class ConversationToolsTests
             });
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, "conv-1", userId: "bob");
+            _shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1", userId: "bob");
 
         JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
     }
@@ -149,7 +155,7 @@ public sealed class ConversationToolsTests
         _conversationRepo.GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Conversation>());
 
-        await ConversationTools.MemoryListSessions(_conversationRepo, _options, "ses-1");
+        await ConversationTools.MemoryListSessions(_conversationRepo, _options, _isolationPolicy, "ses-1");
 
         await _conversationRepo.Received(1).GetBySessionAsync("ses-1", Arg.Any<CancellationToken>());
     }
@@ -160,7 +166,7 @@ public sealed class ConversationToolsTests
         _conversationRepo.GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Conversation>());
 
-        await ConversationTools.MemoryListSessions(_conversationRepo, _options);
+        await ConversationTools.MemoryListSessions(_conversationRepo, _options, _isolationPolicy);
 
         await _conversationRepo.Received(1).GetBySessionAsync("default", Arg.Any<CancellationToken>());
     }
@@ -182,7 +188,7 @@ public sealed class ConversationToolsTests
         _conversationRepo.GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(conversations);
 
-        var result = await ConversationTools.MemoryListSessions(_conversationRepo, _options, "ses-1");
+        var result = await ConversationTools.MemoryListSessions(_conversationRepo, _options, _isolationPolicy, "ses-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -203,11 +209,69 @@ public sealed class ConversationToolsTests
                 new() { ConversationId = "shared", SessionId = "ses-1", UserId = null,    CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime },
             });
 
-        var result = await ConversationTools.MemoryListSessions(_conversationRepo, _options, "ses-1", userId: "alice");
+        var result = await ConversationTools.MemoryListSessions(_conversationRepo, _options, _isolationPolicy, "ses-1", userId: "alice");
 
         var ids = JsonDocument.Parse(result).RootElement.EnumerateArray()
             .Select(e => e.GetProperty("conversationId").GetString()).ToList();
         ids.Should().BeEquivalentTo(new[] { "mine", "shared" });
         ids.Should().NotContain("theirs");
+    }
+
+    // ── #100 Stage 2: StrictMultiTenant fails closed for both tools too ──
+
+    private static IMemoryIsolationPolicy CreateStrictPolicy() =>
+        new DefaultMemoryIsolationPolicy(
+            Options.Create(new MemoryIsolationOptions { Mode = MemoryIsolationMode.StrictMultiTenant }),
+            NullLogger<DefaultMemoryIsolationPolicy>.Instance);
+
+    [Fact]
+    public async Task MemoryGetConversation_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var act = () => ConversationTools.MemoryGetConversation(
+            _shortTermMemory, _conversationRepo, CreateStrictPolicy(), "conv-1");
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _conversationRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _shortTermMemory.DidNotReceive().GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryGetConversation_WithOwner_StrictMode_Succeeds()
+    {
+        _conversationRepo.GetByIdAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new Conversation
+            {
+                ConversationId = "conv-1", SessionId = "ses-1", UserId = "alice",
+                CreatedAtUtc = FixedTime, UpdatedAtUtc = FixedTime
+            });
+        _shortTermMemory.GetConversationMessagesAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(new List<Message>());
+
+        var result = await ConversationTools.MemoryGetConversation(
+            _shortTermMemory, _conversationRepo, CreateStrictPolicy(), "conv-1", userId: "alice");
+
+        JsonDocument.Parse(result).RootElement.ValueKind.Should().Be(JsonValueKind.Array);
+    }
+
+    [Fact]
+    public async Task MemoryListSessions_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var act = () => ConversationTools.MemoryListSessions(
+            _conversationRepo, _options, CreateStrictPolicy(), "ses-1");
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _conversationRepo.DidNotReceive().GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryListSessions_WithOwner_StrictMode_Succeeds()
+    {
+        _conversationRepo.GetBySessionAsync("ses-1", Arg.Any<CancellationToken>())
+            .Returns(new List<Conversation>());
+
+        var result = await ConversationTools.MemoryListSessions(
+            _conversationRepo, _options, CreateStrictPolicy(), "ses-1", userId: "alice");
+
+        JsonDocument.Parse(result).RootElement.ValueKind.Should().Be(JsonValueKind.Array);
     }
 }

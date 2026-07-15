@@ -1,10 +1,13 @@
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.McpServer;
 using AgentMemory.McpServer.Tools;
 using NSubstitute;
@@ -18,6 +21,8 @@ public sealed class EntityToolsTests
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
+    private readonly IMemoryIsolationPolicy _isolationPolicy =
+        new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance);
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
 
@@ -123,7 +128,7 @@ public sealed class EntityToolsTests
         _extractorRepo.GetProvenanceAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(provenance);
 
-        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, "e-1");
+        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, _isolationPolicy, "e-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeTrue();
@@ -138,11 +143,38 @@ public sealed class EntityToolsTests
         _extractorRepo.GetProvenanceAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns((EntityProvenance?)null);
 
-        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, "missing");
+        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, _isolationPolicy, "missing");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
         doc.RootElement.GetProperty("entityId").GetString().Should().Be("missing");
+    }
+
+    [Fact]
+    public async Task MemoryGetEntityProvenance_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var strictPolicy = new DefaultMemoryIsolationPolicy(
+            Options.Create(new MemoryIsolationOptions { Mode = MemoryIsolationMode.StrictMultiTenant }),
+            NullLogger<DefaultMemoryIsolationPolicy>.Instance);
+
+        var act = () => EntityTools.MemoryGetEntityProvenance(_extractorRepo, strictPolicy, "e-1");
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _extractorRepo.DidNotReceive().GetProvenanceAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryGetEntityProvenance_WithOwner_StrictMode_Succeeds()
+    {
+        var strictPolicy = new DefaultMemoryIsolationPolicy(
+            Options.Create(new MemoryIsolationOptions { Mode = MemoryIsolationMode.StrictMultiTenant }),
+            NullLogger<DefaultMemoryIsolationPolicy>.Instance);
+        _extractorRepo.GetProvenanceAsync("e-1", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns((EntityProvenance?)null);
+
+        var result = await EntityTools.MemoryGetEntityProvenance(_extractorRepo, strictPolicy, "e-1", userId: "alice");
+
+        JsonDocument.Parse(result).RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
     }
 
     // ── memory_record_entity_feedback ──

@@ -188,6 +188,30 @@ public sealed class MemoryContextAssemblerTests
         result.BlendMode.Should().Be(RetrievalBlendMode.GraphRagOnly);
     }
 
+    [Fact]
+    public async Task AssembleContextAsync_ScopedViaRecallOptionsScope_UsesResolvedOwner_NotRawRequestUserId()
+    {
+        // #100 Stage 2 regression: a caller scoping purely via RecallOptions.Scope (explicit scope wins
+        // over UserId -- a first-class, documented pattern) with RecallRequest.UserId left null must scope
+        // GraphRAG to the SAME resolved owner as every other recall source, not silently run it unscoped.
+        SetupGraphRagReturns("alice-scoped context");
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+
+        var request = new RecallRequest
+        {
+            SessionId = "session-1",
+            Query = "anything",
+            UserId = null,
+            Options = RecallOptions.Default with { Scope = MemoryScope.For("alice") }
+        };
+
+        await sut.AssembleContextAsync(request);
+
+        await _graphRag.Received(1).GetContextAsync(
+            Arg.Is<GraphRagContextRequest>(r => r.UserId == "alice"), Arg.Any<CancellationToken>());
+    }
+
     // R6-A: FetchGraphRagAsync had a broad catch that re-buried the OCE the GraphRAG source deliberately
     // rethrows on cancellation. In GraphRagOnly mode that swallow was authoritative: a cancelled recall
     // returned a normal (empty-graph) context instead of honoring cancellation.
