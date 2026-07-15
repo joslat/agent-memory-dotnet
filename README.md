@@ -12,6 +12,22 @@ Give your .NET agents a memory that actually lasts. Agent Memory for .NET is a p
 conversation is still there, structured and queryable, in the next one. Built for the Microsoft Agent
 Framework, Semantic Kernel, direct .NET usage, and MCP clients.
 
+## Project Status
+
+This is an early-stage, actively-developed open-source project, not a mature commercial product with an
+SLA or support contract. It's maintained by its author on a best-effort basis. Expect rough edges: bugs
+and edge cases are likely to surface as real-world usage broadens, especially just after a release.
+
+Issues are genuinely welcome — please
+[open one](https://github.com/joslat/agent-memory-dotnet/issues/new) for bugs, gaps, or unexpected
+behavior. They get triaged and fixed as they're found, not ignored, but turnaround depends on available
+time, not a guaranteed response window. Review the
+[Threat Model](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/threat-model.md) and
+[Production Checklist](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/production-checklist.md)
+before production use, pin versions deliberately, and check the
+[CHANGELOG](https://github.com/joslat/agent-memory-dotnet/blob/main/CHANGELOG.md) between upgrades. As
+with any MIT-licensed software, it's provided as-is, without warranty (see [License](#license)).
+
 ## Why Agent Memory for .NET
 
 - **Memory that survives the session.** Conversations, facts, preferences, and relationships persist as
