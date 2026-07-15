@@ -60,7 +60,7 @@ internal static class MafTypeMapper
 
         bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
         if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
-            lead.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
+            lead.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
         // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
@@ -70,7 +70,10 @@ internal static class MafTypeMapper
             .Select(ToChatMessage)
             .ToList();
 
-        // Memory-derived system messages (always kept).
+        // Memory-derived system messages (always kept). Each is delimited and escaped (#92 Phase 1) so
+        // recalled content -- which may originate from a user, an external document, a tool result, or
+        // the model itself -- cannot masquerade as an unrestricted, undelimited system instruction, and
+        // cannot forge or prematurely close its own boundary.
         var memory = new List<ChatMessage>();
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
         {
@@ -78,32 +81,32 @@ internal static class MafTypeMapper
                 .Select(e => string.IsNullOrEmpty(e.Description)
                     ? $"{e.Name} ({e.Type})"
                     : $"{e.Name} ({e.Type}): {e.Description}"));
-            memory.Add(new ChatMessage(ChatRole.System, $"Relevant entities: {entityText}"));
+            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("entities", $"Relevant entities: {entityText}")));
         }
 
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
         {
             var factText = string.Join("; ", context.RelevantFacts.Items
                 .Select(f => $"{f.Subject} {f.Predicate} {f.Object}"));
-            memory.Add(new ChatMessage(ChatRole.System, $"Known facts: {factText}"));
+            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("facts", $"Known facts: {factText}")));
         }
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
         {
             var prefText = string.Join("; ", context.RelevantPreferences.Items
                 .Select(p => p.PreferenceText));
-            memory.Add(new ChatMessage(ChatRole.System, $"User preferences: {prefText}"));
+            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("preferences", $"User preferences: {prefText}")));
         }
 
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
         {
             var traceText = string.Join("; ", context.SimilarTraces.Items
                 .Select(t => t.Task));
-            memory.Add(new ChatMessage(ChatRole.System, $"Similar past tasks: {traceText}"));
+            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("traces", $"Similar past tasks: {traceText}")));
         }
 
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
-            memory.Add(new ChatMessage(ChatRole.System, context.GraphRagContext));
+            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // Fill the budget left over after the always-kept lead + memory with the MOST RECENT chat
         // messages. chatMessages is newest-first (RecentMessages.Items is recall-ordered DESC), so the
@@ -121,6 +124,30 @@ internal static class MafTypeMapper
         result.AddRange(memory);
         return result;
     }
+
+    /// <summary>
+    /// Wraps untrusted recalled content (an entity/fact/preference/trace/GraphRAG block, which may
+    /// originate from a user, an external document, a tool result, or the model itself) in a delimited
+    /// boundary (#92 Phase 1), so it cannot masquerade as an unrestricted, undelimited system instruction.
+    /// Paired with the untrusted-reference-data framing in the default <see cref="ContextFormatOptions.ContextPrefix"/>.
+    /// This defeats boundary <em>forgery</em> specifically (content can't fake or close the tag) — it does
+    /// not detect or block instruction-like content that never relies on the tag (e.g. plain-language
+    /// "ignore previous instructions", role-header conventions, code fences); the prefix instruction, not
+    /// this delimiter, is what asks the model to disregard those. It also does not apply to recalled
+    /// conversation history (<c>RelevantMessages</c>), which keeps its originally-persisted role — both
+    /// are disclosed, explicit follow-up scope for #92, not silently dropped.
+    /// </summary>
+    internal static string WrapUntrustedContent(string category, string content) =>
+        $"""<recalled_memory category="{category}">{EscapeForDelimiter(content)}</recalled_memory>""";
+
+    /// <summary>
+    /// Escapes every angle bracket in untrusted content so it cannot contain a literal
+    /// <c>&lt;recalled_memory&gt;</c>/<c>&lt;/recalled_memory&gt;</c> (or any other tag) — content can
+    /// therefore never prematurely close its own boundary or forge a nested one, the same principle as
+    /// HTML-encoding user content before embedding it in markup.
+    /// </summary>
+    private static string EscapeForDelimiter(string content) =>
+        content.Replace("<", "&lt;").Replace(">", "&gt;");
 
     internal static string ToInternalRole(ChatRole role)
     {
