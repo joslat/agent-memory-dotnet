@@ -53,7 +53,8 @@ public sealed class ReasoningMemoryServiceTests
     private ReasoningMemoryService CreateSut(ReasoningMemoryOptions? options = null) =>
         new(_traceRepo, _stepRepo, _toolCallRepo, _embeddingOrchestrator, _clock, _idGenerator,
             Microsoft.Extensions.Options.Options.Create(options ?? new ReasoningMemoryOptions()),
-            NullLogger<ReasoningMemoryService>.Instance);
+            NullLogger<ReasoningMemoryService>.Instance,
+            new DefaultMemoryIsolationPolicy(Microsoft.Extensions.Options.Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
 
     [Fact]
     public async Task StartTraceAsync_CreatesTraceWithGeneratedId()

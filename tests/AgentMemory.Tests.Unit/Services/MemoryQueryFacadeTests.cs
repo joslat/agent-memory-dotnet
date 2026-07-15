@@ -34,7 +34,7 @@ public sealed class MemoryQueryFacadeTests
         _longTerm.SearchPreferencesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
         return new MemoryQueryFacade(_longTerm, _reasoning, _embeddings, _clock, _idGenerator,
-            NullLogger<MemoryQueryFacade>.Instance);
+            NullLogger<MemoryQueryFacade>.Instance, CreateIsolationPolicy());
     }
 
     private MemoryQueryFacade CreateSutWithOwner(string? userId)
@@ -53,8 +53,11 @@ public sealed class MemoryQueryFacadeTests
         var ownerContext = Substitute.For<IMemoryOwnerContext>();
         ownerContext.UserId.Returns(userId);
         return new MemoryQueryFacade(_longTerm, _reasoning, _embeddings, _clock, _idGenerator,
-            NullLogger<MemoryQueryFacade>.Instance, ownerContext);
+            NullLogger<MemoryQueryFacade>.Instance, CreateIsolationPolicy(), ownerContext);
     }
+
+    private static DefaultMemoryIsolationPolicy CreateIsolationPolicy() =>
+        new(Microsoft.Extensions.Options.Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance);
 
     [Fact]
     public async Task SearchMemoryAsync_WithOwnerContext_ScopesSearchByOwner()
@@ -78,9 +81,12 @@ public sealed class MemoryQueryFacadeTests
 
         await sut.SearchMemoryAsync("anything");
 
+        // The isolation policy (#100) now resolves "unscoped" to MemoryScope.Global rather than a bare
+        // null (so every call site gets an unambiguous, always-valid scope) -- assert the meaningful
+        // property (no owner filter), not literal reference nullity.
         await _longTerm.Received(1).SearchEntitiesAsync(
             Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(),
-            Arg.Is<MemoryScope?>(s => s == null), Arg.Any<CancellationToken>());
+            Arg.Is<MemoryScope?>(s => s != null && !s.HasOwnerFilter), Arg.Any<CancellationToken>());
     }
 
     [Fact]

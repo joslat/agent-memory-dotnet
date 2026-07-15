@@ -56,7 +56,8 @@ public sealed class LongTermMemoryServiceTests
     private LongTermMemoryService CreateSut(IOptions<LongTermMemoryOptions>? options = null) =>
         new(_entityRepo, _factRepo, _prefRepo, _relRepo, _embeddingOrchestrator,
             options ?? Options.Create(new LongTermMemoryOptions()),
-            NullLogger<LongTermMemoryService>.Instance);
+            NullLogger<LongTermMemoryService>.Instance,
+            new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
 
     // ---- Entity tests ----
 

@@ -205,6 +205,49 @@ accepts a caller-supplied `userId` parameter directly — if an untrusted MCP cl
 can set that parameter, it can request another owner's memory. Only expose it to trusted callers, or
 have the host validate/override it before the request reaches the resource.
 
+### Isolation modes
+
+By default, an unscoped operation (no owner) silently falls back to global/shared behavior — the
+backward-compatible default above. `MemoryOptions.Isolation` lets a multi-tenant host make that an
+explicit, library-wide policy decision instead of relying on every call site remembering to pass an
+owner:
+
+```csharp
+services.AddNeo4jAgentMemory(
+    configureMemory: o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant,
+    configureNeo4j: neo4j => { /* ... */ });
+```
+
+| Mode | Behavior |
+| --- | --- |
+| `SingleTenant` (default) | Unscoped operations resolve to global/shared, exactly as described above. No behavior change from earlier versions. |
+| `WarnOnUnscoped` | Same resolution as `SingleTenant`, but logs a structured warning (operation name, read/write, mode — never memory content) whenever a tenant-facing call resolves unscoped. Use this to find call sites that are missing an owner before flipping to strict. |
+| `StrictMultiTenant` | A tenant-facing operation that resolves unscoped throws `MemoryOwnerScopeRequiredException` **before** any Neo4j call — fail closed instead of silently going global. |
+
+**Coverage in this release (Stage 1 of #100).** The policy is wired into the Core services that make up
+the primary recall/extraction/reasoning path (context assembly, extraction, the query facade, reasoning
+traces, long-term invalidate/supersede) and 6 MCP entry points: `memory_entities`, `memory_preferences`,
+`memory_conversations`, `memory_context`, `memory_invalidate`, `memory_supersede`. **It is not yet wired
+into every MCP tool that accepts a `userId`** — entity/preference/fact creation (`memory_add_entity`,
+`memory_add_preference`, `memory_add_fact`, `memory_create_relationship`) and several read tools
+(`memory_get_entity`, `memory_get_entity_provenance`, `memory_record_entity_feedback`,
+`memory_get_conversation`, `memory_list_sessions`) still resolve a `null`/blank `userId` the old way
+(silently shared/global) even under `StrictMultiTenant`. This is a known, tracked gap for a follow-up PR,
+not a silent one — don't assume enabling `StrictMultiTenant` alone closes every MCP write/read path; keep
+following the owner-isolation guidance above (construct every `MemoryScope`/`UserId` from authenticated
+identity) regardless of which mode is configured.
+
+There is currently no way to make a legitimate cross-owner/administrative read or write succeed through
+this surface under `StrictMultiTenant` — the policy's `MemoryOperationAccess.Administrative` bypass exists
+at the API level, but no Core service or MCP tool passes it yet (every current entry point resolves as
+`Tenant` access, including an explicitly-passed `MemoryScope.Global`, which still throws under strict
+mode). An admin/aggregate tool built on top of this library today needs to keep `SingleTenant` mode, or
+call the underlying repositories directly rather than through these gated services.
+
+`StrictMultiTenant` is the recommended mode for any deployment where more than one tenant's data lives in
+the same store, understanding the coverage boundary above — see `docs/security/threat-model.md` and
+`docs/security/production-checklist.md`.
+
 ---
 
 ## 4. First Memory Store

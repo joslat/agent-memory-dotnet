@@ -20,6 +20,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
     private readonly IIdGenerator _idGenerator;
     private readonly IMemoryOwnerContext? _ownerContext;
     private readonly ILogger<MemoryQueryFacade> _logger;
+    private readonly IMemoryIsolationPolicy _isolationPolicy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MemoryQueryFacade"/> class. The optional
@@ -33,6 +34,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<MemoryQueryFacade> logger,
+        IMemoryIsolationPolicy isolationPolicy,
         IMemoryOwnerContext? ownerContext = null)
     {
         _longTerm = longTerm ?? throw new ArgumentNullException(nameof(longTerm));
@@ -42,11 +44,21 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _ownerContext = ownerContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _isolationPolicy = isolationPolicy ?? throw new ArgumentNullException(nameof(isolationPolicy));
     }
 
-    /// <summary>Current ambient owner scope (null = unscoped/shared).</summary>
-    private MemoryScope? CurrentScope =>
-        string.IsNullOrEmpty(_ownerContext?.UserId) ? null : MemoryScope.For(_ownerContext!.UserId!);
+    /// <summary>
+    /// Resolves the ambient owner scope through the central isolation policy (#100) -- SingleTenant
+    /// reproduces the old "null = unscoped/shared" behavior exactly; WarnOnUnscoped/StrictMultiTenant add
+    /// a warning/fail-closed on top when a tool call has no ambient owner. Every model-invokable tool
+    /// method below reuses its own <c>ExecuteAsync</c> operation name here too, so a thrown
+    /// <see cref="AgentMemory.Abstractions.Exceptions.MemoryOwnerScopeRequiredException"/> is caught by
+    /// <see cref="ExecuteAsync"/>'s existing catch-all and surfaces as a normal
+    /// <see cref="MemoryQueryResult.Failed"/> -- consistent with this facade's contract as the
+    /// LLM-tool-invocation surface, which never lets a raw exception reach the model.
+    /// </summary>
+    private MemoryScope ResolveScope(string operationName) =>
+        _isolationPolicy.ResolveReadScope(explicitScope: null, _ownerContext?.UserId, operationName, MemoryOperationAccess.Tenant);
 
     /// <inheritdoc/>
     public async Task<MemoryQueryResult> SearchMemoryAsync(string query, CancellationToken cancellationToken = default)
@@ -56,7 +68,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
 
         return await ExecuteAsync("search_memory", query, async () =>
         {
-            var scope = CurrentScope;
+            var scope = ResolveScope("search_memory");
             var embedding = await _embeddingOrchestrator.EmbedQueryAsync(query, cancellationToken).ConfigureAwait(false);
             var entities = await _longTerm.SearchEntitiesAsync(embedding, scope: scope, cancellationToken: cancellationToken).ConfigureAwait(false);
             var facts = await _longTerm.SearchFactsAsync(embedding, scope: scope, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -98,7 +110,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
                 Category = resolvedCategory,
                 PreferenceText = preferenceText,
                 Confidence = 1.0,
-                OwnerId = _ownerContext?.UserId,
+                OwnerId = _isolationPolicy.ResolveWriteOwner(_ownerContext?.UserId, "remember_preference", MemoryOperationAccess.Tenant),
                 CreatedAtUtc = _clock.UtcNow,
             };
             await _longTerm.AddPreferenceAsync(preference, cancellationToken).ConfigureAwait(false);
@@ -122,7 +134,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
                 Predicate = predicate,
                 Object = @object,
                 Confidence = 1.0,
-                OwnerId = _ownerContext?.UserId,
+                OwnerId = _isolationPolicy.ResolveWriteOwner(_ownerContext?.UserId, "remember_fact", MemoryOperationAccess.Tenant),
                 CreatedAtUtc = _clock.UtcNow,
             };
             await _longTerm.AddFactAsync(fact, cancellationToken).ConfigureAwait(false);
@@ -139,7 +151,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
 
         return await ExecuteAsync("recall_preferences", query, async () =>
         {
-            var scope = CurrentScope;
+            var scope = ResolveScope("recall_preferences");
             IReadOnlyList<Preference> preferences;
             if (!string.IsNullOrWhiteSpace(category))
             {
@@ -167,7 +179,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
         return await ExecuteAsync("search_knowledge", query, async () =>
         {
             var embedding = await _embeddingOrchestrator.EmbedQueryAsync(query, cancellationToken).ConfigureAwait(false);
-            var entities = await _longTerm.SearchEntitiesAsync(embedding, scope: CurrentScope, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var entities = await _longTerm.SearchEntitiesAsync(embedding, scope: ResolveScope("search_knowledge"), cancellationToken: cancellationToken).ConfigureAwait(false);
             if (entities.Count == 0) return "No entities found.";
             var sb = new StringBuilder();
             foreach (var e in entities) sb.AppendLine($"[{e.Type}] {e.Name}: {e.Description}");
@@ -184,7 +196,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
         return await ExecuteAsync("find_similar_tasks", taskDescription, async () =>
         {
             var embedding = await _embeddingOrchestrator.EmbedQueryAsync(taskDescription, cancellationToken).ConfigureAwait(false);
-            var traces = await _reasoning.SearchSimilarTracesAsync(embedding, scope: CurrentScope, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var traces = await _reasoning.SearchSimilarTracesAsync(embedding, scope: ResolveScope("find_similar_tasks"), cancellationToken: cancellationToken).ConfigureAwait(false);
             if (traces.Count == 0) return "No similar tasks found.";
             var sb = new StringBuilder();
             foreach (var t in traces) sb.AppendLine($"[{(t.Success == true ? "✓" : "✗")}] {t.Task}: {t.Outcome}");

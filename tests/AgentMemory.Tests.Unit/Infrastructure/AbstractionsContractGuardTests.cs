@@ -16,10 +16,10 @@ public sealed class AbstractionsContractGuardTests
     private static readonly Assembly Abstractions = typeof(IMemoryService).Assembly;
 
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
-    private const int DocumentedServiceInterfaces = 38; // R1b store + IC8 owner contexts, +IConsolidationService (PR#113), +IConflictDetectionService, +IMemoryRankingContext/+IWritable (D3)
+    private const int DocumentedServiceInterfaces = 39; // R1b store + IC8 owner contexts, +IConsolidationService (PR#113), +IConflictDetectionService, +IMemoryRankingContext/+IWritable (D3), +IMemoryIsolationPolicy (#100)
     private const int DocumentedRepositoryInterfaces = 11;
     private const int DocumentedDomainRecords = 48; // +ToolCallStats (PR2 — IToolCallRepository.GetStatsAsync)
-    private const int DocumentedEnums = 16; // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType, +MemoryNodeKind
+    private const int DocumentedEnums = 18; // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType, +MemoryNodeKind, +MemoryOperationAccess, +MemoryIsolationMode (#100)
 
     private static IEnumerable<Type> PublicTypes() =>
         Abstractions.GetTypes().Where(t => t.IsPublic);

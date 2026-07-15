@@ -18,7 +18,8 @@ public sealed class MemoryExtractionPipelineTests
     private readonly IPersistenceStage _persistenceStage = Substitute.For<IPersistenceStage>();
 
     private MemoryExtractionPipeline CreateSut() =>
-        new(_extractionStage, _persistenceStage, NullLogger<MemoryExtractionPipeline>.Instance);
+        new(_extractionStage, _persistenceStage, NullLogger<MemoryExtractionPipeline>.Instance,
+            new DefaultMemoryIsolationPolicy(Microsoft.Extensions.Options.Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
 
     private static ExtractionRequest MakeRequest(ExtractionTypes types = ExtractionTypes.All) =>
         new()
@@ -166,10 +167,13 @@ public sealed class MemoryExtractionPipelineTests
         var sut = CreateSut();
         await sut.ExtractAsync(MakeRequest()); // no UserId
 
+        // The isolation policy (#100) now resolves "unscoped" to MemoryScope.Global rather than a bare
+        // null (so every call site gets an unambiguous, always-valid scope) -- assert the meaningful
+        // property (no owner filter), not literal reference nullity.
         await _extractionStage.Received(1).ExtractAsync(
             Arg.Any<IReadOnlyList<Message>>(),
             Arg.Any<ExtractionTypes>(),
-            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Is<MemoryScope?>(s => s != null && !s.HasOwnerFilter),
             Arg.Any<CancellationToken>());
     }
 

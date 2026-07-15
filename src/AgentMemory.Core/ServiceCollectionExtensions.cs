@@ -42,6 +42,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IOptions<ExtractionOptions>>(sp =>
             Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Extraction));
 
+        services.TryAddSingleton<IOptions<MemoryIsolationOptions>>(sp =>
+            Options.Create(sp.GetRequiredService<IOptions<MemoryOptions>>().Value.Isolation));
+
         // Core services
         // Sensible defaults for the two ambient primitives that many services depend on (assembler,
         // reasoning, consolidation, dedup). TryAdd so a consumer can still register their own first.
@@ -55,6 +58,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DefaultMemoryOwnerContext>();
         services.TryAddSingleton<IMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
         services.TryAddSingleton<IWritableMemoryOwnerContext>(sp => sp.GetRequiredService<DefaultMemoryOwnerContext>());
+
+        // Centralized isolation-mode enforcement (#100). Stateless decision logic driven purely by
+        // MemoryIsolationOptions -- no scoped dependencies, so it's a singleton like the ambient contexts above.
+        services.TryAddSingleton<IMemoryIsolationPolicy, DefaultMemoryIsolationPolicy>();
 
         // Per-request ranking override (D3 query-intent presets). AsyncLocal-backed singleton, set by the
         // context assembler from RecallOptions.Intent and read by the long-term repositories' vector search.
@@ -85,6 +92,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IOptions<MemoryOptions>>(),
             sp.GetRequiredService<ILogger<MemoryContextAssembler>>(),
+            sp.GetRequiredService<IMemoryIsolationPolicy>(),
             // Hand the assembler the SAME AsyncLocal ranking context the long-term repositories read
             // (registered above as both IMemoryRankingContext and IWritableMemoryRankingContext). Without
             // this the assembler can never publish the D3 per-request query intent, so RecallOptions.Intent
@@ -132,7 +140,8 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IMemoryExtractionPipeline>(sp => new MemoryExtractionPipeline(
             sp.GetRequiredService<IExtractionStage>(),
             sp.GetRequiredService<IPersistenceStage>(),
-            sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>()));
+            sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>(),
+            sp.GetRequiredService<IMemoryIsolationPolicy>()));
 
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();

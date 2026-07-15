@@ -63,12 +63,15 @@ public sealed class MemoryContextAssemblerTests
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
     }
 
+    private static readonly IMemoryIsolationPolicy SingleTenantPolicy =
+        new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance);
+
     private MemoryContextAssembler CreateSut(
         IOptions<MemoryOptions>? options = null,
         IGraphRagContextSource? graphRag = null) =>
         new(_shortTerm, _longTerm, _reasoning, graphRag, _embeddingOrchestrator, _clock,
             options ?? Options.Create(new MemoryOptions()),
-            NullLogger<MemoryContextAssembler>.Instance);
+            NullLogger<MemoryContextAssembler>.Instance, SingleTenantPolicy);
 
     private static RecallRequest CreateRequest(float[]? queryEmbedding = null, RetrievalBlendMode? blendMode = null) => new()
     {
@@ -105,7 +108,7 @@ public sealed class MemoryContextAssemblerTests
 
         var sut = new MemoryContextAssembler(
             _shortTerm, _longTerm, _reasoning, null, _embeddingOrchestrator, _clock,
-            Options.Create(new MemoryOptions()), NullLogger<MemoryContextAssembler>.Instance, ctx);
+            Options.Create(new MemoryOptions()), NullLogger<MemoryContextAssembler>.Instance, SingleTenantPolicy, ctx);
 
         await sut.AssembleContextAsync(new RecallRequest
         {
@@ -131,7 +134,7 @@ public sealed class MemoryContextAssemblerTests
 
         var sut = new MemoryContextAssembler(
             _shortTerm, _longTerm, _reasoning, null, _embeddingOrchestrator, _clock,
-            Options.Create(new MemoryOptions()), NullLogger<MemoryContextAssembler>.Instance, ctx);
+            Options.Create(new MemoryOptions()), NullLogger<MemoryContextAssembler>.Instance, SingleTenantPolicy, ctx);
 
         await sut.AssembleContextAsync(new RecallRequest
         {

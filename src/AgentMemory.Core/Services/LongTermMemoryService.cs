@@ -19,6 +19,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly LongTermMemoryOptions _options;
     private readonly ILogger<LongTermMemoryService> _logger;
+    private readonly IMemoryIsolationPolicy _isolationPolicy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LongTermMemoryService"/> class.
@@ -30,7 +31,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         IRelationshipRepository relRepo,
         IEmbeddingOrchestrator embeddingOrchestrator,
         IOptions<LongTermMemoryOptions> options,
-        ILogger<LongTermMemoryService> logger)
+        ILogger<LongTermMemoryService> logger,
+        IMemoryIsolationPolicy isolationPolicy)
     {
         ArgumentNullException.ThrowIfNull(entityRepo);
         ArgumentNullException.ThrowIfNull(factRepo);
@@ -39,6 +41,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         ArgumentNullException.ThrowIfNull(embeddingOrchestrator);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(isolationPolicy);
 
         _entityRepo = entityRepo;
         _factRepo = factRepo;
@@ -47,6 +50,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         _embeddingOrchestrator = embeddingOrchestrator;
         _options = options.Value;
         _logger = logger;
+        _isolationPolicy = isolationPolicy;
     }
 
     /// <inheritdoc/>
@@ -362,25 +366,30 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         return scored.Select(r => r.Preference).ToList();
     }
 
-    // ── Invalidation & supersession (D5 / D7) — thin owner-scoped delegations ──
+    // ── Invalidation & supersession (D5 / D7) — thin owner-scoped delegations, gated through the
+    // central isolation policy (#100): these never had a fallback derivation of their own, so this adds
+    // a warn/fail-closed gate on top of the existing pass-through rather than replacing anything. ──
 
     /// <inheritdoc/>
     public Task<bool> InvalidateFactAsync(string factId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _factRepo.InvalidateAsync(factId, scope, cancellationToken);
+        => _factRepo.InvalidateAsync(factId, Resolve(scope, nameof(InvalidateFactAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidateEntityAsync(string entityId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _entityRepo.InvalidateAsync(entityId, scope, cancellationToken);
+        => _entityRepo.InvalidateAsync(entityId, Resolve(scope, nameof(InvalidateEntityAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> InvalidatePreferenceAsync(string preferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _prefRepo.InvalidateAsync(preferenceId, scope, cancellationToken);
+        => _prefRepo.InvalidateAsync(preferenceId, Resolve(scope, nameof(InvalidatePreferenceAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> SupersedeFactAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _factRepo.SupersedeAsync(loserFactId, winnerFactId, scope, cancellationToken);
+        => _factRepo.SupersedeAsync(loserFactId, winnerFactId, Resolve(scope, nameof(SupersedeFactAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _prefRepo.SupersedeAsync(loserPreferenceId, winnerPreferenceId, scope, cancellationToken);
+        => _prefRepo.SupersedeAsync(loserPreferenceId, winnerPreferenceId, Resolve(scope, nameof(SupersedePreferenceAsync)), cancellationToken);
+
+    private MemoryScope Resolve(MemoryScope? scope, string operationName) =>
+        _isolationPolicy.ResolveReadScope(scope, ownerId: null, operationName, MemoryOperationAccess.Tenant);
 }

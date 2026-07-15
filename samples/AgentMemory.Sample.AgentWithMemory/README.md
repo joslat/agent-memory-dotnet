@@ -7,6 +7,7 @@ This is the flagship Microsoft Agent Framework sample for Agent Memory for .NET.
 - `WithMemoryIdentity(...)` stamps application, owner/user, session, and conversation identity into the `AgentSession` state bag.
 - `IWritableMemoryOwnerContext.BeginOwnerScope(userId)` wraps every agent run so tool writes/searches inherit trusted host identity.
 - Session serialize/restore and a second session demonstrate memory continuity beyond one in-memory run.
+- `MemoryOptions.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant` is enabled, and a final step shows what happens when a call forgets `BeginOwnerScope`: it fails closed with `MemoryOwnerScopeRequiredException` instead of silently falling back to global/shared memory.
 
 ## Offline Default
 
@@ -36,6 +37,19 @@ using (ownerContext.BeginOwnerScope(userId))
 ```
 
 The session state (`WithMemoryIdentity`) and ambient owner scope must agree. The state bag lets the provider scope recall/persistence by application, owner, session, and conversation; the ambient owner scope protects model-invoked tools from trusting user identity supplied by the model.
+
+## Multi-Tenant Isolation Mode
+
+```csharp
+builder.Services.AddAgentMemoryCore(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant);
+```
+
+This is the recommended setting for any deployment where more than one tenant's data lives in the same
+Neo4j store. It doesn't change behavior for code that already scopes every call correctly (this sample's
+golden path is unaffected) — it only changes what happens when a call *forgets* to: instead of quietly
+resolving to global/shared memory, the operation throws `MemoryOwnerScopeRequiredException` before Neo4j
+is ever touched. See [Isolation modes](../../docs/getting-started.md#isolation-modes) for the full mode
+list and `docs/security/threat-model.md` (TT-01/TT-02) for the threat this closes.
 
 ## Related Checks
 

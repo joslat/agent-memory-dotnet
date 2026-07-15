@@ -28,6 +28,7 @@ public sealed class ServiceCollectionExtensionsTests
         services.AddSingleton(Substitute.For<IEmbeddingOrchestrator>());
         services.AddSingleton(Substitute.For<IClock>());
         services.AddSingleton(Substitute.For<IIdGenerator>());
+        services.AddSingleton(Substitute.For<IMemoryIsolationPolicy>());
 
         // Provide ILogger<T> for all types via NullLoggerFactory.
         services.AddSingleton<ILoggerFactory>(_ => NullLoggerFactory.Instance);

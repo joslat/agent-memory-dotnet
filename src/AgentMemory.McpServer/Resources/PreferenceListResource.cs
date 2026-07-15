@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
 
@@ -15,18 +16,21 @@ internal sealed class PreferenceListResource
      Description("Returns preferences grouped by category.")]
     public static async Task<string> GetPreferences(
         IGraphQueryService graphQueryService,
+        IMemoryIsolationPolicy isolationPolicy,
         [Description("Filter by category (optional)")] string? category = null,
         [Description("Maximum number of preferences to return")] int limit = 50,
-        [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) preferences; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads of preference text (R1).")] string? userId = null,
+        [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) preferences; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads of preference text (R1). The host, not the model or client, must be the source of this value.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
         // R1: owner-scope the listing so a multi-tenant client can't read other owners' preferences
-        // (the free-text 'context' is sensitive). null userId ⇒ unscoped (admin/single-tenant).
+        // (the free-text 'context' is sensitive). Resolved through the central isolation policy (#100).
+        var scope = isolationPolicy.ResolveReadScope(explicitScope: null, userId, "memory_preferences", MemoryOperationAccess.Tenant);
+
         var conditions = new List<string>();
         if (category is not null) conditions.Add("p.category = $category");
-        var hasOwner = !string.IsNullOrEmpty(userId);
+        var hasOwner = scope.HasOwnerFilter;
         if (hasOwner) conditions.Add("(p.owner_id = $ownerId OR p.owner_id IS NULL)");
         var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
 
@@ -46,7 +50,7 @@ internal sealed class PreferenceListResource
             ["limit"] = (long)limit,
             ["category"] = (object?)category
         };
-        if (hasOwner) parameters["ownerId"] = userId;
+        if (hasOwner) parameters["ownerId"] = scope.OwnerId;
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 

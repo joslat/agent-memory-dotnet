@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
 
@@ -15,14 +16,17 @@ internal sealed class ConversationListResource
      Description("Returns recent conversations with message counts.")]
     public static async Task<string> GetConversations(
         IGraphQueryService graphQueryService,
+        IMemoryIsolationPolicy isolationPolicy,
         [Description("Maximum number of conversations to return")] int limit = 20,
-        [Description("Owner/user identifier (optional). When set, returns only that user's (plus un-attributed) conversations; null = all users (unscoped/admin). Set it in multi-tenant deployments to avoid leaking other users' session ids (R1).")] string? userId = null,
+        [Description("Owner/user identifier (optional). When set, returns only that user's (plus un-attributed) conversations; null = all users (unscoped/admin). Set it in multi-tenant deployments to avoid leaking other users' session ids (R1). The host, not the model or client, must be the source of this value.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
         // Conversations carry user_id (not owner_id). Scope to the user's own + un-attributed rows.
-        var hasOwner = !string.IsNullOrEmpty(userId);
+        // Resolved through the central isolation policy (#100).
+        var scope = isolationPolicy.ResolveReadScope(explicitScope: null, userId, "memory_conversations", MemoryOperationAccess.Tenant);
+        var hasOwner = scope.HasOwnerFilter;
         var whereClause = hasOwner ? "WHERE (c.user_id = $userId OR c.user_id IS NULL)" : "";
 
         var query = $"""
@@ -40,7 +44,7 @@ internal sealed class ConversationListResource
         {
             ["limit"] = (long)limit
         };
-        if (hasOwner) parameters["userId"] = userId;
+        if (hasOwner) parameters["userId"] = scope.OwnerId;
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 

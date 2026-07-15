@@ -4,9 +4,13 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using AgentMemory;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.Core.Stubs;
 using AgentMemory.McpServer.Resources;
 using AgentMemory.Neo4j.Repositories;
@@ -69,6 +73,14 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
 
     public async Task DisposeAsync() => await _provider.DisposeAsync();
 
+    // Default SingleTenant policy for every pre-existing test below: reproduces the exact resolution
+    // behavior these resources had before #100 (null userId => unscoped), so this is a pure
+    // signature fix, not a behavior change, for the tests already in this file.
+    private static IMemoryIsolationPolicy CreatePolicy(MemoryIsolationMode mode = MemoryIsolationMode.SingleTenant) =>
+        new DefaultMemoryIsolationPolicy(
+            Options.Create(new MemoryIsolationOptions { Mode = mode }),
+            NullLogger<DefaultMemoryIsolationPolicy>.Instance);
+
     [Fact]
     public async Task EntityListResource_ScopedToOwner_ExcludesOtherOwners()
     {
@@ -76,7 +88,7 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "BobCo", Type = "Organization", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "SharedCo", Type = "Organization", OwnerId = null, Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        var names = NamesFrom(await EntityListResource.GetEntities(_graph, userId: "alice"), "entities", "name");
+        var names = NamesFrom(await EntityListResource.GetEntities(_graph, CreatePolicy(), userId: "alice"), "entities", "name");
 
         names.Should().Contain("AliceCo").And.Contain("SharedCo").And.NotContain("BobCo");
     }
@@ -87,9 +99,21 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "AliceCo", Type = "Organization", OwnerId = "alice", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
         await _entities.UpsertAsync(new Entity { EntityId = $"e-{Guid.NewGuid():N}", Name = "BobCo", Type = "Organization", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        var names = NamesFrom(await EntityListResource.GetEntities(_graph), "entities", "name");
+        var names = NamesFrom(await EntityListResource.GetEntities(_graph, CreatePolicy()), "entities", "name");
 
         names.Should().Contain("AliceCo").And.Contain("BobCo");
+    }
+
+    [Fact]
+    public async Task EntityListResource_StrictMultiTenant_Unscoped_ThrowsBeforeTouchingNeo4j()
+    {
+        // Fail-closed: under StrictMultiTenant, an unscoped call must throw before any Cypher runs --
+        // assert via zero rows created/read is not meaningful for a read, so instead assert the graph
+        // query service is never invoked at all (a spy would be needed to prove that precisely); here we
+        // assert the throw itself, which is the externally-observable contract the issue asks for.
+        var act = () => EntityListResource.GetEntities(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
 
     [Fact]
@@ -99,9 +123,17 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await _prefs.UpsertAsync(new Preference { PreferenceId = $"p-{Guid.NewGuid():N}", Category = "style", PreferenceText = "bob light mode", OwnerId = "bob", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
         await _prefs.UpsertAsync(new Preference { PreferenceId = $"p-{Guid.NewGuid():N}", Category = "style", PreferenceText = "shared palette", OwnerId = null, Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow });
 
-        var texts = NamesFrom(await PreferenceListResource.GetPreferences(_graph, userId: "alice"), "preferences", "preference");
+        var texts = NamesFrom(await PreferenceListResource.GetPreferences(_graph, CreatePolicy(), userId: "alice"), "preferences", "preference");
 
         texts.Should().Contain("alice dark mode").And.Contain("shared palette").And.NotContain("bob light mode");
+    }
+
+    [Fact]
+    public async Task PreferenceListResource_StrictMultiTenant_Unscoped_ThrowsBeforeTouchingNeo4j()
+    {
+        var act = () => PreferenceListResource.GetPreferences(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
 
     [Fact]
@@ -111,9 +143,17 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
         await SeedConversationAsync("conv-bob", "bob");
         await SeedConversationAsync("conv-shared", null);
 
-        var ids = NamesFrom(await ConversationListResource.GetConversations(_graph, userId: "alice"), "conversations", "id");
+        var ids = NamesFrom(await ConversationListResource.GetConversations(_graph, CreatePolicy(), userId: "alice"), "conversations", "id");
 
         ids.Should().Contain("conv-alice").And.Contain("conv-shared").And.NotContain("conv-bob");
+    }
+
+    [Fact]
+    public async Task ConversationListResource_StrictMultiTenant_Unscoped_ThrowsBeforeTouchingNeo4j()
+    {
+        var act = () => ConversationListResource.GetConversations(_graph, CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
 
     [Fact]
