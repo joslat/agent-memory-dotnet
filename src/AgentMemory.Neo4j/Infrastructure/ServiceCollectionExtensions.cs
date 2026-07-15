@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Neo4j.Driver;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Repositories;
@@ -29,6 +30,10 @@ public static class ServiceCollectionExtensions
 
         // Infrastructure
         services.TryAddSingleton<INeo4jDriverFactory, Neo4jDriverFactory>();
+        // Raw IDriver, for components (e.g. Neo4jGraphRagContextSource) that need direct driver access
+        // rather than going through INeo4jDriverFactory. Same singleton instance/lifetime either way --
+        // INeo4jDriverFactory still owns creation and disposal.
+        services.TryAddSingleton<IDriver>(sp => sp.GetRequiredService<INeo4jDriverFactory>().GetDriver());
         services.TryAddSingleton<INeo4jSessionFactory, Neo4jSessionFactory>();
         services.TryAddTransient<INeo4jTransactionRunner, Neo4jTransactionRunner>();
         services.TryAddTransient<ISchemaBootstrapper, SchemaBootstrapper>();

@@ -137,7 +137,7 @@ services.AddNeo4jAgentMemory(options => { ... });
 services.AddAgentMemoryCore(options => { options = options with { EnableGraphRag = true, ... }; });
 services.AddSingleton<IClock, SystemClock>();
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>(); // swap for real generator
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 
 // 3. GraphRAG adapter — BEFORE observability so the decorator wraps it
 services.AddGraphRagAdapter(options =>
@@ -158,4 +158,4 @@ services.AddAgentMemoryObservability();
 ```
 
 > **Note:** `AddAgentMemoryObservability()` must be called **after** the services it decorates are registered.
-> Replace `StubEmbeddingGenerator` with a real `IEmbeddingGenerator<string, Embedding<float>>` (e.g. OpenAI `text-embedding-3-small`) before using semantic search.
+> This sample calls a **real** Azure OpenAI embedding model (`RealAzureOpenAI` from `AgentMemory.Samples.Shared`) — no mock fallback.

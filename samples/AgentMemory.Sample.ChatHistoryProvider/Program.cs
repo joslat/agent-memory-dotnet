@@ -6,14 +6,17 @@
 // a ChatHistoryProvider manages per-session conversation history: it loads recent messages from
 // Neo4j before each turn and persists request/response messages after each turn.
 //
-// A mock IChatClient keeps the sample runnable offline. Memory degrades gracefully without Neo4j.
-//
+// This sample calls a REAL Azure OpenAI chat model and a REAL Azure OpenAI embedding model — no
+// mocks. Memory degrades gracefully without Neo4j. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no live-model fallback)
+//   AZURE_OPENAI_DEPLOYMENT             (chat deployment name; default: gpt-4o-mini)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
 //   Neo4j__Password (default: password)
 // =============================================================================
 
-using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +27,13 @@ using AgentMemory.AgentFramework;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — ChatHistoryProvider Sample (MAF 1.9.0)");
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -36,7 +46,10 @@ builder.Services.AddNeo4jAgentMemory(options =>
 builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+builder.Services.AddSingleton<IChatClient>(
+    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
 builder.Services.AddAgentMemoryFramework(options =>
 {
     options.AutoExtractOnPersist = false; // history persistence only; no extraction in this sample
@@ -68,7 +81,7 @@ static async Task RunAsync(IServiceProvider root)
     // The Neo4j-backed ChatHistoryProvider: loads recent history before each turn, persists after.
     var historyProvider = sp.GetRequiredService<Neo4jChatHistoryProvider>();
 
-    IChatClient chatClient = new EchoChatClient();
+    IChatClient chatClient = sp.GetRequiredService<IChatClient>();
 
     AIAgent agent = chatClient.AsAIAgent(new ChatClientAgentOptions
     {
@@ -88,11 +101,11 @@ static async Task RunAsync(IServiceProvider root)
 
     foreach (var turn in turns)
     {
-        logger.LogInformation("USER  : {Turn}", turn);
+        SampleConsole.WriteUser(turn);
         try
         {
             var response = await agent.RunAsync(turn, session);
-            logger.LogInformation("AGENT : {Text}", response.Text);
+            SampleConsole.WriteAssistant(response.Text);
         }
         catch (Exception ex)
         {
@@ -101,32 +114,4 @@ static async Task RunAsync(IServiceProvider root)
     }
 
     logger.LogInformation("=== Demo complete. Conversation history was persisted to Neo4j. ===");
-}
-
-internal sealed class EchoChatClient : IChatClient
-{
-    public Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        // Echo the count of prior history messages to show the provider is injecting them.
-        var historyCount = messages.Count(m => m.Role != ChatRole.System);
-        var lastUser = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
-        var reply = $"(mock LLM) I see {historyCount} message(s) of context. You said: \"{lastUser}\".";
-        return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
-    }
-
-    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        var response = await GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-    public void Dispose() { }
 }

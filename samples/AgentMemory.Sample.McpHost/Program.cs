@@ -7,6 +7,18 @@ using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.McpServer;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+// This host calls a REAL Azure OpenAI embedding model — no mocks. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+{
+    // stdout is reserved for the MCP JSON-RPC stream — the message must go to stderr.
+    RealAzureOpenAI.PrintMissingCredentials("AgentMemory MCP Host", Console.Error);
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -32,9 +44,8 @@ builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// StubEmbeddingGenerator returns deterministic random vectors — replace with a real
-// IEmbeddingGenerator<string, Embedding<float>> (e.g., OpenAI text-embedding-3-small) for production use.
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 
 // Configure MCP server with stdio transport and all memory tools
 builder.Services

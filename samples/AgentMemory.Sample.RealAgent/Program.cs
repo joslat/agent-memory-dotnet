@@ -8,16 +8,19 @@
 //   • native MAF OpenTelemetry     — agent.AsBuilder().UseOpenTelemetry()
 //   • multi-turn AgentSession      — memory correlates across turns
 //
-// A mock IChatClient (EchoChatClient) is used so the sample runs offline with no API key.
-// Memory operations degrade gracefully when no live Neo4j is available (warnings only).
-//
+// This sample calls a REAL Azure OpenAI chat model and a REAL Azure OpenAI embedding model — no
+// mocks. Memory operations degrade gracefully when no live Neo4j is available (warnings only).
+// Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no live-model fallback)
+//   AZURE_OPENAI_DEPLOYMENT             (chat deployment name; default: gpt-4o-mini)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
 //   Neo4j__Password (default: password)
 // =============================================================================
 
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,6 +32,13 @@ using AgentMemory.AgentFramework.Tools;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — Real MAF Agent Sample");
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -42,7 +52,10 @@ builder.Services.AddNeo4jAgentMemory(options =>
 builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+builder.Services.AddSingleton<IChatClient>(
+    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
 builder.Services.AddAgentMemoryFramework(options =>
 {
     options.AutoExtractOnPersist             = true;
@@ -91,9 +104,7 @@ static async Task RunAsync(IServiceProvider root)
     var memoryProvider = sp.GetRequiredService<Neo4jMemoryContextProvider>();
     var memoryTools = sp.GetRequiredService<MemoryToolFactory>().CreateAIFunctions();
 
-    // A mock chat client keeps the sample runnable offline. Swap for a real IChatClient
-    // (e.g. an OpenAI/Azure client) to get genuine LLM responses and tool calls.
-    IChatClient chatClient = new EchoChatClient();
+    IChatClient chatClient = sp.GetRequiredService<IChatClient>();
 
     // Build a real ChatClientAgent: memory provider runs before/after each turn, memory tools
     // are offered to the model, and native MAF OpenTelemetry wraps the agent.
@@ -127,11 +138,13 @@ static async Task RunAsync(IServiceProvider root)
 
     foreach (var turn in turns)
     {
-        logger.LogInformation("USER  : {Turn}", turn);
+        SampleConsole.WriteUser(turn);
         try
         {
             var response = await agent.RunAsync(turn, session);
-            logger.LogInformation("AGENT : {Text}", response.Text);
+            foreach (var call in response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>())
+                SampleConsole.WriteToolCall(call.Name, "(called by the live model)");
+            SampleConsole.WriteAssistant(response.Text);
         }
         catch (Exception ex)
         {
@@ -140,34 +153,4 @@ static async Task RunAsync(IServiceProvider root)
     }
 
     logger.LogInformation("=== Demo complete. ===");
-}
-
-// =============================================================================
-// Mock IChatClient — deterministic, offline. Replace with a real provider for genuine
-// inference and tool-calling.
-// =============================================================================
-internal sealed class EchoChatClient : IChatClient
-{
-    public Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        var lastUser = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
-        var reply = $"(mock LLM) Understood: \"{lastUser}\". I'll keep that in mind.";
-        return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
-    }
-
-    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        var response = await GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-    public void Dispose() { }
 }

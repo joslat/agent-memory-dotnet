@@ -38,7 +38,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | Sample | Demonstrates |
 | --- | --- |
 | **AgentWithMemory** | The flagship golden path — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, explicit `WithMemoryIdentity(...)` owner/application/session scope, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall**. |
-| **ShoppingAssistant** | The **.NET reimplementation of the official Neo4j retail-assistant example** — a shopping assistant that learns preferences and recommends products via graph traversal: `Neo4jMemoryContextProvider` + memory tools + **custom product tools** over a Neo4j product graph, a retail prompt, and durable cross-session recall. Runs offline (scripted journey). |
+| **ShoppingAssistant** | The **.NET reimplementation of the official Neo4j retail-assistant example** — a shopping assistant that learns preferences and recommends products via graph traversal: `Neo4jMemoryContextProvider` + memory tools + **custom product tools** over a Neo4j product graph, a retail prompt, and durable cross-session recall. The agent itself decides when to call the memory/product tools — nothing is scripted. |
 | **RealAgent** | A real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |
 | **MemoryToolsAgent** | The memory tools (`MemoryToolFactory.CreateAIFunctions()`, the `create_memory_tools` equivalent): registered on an agent and invoked directly against Neo4j. |
 | **ChatHistoryProvider** | `Neo4jChatHistoryProvider` wired via `ChatClientAgentOptions.ChatHistoryProvider` — per-session conversation history (distinct from long-term memory). |
@@ -47,19 +47,40 @@ a memory **context provider** (injects memory before each run, persists after) p
 | **McpHost** | Hosting the AgentMemory MCP server. |
 | **AspireDemo** | A .NET Aspire AppHost orchestrating Neo4j + a scripted demo app. |
 
-All agent samples use a **mock `IChatClient`** so they run offline (no API key). The golden path registers the mock through DI, so production hosts can replace it with a real `IChatClient` (OpenAI/Azure OpenAI/Foundry) and a real `IEmbeddingGenerator<string, Embedding<float>>` without changing the memory wiring. See `AgentMemory.Sample.AgentWithMemory/README.md` for the production identity/provider seams. Memory operations degrade gracefully when no live Neo4j is available.
+**AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider, and ShoppingAssistant call a REAL
+Azure OpenAI chat model and a REAL Azure OpenAI embedding model — there is no mock `IChatClient` and
+no offline fallback.** Each fails fast with setup instructions if credentials are missing. The model
+decides on its own when to call the memory (and, for ShoppingAssistant, product) tools — nothing is
+scripted. Live tool calls and any memory the context provider recalls are printed to the console
+(memory in light blue) via the shared `AgentMemory.Samples.Shared` helper
+(`RealAzureOpenAI`/`MemoryTraceChatClient`/`SampleConsole`). See
+`AgentMemory.Sample.AgentWithMemory/README.md` for the identity/provider seams. Memory operations
+degrade gracefully when no live Neo4j is available. BlendedAgent, MinimalAgent, and McpHost don't
+drive a chat model at all — they exercise the facade/tool layer directly — but they too now use a
+**real** Azure OpenAI embedding model via the same shared `RealAzureOpenAI` helper; no sample in this
+repo uses `StubEmbeddingGenerator` anymore.
 
 ## Running
 
 ```bash
-# Optional: a local Neo4j (samples bootstrap the schema and fall back gracefully without one)
+# A local Neo4j (samples bootstrap the schema and fall back gracefully without one)
 docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26
+
+# Required for every sample below (chat deployment only matters for the first five):
+export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini                     # optional, this is the default
+export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002 # optional, this is the default
 
 # Defaults: bolt://localhost:7687, neo4j/password (override via Neo4j__Uri / Neo4j__Username / Neo4j__Password)
 dotnet run --project samples/AgentMemory.Sample.AgentWithMemory
 dotnet run --project samples/AgentMemory.Sample.RealAgent
 dotnet run --project samples/AgentMemory.Sample.MemoryToolsAgent
 dotnet run --project samples/AgentMemory.Sample.ChatHistoryProvider
+dotnet run --project samples/AgentMemory.Sample.ShoppingAssistant
+dotnet run --project samples/AgentMemory.Sample.BlendedAgent
+dotnet run --project samples/AgentMemory.Sample.MinimalAgent
+dotnet run --project samples/AgentMemory.Sample.McpHost
 
 # Build the standalone Aspire demo solution
 dotnet build samples/samples.sln

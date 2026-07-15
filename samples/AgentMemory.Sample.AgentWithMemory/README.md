@@ -9,22 +9,25 @@ This is the flagship Microsoft Agent Framework sample for Agent Memory for .NET.
 - Session serialize/restore and a second session demonstrate memory continuity beyond one in-memory run.
 - `MemoryOptions.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant` is enabled, and a final step shows what happens when a call forgets `BeginOwnerScope`: it fails closed with `MemoryOwnerScopeRequiredException` instead of silently falling back to global/shared memory.
 
-## Offline Default
+## Live Providers — No Mocks
 
-The sample registers deterministic offline defaults with `TryAddSingleton`:
-
-- `EchoChatClient` for `IChatClient`.
-- `StubEmbeddingGenerator` for `IEmbeddingGenerator<string, Embedding<float>>`.
-
-That keeps the sample runnable without API keys. If Neo4j is unavailable, the sample reports the connection failure and exits cleanly.
+This sample calls a **real** Azure OpenAI chat model and a **real** Azure OpenAI embedding model —
+there is no mock `IChatClient` and no offline stub fallback. `RealAzureOpenAI.TryCreate` (from the
+shared `AgentMemory.Samples.Shared` project) resolves `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY`
+/ `AZURE_OPENAI_DEPLOYMENT` / `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` from the environment and fails fast
+with setup instructions if credentials are missing. The chat client is wrapped in
+`MemoryTraceChatClient`, which prints the `<recalled_memory>` blocks the context provider injects
+before each live model call, in light blue. If Neo4j is unavailable, the sample reports the connection
+failure and exits cleanly.
 
 ## Production Replacement Seam
 
-Production hosts should register real providers before or instead of these defaults:
+Swap the deployment names / credentials via environment variables, or register a different
+`Microsoft.Extensions.AI` provider entirely:
 
 ```csharp
-builder.Services.AddSingleton<IChatClient>(sp => /* OpenAI, Azure OpenAI, or Foundry chat client */);
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => /* MEAI embedding generator */);
+builder.Services.AddSingleton<IChatClient>(sp => /* your OpenAI, Azure OpenAI, or Foundry chat client */);
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => /* your MEAI embedding generator */);
 ```
 
 Do not change the memory wiring when swapping providers. The important production pattern is wrapping the
@@ -62,4 +65,4 @@ The live Neo4j integration shakedown includes coverage for this identity pattern
 
 ## VS Code Run Task
 
-Use the `AgentMemory: golden path sample (local Neo4j)` task to run this sample against a local Neo4j instance. The task prompts for Neo4j connection settings and keeps provider replacement in host DI; real chat or embedding providers should be registered by the host before the offline `TryAddSingleton` defaults.
+Use the `AgentMemory: golden path sample (local Neo4j)` task to run this sample against a local Neo4j instance. The task prompts for Neo4j connection settings; Azure OpenAI credentials (`AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY`) must already be set in the environment.

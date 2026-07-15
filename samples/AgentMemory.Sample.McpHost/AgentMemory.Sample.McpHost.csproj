@@ -13,6 +13,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\AgentMemory.Samples.Shared\AgentMemory.Samples.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

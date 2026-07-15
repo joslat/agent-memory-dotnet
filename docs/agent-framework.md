@@ -360,12 +360,16 @@ admission policy, configurable message roles, and instruction-like-content detec
 
 ## Real providers vs. offline defaults
 
-AgentMemory ships deterministic **stub** providers (`StubEmbeddingGenerator`, and the samples use a
-mock `IChatClient`) so the full flow runs offline with no API key — useful for tests and first-run.
-They log a warning when used and are **not** production embeddings. For real semantic recall and
-entity extraction, register real `Microsoft.Extensions.AI` providers; **the memory wiring is
-identical** — you only swap the `IChatClient` and `IEmbeddingGenerator` registrations. Match the
-embedding dimensions to the Neo4j vector-index dimensions (see
+AgentMemory ships a deterministic **stub** embedding provider (`StubEmbeddingGenerator`) for unit
+tests, where determinism (not accuracy) is what matters. None of the samples use it anymore: the
+agent samples that drive a model (AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider,
+ShoppingAssistant) call a **real** Azure OpenAI chat model and a **real** Azure OpenAI embedding
+model — there is no mock `IChatClient`; the facade-only samples (BlendedAgent, MinimalAgent,
+McpHost) never drive a chat model but still use a **real** Azure OpenAI embedding model. See
+`samples/AgentMemory.Samples.Shared` for the shared wiring (`RealAzureOpenAI`). `StubEmbeddingGenerator`
+logs a warning when used and is **not** production embeddings. **The memory wiring is identical**
+regardless of provider — you only swap the `IChatClient` and `IEmbeddingGenerator` registrations.
+Match the embedding dimensions to the Neo4j vector-index dimensions (see
 [getting-started § Embedding Providers](getting-started.md#7-embedding-providers)).
 
 ---

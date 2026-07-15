@@ -9,16 +9,19 @@
 //   search_memory · remember_preference · remember_fact · recall_preferences ·
 //   search_knowledge · find_similar_tasks
 //
-// They are registered on a ChatClientAgent (ChatOptions.Tools) so a real LLM would call them
-// autonomously. To keep the sample runnable offline (no API key / no function-calling LLM), it
-// also invokes a few tools directly to show they execute against Neo4j memory.
-//
+// They are registered on a ChatClientAgent (ChatOptions.Tools) so a real LLM calls them
+// autonomously. This sample also invokes a few tools directly first, to show the tool mechanics
+// executing against real Neo4j memory independent of the model. This sample calls a REAL Azure
+// OpenAI chat model and a REAL Azure OpenAI embedding model — no mocks. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no live-model fallback)
+//   AZURE_OPENAI_DEPLOYMENT             (chat deployment name; default: gpt-4o-mini)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
 //   Neo4j__Password (default: password)
 // =============================================================================
 
-using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +33,13 @@ using AgentMemory.AgentFramework.Tools;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — MemoryToolsAgent Sample (MAF 1.9.0)");
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -42,7 +52,10 @@ builder.Services.AddNeo4jAgentMemory(options =>
 builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+builder.Services.AddSingleton<IChatClient>(
+    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
 builder.Services.AddAgentMemoryFramework(_ => { });
 
 var host = builder.Build();
@@ -72,7 +85,7 @@ static async Task RunAsync(IServiceProvider root)
 
     // 1) Register them on a real agent exactly as an app would — a function-calling LLM picks
     //    these up from ChatOptions.Tools and calls them autonomously.
-    IChatClient chatClient = new EchoChatClient();
+    IChatClient chatClient = sp.GetRequiredService<IChatClient>();
     AIAgent agent = chatClient.AsAIAgent(new ChatClientAgentOptions
     {
         Name = "MemoryToolsAgent",
@@ -95,10 +108,14 @@ static async Task RunAsync(IServiceProvider root)
     await InvokeToolAsync(memoryTools, "search_memory",
         new() { ["query"] = "What do we know about Alice's travel preferences?" }, logger);
 
-    // 3) A normal agent turn still works (the mock client doesn't call tools, but a real one would).
+    // 3) A normal agent turn — the real model decides on its own whether to call a memory tool.
     var session = await agent.CreateSessionAsync();
-    var response = await agent.RunAsync("Remember that I prefer aisle seats too.", session);
-    logger.LogInformation("\nAGENT : {Text}", response.Text);
+    const string turn = "Remember that I prefer aisle seats too.";
+    SampleConsole.WriteUser(turn);
+    var response = await agent.RunAsync(turn, session);
+    foreach (var call in response.Messages.SelectMany(m => m.Contents).OfType<FunctionCallContent>())
+        SampleConsole.WriteToolCall(call.Name, "(called by the live model)");
+    SampleConsole.WriteAssistant(response.Text);
 
     logger.LogInformation("=== Demo complete. ===");
 }
@@ -116,31 +133,4 @@ static async Task InvokeToolAsync(
     {
         logger.LogWarning("  {Name} failed (likely no live Neo4j): {Message}", name, ex.Message);
     }
-}
-
-internal sealed class EchoChatClient : IChatClient
-{
-    public Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        var toolCount = options?.Tools?.Count ?? 0;
-        var lastUser = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
-        var reply = $"(mock LLM, {toolCount} tools available) Noted: \"{lastUser}\".";
-        return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
-    }
-
-    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        var response = await GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-    public void Dispose() { }
 }

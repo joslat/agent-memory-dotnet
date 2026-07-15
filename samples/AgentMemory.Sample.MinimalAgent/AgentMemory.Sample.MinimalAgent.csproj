@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
+    <ProjectReference Include="..\AgentMemory.Samples.Shared\AgentMemory.Samples.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

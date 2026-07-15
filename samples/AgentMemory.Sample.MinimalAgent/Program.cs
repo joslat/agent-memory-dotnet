@@ -5,6 +5,11 @@
 //   • Neo4j 5.11+ (optional for demo mode — graceful fallback if unavailable)
 //   • .NET 9 SDK
 //
+// This sample calls a REAL Azure OpenAI embedding model — no mocks. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
+//
 // Configure the connection via appsettings.json or environment variables:
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
@@ -21,6 +26,13 @@ using AgentMemory.AgentFramework.Tools;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("Neo4j Agent Memory — Minimal MAF Sample");
+    return;
+}
 
 // ── 0. Build host ─────────────────────────────────────────────────────────────
 var builder = Host.CreateApplicationBuilder(args);
@@ -47,10 +59,8 @@ builder.Services.AddAgentMemoryCore(_ =>
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// StubEmbeddingGenerator returns deterministic random vectors and is suitable only
-// for compilation and structure tests. Replace with a real IEmbeddingGenerator<string, Embedding<float>>
-// such as OpenAI text-embedding-3-small before using semantic search or LLM extraction.
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 
 // ── 3. MAF adapter ────────────────────────────────────────────────────────────
 builder.Services.AddAgentMemoryFramework(options =>

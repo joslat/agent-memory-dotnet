@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
 
     <ProjectReference Include="..\..\src\AgentMemory.Observability\AgentMemory.Observability.csproj" />
+    <ProjectReference Include="..\AgentMemory.Samples.Shared\AgentMemory.Samples.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="*" />

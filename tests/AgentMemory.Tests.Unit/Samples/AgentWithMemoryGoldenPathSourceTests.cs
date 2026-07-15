@@ -9,12 +9,12 @@ public sealed class AgentWithMemoryGoldenPathSourceTests
     {
         var source = File.ReadAllText(FindRepoFile("samples/AgentMemory.Sample.AgentWithMemory/Program.cs"));
 
-        source.Should().Contain("TryAddSingleton<IChatClient, EchoChatClient>()",
-            "the offline chat provider must be replaceable by host DI before the sample resolves IChatClient");
-        source.Should().Contain("TryAddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>()",
-            "the offline embedding provider must be replaceable by a real MEAI embedding generator");
+        source.Should().Contain("RealAzureOpenAI.TryCreate(",
+            "the sample must call a real Azure OpenAI chat model -- no mock IChatClient fallback");
+        source.Should().Contain("GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator()",
+            "the sample must call a real Azure OpenAI embedding model -- no StubEmbeddingGenerator fallback");
         source.Should().Contain("sp.GetRequiredService<IChatClient>()",
-            "the agent must use the DI-provided chat client rather than constructing the mock inline");
+            "the agent must use the DI-provided chat client rather than constructing it inline");
         source.Should().Contain("WithMemoryIdentity(",
             "provider swaps must not bypass application/user/session/conversation scoping");
         source.Should().Contain("WithMemoryOwnerScoping(",
