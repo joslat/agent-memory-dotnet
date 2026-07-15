@@ -52,7 +52,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     {
         var messages = context.AIContext?.Messages ?? Enumerable.Empty<ChatMessage>();
         var ids = ExtractIds(context.Session, context.Agent);
-        ApplyStoreContext(ids.applicationId);
+        using var storeScope = ApplyStoreContext(ids.applicationId);
         return await BuildContextAsync(messages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);
     }
@@ -68,8 +68,12 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         string? userId = null)
     {
         // Set the ambient owner BEFORE recall so the LLM-invokable facade tools the agent calls mid-turn
-        // (search_memory / remember_* etc.) scope to this owner instead of running unscoped.
-        ApplyOwnerContext(userId);
+        // (search_memory / remember_* etc.) scope to this owner instead of running unscoped. Scoped (not a
+        // bare assignment) so the value is restored once this hook returns rather than leaking into
+        // whatever runs next on this ambient context. NOTE: this hook still can't, on its own, guarantee
+        // the value survives into the tool-calling loop that runs AFTER it returns -- see
+        // MemoryOwnerScopingAgent (#90), which wraps the complete invocation for that guarantee.
+        using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
         try
         {
             var userMessages = messages
@@ -156,7 +160,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 
         var responseMessages = context.ResponseMessages ?? Enumerable.Empty<ChatMessage>();
         var ids = ExtractIds(context.Session, context.Agent);
-        ApplyStoreContext(ids.applicationId);
+        using var storeScope = ApplyStoreContext(ids.applicationId);
 
         await PerformStoreAsync(responseMessages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);
@@ -170,7 +174,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         CancellationToken cancellationToken,
         string? userId = null)
     {
-        ApplyOwnerContext(userId);
+        using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
         try
         {
             var storedMessages = new List<Message>();
@@ -226,61 +230,31 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         AgentSession? session,
         AIAgent? agent)
     {
-        string? sessionId = null;
-        string? conversationId = null;
-        string? userId = null;
-        string? applicationId = null;
-
+        MemoryIdentity identity;
         try
         {
-            var bag = session?.StateBag;
-            if (bag is not null)
-            {
-                bag.TryGetValue(_agentOptions.DefaultSessionIdKey, out sessionId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_agentOptions.DefaultConversationIdKey, out conversationId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_agentOptions.DefaultUserIdKey, out userId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_agentOptions.DefaultApplicationIdKey, out applicationId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-            }
+            identity = session.GetMemoryIdentity(_agentOptions);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not extract identity from state bag.");
+            identity = default;
         }
 
-        sessionId ??= agent?.Id ?? Guid.NewGuid().ToString("N");
+        var sessionId = identity.SessionId ?? agent?.Id ?? Guid.NewGuid().ToString("N");
         // P2-4: Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
-        conversationId ??= sessionId;
+        var conversationId = identity.ConversationId ?? sessionId;
 
-        return (sessionId, conversationId,
-            string.IsNullOrWhiteSpace(userId) ? null : userId,
-            string.IsNullOrWhiteSpace(applicationId) ? null : applicationId);
+        return (sessionId, conversationId, identity.UserId, identity.ApplicationId);
     }
 
     // Routes the memory store for this scope when an application_id is supplied and a writable store
-    // context is registered (R1b). No-op otherwise. Mutating a singleton context is only safe for one
-    // application per host; register a scoped IMemoryStoreContext to route per request.
-    private void ApplyStoreContext(string? applicationId)
-    {
-        if (applicationId is not null && _storeContext is IWritableMemoryStoreContext writable)
-            writable.ApplicationId = applicationId;
-    }
-
-    // Pushes the turn's owner (IC8) into the ambient context so the LLM-invokable facade tools (built
-    // from IMemoryQueryFacade) scope recall by owner and owner-stamp writes — without trusting the model
-    // to pass a user id. Set unconditionally (incl. null = shared) so a previous turn's owner can't bleed
-    // through. NOTE: the default DefaultMemoryOwnerContext is AsyncLocal-backed, and a value set inside
-    // this awaited hook does NOT propagate back to the framework's caller, so it will not, on its own,
-    // reach tool calls that run after the hook returns. For guaranteed multi-tenant scoping the host must
-    // either set IWritableMemoryOwnerContext around the agent run, or register a *scoped* owner context
-    // and run each turn in its own DI scope (then provider + tools share the same instance). See
-    // docs/reviews/review-2026-06-13-cycle3.md (finding #4).
-    private void ApplyOwnerContext(string? userId)
-    {
-        if (_ownerContext is not null)
-            _ownerContext.UserId = userId;
-    }
+    // context is registered (R1b). No-op otherwise. Scoped (not a bare assignment) so the value is
+    // restored once this hook returns. Mutating a singleton context is only safe for one application per
+    // host; register a scoped IMemoryStoreContext to route per request, or use MemoryOwnerScopingAgent
+    // (#90) to guarantee the scope spans the complete invocation including the tool-calling loop.
+    private IDisposable? ApplyStoreContext(string? applicationId) =>
+        applicationId is not null && _storeContext is IWritableMemoryStoreContext writable
+            ? writable.BeginStoreScope(applicationId)
+            : null;
 }

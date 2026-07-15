@@ -41,6 +41,7 @@ public static class ServiceCollectionExtensions
         services.AddOptions<MemoryStoreOptions>().Configure(o => configureStore?.Invoke(o));
         services.TryAddSingleton<DefaultMemoryStoreContext>();
         services.TryAddSingleton<IMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());
+        services.TryAddSingleton<IWritableMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());
         services.TryAddSingleton<IMemoryStoreProvisioner, Neo4jMemoryStoreProvisioner>();
 
         // Short-term memory repositories

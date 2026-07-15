@@ -46,4 +46,41 @@ public static class AgentSessionMemoryExtensions
 
         return session;
     }
+
+    /// <summary>
+    /// Reads the identity values <see cref="WithMemoryIdentity"/> wrote into the session's
+    /// <c>StateBag</c> — the single source of truth both Neo4j memory providers and
+    /// <see cref="MemoryOwnerScopingAgent"/> read from, instead of each duplicating the lookup. Blank
+    /// values are normalized to <c>null</c>. Does not apply any fallback (e.g. deriving a session id from
+    /// the agent) — callers that need that own it themselves.
+    /// </summary>
+    /// <param name="session">The MAF agent session, or null.</param>
+    /// <param name="options">
+    /// Options supplying the StateBag key names. Pass the same instance you registered if you
+    /// customized the keys; otherwise the defaults (<c>user_id</c>/<c>session_id</c>/…) are used.
+    /// </param>
+    public static MemoryIdentity GetMemoryIdentity(this AgentSession? session, AgentFrameworkOptions? options = null)
+    {
+        var opts = options ?? new AgentFrameworkOptions();
+        var bag = session?.StateBag;
+        if (bag is null) return default;
+
+        var json = JsonSerializerOptions.Default;
+        bag.TryGetValue(opts.DefaultSessionIdKey, out string? sessionId, json);
+        bag.TryGetValue(opts.DefaultConversationIdKey, out string? conversationId, json);
+        bag.TryGetValue(opts.DefaultUserIdKey, out string? userId, json);
+        bag.TryGetValue(opts.DefaultApplicationIdKey, out string? applicationId, json);
+
+        return new MemoryIdentity(
+            string.IsNullOrWhiteSpace(userId) ? null : userId,
+            string.IsNullOrWhiteSpace(sessionId) ? null : sessionId,
+            string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
+            string.IsNullOrWhiteSpace(applicationId) ? null : applicationId);
+    }
 }
+
+/// <summary>
+/// The memory identity (owner, session, conversation, application/store) read off a MAF
+/// <see cref="AgentSession"/>'s state bag via <see cref="AgentSessionMemoryExtensions.GetMemoryIdentity"/>.
+/// </summary>
+public readonly record struct MemoryIdentity(string? UserId, string? SessionId, string? ConversationId, string? ApplicationId);

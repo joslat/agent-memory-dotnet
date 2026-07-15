@@ -97,10 +97,18 @@ static async Task RunAsync(IServiceProvider root)
 
     var memoryProvider = sp.GetRequiredService<Neo4jMemoryContextProvider>();
     var memoryTools = sp.GetRequiredService<MemoryToolFactory>().CreateAIFunctions();
-    var ownerContext = sp.GetRequiredService<IWritableMemoryOwnerContext>();
 
     IChatClient chatClient = sp.GetRequiredService<IChatClient>();
 
+    // WithMemoryOwnerScoping(sp) (#90) guarantees the owner scope spans the COMPLETE invocation -- passive
+    // recall, the model call, the full tool-calling loop, and automatic persistence -- as one unbroken
+    // async chain. This replaces manually wrapping every agent.RunAsync(...) call in
+    // ownerContext.BeginOwnerScope(userId): a context-provider hook alone can't guarantee that (it
+    // suspends on real I/O, so a value it sets does not reliably survive into tool calls that run after
+    // it returns). Passing the IServiceProvider (rather than resolving IWritableMemoryOwnerContext
+    // manually) also resolves the same AgentFrameworkOptions instance Neo4jMemoryContextProvider uses --
+    // if a host ever customizes AgentFrameworkOptions.Default*Key, this keeps the wrapper reading identity
+    // under the same StateBag keys the provider writes/reads, rather than silently drifting out of sync.
     AIAgent agent = chatClient.AsAIAgent(new ChatClientAgentOptions
     {
         Name = "MemoryAgent",
@@ -110,7 +118,7 @@ static async Task RunAsync(IServiceProvider root)
             Tools = [.. memoryTools],
         },
         AIContextProviders = [memoryProvider],
-    });
+    }).WithMemoryOwnerScoping(sp);
 
     const string applicationId = "agent-memory-dotnet-golden-path";
     const string userId = "demo-user-ruaidhri";
@@ -130,7 +138,7 @@ static async Task RunAsync(IServiceProvider root)
     })
     {
         logger.LogInformation("USER  : {Turn}", turn);
-        logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, turn, sessionA, logger, ownerContext, userId));
+        logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, turn, sessionA, logger));
     }
 
     // ── 2. Serialize and restore the session (canonical 04_memory feature) ──────
@@ -143,7 +151,7 @@ static async Task RunAsync(IServiceProvider root)
         conversationId: "golden-path-conversation-a",
         applicationId: applicationId);
     logger.LogInformation("USER  : What did I tell you?");
-    logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "What did I tell you?", restored, logger, ownerContext, userId));
+    logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "What did I tell you?", restored, logger));
 
     // ── 3. Durable cross-session recall ─────────────────────────────────────────
     // A brand-new session for the same owner/application still sees earlier memory, because recall is
@@ -155,13 +163,15 @@ static async Task RunAsync(IServiceProvider root)
         conversationId: "golden-path-conversation-b",
         applicationId: applicationId);
     logger.LogInformation("USER  : Remind me what you know about me.");
-    logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "Remind me what you know about me.", sessionB, logger, ownerContext, userId));
+    logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "Remind me what you know about me.", sessionB, logger));
 
     // ── 4. StrictMultiTenant fails closed on a forgotten owner scope ────────────
-    // Every recall above ran inside ownerContext.BeginOwnerScope(userId). This call deliberately skips
-    // that -- with Isolation.Mode = StrictMultiTenant configured above, the context assembler now throws
-    // MemoryOwnerScopeRequiredException instead of silently resolving to global/shared memory.
-    logger.LogInformation("\n>> Demonstrating StrictMultiTenant: an unscoped recall fails closed (no BeginOwnerScope)\n");
+    // Every recall above ran through the WithMemoryOwnerScoping-wrapped agent, so it was owner-scoped
+    // automatically. This call deliberately bypasses that (it calls the context assembler directly,
+    // skipping the agent entirely) -- with Isolation.Mode = StrictMultiTenant configured above, the
+    // context assembler now throws MemoryOwnerScopeRequiredException instead of silently resolving to
+    // global/shared memory.
+    logger.LogInformation("\n>> Demonstrating StrictMultiTenant: an unscoped recall fails closed (bypassing the agent)\n");
     var contextAssembler = sp.GetRequiredService<IMemoryContextAssembler>();
     try
     {
@@ -181,23 +191,14 @@ static async Task RunAsync(IServiceProvider root)
     logger.LogInformation("\n=== Demo complete. Memory persisted in Neo4j survives sessions and serialization. ===");
 }
 
-static async Task<string?> SafeRunAsync(
-    AIAgent agent,
-    string message,
-    AgentSession session,
-    ILogger logger,
-    IWritableMemoryOwnerContext ownerContext,
-    string userId)
+static async Task<string?> SafeRunAsync(AIAgent agent, string message, AgentSession session, ILogger logger)
 {
     try
     {
-        // The session state scopes provider recall/persistence. The ambient owner scope encloses the run
-        // so any model-invoked memory tools inherit the same owner and cannot run against all owners.
-        using (ownerContext.BeginOwnerScope(userId))
-        {
-            var response = await agent.RunAsync(message, session);
-            return response.Text;
-        }
+        // Owner scoping (recall, tool calls, and persistence) is guaranteed automatically by the
+        // WithMemoryOwnerScoping-wrapped agent (#90) -- no manual BeginOwnerScope needed here.
+        var response = await agent.RunAsync(message, session);
+        return response.Text;
     }
     catch (Exception ex)
     {

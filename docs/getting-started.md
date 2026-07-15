@@ -198,6 +198,21 @@ using (ownerContext.BeginOwnerScope(userId))
 }
 ```
 
+**For MAF specifically**, prefer wrapping the agent once at construction time instead of every call site:
+
+```csharp
+AIAgent agent = chatClient.AsAIAgent(agentOptions).WithMemoryOwnerScoping(serviceProvider);
+```
+
+Pass the `IServiceProvider` rather than resolving `IWritableMemoryOwnerContext` yourself: it also resolves
+the registered `AgentFrameworkOptions`, so if you ever customize `Default*Key`, the wrapper reads a
+session's identity under the same StateBag keys `Neo4jMemoryContextProvider` does — passing the pieces
+separately risks a silent mismatch that unscopes the whole invocation.
+
+This guarantees the owner scope spans the complete invocation — a context-provider hook alone can't
+guarantee that, since it suspends on real I/O and the tool-calling loop runs after it returns. See
+[agent-framework.md](agent-framework.md#identity-and-scoping).
+
 **Do not accept an owner ID supplied by an LLM or untrusted client as proof of authorization.** The host
 application must derive the owner from its authenticated user or tenant context. This matters
 concretely for MCP hosts: the built-in `memory://context/{session_id}` resource (`ContextResource`)
