@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
 
@@ -15,6 +16,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
+    private readonly RecallOptions _recallOptions;
     private readonly ContextFormatOptions _formatOptions;
     private readonly AgentFrameworkOptions _agentOptions;
     private readonly IMemoryStoreContext? _storeContext;
@@ -24,6 +26,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     public Neo4jMemoryContextProvider(
         IMemoryService memoryService,
         IEmbeddingOrchestrator embeddingOrchestrator,
+        IOptions<MemoryOptions> memoryOptions,
         IOptions<ContextFormatOptions> formatOptions,
         IOptions<AgentFrameworkOptions> agentOptions,
         ILogger<Neo4jMemoryContextProvider> logger,
@@ -36,6 +39,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _embeddingOrchestrator = embeddingOrchestrator ?? throw new ArgumentNullException(nameof(embeddingOrchestrator));
+        _recallOptions = memoryOptions?.Value.Recall ?? RecallOptions.Default;
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
         _storeContext = storeContext;
@@ -106,7 +110,14 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 SessionId = sessionId,
                 UserId = userId,
                 Query = queryText,
-                QueryEmbedding = queryEmbedding
+                QueryEmbedding = queryEmbedding,
+                // Retrieval tuning (limits, MinSimilarityScore, BlendMode, Intent) comes from the
+                // configured RecallOptions (#87) -- but Scope is explicitly cleared: scope must always be
+                // resolved from this invocation's authenticated userId (via #100's isolation policy),
+                // never from a statically configured value. A host who ever sets
+                // MemoryOptions.Recall.Scope globally must not have it silently override the real,
+                // per-invocation owner here.
+                Options = _recallOptions with { Scope = null }
             };
 
             RecallResult recallResult;

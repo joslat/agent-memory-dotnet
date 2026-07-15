@@ -53,6 +53,15 @@ derives from `Microsoft.Agents.AI.AIContextProvider` and implements the framewor
 This is the same **bidirectional** behavior the official provider describes ("auto-retrieve before
 invocation, auto-save after responses") — recall is passive and automatic; you never call it by hand.
 
+Native recall via `Neo4jMemoryContextProvider` respects your configured `MemoryOptions.Recall` (limits,
+`MinSimilarityScore`, `BlendMode`, etc.) — the same options that shape a direct
+`IMemoryService.RecallAsync(...)` call (#87). The one exception is `RecallOptions.Scope`: native recall
+always derives scope from the invocation's authenticated owner (via #100's isolation policy), never from a
+statically configured `Scope`, so a global config value can't silently override the real, per-invocation
+owner. `Neo4jMicrosoftMemoryFacade` (the lower-level, manually-driven alternative to the context provider)
+does not yet wire configured `RecallOptions` into its own recall call — a known gap for a future pass, not
+covered by this fix.
+
 Alongside the passive provider, AgentMemory exposes **active memory tools** the model can call
 explicitly (search memory, remember a preference, find entity connections) via
 `MemoryToolFactory.CreateAIFunctions()` — the counterpart of the Python provider's

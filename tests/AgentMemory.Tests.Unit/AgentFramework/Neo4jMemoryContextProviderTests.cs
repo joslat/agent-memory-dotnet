@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
 using NSubstitute;
@@ -21,6 +22,7 @@ public sealed class Neo4jMemoryContextProviderTests
         _sut = new Neo4jMemoryContextProvider(
             _memoryService,
             _embeddingOrchestrator,
+            Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance);
@@ -30,6 +32,83 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         Context = new MemoryContext { SessionId = sessionId, AssembledAtUtc = DateTimeOffset.UtcNow }
     };
+
+    private Neo4jMemoryContextProvider CreateSutWithRecallOptions(RecallOptions recall) =>
+        new(
+            _memoryService,
+            _embeddingOrchestrator,
+            Options.Create(new MemoryOptions { Recall = recall }),
+            Options.Create(new ContextFormatOptions()),
+            Options.Create(new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance);
+
+    // ── Configured RecallOptions reach native MAF recall (#87) ─────────────
+
+    [Fact]
+    public async Task BuildContextAsync_UsesConfiguredRecallOptions()
+    {
+        var configuredRecall = new RecallOptions
+        {
+            MaxFacts = 3,
+            MaxEntities = 4,
+            MinSimilarityScore = 0.85,
+            BlendMode = RetrievalBlendMode.MemoryOnly
+        };
+        var sut = CreateSutWithRecallOptions(configuredRecall);
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
+
+        await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "What do you know about this customer?") },
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(request =>
+                request.Options!.MaxFacts == 3 &&
+                request.Options.MaxEntities == 4 &&
+                request.Options.MinSimilarityScore == 0.85 &&
+                request.Options.BlendMode == RetrievalBlendMode.MemoryOnly),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_ConfiguredScope_NeverOverridesTheInvocationOwner()
+    {
+        // A static, globally-configured Scope must not silently override the real, per-invocation owner
+        // (#100's isolation policy resolves scope from RecallRequest.UserId) -- this is the exact risk
+        // flagged when sequencing #87 after #100.
+        var configuredRecall = new RecallOptions { Scope = MemoryScope.For("some-other-owner") };
+        var sut = CreateSutWithRecallOptions(configuredRecall);
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
+
+        await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hi") },
+            "s1", "c1", CancellationToken.None, userId: "alice");
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(request => request.Options!.Scope == null && request.UserId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_NoConfiguredRecallOptions_UsesDefaults()
+    {
+        // Existing default behavior must remain unchanged when the host does not customize recall options.
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
+
+        await _sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hi") },
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(request =>
+                request.Options!.MaxFacts == RecallOptions.Default.MaxFacts &&
+                request.Options.MaxEntities == RecallOptions.Default.MaxEntities &&
+                request.Options.BlendMode == RecallOptions.Default.BlendMode),
+            Arg.Any<CancellationToken>());
+    }
 
     // ── BuildContextAsync (internal, tested via InternalsVisibleTo) ────────
 
@@ -188,7 +267,7 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator,
+            _memoryService, _embeddingOrchestrator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -207,7 +286,7 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator,
+            _memoryService, _embeddingOrchestrator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
 
@@ -224,7 +303,7 @@ public sealed class Neo4jMemoryContextProviderTests
         // An unowned turn must reset the ambient owner to null (shared), never inherit a previous turn's.
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator,
+            _memoryService, _embeddingOrchestrator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -246,6 +325,7 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
+            Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(agentOptions ?? new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance);
