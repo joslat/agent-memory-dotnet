@@ -6,6 +6,17 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+// This demo calls a REAL Azure OpenAI embedding model — no mocks. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("Aspire Demo — Agent Memory scripted run");
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -20,7 +31,8 @@ builder.Services.AddNeo4jAgentMemory(options =>
 builder.Services.AddAgentMemoryCore(_ => { });
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 builder.Services.AddSingleton<IGraphRagContextSource, DisabledGraphRagContextSource>();
 builder.Services.AddSingleton<IMemoryExtractionPipeline, DisabledMemoryExtractionPipeline>();
 

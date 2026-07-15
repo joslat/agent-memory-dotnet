@@ -539,9 +539,23 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
-    public void ContextFormatOptions_Default_MaxContextMessagesIsPositive()
+    public void ContextFormatOptions_Default_MaxChatHistoryMessagesIsPositive()
     {
-        new ContextFormatOptions().MaxContextMessages.Should().BePositive();
+        new ContextFormatOptions().MaxChatHistoryMessages.Should().BePositive();
+    }
+
+    [Fact]
+    public void ContextFormatOptions_ObsoleteMaxContextMessagesAlias_ForwardsToMaxChatHistoryMessages()
+    {
+        // #91: MaxContextMessages is retained as a compatibility alias, not a separate field.
+        var options = new ContextFormatOptions();
+#pragma warning disable CS0618 // intentionally exercising the obsolete alias itself
+        options.MaxContextMessages = 7;
+        options.MaxChatHistoryMessages.Should().Be(7);
+
+        options.MaxChatHistoryMessages = 3;
+        options.MaxContextMessages.Should().Be(3);
+#pragma warning restore CS0618
     }
 
     // ═══════════════════════════════════════════════════════════════════

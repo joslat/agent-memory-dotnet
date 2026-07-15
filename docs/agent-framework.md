@@ -104,6 +104,38 @@ explicitly (search memory, remember a preference, find entity connections) via
 `MemoryToolFactory.CreateAIFunctions()` — the counterpart of the Python provider's
 `create_memory_tools(memory)`.
 
+### Optional: surface the memory tools from the context provider itself
+
+Wiring both pieces normally takes two lines:
+
+```csharp
+var memoryProvider = sp.GetRequiredService<Neo4jMemoryContextProvider>();
+var memoryTools    = sp.GetRequiredService<MemoryToolFactory>().CreateAIFunctions();
+
+AIAgent agent = chatClient.AsAIAgent(new ChatClientAgentOptions
+{
+    ChatOptions        = new ChatOptions { Tools = [.. memoryTools] },
+    AIContextProviders = [memoryProvider],
+});
+```
+
+Set `AgentFrameworkOptions.ExposeMemoryToolsFromContextProvider = true` and `Neo4jMemoryContextProvider`
+surfaces the same six tools itself via [`AIContext.Tools`](https://learn.microsoft.com/en-us/agent-framework/agents/conversations/context-providers) —
+so `AIContextProviders = [memoryProvider]` alone is enough:
+
+```csharp
+services.AddAgentMemoryFramework(options =>
+{
+    options.ExposeMemoryToolsFromContextProvider = true;
+});
+```
+
+**Defaults to `false`.** `AddAgentMemoryFramework` registers `MemoryToolFactory` unconditionally, and the
+tools it creates include write-capable ones (`remember_fact`, `remember_preference`) — so this stays
+opt-in rather than firing just because the factory happens to be in DI. When enabled, every recall
+outcome (a hit, an empty recall, a recall failure, or no user message at all) still surfaces the tools —
+only `Messages` varies by outcome, so a quiet turn never silently loses tool availability.
+
 ---
 
 ## Prerequisites
@@ -328,7 +360,14 @@ mechanism is the one its scoped services require, and it does strictly more (mul
 - `AutoExtractOnPersist` — run entity/fact/preference extraction after each persisted turn.
 - `ContextFormat.IncludeEntities` / `IncludeFacts` / `IncludePreferences` / `IncludeReasoningTraces` —
   which memory kinds to inject into the prompt.
-- `ContextFormat.MaxContextMessages` / `ContextPrefix` — shape the injected context block.
+- `ContextFormat.MaxChatHistoryMessages` — caps ONLY recalled chat history (`RecentMessages`/
+  `RelevantMessages`); it does not cap the complete context. The prefix and every memory-derived block
+  (entities/facts/preferences/reasoning traces/GraphRAG) are durable long-term memory and are always
+  included on top when their `Include*` flag (or `ContextPrefix`) is set — they are never truncated to
+  make room for chat history (#91). Zero means no recalled chat history, but memory blocks may still be
+  included. For a hard cap on total prompt size, use `ContextBudget.MaxTokens`/`MaxCharacters` instead.
+  `MaxContextMessages` is a `[Obsolete]` compatibility alias for the same value.
+- `ContextFormat.ContextPrefix` — the untrusted-reference-data framing prepended to the context block.
 
 **Trust boundary (#92 Phase 1).** Recalled entities/facts/preferences/reasoning traces/GraphRAG content
 may originate from users, external documents, tool results, or the model itself — it is not injected as a
@@ -360,12 +399,16 @@ admission policy, configurable message roles, and instruction-like-content detec
 
 ## Real providers vs. offline defaults
 
-AgentMemory ships deterministic **stub** providers (`StubEmbeddingGenerator`, and the samples use a
-mock `IChatClient`) so the full flow runs offline with no API key — useful for tests and first-run.
-They log a warning when used and are **not** production embeddings. For real semantic recall and
-entity extraction, register real `Microsoft.Extensions.AI` providers; **the memory wiring is
-identical** — you only swap the `IChatClient` and `IEmbeddingGenerator` registrations. Match the
-embedding dimensions to the Neo4j vector-index dimensions (see
+AgentMemory ships a deterministic **stub** embedding provider (`StubEmbeddingGenerator`) for unit
+tests, where determinism (not accuracy) is what matters. None of the samples use it anymore: the
+agent samples that drive a model (AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider,
+ShoppingAssistant) call a **real** Azure OpenAI chat model and a **real** Azure OpenAI embedding
+model — there is no mock `IChatClient`; the facade-only samples (BlendedAgent, MinimalAgent,
+McpHost) never drive a chat model but still use a **real** Azure OpenAI embedding model. See
+`samples/AgentMemory.Samples.Shared` for the shared wiring (`RealAzureOpenAI`). `StubEmbeddingGenerator`
+logs a warning when used and is **not** production embeddings. **The memory wiring is identical**
+regardless of provider — you only swap the `IChatClient` and `IEmbeddingGenerator` registrations.
+Match the embedding dimensions to the Neo4j vector-index dimensions (see
 [getting-started § Embedding Providers](getting-started.md#7-embedding-providers)).
 
 ---

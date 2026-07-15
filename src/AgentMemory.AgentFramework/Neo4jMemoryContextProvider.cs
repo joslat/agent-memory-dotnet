@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
+using AgentMemory.AgentFramework.Tools;
 
 namespace AgentMemory.AgentFramework;
 
@@ -23,6 +24,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     private readonly AgentFrameworkOptions _agentOptions;
     private readonly IMemoryStoreContext? _storeContext;
     private readonly IWritableMemoryOwnerContext? _ownerContext;
+    private readonly MemoryToolFactory? _toolFactory;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
     public Neo4jMemoryContextProvider(
@@ -35,7 +37,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IOptions<AgentFrameworkOptions> agentOptions,
         ILogger<Neo4jMemoryContextProvider> logger,
         IMemoryStoreContext? storeContext = null,
-        IWritableMemoryOwnerContext? ownerContext = null)
+        IWritableMemoryOwnerContext? ownerContext = null,
+        MemoryToolFactory? toolFactory = null)
         // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
         // All three are passed as null: we supply our own ILogger via constructor injection,
         // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
@@ -50,6 +53,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
         _storeContext = storeContext;
         _ownerContext = ownerContext;
+        _toolFactory = toolFactory;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -91,7 +95,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 .ToList();
 
             if (userMessages.Count == 0)
-                return new AIContext();
+                return BuildResult();
 
             var queryText = string.Join("\n", userMessages.Select(m => m.Text));
 
@@ -140,15 +144,15 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Memory recall failed for session {SessionId}; returning empty context.", sessionId);
-                return new AIContext();
+                return BuildResult();
             }
 
             var contextMessages = MafTypeMapper.ToContextMessages(recallResult.Context, _formatOptions);
 
             if (contextMessages.Count == 0)
-                return new AIContext();
+                return BuildResult();
 
-            return new AIContext { Messages = contextMessages };
+            return BuildResult(contextMessages);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -157,9 +161,22 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unexpected error in Neo4jMemoryContextProvider for session {SessionId}.", sessionId);
-            return new AIContext();
+            return BuildResult();
         }
     }
+
+    /// <summary>
+    /// Builds the <see cref="AIContext"/> returned by every branch of <see cref="BuildContextAsync"/>, so
+    /// tool exposure is consistent regardless of whether this turn had recall hits, no user messages, or
+    /// a recall failure -- a turn with nothing to recall must not silently lose tool availability.
+    /// </summary>
+    private AIContext BuildResult(IReadOnlyList<ChatMessage>? messages = null) => new()
+    {
+        Messages = messages,
+        Tools = _agentOptions.ExposeMemoryToolsFromContextProvider
+            ? _toolFactory?.CreateAIFunctions()
+            : null,
+    };
 
     /// <summary>
     /// Post-run hook: persists response messages and optionally triggers extraction.

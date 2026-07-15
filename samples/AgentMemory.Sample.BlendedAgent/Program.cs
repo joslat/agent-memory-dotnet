@@ -9,6 +9,11 @@
 //     fallback if unavailable)
 //   • .NET 9 SDK
 //
+// This sample calls a REAL Azure OpenAI embedding model — no mocks. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no offline-stub fallback)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
+//
 // Configure via appsettings.json or environment variables:
 //   Neo4j__Uri           (default: bolt://localhost:7687)
 //   Neo4j__Username      (default: neo4j)
@@ -30,6 +35,13 @@ using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Observability;
+using AgentMemory.Samples.Shared;
+
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out _, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("Neo4j Agent Memory — Blended Memory + GraphRAG Sample");
+    return;
+}
 
 // ── 0. Build host ─────────────────────────────────────────────────────────────
 var builder = Host.CreateApplicationBuilder(args);
@@ -61,14 +73,11 @@ builder.Services.AddAgentMemoryCore(options =>
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
-// StubEmbeddingGenerator is for compilation and structure validation only.
-// Replace with a real IEmbeddingGenerator<string, Embedding<float>> (e.g. OpenAI) for semantic search.
-builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
-
 // IEmbeddingGenerator<string, Embedding<float>> is required by the GraphRAG adapter
 // to embed queries for vector search. With unified embedding, both Core and GraphRAG
 // use the same IEmbeddingGenerator registration.
-// builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();  // already registered above
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 
 // ── 3. GraphRAG adapter ───────────────────────────────────────────────────────
 // Connects agent memory retrieval to a Neo4j vector + fulltext index.

@@ -60,9 +60,10 @@ internal static class MafTypeMapper
 
         // Build chat messages and memory-derived system messages into SEPARATE buckets and budget them
         // independently. The whole point of this provider is to inject long-term memory; appending memory
-        // AFTER chat and then Take(MaxContextMessages) put memory at the tail, so once a conversation had
-        // ~MaxContextMessages chat messages the memory blocks were the first dropped — silently injecting
-        // ZERO long-term memory. Memory items are now always kept; only the chat portion is truncated.
+        // AFTER chat and then Take()-ing a shared budget put memory at the tail, so once a conversation had
+        // enough chat messages the memory blocks were the first dropped — silently injecting ZERO
+        // long-term memory. Memory items are always kept; only the chat portion (MaxChatHistoryMessages,
+        // independent of lead/memory counts — #91) is truncated.
 
         // Lead (always kept): optional prefix + graph context when it leads (GraphRagOnly/GraphRagThenMemory).
         var lead = new List<ChatMessage>();
@@ -119,12 +120,14 @@ internal static class MafTypeMapper
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
             memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
-        // Fill the budget left over after the always-kept lead + memory with the MOST RECENT chat
-        // messages. chatMessages is newest-first (RecentMessages.Items is recall-ordered DESC), so the
+        // MaxChatHistoryMessages bounds ONLY recalled chat history -- it is independent of lead/memory
+        // counts (#91): entities/facts/preferences/traces/GraphRAG/the prefix are durable long-term
+        // memory and are never truncated to make room for chat, so they are not subtracted from this
+        // budget. chatMessages is newest-first (RecentMessages.Items is recall-ordered DESC), so the
         // newest `chatBudget` items are the FRONT of the list — Take(chatBudget). (R6-D: the previous
         // Skip(count - chatBudget) kept the TAIL, i.e. the OLDEST messages, dropping the newest turns
         // first — the opposite of "most recent".) Order is preserved (lead → chat → memory).
-        int chatBudget = Math.Max(0, options.MaxContextMessages - lead.Count - memory.Count);
+        int chatBudget = Math.Max(0, options.MaxChatHistoryMessages);
         var keptChat = chatMessages.Count > chatBudget
             ? chatMessages.Take(chatBudget).ToList()
             : chatMessages;

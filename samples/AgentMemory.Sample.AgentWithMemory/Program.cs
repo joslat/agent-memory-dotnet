@@ -16,20 +16,21 @@
 //      sees prior memory, because the memory lives in Neo4j (not just in the session).
 //
 // Unlike the official sample's session-scoped ProviderSessionState, this memory survives process
-// restarts and is scoped by the explicit store -> owner -> session identity below. Mock providers keep
-// it runnable offline; replace the DI registrations with real MEAI providers for production inference.
-//
+// restarts and is scoped by the explicit store -> owner -> session identity below. This sample calls
+// a REAL Azure OpenAI chat model and a REAL Azure OpenAI embedding model — no mocks. Requires:
+//   AZURE_OPENAI_ENDPOINT               (required, e.g. https://<resource>.openai.azure.com/)
+//   AZURE_OPENAI_API_KEY                (required — no live-model fallback)
+//   AZURE_OPENAI_DEPLOYMENT             (chat deployment name; default: gpt-4o-mini)
+//   AZURE_OPENAI_EMBEDDING_DEPLOYMENT   (embedding deployment name; default: text-embedding-ada-002)
 //   Neo4j__Uri      (default: bolt://localhost:7687)
 //   Neo4j__Username (default: neo4j)
 //   Neo4j__Password (default: password)
 // =============================================================================
 
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
@@ -41,6 +42,13 @@ using AgentMemory.AgentFramework.Tools;
 using AgentMemory.Core;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Samples.Shared;
+
+if (!RealAzureOpenAI.TryCreate(out var azureClient, out var chatDeployment, out var embeddingDeployment))
+{
+    RealAzureOpenAI.PrintMissingCredentials("AgentMemory for .NET — AgentWithMemory Sample (MAF 1.9.0)");
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -59,12 +67,10 @@ builder.Services.AddNeo4jAgentMemory(options =>
 builder.Services.AddAgentMemoryCore(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant);
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-// Offline default: deterministic stub embeddings. Production hosts should replace this with a real
-// MEAI provider, for example OpenAI/Azure OpenAI/Foundry embeddings with matching Neo4j dimensions.
-builder.Services.TryAddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>();
-// Offline default: deterministic mock chat. Production hosts can replace IChatClient with any MEAI
-// chat client; the rest of the sample wiring stays the same.
-builder.Services.TryAddSingleton<IChatClient, EchoChatClient>();
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
+    azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
+builder.Services.AddSingleton<IChatClient>(
+    new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
 builder.Services.AddAgentMemoryFramework(options =>
 {
     options.AutoExtractOnPersist             = true;
@@ -137,8 +143,8 @@ static async Task RunAsync(IServiceProvider root)
         "I work at Acme Corp.",
     })
     {
-        logger.LogInformation("USER  : {Turn}", turn);
-        logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, turn, sessionA, logger));
+        SampleConsole.WriteUser(turn);
+        SampleConsole.WriteAssistant(await SafeRunAsync(agent, turn, sessionA, logger));
     }
 
     // ── 2. Serialize and restore the session (canonical 04_memory feature) ──────
@@ -150,8 +156,8 @@ static async Task RunAsync(IServiceProvider root)
         sessionId: "golden-path-session-a",
         conversationId: "golden-path-conversation-a",
         applicationId: applicationId);
-    logger.LogInformation("USER  : What did I tell you?");
-    logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "What did I tell you?", restored, logger));
+    SampleConsole.WriteUser("What did I tell you?");
+    SampleConsole.WriteAssistant(await SafeRunAsync(agent, "What did I tell you?", restored, logger));
 
     // ── 3. Durable cross-session recall ─────────────────────────────────────────
     // A brand-new session for the same owner/application still sees earlier memory, because recall is
@@ -162,8 +168,8 @@ static async Task RunAsync(IServiceProvider root)
         sessionId: "golden-path-session-b",
         conversationId: "golden-path-conversation-b",
         applicationId: applicationId);
-    logger.LogInformation("USER  : Remind me what you know about me.");
-    logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "Remind me what you know about me.", sessionB, logger));
+    SampleConsole.WriteUser("Remind me what you know about me.");
+    SampleConsole.WriteAssistant(await SafeRunAsync(agent, "Remind me what you know about me.", sessionB, logger));
 
     // ── 4. StrictMultiTenant fails closed on a forgotten owner scope ────────────
     // Every recall above ran through the WithMemoryOwnerScoping-wrapped agent, so it was owner-scoped
@@ -205,32 +211,4 @@ static async Task<string?> SafeRunAsync(AIAgent agent, string message, AgentSess
         logger.LogWarning("    Turn failed (likely no live Neo4j): {Message}", ex.Message);
         return null;
     }
-}
-
-internal sealed class EchoChatClient : IChatClient
-{
-    public Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        // Report how much prior context the memory provider injected, to make recall visible.
-        var contextCount = messages.Count(m => m.Role != ChatRole.User);
-        var lastUser = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
-        var reply = $"(mock LLM, {contextCount} context message(s) from memory) Re: \"{lastUser}\".";
-        return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
-    }
-
-    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        var response = await GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        yield return new ChatResponseUpdate(ChatRole.Assistant, response.Text);
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-    public void Dispose() { }
 }

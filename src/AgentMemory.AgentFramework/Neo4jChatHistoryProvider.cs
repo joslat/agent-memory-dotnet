@@ -81,7 +81,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                     Query = string.Empty,
                     Options = new RecallOptions
                     {
-                        MaxRecentMessages = _options.ContextFormat.MaxContextMessages
+                        MaxRecentMessages = _options.ContextFormat.MaxChatHistoryMessages
                     }
                 }, cancellationToken).ConfigureAwait(false);
 

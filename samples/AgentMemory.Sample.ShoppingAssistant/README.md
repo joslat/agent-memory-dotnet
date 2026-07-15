@@ -29,26 +29,30 @@ graph traversal**, backed by durable Neo4j memory.
 # A local Neo4j (the sample bootstraps the schema and seeds 10 products)
 docker run -d --name neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.26
 
+# Required — this sample calls a real Azure OpenAI model, there is no mock fallback
+export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini                     # optional, this is the default
+export AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002 # optional, this is the default
+
 dotnet run --project samples/AgentMemory.Sample.ShoppingAssistant
 # Overrides: Neo4j__Uri / Neo4j__Username / Neo4j__Password
 ```
 
-## Offline vs. a real model
+## A real model drives the whole journey
 
-Like every sample here, it runs **offline** with a mock `IChatClient` (no API key). A mock model does
-not drive tool-calls, so this demo **scripts** the shopping journey — it calls the product tools and
-memory APIs directly so you can see the graph and recall working.
-
-With a **real** `IChatClient` (OpenAI / Azure OpenAI, via `Microsoft.Extensions.AI`) the agent invokes
-those same memory + product tools **itself**, conversationally. **The memory wiring is identical** —
-you only swap the `IChatClient` (and `IEmbeddingGenerator`) DI registrations in `Program.cs`; nothing
-about the context provider, tools, or product graph changes.
+This sample calls a **real** Azure OpenAI chat model and a **real** Azure OpenAI embedding model — no
+mocks, no scripted tool calls. The agent decides for itself when to call `remember_preference`,
+`search_products`, `get_recommendations`, and the rest of the memory + product tools, exactly as a
+production integration would. The console prints every tool call it makes (product tools in gray,
+memory tools in light blue) plus the `<recalled_memory>` context the `Neo4jMemoryContextProvider`
+injects before each model call, so the whole recall → reasoning → tool-call loop is visible.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `Program.cs` | Host wiring, the agent, and the scripted retail journey. |
+| `Program.cs` | Host wiring, the agent, and the two-session retail conversation. |
 | `ProductCatalog.cs` | The sample product graph (seed) and the retail tools (Cypher via `INeo4jTransactionRunner`), exposed as `AIFunction`s. |
 
 ## See also

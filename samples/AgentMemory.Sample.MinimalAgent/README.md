@@ -94,7 +94,7 @@ services.AddNeo4jAgentMemory(options => { ... });
 services.AddAgentMemoryCore(_ => { });
 services.AddSingleton<IClock, SystemClock>();
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
-services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, StubEmbeddingGenerator>(); // swap for real generator
+services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 
 // 3. MAF adapter (Neo4jMicrosoftMemoryFacade, Neo4jChatMessageStore, Neo4jMemoryContextProvider,
 //                Neo4jChatHistoryProvider)
@@ -109,4 +109,4 @@ services.AddAgentMemoryFramework(options => { ... });
 //    var agent = chatClient.AsAIAgent(new ChatClientAgentOptions { ... }, tools: [..tools]);
 ```
 
-> **Note:** Replace `StubEmbeddingGenerator` with a real `IEmbeddingGenerator<string, Embedding<float>>` (e.g. OpenAI `text-embedding-3-small`) before using semantic search or LLM-driven extraction.
+> **Note:** This sample calls a **real** Azure OpenAI embedding model (`RealAzureOpenAI` from `AgentMemory.Samples.Shared`) — no mock fallback.

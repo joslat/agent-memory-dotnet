@@ -6,6 +6,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-15
+
+### Added
+
+- **`AgentFrameworkOptions.ExposeMemoryToolsFromContextProvider` — optional memory-tool exposure via
+  `AIContext.Tools` (#86).** `Neo4jMemoryContextProvider` can now surface the six standard memory tools
+  (`MemoryToolFactory.CreateAIFunctions()`) itself through `AIContext.Tools`, so
+  `AIContextProviders = [memoryProvider]` alone is enough to give an agent LLM-callable memory tools — no
+  separate `ChatOptions.Tools = [.. memoryTools]` wiring required. **Defaults to `false`**:
+  `AddAgentMemoryFramework` registers `MemoryToolFactory` unconditionally, and its tools include
+  write-capable ones (`remember_fact`, `remember_preference`), so exposure must stay opt-in rather than
+  firing just because the factory is present in DI. Every `BuildContextAsync` branch (a recall hit, an
+  empty recall, a recall failure, or no user message at all) now shares one `AIContext`-construction
+  helper, so tool availability never silently drops on a quiet turn.
+- **`ContextFormatOptions.MaxChatHistoryMessages`** (#91, see Fixed below) — the new name for what was
+  `MaxContextMessages`.
+
+### Fixed
+
+- **`AddGraphRagAdapter()` could never actually resolve `IGraphRagContextSource` — `IDriver` was never
+  registered in DI.** `Neo4jGraphRagContextSource` takes `IDriver` via constructor injection, but
+  `AddNeo4jAgentMemory` only registered `INeo4jDriverFactory` (which wraps `IDriver` via `GetDriver()`),
+  never `IDriver` itself. Any host that called `AddGraphRagAdapter()` hit
+  `InvalidOperationException: Unable to resolve service for type 'Neo4j.Driver.IDriver'` the first time
+  GraphRAG retrieval ran — this broke the feature for every consumer, not just the sample that surfaced
+  it. Fixed by registering `IDriver` from the existing `INeo4jDriverFactory` singleton in
+  `AddNeo4jAgentMemory`, so both resolve to the same underlying driver instance/lifetime.
+- **`ContextFormatOptions.MaxContextMessages` renamed to `MaxChatHistoryMessages`, with the old name kept
+  as an `[Obsolete]` compatibility alias (#91).** The option was documented as capping the complete
+  injected context, but the implementation always preserved the context prefix and every memory-derived
+  block (entities/facts/preferences/reasoning traces/GraphRAG) — only recalled chat history was ever
+  truncated to fit. The renamed option's implementation now matches its name: it bounds *only* recalled
+  chat history, and is no longer reduced by the prefix/memory-block count. `MaxContextMessages` still
+  works (it forwards to `MaxChatHistoryMessages`) but is marked obsolete. Negative values are rejected by
+  option validation; `MaxChatHistoryMessages = 0` means no recalled chat history, but memory blocks may
+  still be included. `Neo4jChatHistoryProvider` (a separate, unrelated consumer of the same option field)
+  is updated to reference the new name. Use `ContextBudget.MaxTokens`/`MaxCharacters` for a hard cap on
+  total prompt size — a message count alone is not a reliable token budget.
+
+### Changed
+
+- **Every sample now calls a real Azure OpenAI chat and/or embedding model — no mocks.** Removed
+  `EchoChatClient`/`ShoppingEchoChatClient`/`StubEmbeddingGenerator` from every sample
+  (AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider, ShoppingAssistant, BlendedAgent,
+  MinimalAgent, McpHost, and the AspireDemo app). A new `samples/AgentMemory.Samples.Shared` project
+  centralizes the wiring: `RealAzureOpenAI.TryCreate` resolves `AZURE_OPENAI_*` environment variables and
+  fails fast with setup instructions if they're missing (no silent mock fallback), `MemoryTraceChatClient`
+  prints the `<recalled_memory>` context the provider injects before each live model call, and
+  `SampleConsole` gives each sample color-coded user/assistant/memory-action console output. The five
+  agent samples now let the model decide on its own when to call memory/product tools, rather than
+  scripting the calls a mock model couldn't make itself.
+
 ## [1.1.0] - 2026-07-15
 
 ### Added
