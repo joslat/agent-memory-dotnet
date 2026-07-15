@@ -257,7 +257,7 @@ public sealed class MafTypeMapperTests
     }
 
     [Fact]
-    public void ToContextMessages_RespectsMaxContextMessages()
+    public void ToContextMessages_RespectsMaxChatHistoryMessages()
     {
         var messages = Enumerable.Range(1, 20)
             .Select(i => new Message
@@ -274,7 +274,9 @@ public sealed class MafTypeMapperTests
             RecentMessages = new MemoryContextSection<Message> { Items = messages }
         };
 
-        var result = MafTypeMapper.ToContextMessages(context, new ContextFormatOptions { MaxContextMessages = 5 });
+        // No prefix/memory blocks in play, so the chat budget alone determines the total here.
+        var result = MafTypeMapper.ToContextMessages(context,
+            new ContextFormatOptions { MaxChatHistoryMessages = 5, ContextPrefix = "" });
 
         result.Should().HaveCount(5);
     }
@@ -301,7 +303,7 @@ public sealed class MafTypeMapperTests
             RecentMessages = new MemoryContextSection<Message> { Items = messages }
         };
 
-        var result = MafTypeMapper.ToContextMessages(context, new ContextFormatOptions { MaxContextMessages = 3 });
+        var result = MafTypeMapper.ToContextMessages(context, new ContextFormatOptions { MaxChatHistoryMessages = 3 });
 
         var texts = result.Where(m => m.Text != null).Select(m => m.Text!).ToList();
         texts.Should().Contain("msg 20", "the newest message must be kept");
@@ -312,8 +314,8 @@ public sealed class MafTypeMapperTests
     public void ToContextMessages_MemoryItemsSurviveBudget_WhenChatMessagesExceedIt()
     {
         // The whole point of the provider is to inject long-term memory. Even when chat messages exceed
-        // MaxContextMessages, the entity/fact/preference system messages must NOT be truncated away (the
-        // bug: memory was appended after chat, so Take() dropped it first).
+        // MaxChatHistoryMessages, the entity/fact/preference system messages must NOT be truncated away
+        // (the bug: memory was appended after chat, so Take() dropped it first).
         var messages = Enumerable.Range(1, 20)
             .Select(i => new Message
             {
@@ -338,12 +340,82 @@ public sealed class MafTypeMapperTests
         };
 
         var result = MafTypeMapper.ToContextMessages(context,
-            new ContextFormatOptions { MaxContextMessages = 5, ContextPrefix = "ctx" });
+            new ContextFormatOptions { MaxChatHistoryMessages = 5, ContextPrefix = "ctx" });
 
         result.Any(m => m.Text != null && m.Text.Contains("Relevant entities") && m.Text.Contains("Alice")).Should().BeTrue("the entity block must survive the budget");
         result.Any(m => m.Text != null && m.Text.Contains("Known facts") && m.Text.Contains("works_at")).Should().BeTrue("the fact block must survive the budget");
-        // prefix(1) + entities(1) + facts(1) + the 2 most-recent chat messages = 5.
-        result.Should().HaveCount(5);
+        // #91: prefix/entities/facts are NOT subtracted from the chat budget anymore -- prefix(1) +
+        // entities(1) + facts(1) + 5 most-recent chat messages (the full configured chat budget) = 8.
+        result.Should().HaveCount(8);
+    }
+
+    // ── #91: MaxChatHistoryMessages bounds ONLY recalled chat history, not the complete context ────
+
+    [Fact]
+    public void ToContextMessages_MaxChatHistoryMessagesLimitsOnlyChat()
+    {
+        var messages = Enumerable.Range(1, 10)
+            .Select(i => new Message
+            {
+                MessageId = $"m{i}", SessionId = "s1", ConversationId = "c1",
+                Role = "user", Content = $"msg {i}", TimestampUtc = DateTimeOffset.UtcNow
+            })
+            .ToList();
+
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = messages },
+            RelevantEntities = new MemoryContextSection<Entity>
+            {
+                Items = [new Entity { EntityId = "e1", Name = "Alice", Type = "PERSON", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow }]
+            },
+            RelevantFacts = new MemoryContextSection<Fact>
+            {
+                Items = [new Fact { FactId = "f1", Subject = "Alice", Predicate = "works_at", Object = "Acme", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow }]
+            }
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context,
+            new ContextFormatOptions { MaxChatHistoryMessages = 2, ContextPrefix = "" });
+
+        // Only the recalled chat-history messages (mapped back to their original user/assistant role) are
+        // bounded by the budget -- the entity/fact system messages are additional, not counted against it.
+        result.Count(m => m.Role == ChatRole.User).Should().Be(2);
+        result.Any(m => m.Text != null && m.Text.Contains("Relevant entities")).Should().BeTrue();
+        result.Any(m => m.Text != null && m.Text.Contains("Known facts")).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ToContextMessages_MaxChatHistoryMessagesZero_ExcludesChatButKeepsMemory()
+    {
+        var messages = new List<Message>
+        {
+            new()
+            {
+                MessageId = "m1", SessionId = "s1", ConversationId = "c1",
+                Role = "user", Content = "hello", TimestampUtc = DateTimeOffset.UtcNow
+            }
+        };
+
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RecentMessages = new MemoryContextSection<Message> { Items = messages },
+            RelevantPreferences = new MemoryContextSection<Preference>
+            {
+                Items = [new Preference { PreferenceId = "p1", Category = "style", PreferenceText = "dark mode", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow }]
+            }
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context,
+            new ContextFormatOptions { MaxChatHistoryMessages = 0, ContextPrefix = "" });
+
+        result.Should().NotContain(m => m.Role == ChatRole.User);
+        result.Any(m => m.Text != null && m.Text.Contains("dark mode")).Should().BeTrue(
+            "MaxChatHistoryMessages = 0 means no recalled chat history, not no memory at all");
     }
 
     // ── Trust boundary: stored prompt injection + delimiter escaping (#92 Phase 1) ─────────

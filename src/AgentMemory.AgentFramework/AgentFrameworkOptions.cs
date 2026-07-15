@@ -19,10 +19,25 @@ public sealed class AgentFrameworkOptions
     public bool AutoExtractOnPersist { get; set; } = true;
 
     /// <summary>
-    /// When <see langword="true"/>, reasoning traces produced by <see cref="AgentTraceRecorder"/> 
+    /// When <see langword="true"/>, reasoning traces produced by <see cref="AgentTraceRecorder"/>
     /// are persisted to the Neo4j graph. Disabled by default to reduce write overhead.
     /// </summary>
     public bool PersistReasoningTraces { get; set; } = false;
+
+    /// <summary>
+    /// When <see langword="true"/>, <c>Neo4jMemoryContextProvider</c> surfaces the six standard memory
+    /// tools (<c>Tools.MemoryToolFactory.CreateAIFunctions()</c>) via <c>AIContext.Tools</c> on every
+    /// invocation, so <c>AIContextProviders = [memoryProvider]</c> alone is enough to give the agent
+    /// LLM-callable memory tools -- no separate <c>ChatOptions.Tools = [.. memoryTools]</c> wiring needed.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see langword="false"/>. <c>AddAgentMemoryFramework</c> registers
+    /// <c>Tools.MemoryToolFactory</c> unconditionally, and the tools it creates include write-capable
+    /// ones (<c>remember_fact</c>, <c>remember_preference</c>) -- so this must stay opt-in. Enabling it
+    /// only because the factory exists in DI would silently hand every context-provider-wired agent new
+    /// write tools on a package upgrade.
+    /// </remarks>
+    public bool ExposeMemoryToolsFromContextProvider { get; set; } = false;
 
     // Breaking change (P2-2): renamed from DefaultSessionIdHeader/DefaultConversationIdHeader.
     // These are StateBag keys, not HTTP headers. Defaults updated to idiomatic StateBag key names.

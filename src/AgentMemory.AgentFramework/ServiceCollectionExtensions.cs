@@ -32,8 +32,10 @@ public static class ServiceCollectionExtensions
                 ctx.IncludePreferences = src.IncludePreferences;
                 ctx.IncludeReasoningTraces = src.IncludeReasoningTraces;
                 ctx.ContextPrefix = src.ContextPrefix;
-                ctx.MaxContextMessages = src.MaxContextMessages;
-            });
+                ctx.MaxChatHistoryMessages = src.MaxChatHistoryMessages;
+            })
+            .Validate(o => o.MaxChatHistoryMessages >= 0, "ContextFormatOptions.MaxChatHistoryMessages must be non-negative.")
+            .ValidateOnStart();
 
         services.TryAddScoped<Neo4jMemoryContextProvider>();
         services.TryAddScoped<Neo4jChatMessageStore>();

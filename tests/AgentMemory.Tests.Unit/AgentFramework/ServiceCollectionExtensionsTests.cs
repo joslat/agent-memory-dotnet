@@ -190,4 +190,32 @@ public sealed class ServiceCollectionExtensionsTests
         opts.AutoExtractOnPersist.Should().BeFalse();
         opts.DefaultSessionIdKey.Should().Be("my_session");
     }
+
+    [Fact]
+    public void AddAgentMemoryFramework_WithConfigure_MapsMaxChatHistoryMessagesIntoContextFormatOptions()
+    {
+        // #91: MaxChatHistoryMessages set on AgentFrameworkOptions.ContextFormat must reach the
+        // standalone ContextFormatOptions instance MafTypeMapper/Neo4jChatHistoryProvider consume.
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.MaxChatHistoryMessages = 3)
+            .BuildServiceProvider();
+
+        var contextFormat = provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        contextFormat.MaxChatHistoryMessages.Should().Be(3);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_NegativeMaxChatHistoryMessages_FailsValidationOnStart()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.MaxChatHistoryMessages = -1)
+            .BuildServiceProvider();
+
+        var act = () => provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        act.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
+    }
 }

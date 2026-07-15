@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`AgentFrameworkOptions.ExposeMemoryToolsFromContextProvider` — optional memory-tool exposure via
+  `AIContext.Tools` (#86).** `Neo4jMemoryContextProvider` can now surface the six standard memory tools
+  (`MemoryToolFactory.CreateAIFunctions()`) itself through `AIContext.Tools`, so
+  `AIContextProviders = [memoryProvider]` alone is enough to give an agent LLM-callable memory tools — no
+  separate `ChatOptions.Tools = [.. memoryTools]` wiring required. **Defaults to `false`**:
+  `AddAgentMemoryFramework` registers `MemoryToolFactory` unconditionally, and its tools include
+  write-capable ones (`remember_fact`, `remember_preference`), so exposure must stay opt-in rather than
+  firing just because the factory is present in DI. Every `BuildContextAsync` branch (a recall hit, an
+  empty recall, a recall failure, or no user message at all) now shares one `AIContext`-construction
+  helper, so tool availability never silently drops on a quiet turn.
+
+### Fixed
+
+- **`ContextFormatOptions.MaxContextMessages` renamed to `MaxChatHistoryMessages`, with the old name kept
+  as an `[Obsolete]` compatibility alias (#91).** The option was documented as capping the complete
+  injected context, but the implementation always preserved the context prefix and every memory-derived
+  block (entities/facts/preferences/reasoning traces/GraphRAG) — only recalled chat history was ever
+  truncated to fit. The renamed option's implementation now matches its name: it bounds *only* recalled
+  chat history, and is no longer reduced by the prefix/memory-block count. `MaxContextMessages` still
+  works (it forwards to `MaxChatHistoryMessages`) but is marked obsolete. Negative values are rejected by
+  option validation; `MaxChatHistoryMessages = 0` means no recalled chat history, but memory blocks may
+  still be included. `Neo4jChatHistoryProvider` (a separate, unrelated consumer of the same option field)
+  is updated to reference the new name. Use `ContextBudget.MaxTokens`/`MaxCharacters` for a hard cap on
+  total prompt size — a message count alone is not a reliable token budget.
+
 ## [1.1.0] - 2026-07-15
 
 ### Added

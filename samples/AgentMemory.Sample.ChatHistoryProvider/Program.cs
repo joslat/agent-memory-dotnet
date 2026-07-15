@@ -53,7 +53,7 @@ builder.Services.AddSingleton<IChatClient>(
 builder.Services.AddAgentMemoryFramework(options =>
 {
     options.AutoExtractOnPersist = false; // history persistence only; no extraction in this sample
-    options.ContextFormat.MaxContextMessages = 10;
+    options.ContextFormat.MaxChatHistoryMessages = 10;
 });
 
 var host = builder.Build();

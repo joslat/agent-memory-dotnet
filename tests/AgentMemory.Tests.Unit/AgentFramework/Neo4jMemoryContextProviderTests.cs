@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework.Tools;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -330,7 +331,8 @@ public sealed class Neo4jMemoryContextProviderTests
 
     private static readonly DateTimeOffset FixedTime = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);
 
-    private Neo4jMemoryContextProvider CreateSut(AgentFrameworkOptions? agentOptions = null) =>
+    private Neo4jMemoryContextProvider CreateSut(
+        AgentFrameworkOptions? agentOptions = null, MemoryToolFactory? toolFactory = null) =>
         new(
             _memoryService,
             _embeddingOrchestrator,
@@ -339,7 +341,104 @@ public sealed class Neo4jMemoryContextProviderTests
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(agentOptions ?? new AgentFrameworkOptions()),
-            NullLogger<Neo4jMemoryContextProvider>.Instance);
+            NullLogger<Neo4jMemoryContextProvider>.Instance,
+            toolFactory: toolFactory);
+
+    // ── #86: optional memory-tool exposure via AIContext.Tools ─────────────
+    //
+    // ExposeMemoryToolsFromContextProvider defaults to false: AddAgentMemoryFramework registers
+    // MemoryToolFactory unconditionally, and its tools include write-capable ones (remember_fact,
+    // remember_preference) -- so exposure must stay opt-in, never automatic just because the factory
+    // exists in DI. Every BuildContextAsync branch must agree on Tools, including the early-return ones
+    // (no user messages / recall failure), so a turn with nothing to recall doesn't silently lose tool
+    // availability.
+
+    private static MemoryToolFactory CreateToolFactory() =>
+        new(Substitute.For<IMemoryQueryFacade>());
+
+    [Fact]
+    public async Task BuildContextAsync_ToolExposureDisabledByDefault_DoesNotSetTools()
+    {
+        var sut = CreateSut(toolFactory: CreateToolFactory());
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        var result = await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hi") }, "s1", "c1", CancellationToken.None);
+
+        result.Tools.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_ToolExposureEnabled_WithRecallResults_SetsTools()
+    {
+        var sut = CreateSut(
+            new AgentFrameworkOptions { ExposeMemoryToolsFromContextProvider = true },
+            CreateToolFactory());
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        var result = await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "What do you know about me?") },
+            "s1", "c1", CancellationToken.None);
+
+        result.Tools.Should().NotBeNullOrEmpty();
+        result.Tools!.Select(t => t.Name).Should().Contain(
+            ["search_memory", "remember_preference", "remember_fact", "recall_preferences"]);
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_ToolExposureEnabled_NoUserMessages_StillSetsTools()
+    {
+        var sut = CreateSut(
+            new AgentFrameworkOptions { ExposeMemoryToolsFromContextProvider = true },
+            CreateToolFactory());
+        var messages = new List<ChatMessage> { new(ChatRole.System, "You are helpful.") };
+
+        var result = await sut.BuildContextAsync(messages, "s1", "c1", CancellationToken.None);
+
+        result.Messages.Should().BeNullOrEmpty();
+        result.Tools.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_ToolExposureEnabled_RecallFails_StillSetsTools()
+    {
+        var sut = CreateSut(
+            new AgentFrameworkOptions { ExposeMemoryToolsFromContextProvider = true },
+            CreateToolFactory());
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("DB down"));
+
+        var result = await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hi") }, "s1", "c1", CancellationToken.None);
+
+        result.Messages.Should().BeNullOrEmpty();
+        result.Tools.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task BuildContextAsync_ToolExposureEnabled_NoFactoryRegistered_ToolsIsNull()
+    {
+        // Flag on, but MemoryToolFactory not supplied (e.g. a host that only calls AddAgentMemoryCore) --
+        // must degrade to no tools, never throw.
+        var sut = CreateSut(new AgentFrameworkOptions { ExposeMemoryToolsFromContextProvider = true });
+        _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new float[] { 0.1f });
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(EmptyRecall("s1"));
+
+        var result = await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hi") }, "s1", "c1", CancellationToken.None);
+
+        result.Tools.Should().BeNullOrEmpty();
+    }
 
     // ── Persist + extract from the complete turn (#89) ─────────────────────
 
