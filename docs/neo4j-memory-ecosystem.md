@@ -72,9 +72,9 @@ on top of normal PR review and CI:
 - **API surface lockdown.** Ahead of the `1.0` cut, an eight-part review series audited the entire public
   API surface for implementation leakage, contract honesty, naming/enum consistency, and type safety, and
   locked the result under Semantic Versioning.
-- **Release gates.** Every release ships from a warning-free Release build with the full test suite green:
-  unit, Semantic Kernel, live-Neo4j integration, and performance smoke tests — currently **3000+ tests**
-  in total — plus an end-to-end soak of the flagship sample against a live Neo4j instance.
+- **Release gates.** Every release ships from a warning-free Release build with the full test suite green
+  across unit, Semantic Kernel, live-Neo4j integration, and performance smoke tests, plus an end-to-end
+  soak of the flagship sample against a live Neo4j instance.
 
 The review process treats a passing happy-path test as insufficient evidence: fixes are verified by a
 regression test that reproduces the original trigger (fails before the fix, passes after), and any
