@@ -104,26 +104,45 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     {
         var (sessionId, conversationId, userId, applicationId) = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(applicationId);
+        await PerformStoreAsync(
+            context.RequestMessages, context.ResponseMessages ?? [], sessionId, conversationId, cancellationToken, userId)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Internal helper exposed for unit testing.</summary>
+    internal async Task PerformStoreAsync(
+        IEnumerable<ChatMessage> requestMessages,
+        IEnumerable<ChatMessage> responseMessages,
+        string sessionId,
+        string conversationId,
+        CancellationToken cancellationToken,
+        string? userId = null)
+    {
         using var ownerScope = ApplyOwnerContext(userId);
         try
         {
-            // Persist request messages (user + system turns not already in memory)
-            foreach (var msg in context.RequestMessages)
+            // Persist request messages (user + system turns not already in memory). Both request and
+            // response messages are genuinely persisted here, so -- unlike Neo4jMemoryContextProvider,
+            // which deliberately does NOT persist request messages to avoid duplicating what this
+            // provider already stores -- extraction can safely see both with full provenance (#89).
+            var storedRequests = new List<Abstractions.Domain.Message>();
+            foreach (var msg in requestMessages)
             {
                 if (string.IsNullOrWhiteSpace(msg.Text)) continue;
                 var message = MafTypeMapper.ToInternalMessage(
                     msg, sessionId, conversationId, _clock, _idGenerator);
-                await _memoryService
+                var stored = await _memoryService
                     .AddMessageAsync(
                         message.SessionId, message.ConversationId,
                         message.Role, message.Content, message.Metadata,
                         cancellationToken)
                     .ConfigureAwait(false);
+                storedRequests.Add(stored);
             }
 
             // Persist response messages
             var storedResponses = new List<Abstractions.Domain.Message>();
-            foreach (var msg in context.ResponseMessages ?? [])
+            foreach (var msg in responseMessages)
             {
                 if (string.IsNullOrWhiteSpace(msg.Text)) continue;
                 var stored = await _memoryService
@@ -136,15 +155,20 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
                 storedResponses.Add(stored);
             }
 
-            // Optionally trigger knowledge extraction on the persisted responses
-            if (_options.AutoExtractOnPersist && storedResponses.Count > 0)
+            // Optionally trigger knowledge extraction on the complete persisted turn (#89): a fact or
+            // preference the user states in their request is now captured even if the assistant never
+            // repeats it back. Extraction input is filtered to user-role request messages -- persistence
+            // above still stores every role (unchanged), but a system prompt or other non-user content
+            // in RequestMessages shouldn't be minted into spurious entities/facts/preferences every turn.
+            var turnMessages = storedRequests.Where(m => m.Role == "user").Concat(storedResponses).ToList();
+            if (_options.AutoExtractOnPersist && turnMessages.Count > 0)
             {
                 try
                 {
                     await _memoryService.ExtractAndPersistAsync(
                         new Abstractions.Domain.ExtractionRequest
                         {
-                            Messages = storedResponses,
+                            Messages = turnMessages,
                             SessionId = sessionId,
                             UserId = userId
                         }, cancellationToken).ConfigureAwait(false);
