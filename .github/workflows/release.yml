@@ -7,9 +7,7 @@ name: Release
 # (or a prerelease tag, e.g. v1.1.0-rc.1). The package version is taken from the tag (the 'v'
 # prefix is stripped), overriding the default Version in Directory.Build.props.
 #
-# Requires on nuget.org: a Trusted Publishing policy for this repo + workflow file (release.yml),
-# and a NUGET_USER repo secret set to the nuget.org profile name (not email) that owns the policy.
-# See https://learn.microsoft.com/nuget/nuget-org/trusted-publishing
+# Requires a NUGET_API_KEY repo secret (a nuget.org API key scoped to push the AgentMemory.* packages).
 
 on:
   push:
@@ -158,7 +156,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write     # create the GitHub release
-      id-token: write     # OIDC for NuGet trusted publishing + attestation signing
+      id-token: write     # OIDC for attestation signing (Sigstore)
       attestations: write # generate build provenance attestations
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
@@ -169,16 +167,10 @@ jobs:
           name: nuget-packages
           path: artifacts
 
-      - name: NuGet login (OIDC -> temp API key)
-        id: login
-        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
-        with:
-          user: ${{ secrets.NUGET_USER }}
-
       - name: Push to NuGet
         run: >
           dotnet nuget push "artifacts/*.nupkg"
-          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --api-key ${{ secrets.NUGET_API_KEY }}
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
