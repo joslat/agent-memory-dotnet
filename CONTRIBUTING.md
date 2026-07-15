@@ -10,7 +10,7 @@ Thank you for your interest in contributing! This guide covers environment setup
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [.NET SDK](https://dotnet.microsoft.com/download) | **9.0+** | Build and test |
+| [.NET SDK](https://dotnet.microsoft.com/download) | version pinned in `global.json` | Build and test |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Any recent | Testcontainers (integration tests start Neo4j 5.x automatically — no manual Neo4j install needed) |
 | Git | Any | Source control |
 
@@ -31,7 +31,8 @@ dotnet build AgentMemory.slnx
 ```
 
 The solution is configured via `Directory.Build.props`:
-- Target framework: **net9.0**
+- Target frameworks: publishable `src/` libraries multi-target **net8.0**, **net9.0**, and **net10.0**;
+  tests, samples, and tools build against whatever single framework their own `.csproj` specifies
 - Nullable reference types: **enabled**
 - `TreatWarningsAsErrors`: **true** for all `src/` projects (disabled for `tests/`)
 

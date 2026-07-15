@@ -113,7 +113,9 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 
 ### 2.2 Dependency Direction Rule
 
-**Dependencies flow strictly inward.** Adapters → Neo4j → Core → Abstractions. Never the reverse.
+**Dependencies flow strictly inward.** Adapters (MAF, SemanticKernel, Observability, MCP) depend directly
+on Core, never on Neo4j or on each other. Neo4j depends on Core and Abstractions as its own, separate
+branch. Core depends on Abstractions. Never the reverse. See the diagram below.
 
 ```mermaid
 graph TD

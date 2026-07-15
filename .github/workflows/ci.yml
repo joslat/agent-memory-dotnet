@@ -108,6 +108,7 @@ jobs:
           dotnet build samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj -c Release --no-restore
           dotnet build samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj -c Release --no-restore
           dotnet build samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.ShoppingAssistant/AgentMemory.Sample.ShoppingAssistant.csproj -c Release --no-restore
           dotnet build samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj -c Release --no-restore
           dotnet build samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj -c Release --no-restore
 

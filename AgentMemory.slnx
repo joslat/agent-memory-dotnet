@@ -9,6 +9,7 @@
     <Project Path="samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.RealAgent/AgentMemory.Sample.RealAgent.csproj" />
     <Project Path="samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj" />
+    <Project Path="samples/AgentMemory.Sample.ShoppingAssistant/AgentMemory.Sample.ShoppingAssistant.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj" />
