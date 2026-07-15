@@ -16,6 +16,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
+    private readonly IClock _clock;
+    private readonly IIdGenerator _idGenerator;
     private readonly RecallOptions _recallOptions;
     private readonly ContextFormatOptions _formatOptions;
     private readonly AgentFrameworkOptions _agentOptions;
@@ -26,6 +28,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     public Neo4jMemoryContextProvider(
         IMemoryService memoryService,
         IEmbeddingOrchestrator embeddingOrchestrator,
+        IClock clock,
+        IIdGenerator idGenerator,
         IOptions<MemoryOptions> memoryOptions,
         IOptions<ContextFormatOptions> formatOptions,
         IOptions<AgentFrameworkOptions> agentOptions,
@@ -39,6 +43,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _embeddingOrchestrator = embeddingOrchestrator ?? throw new ArgumentNullException(nameof(embeddingOrchestrator));
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _recallOptions = memoryOptions?.Value.Recall ?? RecallOptions.Default;
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
         _agentOptions = agentOptions?.Value ?? new AgentFrameworkOptions();
@@ -169,16 +175,18 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             return;
         }
 
+        var requestMessages = context.RequestMessages ?? Enumerable.Empty<ChatMessage>();
         var responseMessages = context.ResponseMessages ?? Enumerable.Empty<ChatMessage>();
         var ids = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(ids.applicationId);
 
-        await PerformStoreAsync(responseMessages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
+        await PerformStoreAsync(requestMessages, responseMessages, ids.sessionId, ids.conversationId, cancellationToken, ids.userId)
             .ConfigureAwait(false);
     }
 
     /// <summary>Internal helper exposed for unit testing.</summary>
     internal async Task PerformStoreAsync(
+        IEnumerable<ChatMessage> requestMessages,
         IEnumerable<ChatMessage> responseMessages,
         string sessionId,
         string conversationId,
@@ -188,6 +196,21 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
         try
         {
+            // Response messages are persisted as new :Message nodes, as before. Request messages are
+            // deliberately NOT persisted here (#89): a host may already have a Neo4jChatHistoryProvider,
+            // Neo4jChatMessageStore, or their own component persisting the same request messages on this
+            // agent, and there is no idempotency mechanism (no MERGE-by-id, no caller-supplied id) that
+            // would let this provider safely avoid creating a second, duplicate :Message node for the
+            // same logical message. Building transient (never-persisted) Message objects for extraction
+            // only avoids that risk entirely while still capturing what the user said. Filtered to
+            // ChatRole.User -- the same filter recall already applies (BuildContextAsync above) -- so a
+            // system prompt or other non-user content accumulated in RequestMessages doesn't get minted
+            // into spurious entities/facts/preferences every turn.
+            var transientRequestMessages = requestMessages
+                .Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text))
+                .Select(msg => MafTypeMapper.ToInternalMessage(msg, sessionId, conversationId, _clock, _idGenerator))
+                .ToList();
+
             var storedMessages = new List<Message>();
             foreach (var msg in responseMessages)
             {
@@ -203,14 +226,25 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 storedMessages.Add(stored);
             }
 
-            if (_agentOptions.AutoExtractOnPersist && storedMessages.Count > 0)
+            // Extraction sees the complete turn (#89): a fact or preference the user states in their
+            // request is now captured even if the assistant never repeats it back. Because
+            // transientRequestMessages were never persisted as :Message nodes above, provenance for
+            // anything extracted from them is incomplete: the EXTRACTED_FROM edge silently fails to
+            // attach (the MATCH in PersistenceStage's linking Cypher finds no such node), AND the
+            // extracted node's own source_message_ids property will still list the transient (never
+            // persisted) message id, i.e. a dangling reference, not just a missing edge. The extracted
+            // fact/preference itself is still created and recallable correctly; only its link back to the
+            // literal source message is best-effort, not guaranteed, unless another component also
+            // persisted that exact message.
+            var turnMessages = transientRequestMessages.Concat(storedMessages).ToList();
+            if (_agentOptions.AutoExtractOnPersist && turnMessages.Count > 0)
             {
                 try
                 {
                     await _memoryService.ExtractAndPersistAsync(
                         new ExtractionRequest
                         {
-                            Messages = storedMessages,
+                            Messages = turnMessages,
                             SessionId = sessionId,
                             UserId = userId
                         }, cancellationToken).ConfigureAwait(false);

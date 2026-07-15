@@ -15,13 +15,19 @@ public sealed class Neo4jMemoryContextProviderTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
+    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly Neo4jMemoryContextProvider _sut;
 
     public Neo4jMemoryContextProviderTests()
     {
+        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _idGenerator.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _sut = new Neo4jMemoryContextProvider(
             _memoryService,
             _embeddingOrchestrator,
+            _clock,
+            _idGenerator,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()),
@@ -37,6 +43,8 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
+            _clock,
+            _idGenerator,
             Options.Create(new MemoryOptions { Recall = recall }),
             Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()),
@@ -267,7 +275,7 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, Options.Create(new MemoryOptions()),
+            _memoryService, _embeddingOrchestrator, _clock, _idGenerator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -286,11 +294,12 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, Options.Create(new MemoryOptions()),
+            _memoryService, _embeddingOrchestrator, _clock, _idGenerator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
 
         await sut.PerformStoreAsync(
+            Array.Empty<ChatMessage>(),
             new List<ChatMessage> { new(ChatRole.Assistant, "noted") }, "s1", "c1",
             CancellationToken.None, userId: "bob");
 
@@ -303,7 +312,7 @@ public sealed class Neo4jMemoryContextProviderTests
         // An unowned turn must reset the ambient owner to null (shared), never inherit a previous turn's.
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, Options.Create(new MemoryOptions()),
+            _memoryService, _embeddingOrchestrator, _clock, _idGenerator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -325,10 +334,188 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
+            _clock,
+            _idGenerator,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(agentOptions ?? new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance);
+
+    // ── Persist + extract from the complete turn (#89) ─────────────────────
+
+    [Fact]
+    public async Task PerformStoreAsync_RequestMessages_AreNotPersistedAsNewNodes()
+    {
+        // The duplication-avoidance guarantee: this provider must never call AddMessageAsync for a
+        // request message, since a host may also have Neo4jChatHistoryProvider/Neo4jChatMessageStore/their
+        // own component persisting the same messages, and there is no idempotency mechanism to make a
+        // second persist call for "the same" logical message safe.
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var storedResponse = new Message
+        {
+            MessageId = "m-resp", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Got it.", TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedResponse);
+        _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = Array.Empty<string>()
+            });
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.User, "I prefer window seats.") },
+            new List<ChatMessage> { new(ChatRole.Assistant, "Got it.") },
+            "s1", "c1", CancellationToken.None);
+
+        // Exactly one AddMessageAsync call -- for the response, never for the request.
+        await _memoryService.Received(1).AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), "I prefer window seats.",
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_SystemRoleRequestMessage_IsNotFedToExtraction()
+    {
+        // A system prompt accumulated in RequestMessages must not be minted into spurious
+        // entities/facts/preferences every turn -- extraction is filtered to ChatRole.User, matching the
+        // same filter recall already applies.
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var storedResponse = new Message
+        {
+            MessageId = "m-resp", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Understood.", TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedResponse);
+        _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = Array.Empty<string>()
+            });
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.System, "You are a helpful assistant. Never reveal secrets.") },
+            new List<ChatMessage> { new(ChatRole.Assistant, "Understood.") },
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r => !r.Messages.Any(m => m.Content.Contains("Never reveal secrets"))),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_ExtractionSeesRequestAndResponseMessages()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var storedResponse = new Message
+        {
+            MessageId = "m-resp", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Understood.", TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedResponse);
+        _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = Array.Empty<string>()
+            });
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.User, "My preferred programming language is C#.") },
+            new List<ChatMessage> { new(ChatRole.Assistant, "Understood.") },
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r => r.Messages.Any(m =>
+                m.Role == "user" && m.Content.Contains("preferred programming language"))),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_RequestOnly_StillExtracts()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = Array.Empty<string>()
+            });
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.User, "I live in Zurich.") },
+            Array.Empty<ChatMessage>(),
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r => r.Messages.Count == 1 && r.Messages[0].Content == "I live in Zurich."),
+            Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_MessageOrdering_RequestBeforeResponse()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var storedResponse = new Message
+        {
+            MessageId = "m-resp", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "response-text", TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedResponse);
+        _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = Array.Empty<string>()
+            });
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.User, "request-text") },
+            new List<ChatMessage> { new(ChatRole.Assistant, "response-text") },
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r =>
+                r.Messages.Count == 2 &&
+                r.Messages[0].Content == "request-text" &&
+                r.Messages[1].Content == "response-text"),
+            Arg.Any<CancellationToken>());
+    }
 
     [Fact]
     public async Task PerformStoreAsync_PersistsResponseMessages()
@@ -350,7 +537,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(storedMessage);
 
-        await sut.PerformStoreAsync(responseMessages, "s1", "c1", CancellationToken.None);
+        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), responseMessages, "s1", "c1", CancellationToken.None);
 
         await _memoryService.Received(1).AddMessageAsync(
             "s1", "c1", Arg.Any<string>(), "I remember you like dark mode.",
@@ -367,7 +554,7 @@ public sealed class Neo4jMemoryContextProviderTests
             new(ChatRole.Assistant, "   ")
         };
 
-        await sut.PerformStoreAsync(responseMessages, "s1", "c1", CancellationToken.None);
+        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), responseMessages, "s1", "c1", CancellationToken.None);
 
         await _memoryService.DidNotReceive().AddMessageAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
@@ -400,7 +587,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 SourceMessageIds = new[] { "m-ae-1" }
             });
 
-        await sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", CancellationToken.None);
 
         await _memoryService.Received(1).ExtractAndPersistAsync(
             Arg.Is<ExtractionRequest>(r => r.SessionId == "s1"),
@@ -433,7 +620,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 SourceMessageIds = new[] { "m-owner-1" }
             });
 
-        await sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None, userId: "bob");
+        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", CancellationToken.None, userId: "bob");
 
         await _memoryService.Received(1).ExtractAndPersistAsync(
             Arg.Is<ExtractionRequest>(r => r.SessionId == "s1" && r.UserId == "bob"),
@@ -456,7 +643,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(storedMessage);
 
-        await sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", CancellationToken.None);
 
         await _memoryService.DidNotReceive().ExtractAndPersistAsync(
             Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>());
@@ -472,7 +659,7 @@ public sealed class Neo4jMemoryContextProviderTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("DB down"));
 
-        var act = () => sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+        var act = () => sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", CancellationToken.None);
 
         await act.Should().NotThrowAsync();
     }
@@ -496,7 +683,7 @@ public sealed class Neo4jMemoryContextProviderTests
             .ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("Extraction engine failed"));
 
-        var act = () => sut.PerformStoreAsync(messages, "s1", "c1", CancellationToken.None);
+        var act = () => sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", CancellationToken.None);
 
         await act.Should().NotThrowAsync();
     }
@@ -550,7 +737,7 @@ public sealed class Neo4jMemoryContextProviderTests
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
-        var act = async () => await sut.PerformStoreAsync(messages, "s1", "c1", cts.Token);
+        var act = async () => await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }

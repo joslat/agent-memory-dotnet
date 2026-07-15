@@ -48,7 +48,7 @@ derives from `Microsoft.Agents.AI.AIContextProvider` and implements the framewor
 | MAF hook (C#) | When | What AgentMemory does | Python equivalent |
 |---|---|---|---|
 | `ProvideAIContextAsync(InvokingContext)` → `AIContext` | **Before** the model call | Embeds the user turn, recalls relevant memory, and returns it as `AIContext.Messages` to prepend to the prompt. | `before_run` |
-| `StoreAIContextAsync(InvokedContext)` | **After** the response | Persists the response messages and (optionally) runs extraction into the graph. Skipped if the run threw (`context.InvokeException`). | `after_run` |
+| `StoreAIContextAsync(InvokedContext)` | **After** the response | Persists the response messages and (optionally) runs extraction over the complete turn (request + response) into the graph. Skipped if the run threw (`context.InvokeException`). | `after_run` |
 
 This is the same **bidirectional** behavior the official provider describes ("auto-retrieve before
 invocation, auto-save after responses") — recall is passive and automatic; you never call it by hand.
@@ -58,7 +58,28 @@ Native recall via `Neo4jMemoryContextProvider` respects your configured `MemoryO
 `IMemoryService.RecallAsync(...)` call (#87). The one exception is `RecallOptions.Scope`: native recall
 always derives scope from the invocation's authenticated owner (via #100's isolation policy), never from a
 statically configured `Scope`, so a global config value can't silently override the real, per-invocation
-owner. `Neo4jMicrosoftMemoryFacade` (the lower-level, manually-driven alternative to the context provider)
+owner. Automatic extraction (`AutoExtractOnPersist`) considers the **complete turn** — both what the user asked
+and what the assistant answered (#89), filtered to user-role content so a system prompt or other non-user
+text isn't minted into spurious entities/facts/preferences every turn — so a preference or fact the user
+states is captured even if the assistant never repeats it back. `Neo4jChatHistoryProvider` persists both
+request and response messages as real `:Message` nodes (unchanged), so extraction there has full
+provenance. `Neo4jMemoryContextProvider` deliberately does **not** persist request messages as new nodes
+— only response messages are — because a host may already have `Neo4jChatHistoryProvider`,
+`Neo4jChatMessageStore`, or their own component persisting the same request messages on the same agent,
+and there is no idempotency mechanism (no caller-supplied message id, no upsert-by-content) that would let
+this provider safely avoid creating a duplicate `:Message` node for the same logical message. The
+practical effect: a fact/preference extracted from the user's own request is still created and recallable,
+but both its `EXTRACTED_FROM` provenance edge and its own `source_message_ids` property will reference a
+message id that was never persisted, unless another component also persisted that exact message.
+
+**This asymmetry is deliberate for requests, but note it does not (yet) extend to responses**: both
+`Neo4jMemoryContextProvider` and `Neo4jChatHistoryProvider` persist response messages unconditionally, with
+the same lack of an idempotency mechanism — so combining both providers (or either with
+`Neo4jChatMessageStore`/a custom component) on the same agent can still duplicate **response** `:Message`
+nodes today. Avoid wiring more than one message-persisting component onto the same agent until a real
+cross-component idempotency mechanism exists.
+
+`Neo4jMicrosoftMemoryFacade` (the lower-level, manually-driven alternative to the context provider)
 does not yet wire configured `RecallOptions` into its own recall call — a known gap for a future pass, not
 covered by this fix.
 
