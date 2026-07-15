@@ -6,6 +6,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-15
+
+### Added
+
+- **`IMemoryIsolationPolicy` — a library-wide strict multi-tenant isolation mode (#100).** A new central
+  policy abstraction with three modes via `MemoryOptions.Isolation.Mode`: `SingleTenant` (default,
+  today's exact backward-compatible behavior), `WarnOnUnscoped` (structured log when a tenant-facing call
+  resolves unscoped), and `StrictMultiTenant` (throws `MemoryOwnerScopeRequiredException` before any
+  Neo4j call when no owner scope is present, instead of silently falling back to global/shared). Wired
+  into the primary recall/extraction/reasoning Core services and 6 MCP entry points
+  (`memory_entities`/`memory_preferences`/`memory_conversations`/`memory_context`/`memory_invalidate`/
+  `memory_supersede`). Several other MCP tools that accept a `userId` are not yet gated by this toggle —
+  a disclosed, tracked follow-up, not silently dropped (see `docs/getting-started.md` and
+  `docs/security/threat-model.md` TT-01/TT-02 for the exact coverage boundary).
+- **`MemoryOwnerScopingAgent` / `AIAgent.WithMemoryOwnerScoping(...)` — guaranteed owner scoping across
+  the complete MAF invocation (#90).** Wrapping an agent with `.WithMemoryOwnerScoping(serviceProvider)`
+  guarantees the owner scope spans passive recall, the model call, the full tool-calling loop, and
+  automatic persistence as one unbroken async chain — closing a real gap where `Neo4jMemoryContextProvider`'s
+  own pre-run hook could not, on its own, guarantee a value it set survived into tool calls that run after
+  it returns (the hook suspends on real I/O, breaking `AsyncLocal` propagation). Replaces manually
+  wrapping every `agent.RunAsync(...)` call in `ownerContext.BeginOwnerScope(userId)`. Also adds
+  `AgentSessionMemoryExtensions.GetMemoryIdentity(...)` (single-source-of-truth session-identity reader)
+  and `IWritableMemoryStoreContext.BeginStoreScope(...)` (mirrors the existing `BeginOwnerScope`).
+- **A minimal trust boundary for recalled memory rendered into MAF context (#92, Phase 1 of a larger
+  issue).** Recalled entities/facts/preferences/reasoning-traces/GraphRAG content is no longer injected as
+  a raw, unrestricted system message: each block is now delimited and angle-bracket-escaped
+  (`<recalled_memory category="...">...</recalled_memory>`), and the default context prefix explicitly
+  tells the model this content is untrusted reference data, not instructions to follow. This defeats
+  boundary forgery specifically; it does not (yet) detect general instruction-like content or cover
+  recalled conversation history — the full #92 issue (trust metadata, an admission policy, configurable
+  message roles, instruction-like-content detection) remains open.
+
+### Fixed
+
+- **Native MAF recall ignored configured `RecallOptions` (#87).** `Neo4jMemoryContextProvider` built its
+  `RecallRequest` without assigning `.Options`, so a customized `MinSimilarityScore`, per-section limit,
+  or `BlendMode` had no effect on automatic recall even though it worked correctly for a direct
+  `IMemoryService.RecallAsync` call. Configured retrieval tuning now reaches native recall; a configured
+  `RecallOptions.Scope` is explicitly never allowed to override the invocation's authenticated owner.
+- **Automatic extraction only saw the assistant's response, never the user's request (#89).** A turn like
+  "User: I prefer window seats. / Assistant: Got it." previously only ran extraction over "Got it." — a
+  user-stated preference was invisible unless the assistant repeated it. Extraction now considers the
+  complete turn. `Neo4jChatHistoryProvider` (which already persisted both request and response messages)
+  gained full-provenance extraction from both at no new risk. `Neo4jMemoryContextProvider` deliberately
+  does not start persisting request messages as new `:Message` nodes (there is no idempotency mechanism to
+  avoid duplicating what a chat-history provider/store may already persist) — captured facts/preferences
+  are correct, but their provenance link to the literal source message is best-effort in that path, not
+  guaranteed; documented, not silently accepted.
+
 ## [1.0.3] - 2026-07-14
 
 ### Fixed

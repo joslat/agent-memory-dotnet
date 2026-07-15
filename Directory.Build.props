@@ -32,7 +32,7 @@
        and never leaks into non-published projects. Per-package Description/PackageTags live in each
        .csproj. NuGet package IDs default to the (already de-Neo4j-renamed) project names. -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample'))">
-    <Version>1.0.3</Version>
+    <Version>1.1.0</Version>
     <Authors>Jose Luis Latorre Millas</Authors>
     <Company>Jose Luis Latorre Millas</Company>
     <Product>AgentMemory for .NET</Product>
