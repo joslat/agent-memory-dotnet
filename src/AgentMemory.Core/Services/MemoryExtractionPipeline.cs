@@ -17,17 +17,20 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
     private readonly IExtractionStage _extractionStage;
     private readonly IPersistenceStage _persistenceStage;
     private readonly ILogger<MemoryExtractionPipeline> _logger;
+    private readonly IMemoryIsolationPolicy _isolationPolicy;
 
     // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
     // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
     internal MemoryExtractionPipeline(
         IExtractionStage extractionStage,
         IPersistenceStage persistenceStage,
-        ILogger<MemoryExtractionPipeline> logger)
+        ILogger<MemoryExtractionPipeline> logger,
+        IMemoryIsolationPolicy isolationPolicy)
     {
         _extractionStage = extractionStage;
         _persistenceStage = persistenceStage;
         _logger = logger;
+        _isolationPolicy = isolationPolicy;
     }
 
     /// <inheritdoc/>
@@ -40,16 +43,18 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             "Starting extraction for session {SessionId}, {MessageCount} messages.",
             request.SessionId, request.Messages.Count);
 
-        // Owner-scope entity resolution (R1) when the request carries a user: the resolver's candidate
-        // set is confined to this owner's own + shared entities, so an incoming entity can't resolve
-        // onto another owner's private entity. Null UserId ⇒ unscoped (single-tenant) — matches the
-        // owner stamped at persistence below.
-        var scope = string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId);
+        // Owner-scope entity resolution (R1): the resolver's candidate set is confined to this owner's
+        // own + shared entities, so an incoming entity can't resolve onto another owner's private entity.
+        // Resolved through the central isolation policy (#100) so SingleTenant/WarnOnUnscoped/
+        // StrictMultiTenant behave identically for extraction as for every other tenant operation.
+        var scope = _isolationPolicy.ResolveReadScope(
+            explicitScope: null, request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
 
         var staged = await _extractionStage.ExtractAsync(
             request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
-        var persisted = await _persistenceStage.PersistAsync(staged, request.UserId, cancellationToken).ConfigureAwait(false);
+        var ownerId = _isolationPolicy.ResolveWriteOwner(request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
+        var persisted = await _persistenceStage.PersistAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
         _logger.LogInformation(

@@ -22,6 +22,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
+    private readonly IMemoryIsolationPolicy _isolationPolicy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MemoryContextAssembler"/> class with the built-in
@@ -36,9 +37,10 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IClock clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
+        IMemoryIsolationPolicy isolationPolicy,
         IWritableMemoryRankingContext? rankingContext = null)
         : this(shortTerm, longTerm, reasoning, graphRag, embeddingOrchestrator, clock, options, logger,
-            rankingContext, truncationStrategies: null)
+            isolationPolicy, rankingContext, truncationStrategies: null)
     {
     }
 
@@ -58,6 +60,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IClock clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
+        IMemoryIsolationPolicy isolationPolicy,
         IWritableMemoryRankingContext? rankingContext,
         IEnumerable<ITruncationStrategy>? truncationStrategies)
     {
@@ -71,6 +74,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         _rankingContext = rankingContext;
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
+        _isolationPolicy = isolationPolicy;
     }
 
     // Start from the four built-in strategies (so the OldestFirst fallback is always available even when
@@ -104,10 +108,12 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var minScore = recallOpts.MinSimilarityScore;
         var blendMode = recallOpts.BlendMode;
 
-        // Owner/user scope for long-term recall (R1): an explicit RecallOptions.Scope wins; otherwise
-        // derive it from RecallRequest.UserId. Null ⇒ global recall (backward-compatible default).
-        var scope = recallOpts.Scope
-            ?? (string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId));
+        // Owner/user scope for long-term recall (R1), resolved through the central isolation policy
+        // (#100) instead of an inline fallback: SingleTenant reproduces the old "explicit scope wins,
+        // else derive from UserId, else global" behavior exactly; WarnOnUnscoped/StrictMultiTenant add a
+        // warning/fail-closed on top for a genuinely unscoped tenant recall.
+        var scope = _isolationPolicy.ResolveReadScope(
+            recallOpts.Scope, request.UserId, nameof(AssembleContextAsync), MemoryOperationAccess.Tenant);
 
         // Blend policy (spec §5.5 / plan §12.5): decide which sources contribute to the context.
         //   MemoryOnly   → memory layers only; GraphRAG suppressed even when enabled.
@@ -268,9 +274,10 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var recallOpts = request.Options;
         var minScore = recallOpts.MinSimilarityScore;
 
-        // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path.
-        var scope = recallOpts.Scope
-            ?? (string.IsNullOrEmpty(request.UserId) ? null : MemoryScope.For(request.UserId));
+        // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path --
+        // through the same central isolation policy (#100) as AssembleContextAsync.
+        var scope = _isolationPolicy.ResolveReadScope(
+            recallOpts.Scope, request.UserId, nameof(AssembleContextAsOfAsync), MemoryOperationAccess.Tenant);
 
         var queryEmbedding = request.QueryEmbedding
             ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false);

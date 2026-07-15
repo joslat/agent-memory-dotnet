@@ -319,7 +319,8 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
 
         return new MemoryContextAssembler(
             shortTerm, longTerm, reasoning, graphRag, embedding, clock,
-            options, NullLogger<MemoryContextAssembler>.Instance);
+            options, NullLogger<MemoryContextAssembler>.Instance,
+            new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
     }
 
     /// <summary>Deterministic embedding generator that returns a fixed query vector, so vector

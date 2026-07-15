@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
 
@@ -15,10 +16,11 @@ internal sealed class EntityListResource
      Description("Returns a paginated list of entities in the knowledge graph.")]
     public static async Task<string> GetEntities(
         IGraphQueryService graphQueryService,
+        IMemoryIsolationPolicy isolationPolicy,
         [Description("Maximum number of entities to return")] int limit = 50,
         [Description("Number of entities to skip")] int offset = 0,
         [Description("Filter by entity type (e.g., PERSON, LOCATION)")] string? type = null,
-        [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) entities; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
+        [Description("Owner/user identifier (optional). When set, returns only that owner's plus shared (un-owned) entities; null = all owners (unscoped/admin). Set it in multi-tenant deployments to prevent cross-owner reads (R1). The host, not the model or client, must be the source of this value.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         // Clamp pagination: a negative SKIP/LIMIT is a Neo4j error and a huge limit is a resource-exhaustion
@@ -27,10 +29,14 @@ internal sealed class EntityListResource
         offset = Math.Max(0, offset);
 
         // R1: owner-scope the listing so a multi-tenant client can't read other owners' entities.
-        // null userId ⇒ unscoped (admin/single-tenant), matching the rest of the MCP surface.
+        // Resolved through the central isolation policy (#100): SingleTenant reproduces the old
+        // "null userId ⇒ unscoped (admin/single-tenant)" behavior exactly; StrictMultiTenant fails
+        // closed instead when no owner is present, before this method ever calls Neo4j.
+        var scope = isolationPolicy.ResolveReadScope(explicitScope: null, userId, "memory_entities", MemoryOperationAccess.Tenant);
+
         var conditions = new List<string>();
         if (type is not null) conditions.Add("e.type = $type");
-        var hasOwner = !string.IsNullOrEmpty(userId);
+        var hasOwner = scope.HasOwnerFilter;
         if (hasOwner) conditions.Add("(e.owner_id = $ownerId OR e.owner_id IS NULL)");
         var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
 
@@ -51,7 +57,7 @@ internal sealed class EntityListResource
             ["offset"] = (long)offset,
             ["type"] = (object?)type
         };
-        if (hasOwner) parameters["ownerId"] = userId;
+        if (hasOwner) parameters["ownerId"] = scope.OwnerId;
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 

@@ -61,7 +61,8 @@ public sealed class MemoryToolFactoryTests
         // services so the existing Received(...) assertions still observe the underlying calls.
         var facade = new MemoryQueryFacade(
             _longTermService, _reasoningService, _embeddingOrchestrator, _clock, _idGenerator,
-            NullLogger<MemoryQueryFacade>.Instance);
+            NullLogger<MemoryQueryFacade>.Instance,
+            new DefaultMemoryIsolationPolicy(Microsoft.Extensions.Options.Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
         return new MemoryToolFactory(facade);
     }
 

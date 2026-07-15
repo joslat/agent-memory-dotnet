@@ -59,7 +59,8 @@ public sealed class TemporalContextAssemblerTests
         new(_shortTerm, _longTerm, _reasoning, null,
             _embeddingOrchestrator, _clock,
             options ?? Options.Create(new MemoryOptions()),
-            NullLogger<MemoryContextAssembler>.Instance);
+            NullLogger<MemoryContextAssembler>.Instance,
+            new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
 
     [Fact]
     public async Task AssembleContextAsOfAsync_ReturnsContextWithSessionId()

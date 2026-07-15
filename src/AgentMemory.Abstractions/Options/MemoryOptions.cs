@@ -39,4 +39,11 @@ public sealed record MemoryOptions
     /// defaults to <see cref="MemoryProfile.Parity"/> (semantic-only ranking — today's behaviour).
     /// </summary>
     public MemoryRankingOptions Ranking { get; init; } = MemoryRankingOptions.Default;
+
+    /// <summary>
+    /// Multi-tenant isolation policy configuration. Defaults to
+    /// <see cref="MemoryIsolationMode.SingleTenant"/> (today's backward-compatible behavior); see
+    /// <c>docs/getting-started.md</c> "Owner isolation" before enabling a stricter mode.
+    /// </summary>
+    public MemoryIsolationOptions Isolation { get; init; } = new();
 }

@@ -32,6 +32,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Tools;
@@ -47,7 +50,13 @@ builder.Services.AddNeo4jAgentMemory(options =>
     options.Username = builder.Configuration["Neo4j:Username"] ?? "neo4j";
     options.Password = builder.Configuration["Neo4j:Password"] ?? "password";
 });
-builder.Services.AddAgentMemoryCore(_ => { });
+// StrictMultiTenant (#100) is the production-safe pattern for any deployment where more than one
+// tenant's data lives in the same store: an operation that resolves with no owner scope now throws
+// MemoryOwnerScopeRequiredException before touching Neo4j, instead of silently falling back to
+// global/shared. Every call in this sample already runs inside ownerContext.BeginOwnerScope(userId)
+// (see SafeRunAsync below), so flipping this on changes nothing for the golden path -- see step 4 for
+// what happens when a call forgets to.
+builder.Services.AddAgentMemoryCore(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant);
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 // Offline default: deterministic stub embeddings. Production hosts should replace this with a real
@@ -147,6 +156,27 @@ static async Task RunAsync(IServiceProvider root)
         applicationId: applicationId);
     logger.LogInformation("USER  : Remind me what you know about me.");
     logger.LogInformation("AGENT : {Text}", await SafeRunAsync(agent, "Remind me what you know about me.", sessionB, logger, ownerContext, userId));
+
+    // ── 4. StrictMultiTenant fails closed on a forgotten owner scope ────────────
+    // Every recall above ran inside ownerContext.BeginOwnerScope(userId). This call deliberately skips
+    // that -- with Isolation.Mode = StrictMultiTenant configured above, the context assembler now throws
+    // MemoryOwnerScopeRequiredException instead of silently resolving to global/shared memory.
+    logger.LogInformation("\n>> Demonstrating StrictMultiTenant: an unscoped recall fails closed (no BeginOwnerScope)\n");
+    var contextAssembler = sp.GetRequiredService<IMemoryContextAssembler>();
+    try
+    {
+        await contextAssembler.AssembleContextAsync(new RecallRequest
+        {
+            SessionId = "unscoped-demo-session",
+            Query = "What do you know about me?",
+            // No UserId set -- this is the "forgot to scope it" mistake StrictMultiTenant catches.
+        });
+        logger.LogWarning("    Expected a MemoryOwnerScopeRequiredException, got a result instead -- check Isolation.Mode.");
+    }
+    catch (MemoryOwnerScopeRequiredException ex)
+    {
+        logger.LogInformation("    Failed closed, as expected: {Message}", ex.Message);
+    }
 
     logger.LogInformation("\n=== Demo complete. Memory persisted in Neo4j survives sessions and serialization. ===");
 }

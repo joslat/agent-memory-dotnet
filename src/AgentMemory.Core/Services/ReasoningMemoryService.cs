@@ -21,6 +21,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
     private readonly IIdGenerator _idGenerator;
     private readonly ReasoningMemoryOptions _options;
     private readonly ILogger<ReasoningMemoryService> _logger;
+    private readonly IMemoryIsolationPolicy _isolationPolicy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReasoningMemoryService"/> class.
@@ -33,7 +34,8 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         IClock clock,
         IIdGenerator idGenerator,
         IOptions<ReasoningMemoryOptions> options,
-        ILogger<ReasoningMemoryService> logger)
+        ILogger<ReasoningMemoryService> logger,
+        IMemoryIsolationPolicy isolationPolicy)
     {
         ArgumentNullException.ThrowIfNull(options);
         _traceRepo = traceRepo;
@@ -44,6 +46,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         _idGenerator = idGenerator;
         _options = options.Value;
         _logger = logger;
+        _isolationPolicy = isolationPolicy;
     }
 
     /// <inheritdoc/>
@@ -55,6 +58,12 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         string? ownerId = null,
         CancellationToken cancellationToken = default)
     {
+        // Resolved through the central isolation policy (#100) -- adds a warn/fail-closed gate on top of
+        // the existing raw ownerId pass-through (this method never had its own fallback derivation).
+        // Checked before the embedding call below so a StrictMultiTenant rejection doesn't first pay for
+        // a (potentially external, billed) embedding call that will never be persisted.
+        var resolvedOwnerId = _isolationPolicy.ResolveWriteOwner(ownerId, nameof(StartTraceAsync), MemoryOperationAccess.Tenant);
+
         // Auto-embed the task description so the trace is reachable by SearchSimilarTraces vector recall,
         // unless the caller already supplied an embedding or auto-embedding is disabled.
         var effectiveEmbedding = taskEmbedding;
@@ -68,7 +77,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         {
             TraceId = _idGenerator.GenerateId(),
             SessionId = sessionId,
-            OwnerId = ownerId,
+            OwnerId = resolvedOwnerId,
             Task = task,
             TaskEmbedding = effectiveEmbedding,
             StartedAtUtc = _clock.UtcNow,
@@ -86,7 +95,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         {
             try
             {
-                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, ownerId, cancellationToken).ConfigureAwait(false);
+                var pruned = await _traceRepo.PruneSessionTracesAsync(sessionId, cap, resolvedOwnerId, cancellationToken).ConfigureAwait(false);
                 if (pruned > 0)
                     _logger.LogDebug("Pruned {Pruned} trace(s) beyond MaxTracesPerSession={Cap} for session {SessionId}.",
                         pruned, cap, sessionId);
@@ -251,7 +260,8 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _traceRepo.ListBySessionAsync(sessionId, limit, scope, cancellationToken);
+        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(ListTracesAsync), MemoryOperationAccess.Tenant);
+        return _traceRepo.ListBySessionAsync(sessionId, limit, resolvedScope, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -261,7 +271,8 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _traceRepo.ListAllAsync(limit, offset, scope, cancellationToken);
+        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(ListAllTracesAsync), MemoryOperationAccess.Tenant);
+        return _traceRepo.ListAllAsync(limit, offset, resolvedScope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -273,8 +284,9 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(SearchSimilarTracesAsync), MemoryOperationAccess.Tenant);
         var scored = await _traceRepo.SearchByTaskVectorAsync(
-            taskEmbedding, successFilter, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+            taskEmbedding, successFilter, limit, minScore, resolvedScope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Trace).ToList();
     }
 
@@ -288,8 +300,9 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(SearchSimilarTracesAsOfAsync), MemoryOperationAccess.Tenant);
         var scored = await _traceRepo.SearchByTaskVectorAsOfAsync(
-            taskEmbedding, asOf, successFilter, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+            taskEmbedding, asOf, successFilter, limit, minScore, resolvedScope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Trace).ToList();
     }
 }
