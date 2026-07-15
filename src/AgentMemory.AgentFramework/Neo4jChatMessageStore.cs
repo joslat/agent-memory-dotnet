@@ -40,9 +40,18 @@ public sealed class Neo4jChatMessageStore
         try
         {
             var message = MafTypeMapper.ToInternalMessage(chatMessage, sessionId, conversationId, _clock, _idGenerator);
-            return await _memoryService
-                .AddMessageAsync(message.SessionId, message.ConversationId, message.Role, message.Content, message.Metadata, cancellationToken)
-                .ConfigureAwait(false);
+            // When the underlying IChatClient stamps a provider-native MessageId on this ChatMessage,
+            // persist under a deterministic id (#89) so another persisting component observing the same
+            // message (Neo4jMemoryContextProvider, Neo4jChatHistoryProvider) converges on the same
+            // :Message node instead of creating a duplicate.
+            var providerId = MafTypeMapper.TryGetProviderMessageId(chatMessage);
+            return providerId is not null
+                ? await _memoryService
+                    .AddMessageWithIdAsync(message.SessionId, message.ConversationId, message.Role, message.Content, providerId, message.Metadata, cancellationToken)
+                    .ConfigureAwait(false)
+                : await _memoryService
+                    .AddMessageAsync(message.SessionId, message.ConversationId, message.Role, message.Content, message.Metadata, cancellationToken)
+                    .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

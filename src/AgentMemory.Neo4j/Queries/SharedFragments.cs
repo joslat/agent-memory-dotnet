@@ -15,7 +15,11 @@ internal static class SharedFragments
     public const string SetFactEmbedding =
         "MATCH (f:Fact {id: $id}) SET f.embedding = $embedding";
 
-    /// <summary>Set embedding on a Message node by id.</summary>
+    /// <summary>Set embedding on a Message node by id. Runs unconditionally after Neo4jMessageRepository's
+    /// MERGE-by-id message write, whether that write created a new node or matched an existing one (a
+    /// duplicate-id persist call still overwrites the embedding) -- harmless assuming a deterministic
+    /// embedding for identical text, but not literally free: the embedding itself is generated upstream in
+    /// ShortTermMemoryService.AddMessageAsync before the repository is ever reached, on every call.</summary>
     public const string SetMessageEmbedding =
         "MATCH (m:Message {id: $id}) SET m.embedding = $embedding";
 

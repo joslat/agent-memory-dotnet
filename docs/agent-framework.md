@@ -64,20 +64,36 @@ text isn't minted into spurious entities/facts/preferences every turn — so a p
 states is captured even if the assistant never repeats it back. `Neo4jChatHistoryProvider` persists both
 request and response messages as real `:Message` nodes (unchanged), so extraction there has full
 provenance. `Neo4jMemoryContextProvider` deliberately does **not** persist request messages as new nodes
-— only response messages are — because a host may already have `Neo4jChatHistoryProvider`,
-`Neo4jChatMessageStore`, or their own component persisting the same request messages on the same agent,
-and there is no idempotency mechanism (no caller-supplied message id, no upsert-by-content) that would let
-this provider safely avoid creating a duplicate `:Message` node for the same logical message. The
-practical effect: a fact/preference extracted from the user's own request is still created and recallable,
-but both its `EXTRACTED_FROM` provenance edge and its own `source_message_ids` property will reference a
-message id that was never persisted, unless another component also persisted that exact message.
+— only response messages are — because a caller-constructed request `ChatMessage` essentially never
+carries a stable identity that another persisting component would also see, so request-message persistence
+ownership intentionally stays solely with `Neo4jChatHistoryProvider`. The practical effect: a
+fact/preference extracted from the user's own request is still created and recallable, but both its
+`EXTRACTED_FROM` provenance edge and its own `source_message_ids` property will reference a message id that
+was never persisted, unless another component also persisted that exact message.
 
-**This asymmetry is deliberate for requests, but note it does not (yet) extend to responses**: both
-`Neo4jMemoryContextProvider` and `Neo4jChatHistoryProvider` persist response messages unconditionally, with
-the same lack of an idempotency mechanism — so combining both providers (or either with
-`Neo4jChatMessageStore`/a custom component) on the same agent can still duplicate **response** `:Message`
-nodes today. Avoid wiring more than one message-persisting component onto the same agent until a real
-cross-component idempotency mechanism exists.
+**Duplicate message persistence across components (#89)**: `Neo4jChatHistoryProvider` narrows MAF's
+default request-message filter to `AgentRequestMessageSourceType.External` only, so it never re-persists
+another configured `AIContextProvider`'s (e.g. `Neo4jMemoryContextProvider`'s) injected recalled-memory
+messages as new nodes every turn. On the **response** side, message persistence is idempotent by id:
+`Neo4jMemoryContextProvider`, `Neo4jChatHistoryProvider`, and `Neo4jChatMessageStore` all persist a response
+message under a deterministic id derived from the underlying `ChatMessage.MessageId` when the `IChatClient`
+populates one (true for many production clients, e.g. those backed by the OpenAI Responses API) — so if
+more than one of these components observes the same response message, they converge on the same
+`:Message` node instead of creating a duplicate. When the underlying client does **not** populate
+`MessageId`, each component still falls back to today's behavior (a fresh id per call), so combining more
+than one message-persisting component on the same agent can still duplicate that response message — this
+is a known, disclosed limitation of relying on provider-native identity rather than a cross-component
+idempotency protocol; there is no plan to add content-hash-based deduplication, since that would risk
+silently collapsing two genuinely distinct occurrences of identical text (e.g. the assistant saying
+"Understood." twice in different turns) into one node.
+
+**Non-text content policy**: a `ChatMessage` whose content is exclusively non-`TextContent` (e.g. a
+function/tool call, a function/tool result, or a reasoning trace) has an empty `.Text`, and `Neo4jMemoryContextProvider`/`Neo4jChatHistoryProvider` exclude it from both persistence and automatic
+extraction — not just "tool messages," but any message carrying no literal text for a human or the
+extraction pipeline to act on. This guard is specific to those two providers; the lower-level
+`Neo4jChatMessageStore`/`Neo4jMicrosoftMemoryFacade` path persists every message it's given regardless of
+text content, so a host driving that path directly is responsible for filtering non-text messages itself
+if it wants the same behavior.
 
 `Neo4jMicrosoftMemoryFacade` (the lower-level, manually-driven alternative to the context provider)
 does not yet wire configured `RecallOptions` into its own recall call — a known gap for a future pass, not

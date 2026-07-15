@@ -110,6 +110,40 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         }
     }
 
+    // Explicit override is mandatory, not optional polish: AddMessageWithIdAsync is a default interface
+    // method on IMemoryIngestion. Without this override, calls made through an IMemoryService-typed
+    // reference (which is how every consumer resolves this decorator) would silently execute the DIM's
+    // own default body -- which drops messageId and forwards to plain AddMessageAsync -- defeating the
+    // entire idempotent-persistence mechanism for any observability-enabled host, with no error or trace.
+    public async Task<Message> AddMessageWithIdAsync(
+        string sessionId,
+        string conversationId,
+        string role,
+        string content,
+        string messageId,
+        IReadOnlyDictionary<string, object>? metadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = MemoryActivitySource.Instance.StartActivity("memory.add_message");
+        activity?.SetTag("memory.session_id", sessionId);
+        activity?.SetTag("memory.conversation_id", conversationId);
+        activity?.SetTag("memory.message.role", role);
+        activity?.SetTag("memory.message.id", messageId);
+
+        try
+        {
+            var result = await _inner.AddMessageWithIdAsync(
+                sessionId, conversationId, role, content, messageId, metadata, cancellationToken).ConfigureAwait(false);
+            _metrics.MessagesStored.Add(1);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<Message>> AddMessagesAsync(
         IEnumerable<Message> messages,
         CancellationToken cancellationToken = default)

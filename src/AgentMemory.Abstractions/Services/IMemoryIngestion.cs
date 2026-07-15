@@ -20,6 +20,28 @@ public interface IMemoryIngestion
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Adds a message to short-term memory with a caller-supplied, deterministic id. Calling this twice
+    /// with the same <paramref name="messageId"/> returns the pre-existing message unchanged (first-write-
+    /// wins) instead of creating a duplicate node -- lets independently-configured persisting components
+    /// (e.g. multiple MAF integration components observing the same underlying model response) converge on
+    /// one message node when they share a stable identity for it, instead of each minting a fresh one.
+    /// </summary>
+    /// <remarks>
+    /// Default implementation ignores <paramref name="messageId"/> and behaves exactly like
+    /// <see cref="AddMessageAsync(string,string,string,string,IReadOnlyDictionary{string,object}?,CancellationToken)"/>
+    /// (a fresh id every call) -- implementers of this interface are not required to override this member.
+    /// </remarks>
+    Task<Message> AddMessageWithIdAsync(
+        string sessionId,
+        string conversationId,
+        string role,
+        string content,
+        string messageId,
+        IReadOnlyDictionary<string, object>? metadata = null,
+        CancellationToken cancellationToken = default) =>
+        AddMessageAsync(sessionId, conversationId, role, content, metadata, cancellationToken);
+
+    /// <summary>
     /// Batch adds messages to short-term memory.
     /// </summary>
     Task<IReadOnlyList<Message>> AddMessagesAsync(

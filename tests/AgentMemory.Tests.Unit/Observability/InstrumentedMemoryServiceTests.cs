@@ -144,6 +144,30 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AddMessageWithIdAsync_DelegatesToInnerAndCreatesActivity()
+    {
+        // AddMessageWithIdAsync is a default interface method on IMemoryIngestion (#89) -- this decorator
+        // MUST explicitly override it, or calls made through the IMemoryService-typed reference (how every
+        // consumer resolves it) would silently execute the DIM's own default body, dropping the id and
+        // defeating the idempotent-persistence mechanism entirely, with no error or trace.
+        var message = CreateMessage("maf:resp-1", "s1");
+        _inner.AddMessageWithIdAsync("s1", "c1", "assistant", "hello", "maf:resp-1", null, Arg.Any<CancellationToken>())
+            .Returns(message);
+
+        var result = await _sut.AddMessageWithIdAsync("s1", "c1", "assistant", "hello", "maf:resp-1");
+
+        result.Should().Be(message);
+        await _inner.Received(1).AddMessageWithIdAsync(
+            "s1", "c1", "assistant", "hello", "maf:resp-1", null, Arg.Any<CancellationToken>());
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.add_message").Subject;
+        activity.GetTagItem("memory.session_id").Should().Be("s1");
+        activity.GetTagItem("memory.conversation_id").Should().Be("c1");
+        activity.GetTagItem("memory.message.role").Should().Be("assistant");
+        activity.GetTagItem("memory.message.id").Should().Be("maf:resp-1");
+    }
+
+    [Fact]
     public async Task ExtractAndPersist_RecordsExtractionDuration()
     {
         var request = new ExtractionRequest

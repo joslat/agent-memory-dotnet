@@ -39,6 +39,17 @@ internal static class MafTypeMapper
         => new(ToMafRole(message.Role), message.Content);
 
     /// <summary>
+    /// Derives a deterministic persistence id from a response <see cref="ChatMessage"/>'s provider-native
+    /// <see cref="ChatMessage.MessageId"/>, when the underlying <c>IChatClient</c> populates one (common
+    /// for clients backed by e.g. the OpenAI Responses API). Returns null when absent -- caller-constructed
+    /// messages (typically request/user messages) essentially never have one, so this only helps dedupe
+    /// response messages that independently-configured persisting components (Neo4jMemoryContextProvider,
+    /// Neo4jChatHistoryProvider, Neo4jChatMessageStore) might otherwise each persist as a separate node.
+    /// </summary>
+    public static string? TryGetProviderMessageId(ChatMessage message) =>
+        string.IsNullOrWhiteSpace(message.MessageId) ? null : $"maf:{message.MessageId}";
+
+    /// <summary>
     /// Converts a <see cref="MemoryContext"/> to a list of context <see cref="ChatMessage"/> instances.
     /// </summary>
     public static IReadOnlyList<ChatMessage> ToContextMessages(

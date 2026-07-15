@@ -561,6 +561,94 @@ public sealed class Neo4jMemoryContextProviderTests
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
     }
 
+    // ── Fix B.4 (#89): dedupe response messages via a provider-native MessageId when present ──
+
+    [Fact]
+    public async Task PerformStoreAsync_ResponseMessageWithProviderMessageId_UsesAddMessageWithIdAsync()
+    {
+        var sut = CreateSut();
+        var responseMessage = new ChatMessage(ChatRole.Assistant, "Got it.") { MessageId = "resp-42" };
+        var storedMessage = new Message
+        {
+            MessageId = "maf:resp-42", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Got it.", TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageWithIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+
+        await sut.PerformStoreAsync(
+            Array.Empty<ChatMessage>(), new List<ChatMessage> { responseMessage }, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).AddMessageWithIdAsync(
+            "s1", "c1", "assistant", "Got it.", "maf:resp-42",
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_ResponseMessageWithoutProviderMessageId_FallsBackToAddMessageAsync()
+    {
+        var sut = CreateSut();
+        var responseMessage = new ChatMessage(ChatRole.Assistant, "Got it.");
+        var storedMessage = new Message
+        {
+            MessageId = "m-store-1", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Got it.", TimestampUtc = FixedTime
+        };
+        _memoryService
+            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(storedMessage);
+
+        await sut.PerformStoreAsync(
+            Array.Empty<ChatMessage>(), new List<ChatMessage> { responseMessage }, "s1", "c1", CancellationToken.None);
+
+        await _memoryService.Received(1).AddMessageAsync(
+            "s1", "c1", "assistant", "Got it.",
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageWithIdAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── Fix C (#89): non-text content (function calls/results, reasoning) is excluded, explicitly ──
+
+    [Fact]
+    public async Task PerformStoreAsync_FunctionCallOnlyResponseMessage_IsExcludedFromPersistenceAndExtraction()
+    {
+        var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true });
+        var functionCallMessage = new ChatMessage(
+            ChatRole.Assistant, new List<AIContent> { new FunctionCallContent("call-1", "search_memory") });
+        _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Entities = Array.Empty<ExtractedEntity>(),
+                Facts = Array.Empty<ExtractedFact>(),
+                Preferences = Array.Empty<ExtractedPreference>(),
+                Relationships = Array.Empty<ExtractedRelationship>(),
+                SourceMessageIds = Array.Empty<string>()
+            });
+
+        await sut.PerformStoreAsync(
+            new List<ChatMessage> { new(ChatRole.User, "search for my preferences") },
+            new List<ChatMessage> { functionCallMessage },
+            "s1", "c1", CancellationToken.None);
+
+        await _memoryService.DidNotReceive().AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "assistant", Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageWithIdAsync(
+            Arg.Any<string>(), Arg.Any<string>(), "assistant", Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.Received(1).ExtractAndPersistAsync(
+            Arg.Is<ExtractionRequest>(r => r.Messages.Count == 1 && r.Messages[0].Role == "user"),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task PerformStoreAsync_AutoExtractEnabled_CallsExtractAndPersistAsync()
     {

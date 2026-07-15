@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Neo4j.Driver;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
@@ -221,5 +222,81 @@ public class MessageRepositoryIntegrationTests : IAsyncLifetime
         var result = await _repo.GetByIdAsync("nonexistent-message-id");
 
         result.Should().BeNull();
+    }
+
+    // ── Idempotent-by-id persistence (#89): cross-component response-message dedup ──
+
+    [Fact]
+    public async Task AddAsync_CalledTwiceWithSameId_ProducesExactlyOneNodeAndNoDuplicateEdges()
+    {
+        var conv = await SeedConversationAsync();
+        var sharedId = $"msg-{Guid.NewGuid():N}";
+        var now = DateTimeOffset.UtcNow;
+
+        // A prior message so the shared-id message has a real predecessor to link NEXT_MESSAGE from.
+        var other = await _repo.AddAsync(new Message
+        {
+            MessageId = $"msg-{Guid.NewGuid():N}",
+            ConversationId = conv.ConversationId,
+            SessionId = conv.SessionId,
+            Role = "user",
+            Content = "unrelated message",
+            TimestampUtc = now
+        });
+
+        var first = await _repo.AddAsync(new Message
+        {
+            MessageId = sharedId,
+            ConversationId = conv.ConversationId,
+            SessionId = conv.SessionId,
+            Role = "assistant",
+            Content = "Got it.",
+            TimestampUtc = now.AddSeconds(1)
+        });
+
+        // Immediately persist the SAME id again (no unrelated message in between, so "prev" -- re-selected
+        // fresh each call -- resolves to the SAME node both times: "other") with DIFFERENT content,
+        // simulating a second MAF component independently observing the same response.
+        var second = await _repo.AddAsync(new Message
+        {
+            MessageId = sharedId,
+            ConversationId = conv.ConversationId,
+            SessionId = conv.SessionId,
+            Role = "assistant",
+            Content = "a different second call must not overwrite this",
+            TimestampUtc = now.AddSeconds(2)
+        });
+
+        // First-write-wins: the second call returns the ORIGINAL content, not its own.
+        second.Content.Should().Be("Got it.");
+        second.MessageId.Should().Be(first.MessageId);
+
+        var allMessages = await _repo.GetByConversationAsync(conv.ConversationId);
+        allMessages.Should().HaveCount(2, "the duplicate-id call must not create a second node");
+        allMessages.Should().ContainSingle(m => m.MessageId == sharedId && m.Content == "Got it.");
+        allMessages.Should().ContainSingle(m => m.MessageId == other.MessageId);
+
+        await using var session = _fixture.Driver.AsyncSession();
+        var hasMessageEdgeCount = await CountRelationshipsAsync(
+            session, "MATCH (:Conversation {id: $conversationId})-[r:HAS_MESSAGE]->(:Message {id: $id}) RETURN count(r) AS c",
+            new { conversationId = conv.ConversationId, id = sharedId });
+        hasMessageEdgeCount.Should().Be(1, "MERGE must not create a second HAS_MESSAGE edge to the same node");
+
+        // Both AddAsync calls for sharedId resolve "prev" to the SAME node ("other", the only other
+        // message), so this genuinely tests that MERGE doesn't duplicate the other->sharedId edge --
+        // unlike a variant where an unrelated message is inserted between the two calls, which would
+        // change "prev" the second time and always pass regardless of CREATE vs MERGE.
+        var nextMessageEdgeCount = await CountRelationshipsAsync(
+            session, "MATCH (:Message {id: $otherId})-[r:NEXT_MESSAGE]->(:Message {id: $id}) RETURN count(r) AS c",
+            new { otherId = other.MessageId, id = sharedId });
+        nextMessageEdgeCount.Should().Be(1, "MERGE must not create a second NEXT_MESSAGE edge for the same prev/next pair");
+    }
+
+    private static async Task<long> CountRelationshipsAsync(
+        IAsyncSession session, string cypher, object parameters)
+    {
+        var cursor = await session.RunAsync(cypher, parameters);
+        var record = await cursor.SingleAsync();
+        return global::Neo4j.Driver.ValueExtensions.As<long>(record["c"]);
     }
 }

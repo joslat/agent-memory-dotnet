@@ -69,6 +69,34 @@ public sealed class Neo4jChatMessageStoreTests
     }
 
     [Fact]
+    public async Task AddMessageAsync_ChatMessageWithProviderMessageId_UsesAddMessageWithIdAsync()
+    {
+        // #89: when the underlying IChatClient stamps a provider-native MessageId, persist under a
+        // deterministic id so another persisting component observing the same message converges on the
+        // same :Message node instead of creating a duplicate.
+        var expected = new Message
+        {
+            MessageId = "maf:resp-7", SessionId = "s1", ConversationId = "c1",
+            Role = "assistant", Content = "Hi there", TimestampUtc = _now
+        };
+        _memoryService
+            .AddMessageWithIdAsync("s1", "c1", "assistant", "Hi there", "maf:resp-7",
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(expected);
+
+        var chatMsg = new ChatMessage(ChatRole.Assistant, "Hi there") { MessageId = "resp-7" };
+        var result = await _sut.AddMessageAsync(chatMsg, "s1", "c1");
+
+        result.Should().Be(expected);
+        await _memoryService.Received(1).AddMessageWithIdAsync(
+            "s1", "c1", "assistant", "Hi there", "maf:resp-7",
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await _memoryService.DidNotReceive().AddMessageAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task AddMessageAsync_ServiceThrows_PropagatesInsteadOfFabricatingSuccess()
     {
         // A persist failure must surface, not be hidden behind a fabricated "success" Message (which would
