@@ -64,13 +64,15 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         if (string.IsNullOrWhiteSpace(entityId))
             throw new ArgumentException("Entity id must be provided.", nameof(entityId));
 
+        var resolvedScope = Resolve(scope, nameof(RecordEntityFeedbackAsync));
+
         var magnitude = Math.Abs(delta ?? _options.FeedbackConfidenceDelta);
         var signed = positive ? magnitude : -magnitude;
 
         _logger.LogDebug(
             "Recording {Kind} feedback ({Delta}) for entity {EntityId}, owner={Owner}",
-            positive ? "positive" : "negative", signed, entityId, scope?.OwnerId);
-        return _entityRepo.ApplyConfidenceDeltaAsync(entityId, signed, scope, cancellationToken);
+            positive ? "positive" : "negative", signed, entityId, resolvedScope.OwnerId);
+        return _entityRepo.ApplyConfidenceDeltaAsync(entityId, signed, resolvedScope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -79,6 +81,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entity);
+        entity = entity with { OwnerId = ResolveOwner(entity.OwnerId, nameof(AddEntityAsync)) };
 
         if (entity.Confidence < _options.MinConfidenceThreshold)
         {
@@ -109,7 +112,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _entityRepo.GetByNameAsync(name, includeAliases, scope, cancellationToken);
+        return _entityRepo.GetByNameAsync(name, includeAliases, Resolve(scope, nameof(GetEntitiesByNameAsync)), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -120,7 +123,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsync)), cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Entity).ToList();
     }
 
@@ -130,6 +133,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preference);
+        preference = preference with { OwnerId = ResolveOwner(preference.OwnerId, nameof(AddPreferenceAsync)) };
 
         if (preference.Confidence < _options.MinConfidenceThreshold)
         {
@@ -183,7 +187,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _prefRepo.GetByCategoryAsync(category, scope, cancellationToken);
+        return _prefRepo.GetByCategoryAsync(category, Resolve(scope, nameof(GetPreferencesByCategoryAsync)), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -194,7 +198,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsync)), cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Preference).ToList();
     }
 
@@ -204,6 +208,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(fact);
+        fact = fact with { OwnerId = ResolveOwner(fact.OwnerId, nameof(AddFactAsync)) };
 
         if (fact.Confidence < _options.MinConfidenceThreshold)
         {
@@ -283,7 +288,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _factRepo.GetBySubjectAsync(subject, scope, cancellationToken);
+        return _factRepo.GetBySubjectAsync(subject, Resolve(scope, nameof(GetFactsBySubjectAsync)), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -294,7 +299,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchFactsAsync)), cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Fact).ToList();
     }
 
@@ -304,6 +309,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(relationship);
+        relationship = relationship with { OwnerId = ResolveOwner(relationship.OwnerId, nameof(AddRelationshipAsync)) };
         return _relRepo.UpsertAsync(relationship, cancellationToken);
     }
 
@@ -313,7 +319,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        return _relRepo.GetByEntityAsync(entityId, scope, cancellationToken);
+        return _relRepo.GetByEntityAsync(entityId, Resolve(scope, nameof(GetEntityRelationshipsAsync)), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -322,8 +328,9 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Deleting preference {PreferenceId}, owner={Owner}", preferenceId, scope?.OwnerId);
-        return _prefRepo.DeleteAsync(preferenceId, scope, cancellationToken);
+        var resolvedScope = Resolve(scope, nameof(DeletePreferenceAsync));
+        _logger.LogDebug("Deleting preference {PreferenceId}, owner={Owner}", preferenceId, resolvedScope.OwnerId);
+        return _prefRepo.DeleteAsync(preferenceId, resolvedScope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -335,7 +342,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+        var scored = await _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsOfAsync)), cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Entity).ToList();
     }
 
@@ -349,7 +356,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, systemAsOf, cancellationToken).ConfigureAwait(false);
+        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchFactsAsOfAsync)), systemAsOf, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Fact).ToList();
     }
 
@@ -362,7 +369,7 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
+        var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsOfAsync)), cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Preference).ToList();
     }
 
@@ -390,6 +397,15 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
     public Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
         => _prefRepo.SupersedeAsync(loserPreferenceId, winnerPreferenceId, Resolve(scope, nameof(SupersedePreferenceAsync)), cancellationToken);
 
+    // ── #100 Stage 2: every remaining read/write in this service now goes through the central policy
+    // too, not just invalidate/supersede — a write with no owner (or a read with no scope) fails closed
+    // under StrictMultiTenant instead of silently persisting as shared / reading global. ──
+
+    /// <summary>Resolves the scope a read (or scope-shaped delete) should actually use.</summary>
     private MemoryScope Resolve(MemoryScope? scope, string operationName) =>
         _isolationPolicy.ResolveReadScope(scope, ownerId: null, operationName, MemoryOperationAccess.Tenant);
+
+    /// <summary>Resolves the owner id a write should actually stamp onto the new/updated record.</summary>
+    private string? ResolveOwner(string? ownerId, string operationName) =>
+        _isolationPolicy.ResolveWriteOwner(ownerId, operationName, MemoryOperationAccess.Tenant);
 }

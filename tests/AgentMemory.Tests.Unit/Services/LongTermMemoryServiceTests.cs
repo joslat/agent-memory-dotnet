@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -58,6 +59,12 @@ public sealed class LongTermMemoryServiceTests
             options ?? Options.Create(new LongTermMemoryOptions()),
             NullLogger<LongTermMemoryService>.Instance,
             new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
+
+    private LongTermMemoryService CreateSutWithIsolationMode(MemoryIsolationMode mode) =>
+        new(_entityRepo, _factRepo, _prefRepo, _relRepo, _embeddingOrchestrator,
+            Options.Create(new LongTermMemoryOptions()),
+            NullLogger<LongTermMemoryService>.Instance,
+            new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions { Mode = mode }), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
 
     // ---- Entity tests ----
 
@@ -439,7 +446,10 @@ public sealed class LongTermMemoryServiceTests
 
         await _entityRepo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
         await _embeddingOrchestrator.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        result.Should().BeSameAs(entity);
+        // Not BeSameAs: #100 Stage 2's owner-resolution guard clause always produces a new `with`-cloned
+        // record (even when the resolved owner id is unchanged), so identity is no longer preserved --
+        // only value equality is a meaningful contract here.
+        result.Should().Be(entity);
     }
 
     [Fact]
@@ -464,7 +474,10 @@ public sealed class LongTermMemoryServiceTests
         await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
         await _factRepo.DidNotReceive().FindDuplicateAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
-        result.Should().BeSameAs(fact);
+        // Not BeSameAs: #100 Stage 2's owner-resolution guard clause always produces a new `with`-cloned
+        // record (even when the resolved owner id is unchanged), so identity is no longer preserved --
+        // only value equality is a meaningful contract here.
+        result.Should().Be(fact);
     }
 
     [Fact]
@@ -478,7 +491,10 @@ public sealed class LongTermMemoryServiceTests
         await _prefRepo.DidNotReceive().UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
         await _prefRepo.DidNotReceive().FindDuplicateAsync(
             Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
-        result.Should().BeSameAs(pref);
+        // Not BeSameAs: #100 Stage 2's owner-resolution guard clause always produces a new `with`-cloned
+        // record (even when the resolved owner id is unchanged), so identity is no longer preserved --
+        // only value equality is a meaningful contract here.
+        result.Should().Be(pref);
     }
 
     // ---- Helpers ----
@@ -611,5 +627,155 @@ public sealed class LongTermMemoryServiceTests
 
         (await sut.SupersedePreferenceAsync("loser", "winner")).Should().BeTrue();
         await _prefRepo.Received(1).SupersedeAsync("loser", "winner", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── #100 Stage 2: every write/read now goes through IMemoryIsolationPolicy, not just
+    // invalidate/supersede — StrictMultiTenant fails closed before any repository call. ──
+
+    [Fact]
+    public async Task AddEntityAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var entity = CreateEntity("e-strict");
+
+        var act = () => sut.AddEntityAsync(entity);
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _entityRepo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddEntityAsync_WithOwner_StrictMode_Succeeds()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var entity = CreateEntity("e-strict-owned") with { OwnerId = "alice" };
+
+        await sut.AddEntityAsync(entity);
+
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e => e.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var pref = CreatePreference("p-strict");
+
+        var act = () => sut.AddPreferenceAsync(pref);
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _prefRepo.DidNotReceive().UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddPreferenceAsync_WithOwner_StrictMode_Succeeds()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var pref = CreatePreference("p-strict-owned") with { OwnerId = "alice" };
+
+        await sut.AddPreferenceAsync(pref);
+
+        await _prefRepo.Received(1).UpsertAsync(
+            Arg.Is<Preference>(p => p.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddFactAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var fact = CreateFact("f-strict");
+
+        var act = () => sut.AddFactAsync(fact);
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddFactAsync_WithOwner_StrictMode_Succeeds()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var fact = CreateFact("f-strict-owned") with { OwnerId = "alice" };
+
+        await sut.AddFactAsync(fact);
+
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f => f.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddRelationshipAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var relationship = CreateRelationship("r-strict");
+
+        var act = () => sut.AddRelationshipAsync(relationship);
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _relRepo.DidNotReceive().UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddRelationshipAsync_WithOwner_StrictMode_Succeeds()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+        var relationship = CreateRelationship("r-strict-owned") with { OwnerId = "alice" };
+
+        await sut.AddRelationshipAsync(relationship);
+
+        await _relRepo.Received(1).UpsertAsync(
+            Arg.Is<Relationship>(r => r.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordEntityFeedbackAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+
+        var act = () => sut.RecordEntityFeedbackAsync("e1", positive: true);
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _entityRepo.DidNotReceive().ApplyConfidenceDeltaAsync(
+            Arg.Any<string>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    // Representative sample of read-shaped methods proving the shared Resolve() wiring reaches the
+    // repository call — all of them share the exact same private helper, so this is not exhaustive
+    // per-method coverage (the live-Neo4j integration tests prove per-tool Alice/Bob isolation instead).
+
+    [Fact]
+    public async Task GetEntitiesByNameAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+
+        var act = () => sut.GetEntitiesByNameAsync("Alice");
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _entityRepo.DidNotReceive().GetByNameAsync(
+            Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SearchFactsAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+
+        var act = () => sut.SearchFactsAsync(new float[1536]);
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _factRepo.DidNotReceive().SearchByVectorAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeletePreferenceAsync_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
+    {
+        var sut = CreateSutWithIsolationMode(MemoryIsolationMode.StrictMultiTenant);
+
+        var act = () => sut.DeletePreferenceAsync("pref-1");
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await _prefRepo.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 }

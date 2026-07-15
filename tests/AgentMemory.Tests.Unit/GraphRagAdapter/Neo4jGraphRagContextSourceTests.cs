@@ -1,7 +1,12 @@
+using Microsoft.Extensions.Options;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Neo4j.Retrieval;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Services;
 using NSubstitute;
@@ -21,12 +26,14 @@ public sealed class Neo4jGraphRagContextSourceTests
 
     private static Neo4jGraphRagContextSource CreateSut(
         IRetriever retriever,
-        GraphRagOptions? options = null)
+        GraphRagOptions? options = null,
+        IMemoryIsolationPolicy? isolationPolicy = null)
     {
         return new Neo4jGraphRagContextSource(
             retriever,
             options ?? DefaultOptions,
-            NullLogger<Neo4jGraphRagContextSource>.Instance);
+            NullLogger<Neo4jGraphRagContextSource>.Instance,
+            isolationPolicy);
     }
 
     private static GraphRagContextRequest MakeRequest(
@@ -270,5 +277,54 @@ public sealed class Neo4jGraphRagContextSourceTests
         options.FilterStopWords.Should().BeTrue();
         options.FulltextIndexName.Should().BeNull();
         options.RetrievalQuery.Should().BeNull();
+    }
+
+    // ── #100 Stage 2: isolation policy wiring ──
+
+    private static IMemoryIsolationPolicy CreatePolicy(MemoryIsolationMode mode) =>
+        new DefaultMemoryIsolationPolicy(
+            Options.Create(new MemoryIsolationOptions { Mode = mode }),
+            NullLogger<DefaultMemoryIsolationPolicy>.Instance);
+
+    [Fact]
+    public async Task GetContextAsync_Unscoped_StrictMode_ThrowsBeforeRetrieverIsCalled()
+    {
+        var retriever = Substitute.For<IRetriever>();
+        var sut = CreateSut(retriever, isolationPolicy: CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+
+        var act = () => sut.GetContextAsync(MakeRequest());
+
+        await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
+        await retriever.DidNotReceive().SearchAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetContextAsync_WithOwner_StrictMode_Succeeds()
+    {
+        var retriever = Substitute.For<IRetriever>();
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new RetrieverResult([]));
+        var sut = CreateSut(retriever, isolationPolicy: CreatePolicy(MemoryIsolationMode.StrictMultiTenant));
+
+        var request = new GraphRagContextRequest { SessionId = "s", Query = "q", TopK = 3, UserId = "alice" };
+        await sut.GetContextAsync(request);
+
+        await retriever.Received(1).SearchAsync(Arg.Any<string>(), Arg.Any<int>(), "alice", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetContextAsync_NoIsolationPolicy_PreservesTodaysUnscopedPassthroughBehavior()
+    {
+        // No Core registered (Neo4j-package-only composition): isolationPolicy is null, so this must keep
+        // behaving exactly as before #100 Stage 2 -- no enforcement possible without Core.
+        var retriever = Substitute.For<IRetriever>();
+        retriever.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new RetrieverResult([]));
+        var sut = CreateSut(retriever, isolationPolicy: null);
+
+        await sut.GetContextAsync(MakeRequest());
+
+        await retriever.Received(1).SearchAsync(Arg.Any<string>(), Arg.Any<int>(), null, Arg.Any<CancellationToken>());
     }
 }

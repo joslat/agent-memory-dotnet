@@ -17,12 +17,16 @@ internal sealed class EntityTools
     [McpServerTool(Name = "memory_get_entity_provenance"), Description("Get the provenance of an entity for auditability: the source messages it was extracted from (with span/confidence) and the extractors that produced it (with confidence and timing).")]
     public static async Task<string> MemoryGetEntityProvenance(
         IExtractorRepository extractorRepository,
+        IMemoryIsolationPolicy isolationPolicy,
         [Description("Entity ID to fetch provenance for")] string entityId,
         [Description("Owner/user identifier (optional). When set, returns provenance only for that owner's own or shared entity (found=false otherwise); null = unscoped (admin/audit).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
-        var provenance = await extractorRepository.GetProvenanceAsync(entityId, scope, cancellationToken).ConfigureAwait(false);
+        // #100 Stage 2: fails closed under StrictMultiTenant before any repository call, same gate as
+        // every other tenant-facing tool in this file.
+        var resolvedScope = isolationPolicy.ResolveReadScope(
+            explicitScope: null, userId, nameof(MemoryGetEntityProvenance), MemoryOperationAccess.Tenant);
+        var provenance = await extractorRepository.GetProvenanceAsync(entityId, resolvedScope, cancellationToken).ConfigureAwait(false);
         if (provenance is null)
             return ToolJsonContext.Serialize(new { entityId, found = false });
 

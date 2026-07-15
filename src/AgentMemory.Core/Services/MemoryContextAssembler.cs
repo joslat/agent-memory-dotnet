@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Services.Budgeting;
@@ -133,7 +134,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
         // Start GraphRAG retrieval first so it overlaps memory retrieval when both are requested.
         Task<GraphRagContextResult?>? graphRagTask = includeGraphRag
-            ? FetchGraphRagAsync(request, recallOpts, cancellationToken)
+            ? FetchGraphRagAsync(request, recallOpts, scope, cancellationToken)
             : null;
 
         IReadOnlyList<Message> recentMessages = Array.Empty<Message>();
@@ -368,14 +369,21 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private async Task<GraphRagContextResult?> FetchGraphRagAsync(
         RecallRequest request,
         RecallOptions recallOpts,
+        MemoryScope scope,
         CancellationToken cancellationToken)
     {
         try
         {
+            // #100 Stage 2: use the SAME already-resolved scope as every other recall source (line ~117),
+            // not the raw request.UserId -- otherwise a caller scoping purely via RecallOptions.Scope (a
+            // first-class, documented pattern; explicit scope wins over UserId) would have memory correctly
+            // scoped to that owner while GraphRAG silently ran unscoped (a cross-owner leak outside strict
+            // mode) or threw inconsistently (inside strict mode, since the pipeline already accepted this
+            // recall as properly scoped).
             var graphRagRequest = new GraphRagContextRequest
             {
                 SessionId = request.SessionId,
-                UserId = request.UserId,
+                UserId = scope.OwnerId,
                 Query = request.Query,
                 TopK = recallOpts.MaxGraphRagItems
             };
@@ -383,6 +391,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            throw;
+        }
+        catch (MemoryOwnerScopeRequiredException)
+        {
+            // #100 Stage 2: GraphRAG is deliberately best-effort/resilient for genuine retrieval failures,
+            // but a StrictMultiTenant isolation violation is not one of those -- it must propagate to the
+            // caller, not be silently downgraded to "no GraphRAG context found" like a real outage would be.
             throw;
         }
         catch (Exception ex)

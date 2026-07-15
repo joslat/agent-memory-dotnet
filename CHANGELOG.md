@@ -10,16 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`IMemoryIsolationPolicy` — a library-wide strict multi-tenant isolation mode (#100).** A new central
-  policy abstraction with three modes via `MemoryOptions.Isolation.Mode`: `SingleTenant` (default,
-  today's exact backward-compatible behavior), `WarnOnUnscoped` (structured log when a tenant-facing call
-  resolves unscoped), and `StrictMultiTenant` (throws `MemoryOwnerScopeRequiredException` before any
-  Neo4j call when no owner scope is present, instead of silently falling back to global/shared). Wired
-  into the primary recall/extraction/reasoning Core services and 6 MCP entry points
-  (`memory_entities`/`memory_preferences`/`memory_conversations`/`memory_context`/`memory_invalidate`/
-  `memory_supersede`). Several other MCP tools that accept a `userId` are not yet gated by this toggle —
-  a disclosed, tracked follow-up, not silently dropped (see `docs/getting-started.md` and
-  `docs/security/threat-model.md` TT-01/TT-02 for the exact coverage boundary).
+- **`IMemoryIsolationPolicy` — a library-wide strict multi-tenant isolation mode (#100, Stage 1 + Stage
+  2).** A new central policy abstraction with three modes via `MemoryOptions.Isolation.Mode`:
+  `SingleTenant` (default, today's exact backward-compatible behavior), `WarnOnUnscoped` (structured log
+  when a tenant-facing call resolves unscoped), and `StrictMultiTenant` (throws
+  `MemoryOwnerScopeRequiredException` before any Neo4j call when no owner scope is present, instead of
+  silently falling back to global/shared). Stage 1 wired the primary recall/extraction/reasoning Core
+  services and 6 MCP entry points. **Stage 2 completes coverage of every remaining tenant-facing MCP tool**
+  by routing `LongTermMemoryService` (every entity/fact/preference/relationship read and write),
+  `Neo4jGraphRagContextSource` (GraphRAG retrieval), `ConversationTools`, and
+  `EntityTools.MemoryGetEntityProvenance` through the same policy — all 15 MCP entry points that accept a
+  `userId` now fail closed on an omitted owner under `StrictMultiTenant`. `ConversationTools`' owner check
+  remains a post-hoc in-memory filter rather than Cypher-level scoping (`IConversationRepository` has no
+  `MemoryScope`-aware query method) — disclosed, not silent. A real cross-owner administrative access path
+  (`MemoryOperationAccess.Administrative`) is explicitly descoped from #100's acceptance criteria: it has
+  zero call sites in the library today and needs a concrete design and consumer before being built, not a
+  rushed addition here. See `docs/getting-started.md` and `docs/security/threat-model.md` TT-01/TT-02 for
+  the exact coverage boundary.
 - **`MemoryOwnerScopingAgent` / `AIAgent.WithMemoryOwnerScoping(...)` — guaranteed owner scoping across
   the complete MAF invocation (#90).** Wrapping an agent with `.WithMemoryOwnerScoping(serviceProvider)`
   guarantees the owner scope spans passive recall, the model call, the full tool-calling loop, and
@@ -40,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GraphRAG retrieval could run unscoped, or inconsistently fail, when a caller scoped recall via
+  `RecallOptions.Scope` alone (#100 Stage 2, found during adversarial review).** `MemoryContextAssembler`
+  resolves the authoritative owner scope once (explicit `RecallOptions.Scope` wins over `RecallRequest.UserId`)
+  but GraphRAG retrieval was separately built from the raw, unresolved `UserId` — so a caller who set only
+  `RecallOptions.Scope` got memory correctly scoped to that owner while GraphRAG silently searched across
+  all owners (a cross-owner leak in non-strict modes) or threw inconsistently under `StrictMultiTenant`
+  (since the pipeline had already accepted the recall as properly scoped). GraphRAG now uses the same
+  already-resolved scope as every other recall source.
 - **Native MAF recall ignored configured `RecallOptions` (#87).** `Neo4jMemoryContextProvider` built its
   `RecallRequest` without assigning `.Options`, so a customized `MinSimilarityScore`, per-section limit,
   or `BlendMode` had no effect on automatic recall even though it worked correctly for a direct
