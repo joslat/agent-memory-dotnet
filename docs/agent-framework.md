@@ -87,7 +87,8 @@ tools** to a MAF agent:
 
 ```csharp
 using AgentMemory;                       // AddNeo4jAgentMemory
-using AgentMemory.AgentFramework;        // AddAgentMemoryFramework, Neo4jMemoryContextProvider, WithMemoryIdentity
+using AgentMemory.Abstractions.Services; // ISchemaBootstrapper
+using AgentMemory.AgentFramework;        // AddAgentMemoryFramework, Neo4jMemoryContextProvider, WithMemoryIdentity, WithMemoryOwnerScoping
 using AgentMemory.AgentFramework.Tools;  // MemoryToolFactory
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -138,7 +139,12 @@ AIAgent agent = sp.GetRequiredService<IChatClient>().AsAIAgent(new ChatClientAge
         Tools        = [.. memoryTools],
     },
     AIContextProviders = [memoryProvider],   // <-- the canonical MAF registration point
-});
+}).WithMemoryOwnerScoping(sp);
+// ^ guarantees the owner scope spans the COMPLETE invocation -- recall, tool calls, and persistence --
+// not just the portion inside the context-provider hook. Passing the IServiceProvider (rather than an
+// IWritableMemoryOwnerContext instance directly) resolves it from the SAME container the provider uses,
+// so it can never read a session's identity under different StateBag keys than the provider if you ever
+// customize AgentFrameworkOptions.Default*Key. See "Identity and scoping" below.
 
 // 5. Run — memory is recalled before each turn and persisted after, automatically
 var session = (await agent.CreateSessionAsync())
@@ -166,6 +172,26 @@ the MAF session. AgentMemory reads it on every invocation to scope recall and wr
 - **application** (`applicationId`) — routes the memory store (shared DB by default; optionally a
   database per application).
 - **session** / **conversation** — short-term ordering and per-run context.
+
+**Wrap the agent once with `.WithMemoryOwnerScoping(sp)`** (shown above) so the owner scope guaranteed
+spans the *complete* invocation — passive recall, the model call, the full tool-calling loop (so
+`search_memory`/`remember_*` etc. see the same owner), and automatic persistence — as one unbroken async
+chain. This matters because `Neo4jMemoryContextProvider`'s own pre-run hook (`ProvideAIContextAsync`)
+cannot guarantee this on its own: it suspends on real I/O (embedding + recall), so by the time MAF's
+tool-calling loop runs — *after* that hook returns — a value it set on the `AsyncLocal`-backed owner
+context is no longer reliably visible. `WithMemoryOwnerScoping` closes that gap by bracketing the entire
+`RunAsync`/`RunStreamingAsync` call instead of just the hook. Apply it once at agent-construction time; you
+don't need to manually wrap every `RunAsync` call in `ownerContext.BeginOwnerScope(userId)` — the
+lower-level mechanism the wrapper uses internally, still available for hosts that need finer-grained
+control over an unwrapped agent.
+
+Prefer the `IServiceProvider` overload (`.WithMemoryOwnerScoping(sp)`) over the one that takes an
+`IWritableMemoryOwnerContext` directly: it also resolves the registered `AgentFrameworkOptions` from the
+same container `Neo4jMemoryContextProvider` uses. If you ever customize
+`AgentFrameworkOptions.Default*Key` (e.g. `DefaultUserIdKey`), the two must read the session's identity
+under the *same* StateBag keys — passing the `IServiceProvider` guarantees that; constructing the options
+by hand (or omitting them) risks the wrapper silently reading a different key than the provider wrote,
+which unscopes the whole invocation with no error.
 
 A full runnable version of this flow is
 [`samples/AgentMemory.Sample.AgentWithMemory`](../samples/AgentMemory.Sample.AgentWithMemory/) — the

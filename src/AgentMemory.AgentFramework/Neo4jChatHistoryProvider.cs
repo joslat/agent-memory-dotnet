@@ -59,8 +59,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         CancellationToken cancellationToken = default)
     {
         var ids = ExtractIds(context.Session, context.Agent);
-        ApplyStoreContext(ids.applicationId);
-        ApplyOwnerContext(ids.userId);
+        using var storeScope = ApplyStoreContext(ids.applicationId);
+        using var ownerScope = ApplyOwnerContext(ids.userId);
         try
         {
             var recallResult = await _memoryService.RecallAsync(
@@ -103,8 +103,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         CancellationToken cancellationToken = default)
     {
         var (sessionId, conversationId, userId, applicationId) = ExtractIds(context.Session, context.Agent);
-        ApplyStoreContext(applicationId);
-        ApplyOwnerContext(userId);
+        using var storeScope = ApplyStoreContext(applicationId);
+        using var ownerScope = ApplyOwnerContext(userId);
         try
         {
             // Persist request messages (user + system turns not already in memory)
@@ -175,57 +175,39 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         AgentSession? session,
         AIAgent? agent)
     {
-        string? sessionId = null;
-        string? conversationId = null;
-        string? userId = null;
-        string? applicationId = null;
-
+        MemoryIdentity identity;
         try
         {
-            var bag = session?.StateBag;
-            if (bag is not null)
-            {
-                bag.TryGetValue(_options.DefaultSessionIdKey, out sessionId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_options.DefaultConversationIdKey, out conversationId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_options.DefaultUserIdKey, out userId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-                bag.TryGetValue(_options.DefaultApplicationIdKey, out applicationId,
-                    System.Text.Json.JsonSerializerOptions.Default);
-            }
+            identity = session.GetMemoryIdentity(_options);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not extract identity from state bag.");
+            identity = default;
         }
 
-        sessionId ??= agent?.Id ?? Guid.NewGuid().ToString("N");
+        var sessionId = identity.SessionId ?? agent?.Id ?? Guid.NewGuid().ToString("N");
         // Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
-        conversationId ??= sessionId;
+        var conversationId = identity.ConversationId ?? sessionId;
 
-        return (sessionId, conversationId,
-            string.IsNullOrWhiteSpace(userId) ? null : userId,
-            string.IsNullOrWhiteSpace(applicationId) ? null : applicationId);
+        return (sessionId, conversationId, identity.UserId, identity.ApplicationId);
     }
 
     // Routes the memory store for this scope when an application_id is supplied and a writable store
-    // context is registered (R1b). No-op otherwise.
-    private void ApplyStoreContext(string? applicationId)
-    {
-        if (applicationId is not null && _storeContext is IWritableMemoryStoreContext writable)
-            writable.ApplicationId = applicationId;
-    }
+    // context is registered (R1b). No-op otherwise. Scoped (not a bare assignment) so the value is
+    // restored once this hook returns. See MemoryOwnerScopingAgent (#90) for a guarantee spanning the
+    // complete invocation including the tool-calling loop.
+    private IDisposable? ApplyStoreContext(string? applicationId) =>
+        applicationId is not null && _storeContext is IWritableMemoryStoreContext writable
+            ? writable.BeginStoreScope(applicationId)
+            : null;
 
     // Pushes the turn's owner (IC8) into the ambient context so the LLM-invokable facade tools scope by
-    // owner without trusting the model. Set unconditionally (incl. null = shared) so a previous turn's
-    // owner can't bleed through. NOTE: the default owner context is AsyncLocal-backed and a value set in
-    // this awaited hook does not flow back to the framework caller; for guaranteed scoping the host must
-    // set the owner context around the run (or register a scoped context). See
+    // owner without trusting the model. Scoped (not a bare assignment) so the value is restored once this
+    // hook returns rather than leaking into whatever runs next. NOTE: the default owner context is
+    // AsyncLocal-backed and a value set in this awaited hook does not flow back to the framework caller,
+    // so it still can't guarantee the value survives into the tool-calling loop on its own -- see
+    // MemoryOwnerScopingAgent (#90), which wraps the complete invocation for that guarantee. See also
     // docs/reviews/review-2026-06-13-cycle3.md (finding #4).
-    private void ApplyOwnerContext(string? userId)
-    {
-        if (_ownerContext is not null)
-            _ownerContext.UserId = userId;
-    }
+    private IDisposable? ApplyOwnerContext(string? userId) => _ownerContext?.BeginOwnerScope(userId);
 }

@@ -5,7 +5,7 @@ This is the flagship Microsoft Agent Framework sample for Agent Memory for .NET.
 - `Neo4jMemoryContextProvider` injects memory context before each agent run and persists messages after the run.
 - `MemoryToolFactory.CreateAIFunctions()` exposes model-callable memory tools.
 - `WithMemoryIdentity(...)` stamps application, owner/user, session, and conversation identity into the `AgentSession` state bag.
-- `IWritableMemoryOwnerContext.BeginOwnerScope(userId)` wraps every agent run so tool writes/searches inherit trusted host identity.
+- `.WithMemoryOwnerScoping(sp)` wraps the agent so every invocation — recall, tool calls, and persistence — is guaranteed to run in the same owner scope, automatically (#90).
 - Session serialize/restore and a second session demonstrate memory continuity beyond one in-memory run.
 - `MemoryOptions.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant` is enabled, and a final step shows what happens when a call forgets `BeginOwnerScope`: it fails closed with `MemoryOwnerScopeRequiredException` instead of silently falling back to global/shared memory.
 
@@ -27,16 +27,21 @@ builder.Services.AddSingleton<IChatClient>(sp => /* OpenAI, Azure OpenAI, or Fou
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp => /* MEAI embedding generator */);
 ```
 
-Do not change the memory wiring when swapping providers. The important production pattern is the identity wrapper around each run:
+Do not change the memory wiring when swapping providers. The important production pattern is wrapping the
+agent once, at construction time:
 
 ```csharp
-using (ownerContext.BeginOwnerScope(userId))
-{
-    await agent.RunAsync(message, session);
-}
+AIAgent agent = chatClient.AsAIAgent(agentOptions).WithMemoryOwnerScoping(sp);
 ```
 
-The session state (`WithMemoryIdentity`) and ambient owner scope must agree. The state bag lets the provider scope recall/persistence by application, owner, session, and conversation; the ambient owner scope protects model-invoked tools from trusting user identity supplied by the model.
+The session state (`WithMemoryIdentity`) and the owner-scoping wrapper must agree. The state bag lets the
+provider scope recall/persistence by application, owner, session, and conversation; the wrapper reads that
+same identity and guarantees it encloses the complete invocation — including the tool-calling loop, which
+a context-provider hook alone cannot guarantee (#90) — so model-invoked tools can't run against a
+different or missing owner than the one the session declares. Passing the `IServiceProvider` (rather than
+an `IWritableMemoryOwnerContext` instance directly) resolves the registered `AgentFrameworkOptions` from
+the same container the provider uses, so a customized `Default*Key` can't cause the wrapper and the
+provider to silently read a session's identity under different keys.
 
 ## Multi-Tenant Isolation Mode
 

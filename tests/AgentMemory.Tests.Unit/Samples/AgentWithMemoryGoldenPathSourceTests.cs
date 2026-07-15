@@ -17,8 +17,8 @@ public sealed class AgentWithMemoryGoldenPathSourceTests
             "the agent must use the DI-provided chat client rather than constructing the mock inline");
         source.Should().Contain("WithMemoryIdentity(",
             "provider swaps must not bypass application/user/session/conversation scoping");
-        source.Should().Contain("ownerContext.BeginOwnerScope(userId)",
-            "model-invoked memory tools must inherit trusted host identity with real providers too");
+        source.Should().Contain("WithMemoryOwnerScoping(",
+            "model-invoked memory tools must inherit trusted host identity for the complete invocation (#90), guaranteed automatically rather than via a manually-wrapped BeginOwnerScope");
     }
 
     private static string FindRepoFile(string relativePath)
