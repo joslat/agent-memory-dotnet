@@ -79,6 +79,30 @@ public sealed class ReasoningMemoryServiceTests
         result.StartedAtUtc.Should().Be(_fixedTime);
     }
 
+    // ── #92 Phase 3: a caller must never self-assign a bypassing trust level ────
+
+    [Fact]
+    public async Task StartTraceAsync_CallerSuppliedTrustLevel_IsStripped()
+    {
+        var sut = CreateSut();
+        var callerMetadata = new Dictionary<string, object> { ["trust_level"] = "ApplicationTrusted" };
+
+        var result = await sut.StartTraceAsync("session-1", "Test task", metadata: callerMetadata);
+
+        result.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.Untrusted);
+    }
+
+    [Fact]
+    public async Task StartTraceAsync_CallerSuppliedTrustLevel_OtherMetadataStillPreserved()
+    {
+        var sut = CreateSut();
+        var callerMetadata = new Dictionary<string, object> { ["trust_level"] = "ApplicationTrusted", ["source"] = "widget" };
+
+        var result = await sut.StartTraceAsync("session-1", "Test task", metadata: callerMetadata);
+
+        result.Metadata.Should().ContainKey("source");
+    }
+
     [Fact]
     public async Task StartTraceAsync_NoMaxTracesConfigured_DoesNotPrune()
     {

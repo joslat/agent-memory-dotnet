@@ -362,6 +362,55 @@ public sealed class CoreMemoryToolsTests
             Arg.Any<CancellationToken>());
     }
 
+    // ── #92 Phase 3: a caller must never self-assign a bypassing trust level ────
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedTrustLevel_IsStrippedAndOverriddenToToolDerived()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft",
+            metadataJson: "{\"trust_level\":\"ApplicationTrusted\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedTrustLevel_OtherMetadataStillPreserved()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft",
+            metadataJson: "{\"trust_level\":\"ApplicationTrusted\",\"source\":\"crm\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.ContainsKey("source")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_NoMetadataSupplied_StillStampsToolDerived()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task MemoryAddFact_InvalidMetadataJson_ThrowsArgumentException()
     {

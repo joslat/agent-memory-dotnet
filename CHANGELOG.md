@@ -54,8 +54,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flagged items entirely, logging the category and reason at Warning (never the content). Evaluation is
   per-item rather than per-block specifically so one flagged fact/entity/preference/trace can't silently
   drop every other, unrelated item joined into the same rendered category. Fully additive; default
-  behavior is unchanged. Issue #92 remains open — trust metadata, provenance-through-extraction,
-  configurable message roles, and observed/inferred/verified knowledge distinctions are future phases.
+  behavior is unchanged. Issue #92 remains open — configurable message roles and observed/inferred/verified
+  knowledge distinctions are future phases.
+
+- **Trust-metadata foundation: Phase 3 of trust boundaries and prompt-injection defenses (#92).** New
+  `MemoryTrustLevel` (`AgentMemory.Abstractions.Domain`: `Untrusted` < `UserProvided` < `ModelGenerated` <
+  `ToolDerived` < `VerifiedExternal` < `ApplicationTrusted`) plus `MemoryTrustMetadataExtensions.GetTrustLevel()`/
+  `WithTrustLevel(...)`, which read/write the level from/to the `Metadata` dictionary every `Entity`/`Fact`/
+  `Preference`/`ReasoningTrace` already carries — no new schema property, no migration; `Metadata` already
+  round-trips through Neo4j as a serialized JSON property, so trust level rides along for free.
+  `ExtractionOptions.DefaultTrustLevel` (default `UserProvided`) is stamped on everything `PersistenceStage`
+  persists, unless a specific call's new `ExtractionRequest.TrustLevel` overrides it — e.g. importing a
+  curated/verified document as `ApplicationTrusted`/`VerifiedExternal` for that one call.
+  `DefaultMemoryContextAdmissionPolicy` gains a bypass: an item at or above the new
+  `ContextFormatOptions.MinimumTrustForAdmissionBypass` (default `ApplicationTrusted`, the highest level) skips
+  instruction-like-content evaluation entirely — this is what "applications can explicitly mark controlled
+  sources as trusted" means in practice. Fully additive and behavior-preserving by default: nothing bypasses
+  unless a host both raises an item's trust level and explicitly reaches the configured threshold. **Known,
+  disclosed limitation:** stamping is per extraction *request*, not per extracted *item* — today's extractors
+  return items with no attribution to a specific source message, so distinguishing "the user said this" from
+  "the assistant said that" within the same turn needs deeper extractor changes, out of scope here.
+  `ReasoningTrace` is not stamped by this phase (recorded via a separate mechanism, `AgentTraceRecorder`) and
+  defaults to `Untrusted`. Trust is monotonic for entities: re-resolving onto an already-persisted entity
+  (auto-merge/SAME_AS) takes the higher of its existing trust level and the current call's, so an unrelated
+  later low-trust mention can never silently erase a deliberate earlier elevation (facts/preferences don't
+  have this protection yet — same known limitation as the per-item stamping gap above). **Security fix
+  applied before merge:** `trust_level` lives in the same `Metadata` dictionary already writable through
+  pre-existing paths (`memory_add_fact`'s `metadataJson`, `IReasoningMemoryService.StartTraceAsync`), so
+  without a guard, any caller of those APIs could self-assign `ApplicationTrusted` and fully bypass the
+  admission policy. New `MemoryTrustMetadataExtensions.WithoutCallerSuppliedTrustLevel()` strips any
+  caller-supplied `trust_level` before combining with a framework-assigned value; both call sites now apply
+  it. Issue #92 remains open — configurable message roles, observed/inferred/verified knowledge
+  distinctions, and richer telemetry are future phases.
 
 ## [1.2.0] - 2026-07-15
 

@@ -81,7 +81,10 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
             Task = task,
             TaskEmbedding = effectiveEmbedding,
             StartedAtUtc = _clock.UtcNow,
-            Metadata = metadata ?? new Dictionary<string, object>()
+            // #92 Phase 3: trust_level is a framework-reserved metadata key -- a caller of this public
+            // service method must never be able to self-assign a trust level that bypasses the admission
+            // policy's instruction-like-content detection for this trace's Task text on recall.
+            Metadata = (metadata ?? new Dictionary<string, object>()).WithoutCallerSuppliedTrustLevel()
         };
 
         _logger.LogDebug("Starting trace {TraceId} for session {SessionId}", trace.TraceId, sessionId);

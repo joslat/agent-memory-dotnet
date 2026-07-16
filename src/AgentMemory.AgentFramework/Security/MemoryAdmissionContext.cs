@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Domain;
+
 namespace AgentMemory.AgentFramework.Security;
 
 /// <summary>
@@ -14,4 +16,18 @@ public sealed record MemoryAdmissionContext
 
     /// <summary>The configured security mode governing how instruction-like content is treated.</summary>
     public MemoryContextSecurityMode Mode { get; init; } = MemoryContextSecurityMode.Permissive;
+
+    /// <summary>
+    /// This item's trust level (#92 Phase 3), read from its <c>Metadata</c> (see
+    /// <c>MemoryTrustMetadataExtensions.GetTrustLevel</c>). Defaults to <see cref="MemoryTrustLevel.Untrusted"/>
+    /// for content with no per-item trust signal, e.g. GraphRAG (a single opaque string, not a list of
+    /// items with their own metadata).
+    /// </summary>
+    public MemoryTrustLevel TrustLevel { get; init; } = MemoryTrustLevel.Untrusted;
+
+    /// <summary>
+    /// The configured minimum trust level that bypasses instruction-like-content evaluation entirely
+    /// (#92 Phase 3) -- see <c>ContextFormatOptions.MinimumTrustForAdmissionBypass</c>.
+    /// </summary>
+    public MemoryTrustLevel MinimumTrustForAdmissionBypass { get; init; } = MemoryTrustLevel.ApplicationTrusted;
 }

@@ -10,13 +10,16 @@ internal interface IPersistenceStage
     /// <summary>
     /// Embeds entities, facts, and preferences, upserts them to their repositories,
     /// and wires EXTRACTED_FROM provenance relationships. The optional <c>ownerId</c> is stamped on
-    /// every persisted entity/fact/preference (null = shared/global; see MemoryScope, R1). Honors the
-    /// configured <c>ExtractionOptions.FailureMode</c> (#101): under <c>FailFast</c>, throws
-    /// <c>MemoryIngestionException</c> at the first item that fails at this stage.
+    /// every persisted entity/fact/preference (null = shared/global; see MemoryScope, R1).
+    /// <paramref name="trustLevel"/> is stamped into each item's <c>Metadata</c> (#92 Phase 3; see
+    /// <c>MemoryTrustMetadataExtensions</c>). Honors the configured <c>ExtractionOptions.FailureMode</c>
+    /// (#101): under <c>FailFast</c>, throws <c>MemoryIngestionException</c> at the first item that fails
+    /// at this stage.
     /// </summary>
     Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
         string? ownerId = null,
+        MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default);
 }
 

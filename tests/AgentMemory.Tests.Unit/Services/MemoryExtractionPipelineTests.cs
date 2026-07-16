@@ -17,9 +17,10 @@ public sealed class MemoryExtractionPipelineTests
     private readonly IExtractionStage _extractionStage = Substitute.For<IExtractionStage>();
     private readonly IPersistenceStage _persistenceStage = Substitute.For<IPersistenceStage>();
 
-    private MemoryExtractionPipeline CreateSut() =>
+    private MemoryExtractionPipeline CreateSut(ExtractionOptions? extractionOptions = null) =>
         new(_extractionStage, _persistenceStage, NullLogger<MemoryExtractionPipeline>.Instance,
-            new DefaultMemoryIsolationPolicy(Microsoft.Extensions.Options.Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
+            new DefaultMemoryIsolationPolicy(Microsoft.Extensions.Options.Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance),
+            Microsoft.Extensions.Options.Options.Create(extractionOptions ?? new ExtractionOptions()));
 
     private static ExtractionRequest MakeRequest(ExtractionTypes types = ExtractionTypes.All) =>
         new()
@@ -64,7 +65,7 @@ public sealed class MemoryExtractionPipelineTests
         var request = MakeRequest();
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -78,6 +79,7 @@ public sealed class MemoryExtractionPipelineTests
         await _persistenceStage.Received(1).PersistAsync(
             Arg.Any<ExtractionStageResult>(),
             Arg.Any<string?>(),
+            Arg.Any<MemoryTrustLevel>(),
             Arg.Any<CancellationToken>());
     }
 
@@ -89,7 +91,7 @@ public sealed class MemoryExtractionPipelineTests
 
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult(entities: entities, facts: facts));
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult(entities: 1, facts: 1));
 
         var sut = CreateSut();
@@ -105,7 +107,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult(entities: 2, facts: 3, prefs: 1, rels: 0));
 
         var sut = CreateSut();
@@ -123,7 +125,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -143,7 +145,7 @@ public sealed class MemoryExtractionPipelineTests
         // across the owner boundary. (Persistence already stamps OwnerId from the same UserId.)
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -161,7 +163,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -191,7 +193,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
@@ -206,7 +208,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult() with
             {
                 Outcomes = new[] { MakeOutcome(IngestionItemStatus.Succeeded), MakeOutcome(IngestionItemStatus.Succeeded) }
@@ -223,7 +225,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult() with
             {
                 Outcomes = new[] { MakeOutcome(IngestionItemStatus.Succeeded), MakeOutcome(IngestionItemStatus.Failed) }
@@ -241,7 +243,7 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult() with
             {
                 Outcomes = new[] { MakeOutcome(IngestionItemStatus.Failed), MakeOutcome(IngestionItemStatus.Failed) }
@@ -260,7 +262,7 @@ public sealed class MemoryExtractionPipelineTests
         // Skipped items are neither success nor failure for overall-status purposes.
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult() with
             {
                 Outcomes = new[] { MakeOutcome(IngestionItemStatus.Skipped) }
@@ -278,7 +280,7 @@ public sealed class MemoryExtractionPipelineTests
         var outcome = MakeOutcome(IngestionItemStatus.Succeeded);
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult() with { Outcomes = new[] { outcome } });
 
         var sut = CreateSut();
@@ -292,12 +294,60 @@ public sealed class MemoryExtractionPipelineTests
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
-        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
             .Returns(MakePersistenceResult());
 
         var sut = CreateSut();
         var result = await sut.ExtractAsync(MakeRequest());
 
         result.SourceMessageIds.Should().BeEquivalentTo(new[] { "msg-1", "msg-2" });
+    }
+
+    // ── #92 Phase 3: trust-level flow-through ────────────────────────────────
+
+    [Fact]
+    public async Task ExtractAsync_NoOverrideAnywhere_PassesConfiguredDefaultTrustLevel()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult());
+
+        var sut = CreateSut(); // default ExtractionOptions -> DefaultTrustLevel = UserProvided
+        await sut.ExtractAsync(MakeRequest());
+
+        await _persistenceStage.Received(1).PersistAsync(
+            Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), MemoryTrustLevel.UserProvided, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ConfiguredNonDefaultTrustLevel_IsPassedThrough()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult());
+
+        var sut = CreateSut(new ExtractionOptions { DefaultTrustLevel = MemoryTrustLevel.ApplicationTrusted });
+        await sut.ExtractAsync(MakeRequest());
+
+        await _persistenceStage.Received(1).PersistAsync(
+            Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), MemoryTrustLevel.ApplicationTrusted, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExtractAsync_RequestTrustLevelOverride_WinsOverConfiguredDefault()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult());
+
+        var sut = CreateSut(new ExtractionOptions { DefaultTrustLevel = MemoryTrustLevel.UserProvided });
+        var request = MakeRequest() with { TrustLevel = MemoryTrustLevel.VerifiedExternal };
+        await sut.ExtractAsync(request);
+
+        await _persistenceStage.Received(1).PersistAsync(
+            Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), MemoryTrustLevel.VerifiedExternal, Arg.Any<CancellationToken>());
     }
 }

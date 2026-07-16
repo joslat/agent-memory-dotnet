@@ -14,6 +14,14 @@ public sealed class DefaultMemoryContextAdmissionPolicy : IMemoryContextAdmissio
     /// <inheritdoc/>
     public MemoryAdmissionDecision Evaluate(MemoryAdmissionContext context)
     {
+        // #92 Phase 3: an item trusted at or above the configured threshold bypasses instruction-like
+        // detection entirely -- this is the mechanism for "applications can explicitly mark controlled
+        // sources as trusted." Untouched by default: MinimumTrustForAdmissionBypass defaults to
+        // ApplicationTrusted (the highest level), so nothing bypasses unless a host both raises an item's
+        // trust level AND explicitly marks it that trusted -- Phase 2's behavior is unchanged by default.
+        if (context.TrustLevel >= context.MinimumTrustForAdmissionBypass)
+            return new MemoryAdmissionDecision { Include = true };
+
         if (!InstructionLikeContentDetector.IsMatch(context.Content))
             return new MemoryAdmissionDecision { Include = true };
 
