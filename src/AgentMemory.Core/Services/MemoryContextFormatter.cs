@@ -16,10 +16,11 @@ namespace AgentMemory.Core.Services;
 /// #92 Phase 1) and individually evaluated by an instruction-like-content admission check (#92 Phase 2/3),
 /// bringing the same protections the Agent Framework adapter has had since those phases to any adapter that
 /// renders recalled memory as plain text -- previously this formatter had none of them. Recalled
-/// conversation history (<see cref="RecallResult"/>'s <c>RecentMessages</c>/<c>RelevantMessages</c>)
-/// remains intentionally NOT delimited or admission-checked (a disclosed, narrower gap -- this is genuinely
-/// recalled transcript, not a "memory object" being injected as if authoritative), but its ROLE label is
-/// gated (#92 Phase 7): see <see cref="AppendMessages"/>.
+/// conversation history (<see cref="RecallResult"/>'s <c>RecentMessages</c>/<c>RelevantMessages</c>) is
+/// admission-checked per item too (#92 Phase 8) but remains intentionally NOT delimited -- this is
+/// genuinely recalled transcript rendered as individual conversation lines, not a "memory object" being
+/// injected as a separate block -- and its ROLE label is gated (#92 Phase 7): see
+/// <see cref="AppendMessages"/>.
 /// </remarks>
 internal static class MemoryContextFormatter
 {
@@ -42,8 +43,8 @@ internal static class MemoryContextFormatter
         bool graphFirst = ctx.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
 
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
-        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts);
-        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts);
+        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts, logger);
+        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts, logger);
         AppendCategory(sb, "entities", "### Known Entities", ctx.RelevantEntities.Items,
             e => string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}",
             e => e.Metadata.GetTrustLevel(), opts, logger);
@@ -96,22 +97,31 @@ internal static class MemoryContextFormatter
         sb.AppendLine(RecalledMemoryDelimiter.Wrap("graphrag", graphRagContext));
     }
 
-    // #92 Phase 7: message CONTENT is deliberately not delimited/admission-checked here (a disclosed,
-    // narrower gap -- this is genuinely recalled conversation transcript, not a "memory object" being
-    // injected as if authoritative), but a message's ROLE label still is: a privileged role ("system"/
-    // "tool") persisted via a caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync)
-    // must not resurface with its label unchanged unless sufficiently trusted.
+    // #92 Phase 7 gates a message's ROLE label: a privileged role ("system"/"tool") persisted via a
+    // caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync) must not resurface with
+    // its label unchanged unless sufficiently trusted. #92 Phase 8 additionally admission-checks message
+    // CONTENT the same way every other category is (Strict excludes instruction-like content; Permissive,
+    // the default, still includes it) -- but deliberately does NOT delimit/wrap it like entities/facts/
+    // preferences/GraphRAG, since a recalled message renders as an individual conversation-history line
+    // here, not a separately-injected memory block; wrapping it in visible tags would make ordinary replayed
+    // chat history look bizarre for little added security value once the role itself is gated.
     private static void AppendMessages(
-        StringBuilder sb, string heading, MemoryContextSection<Message> section, MemoryContextFormatterOptions opts)
+        StringBuilder sb, string heading, MemoryContextSection<Message> section, MemoryContextFormatterOptions opts,
+        ILogger? logger)
     {
         if (section.Items.Count == 0) return;
-        sb.AppendLine(heading);
+        var lines = new List<string>();
         foreach (var msg in section.Items)
         {
+            var trustLevel = msg.Metadata.GetTrustLevel();
+            if (!Admit("messages", msg.Content, trustLevel, opts, logger)) continue;
             var effectiveRole = RecalledMessageRoleGate.EffectiveRole(
-                msg.Role, msg.Metadata.GetTrustLevel(), opts.MinimumTrustForSystemRole);
-            sb.AppendLine($"[{effectiveRole}]: {msg.Content}");
+                msg.Role, trustLevel, opts.MinimumTrustForSystemRole);
+            lines.Add($"[{effectiveRole}]: {msg.Content}");
         }
+        if (lines.Count == 0) return;
+        sb.AppendLine(heading);
+        foreach (var line in lines) sb.AppendLine(line);
         sb.AppendLine();
     }
 

@@ -167,22 +167,29 @@ internal static class MafTypeMapper
 
         // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
         // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
-        // #92 Phase 7: unlike entities/facts/preferences/GraphRAG (Phases 1-6), recalled chat history has
-        // never been delimited or admission-checked -- an intentionally disclosed, narrower gap, since this
-        // is genuinely recalled conversation transcript, not a "memory object" being injected as if
-        // authoritative. But its ROLE is still gated: a message persisted with a privileged role
-        // ("system"/"tool") via a caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync)
-        // could otherwise resurface here with full, undiminished ChatRole.System/Tool authority. Ordinary
-        // "user"/"assistant" messages are read via the SAME ToChatMessage this method's sibling
-        // Neo4jChatMessageStore/Neo4jChatHistoryProvider use for genuine chat-history replay -- gating is
-        // applied here only, on the recalled-context path, not on that shared conversion helper itself.
+        // #92 Phase 7 gated the recalled ROLE: a message persisted with a privileged role ("system"/"tool")
+        // via a caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync) could otherwise
+        // resurface here with full, undiminished ChatRole.System/Tool authority. Ordinary "user"/"assistant"
+        // messages are read via the SAME ToChatMessage this method's sibling Neo4jChatMessageStore/
+        // Neo4jChatHistoryProvider use for genuine chat-history replay -- gating is applied here only, on
+        // the recalled-context path, not on that shared conversion helper itself.
+        // #92 Phase 8: message CONTENT now also goes through the same per-item admission check as every
+        // other category (Strict mode excludes instruction-like content; Permissive, the default, still
+        // includes it). Deliberately NOT delimited/wrapped like entities/facts/preferences/GraphRAG --
+        // unlike those, a recalled message renders as an individual turn within the actual conversation
+        // history the model reads, so wrapping its content in visible <recalled_memory> tags would make
+        // ordinary chat history look bizarre for comparatively little added security value once the role
+        // itself is gated. Admission (include/exclude) is the appropriately-scoped protection here, not
+        // delimiting (which defeats boundary forgery a wrapped block doesn't need to defend against).
         var chatMessages = context.RecentMessages.Items
             .Concat(context.RelevantMessages.Items)
             .DistinctBy(m => m.MessageId)
-            .Select(m => ToChatMessage(m with
+            .Select(m => (Message: m, TrustLevel: m.Metadata.GetTrustLevel()))
+            .Where(x => Admit("messages", x.Message.Content, x.TrustLevel))
+            .Select(x => ToChatMessage(x.Message with
             {
                 Role = RecalledMessageRoleGate.EffectiveRole(
-                    m.Role, m.Metadata.GetTrustLevel(), options.MinimumTrustForSystemRole)
+                    x.Message.Role, x.TrustLevel, options.MinimumTrustForSystemRole)
             }))
             .ToList();
 
@@ -240,8 +247,11 @@ internal static class MafTypeMapper
     /// not detect or block instruction-like content that never relies on the tag (e.g. plain-language
     /// "ignore previous instructions", role-header conventions, code fences); the prefix instruction, not
     /// this delimiter, is what asks the model to disregard those. It also does not apply to recalled
-    /// conversation history (<c>RelevantMessages</c>) -- message CONTENT is disclosed, explicit follow-up
-    /// scope for #92, not silently dropped. Its ROLE, however, is NOT simply kept as originally persisted:
+    /// conversation history (<c>RelevantMessages</c>) -- message content there is deliberately left
+    /// undelimited (#92 Phase 8), since wrapping an individual recalled chat turn in visible
+    /// <c>&lt;recalled_memory&gt;</c> tags would make ordinary conversation history look bizarre; it is
+    /// still admission-checked per item (same instruction-like-content detection as every other category),
+    /// just not delimited. Its ROLE, however, is NOT simply kept as originally persisted:
     /// a privileged role ("system"/"tool") is gated separately (#92 Phase 7, see
     /// <c>AgentMemory.Core.Security.RecalledMessageRoleGate</c>) rather than replayed unconditionally, since
     /// the "original" role itself can be caller-controlled. Delegates to

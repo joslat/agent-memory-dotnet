@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
+using AgentMemory.AgentFramework.Security;
 using AgentMemory.Core.Security;
 
 namespace AgentMemory.AgentFramework;
@@ -18,17 +19,24 @@ public sealed class Neo4jMicrosoftMemoryFacade
     private readonly Neo4jChatMessageStore _messageStore;
     private readonly AgentFrameworkOptions _options;
     private readonly ILogger<Neo4jMicrosoftMemoryFacade> _logger;
+    private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
 
     public Neo4jMicrosoftMemoryFacade(
         IMemoryService memoryService,
         Neo4jChatMessageStore messageStore,
         IOptions<AgentFrameworkOptions> options,
-        ILogger<Neo4jMicrosoftMemoryFacade> logger)
+        ILogger<Neo4jMicrosoftMemoryFacade> logger,
+        IMemoryContextAdmissionPolicy? admissionPolicy = null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _messageStore = messageStore ?? throw new ArgumentNullException(nameof(messageStore));
         _options = options?.Value ?? new AgentFrameworkOptions();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        // #92 Phase 8 (self-review fix): resolved via DI like Neo4jMemoryContextProvider's own admissionPolicy
+        // parameter, so a host's custom IMemoryContextAdmissionPolicy registration governs this recall path
+        // too -- previously this facade called the internal RecalledMemoryAdmission.ShouldAdmit directly,
+        // silently ignoring any custom policy a host registered to replace DefaultMemoryContextAdmissionPolicy.
+        _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
     }
 
     /// <summary>
@@ -71,14 +79,50 @@ public sealed class Neo4jMicrosoftMemoryFacade
             // the query-less GetMessagesAsync/GetContextForRunAsync-fallback path above, which relies on
             // Neo4jChatMessageStore for genuine same-session chat-history replay and is intentionally left
             // ungated.
+            // #92 Phase 8: message content also goes through the same per-item admission check MafTypeMapper
+            // applies (Strict mode excludes instruction-like content; Permissive, the default, still
+            // includes it) -- through the same DI-injectable _admissionPolicy, so a host's custom
+            // IMemoryContextAdmissionPolicy registration governs this recall path too, not just
+            // Neo4jMemoryContextProvider's (self-review fix: an earlier version of this called the internal
+            // RecalledMemoryAdmission.ShouldAdmit directly, silently bypassing any custom policy a host
+            // registered). Deliberately not delimited, since a recalled message renders as an individual
+            // conversation turn here, not a separately-injected memory block (see
+            // MafTypeMapper.WrapUntrustedContent's remarks).
+            var contextFormat = _options.ContextFormat;
+            bool Admit(string content, MemoryTrustLevel trustLevel)
+            {
+                var decision = _admissionPolicy.Evaluate(new MemoryAdmissionContext
+                {
+                    Category = "messages",
+                    Content = content,
+                    Mode = contextFormat.SecurityMode,
+                    TrustLevel = trustLevel,
+                    MinimumTrustForAdmissionBypass = contextFormat.MinimumTrustForAdmissionBypass
+                });
+
+                if (decision.InstructionLikeContentDetected && decision.Include)
+                    _logger.LogDebug(
+                        "Recalled message in session {SessionId} flagged as instruction-like content but " +
+                        "included (SecurityMode={Mode}).", sessionId, contextFormat.SecurityMode);
+
+                if (!decision.Include)
+                    _logger.LogWarning(
+                        "Excluded a recalled message from session {SessionId} context: {Reason}.",
+                        sessionId, decision.ExclusionReason ?? "unspecified");
+
+                return decision.Include;
+            }
+
             return recall.Context.RecentMessages.Items
                 .Reverse()
                 .Concat(recall.Context.RelevantMessages.Items)
                 .DistinctBy(m => m.MessageId)
-                .Select(m => MafTypeMapper.ToChatMessage(m with
+                .Select(m => (Message: m, TrustLevel: m.Metadata.GetTrustLevel()))
+                .Where(x => Admit(x.Message.Content, x.TrustLevel))
+                .Select(x => MafTypeMapper.ToChatMessage(x.Message with
                 {
                     Role = RecalledMessageRoleGate.EffectiveRole(
-                        m.Role, m.Metadata.GetTrustLevel(), _options.ContextFormat.MinimumTrustForSystemRole)
+                        x.Message.Role, x.TrustLevel, contextFormat.MinimumTrustForSystemRole)
                 }))
                 .ToList();
         }

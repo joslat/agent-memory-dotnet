@@ -23,9 +23,9 @@ namespace AgentMemory.SemanticKernel;
 /// <see cref="MemoryContextFormatter.FormatRecallResult"/>). Each item is now delimited
 /// (<see cref="RecalledMemoryDelimiter"/>, #92 Phase 1) and evaluated for instruction-like content with a
 /// trust-level bypass (#92 Phase 2/3), matching <c>MemoryContextFormatter</c>'s per-item granularity.
-/// Recalled conversation history (<c>RecentMessages</c>/<c>RelevantMessages</c>) still isn't delimited or
-/// admission-checked (a disclosed, narrower gap -- this is genuinely recalled transcript, not a "memory
-/// object" being injected as if authoritative), but its role IS gated (#92 Phase 7): see
+/// Recalled conversation history (<c>RecentMessages</c>/<c>RelevantMessages</c>) is admission-checked per
+/// item too (#92 Phase 8) but still isn't delimited -- this is genuinely recalled transcript, not a
+/// "memory object" being injected as a separate block -- and its role IS gated (#92 Phase 7): see
 /// <c>RecalledMessageRoleGate</c>.
 /// </remarks>
 public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
@@ -131,14 +131,17 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.CompletedTask.ConfigureAwait(false);
-        // #92 Phase 7: message content stays undelimited/unevaluated (disclosed, narrower gap -- see the
-        // class remarks), but a privileged role ("system"/"tool") is demoted unless sufficiently trusted,
-        // matching MemoryContextFormatter.AppendMessages.
+        // #92 Phase 7 demotes a privileged role ("system"/"tool") unless sufficiently trusted, matching
+        // MemoryContextFormatter.AppendMessages. #92 Phase 8 additionally admission-checks message content
+        // (Strict excludes instruction-like content; Permissive, the default, still includes it) but
+        // deliberately stays undelimited -- see the class remarks and MemoryContextFormatter.AppendMessages.
         foreach (var msg in ctx.RecentMessages.Items.Concat(ctx.RelevantMessages.Items))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var trustLevel = msg.Metadata.GetTrustLevel();
+            if (!Admit(msg.Content, trustLevel, security)) continue;
             var effectiveRole = RecalledMessageRoleGate.EffectiveRole(
-                msg.Role, msg.Metadata.GetTrustLevel(), security.MinimumTrustForSystemRole);
+                msg.Role, trustLevel, security.MinimumTrustForSystemRole);
             yield return new TextSearchResult(msg.Content) { Name = effectiveRole };
         }
         foreach (var entity in ctx.RelevantEntities.Items)
