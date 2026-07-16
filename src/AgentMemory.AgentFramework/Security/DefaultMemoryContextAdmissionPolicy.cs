@@ -1,8 +1,11 @@
+using AgentMemory.Core.Security;
+
 namespace AgentMemory.AgentFramework.Security;
 
 /// <summary>
 /// The default <see cref="IMemoryContextAdmissionPolicy"/> (#92 Phase 2): runs
-/// <see cref="InstructionLikeContentDetector"/> against the candidate block's content.
+/// <see cref="InstructionLikeContentDetector"/> (relocated to <c>AgentMemory.Core.Security</c> in Phase 6
+/// so the Semantic Kernel adapter can share it) against the candidate block's content.
 /// <see cref="MemoryContextSecurityMode.Permissive"/> (the default) still includes flagged content --
 /// every admitted block is delimited and escaped regardless (#92 Phase 1) -- while
 /// <see cref="MemoryContextSecurityMode.Strict"/> excludes it entirely. Registered by

@@ -159,7 +159,7 @@ AgentMemory.Abstractions.Options       — configuration records
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
 | **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.5.1, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5, FuzzySharp |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
-| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver |
+| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phase 6) |
 
 #### 3.2.1 Ingestion outcomes (#101)
 
@@ -249,6 +249,60 @@ FullExtractionPipeline_FactReExtractedAtLowerTrust_DoesNotDowngradeExistingHighe
 "Ada works_at Acme" triple is extracted twice — first at `ApplicationTrusted`, then at a lower
 `UserProvided` — and the surviving node (confirmed to be the *same* node, not a duplicate) keeps its
 higher trust level.
+
+#### 3.2.3 Trust boundaries for the Semantic Kernel adapter (#92 Phase 6)
+
+A post-Phase-5 holistic audit of #92 (not a single phase's own self-review, which only ever sees that
+phase's diff — a fresh, whole-subsystem read) found that `AgentMemory.SemanticKernel`'s `Neo4jMemoryPlugin`/
+`MemoryContextFormatter` had **none** of Phases 1-3's protections: every recalled entity/fact/preference/
+GraphRAG block rendered as plain, unescaped Markdown text, with no delimiting, no instruction-like-content
+admission, and no trust-level awareness at all — a completely separate code path from
+`AgentMemory.AgentFramework.Mapping.MafTypeMapper` that no earlier phase had touched.
+
+Phase 6 closes this gap, reusing rather than duplicating Phases 1-3's security-sensitive logic:
+
+- **Relocated, not duplicated:** `InstructionLikeContentDetector` (the regex-based instruction-like-content
+  detector) and a new `RecalledMemoryDelimiter` (extracted from `MafTypeMapper`'s `WrapUntrustedContent`/
+  escaping logic) moved from `AgentMemory.AgentFramework.Security` into `AgentMemory.Core.Security` —
+  both were already adapter-agnostic (pure string-in, bool/string-out, no MAF-specific types), and
+  `AgentMemory.Core`'s `InternalsVisibleTo` already granted both `AgentMemory.AgentFramework` and
+  `AgentMemory.SemanticKernel` visibility into its internals, so no project reference changes were needed.
+  `MafTypeMapper.WrapUntrustedContent` now delegates to the relocated `RecalledMemoryDelimiter`, eliminating
+  the duplicate copy rather than leaving two independent implementations to drift apart. Both were already
+  `internal`, so this is not a public-API change.
+- **`MemoryContextFormatter.FormatRecallResult`** gained an optional `MemoryContextFormatterOptions`
+  parameter (internal — Core cannot reference an adapter's public option types, the wrong dependency
+  direction) with `Strict` (default `false`) and `MinimumTrustForAdmissionBypass` (default
+  `ApplicationTrusted`). Every recalled entity/fact/preference/GraphRAG block is now delimited via
+  `RecalledMemoryDelimiter.Wrap` regardless of mode (matching Phase 1); each item is evaluated by the same
+  `InstructionLikeContentDetector` (Phase 2), with a trust-level bypass (Phase 3) using the already-shared
+  `MemoryTrustLevel`/`GetTrustLevel()` (no relocation needed — always lived in `AgentMemory.Abstractions.Domain`).
+  Delimiting/admission is block-level per category (matching MAF's granularity for the joined-text
+  categories) but item-level for admission — a single flagged fact must not drop unrelated facts rendered
+  in the same category block. Recalled conversation history (`RecentMessages`/`RelevantMessages`) is
+  intentionally NOT delimited or evaluated, matching the Agent Framework adapter's own disclosed scope.
+- **New public surface in `AgentMemory.SemanticKernel`:** `MemoryContextSecurityMode` (`Permissive`/`Strict`
+  — a distinct type from `AgentMemory.AgentFramework.Security.MemoryContextSecurityMode`, since neither
+  adapter references the other and duplicating a two-value enum is far lower risk than relocating an
+  already-public type across a SemVer-locked package boundary) and `MemoryRecallSecurityOptions`
+  (`SecurityMode`, `MinimumTrustForAdmissionBypass`). `Neo4jMemoryPlugin`'s constructor gained an optional
+  trailing `IOptions<MemoryRecallSecurityOptions>?` parameter (additive, matching this project's established
+  pattern for extending existing public constructors); `KernelMemoryExtensions.AddNeo4jMemoryPlugin` gained
+  an optional `configureSecurity` delegate parameter for DI-driven hosts, and an optional
+  `MemoryRecallSecurityOptions?` parameter for the non-DI `Kernel` overload.
+- **Role/authority (Phase 4) does not apply here:** `Neo4jMemoryPlugin.RecallAsync` returns a plain
+  `string` (a Semantic Kernel function result), not a list of `ChatMessage`s with a role — there is no
+  System-vs-User distinction to make for this adapter.
+- Fully additive and behavior-preserving by default: `Strict = false`/`Permissive` reproduces the exact
+  pre-Phase-6 rendered text for non-flagged content (delimiting wraps every block regardless, matching
+  Phase 1's own always-on behavior), so this is a security *hardening*, not a breaking format change,
+  though the delimiter tags themselves are new text that a caller doing exact-string matching against the
+  previous raw output would notice.
+
+Proven with unit tests in both `AgentMemory.Tests.Unit` (`MemoryContextFormatterSecurityTests`, Core-level,
+mirroring `MafTypeMapperTests`' delimiting/escaping/admission/trust-bypass coverage) and
+`AgentMemory.Tests.Unit.SemanticKernel` (`Neo4jMemoryPluginTests`, confirming `MemoryRecallSecurityOptions`
+wiring end-to-end through `RecallAsync`).
 
 ### 3.3 AgentMemory.Neo4j
 

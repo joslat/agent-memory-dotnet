@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using AgentMemory.Abstractions.Services;
 
@@ -14,8 +15,20 @@ public static class KernelMemoryExtensions
     /// and adds it as a named plugin called <c>Neo4jMemory</c>.
     /// <see cref="IMemoryService"/> must already be registered in the service collection.
     /// </summary>
-    public static IKernelBuilder AddNeo4jMemoryPlugin(this IKernelBuilder builder)
+    /// <param name="builder">The kernel builder.</param>
+    /// <param name="configureSecurity">
+    /// Optional configuration for <see cref="MemoryRecallSecurityOptions"/> (#92 Phase 6) -- the
+    /// instruction-like-content admission mode and trust-bypass threshold applied to the <c>recall</c>
+    /// function's output. Omit to use the defaults (<see cref="MemoryContextSecurityMode.Permissive"/>).
+    /// </param>
+    public static IKernelBuilder AddNeo4jMemoryPlugin(
+        this IKernelBuilder builder, Action<MemoryRecallSecurityOptions>? configureSecurity = null)
     {
+        if (configureSecurity is not null)
+            builder.Services.AddOptions<MemoryRecallSecurityOptions>().Configure(configureSecurity);
+        else
+            builder.Services.AddOptions<MemoryRecallSecurityOptions>();
+
         builder.Services.AddTransient<Neo4jMemoryPlugin>();
         builder.Plugins.AddFromType<Neo4jMemoryPlugin>("Neo4jMemory");
         return builder;
@@ -25,9 +38,10 @@ public static class KernelMemoryExtensions
     /// Adds a <see cref="Neo4jMemoryPlugin"/> to an already-built <see cref="Kernel"/>.
     /// Useful when constructing the kernel outside of a DI-driven pipeline.
     /// </summary>
-    public static Kernel AddNeo4jMemoryPlugin(this Kernel kernel, IMemoryService memoryService)
+    public static Kernel AddNeo4jMemoryPlugin(
+        this Kernel kernel, IMemoryService memoryService, MemoryRecallSecurityOptions? securityOptions = null)
     {
-        var plugin = new Neo4jMemoryPlugin(memoryService);
+        var plugin = new Neo4jMemoryPlugin(memoryService, securityOptions: Options.Create(securityOptions ?? new MemoryRecallSecurityOptions()));
         kernel.Plugins.AddFromObject(plugin, "Neo4jMemory");
         return kernel;
     }
