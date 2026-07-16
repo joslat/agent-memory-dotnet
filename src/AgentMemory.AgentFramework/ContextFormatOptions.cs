@@ -1,3 +1,5 @@
+using AgentMemory.AgentFramework.Security;
+
 namespace AgentMemory.AgentFramework;
 
 /// <summary>
@@ -71,4 +73,13 @@ public sealed class ContextFormatOptions
         get => MaxChatHistoryMessages;
         set => MaxChatHistoryMessages = value;
     }
+
+    /// <summary>
+    /// Governs how <see cref="IMemoryContextAdmissionPolicy"/> treats recalled memory content flagged as
+    /// instruction-like (#92 Phase 2). Defaults to <see cref="MemoryContextSecurityMode.Permissive"/>: such
+    /// content is still included -- every admitted block is delimited/escaped regardless (#92 Phase 1) --
+    /// but flagged for observability. Set to <see cref="MemoryContextSecurityMode.Strict"/> to exclude it
+    /// entirely instead.
+    /// </summary>
+    public MemoryContextSecurityMode SecurityMode { get; set; } = MemoryContextSecurityMode.Permissive;
 }

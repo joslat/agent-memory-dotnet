@@ -41,6 +41,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the effective `MaxGraphRagItems<=0`, since that combination would otherwise silently return a completely
   empty context every turn. Fully additive and behavior-preserving by default.
 
+- **Memory-context admission policy: Phase 2 of trust boundaries and prompt-injection defenses (#92).**
+  Building on Phase 1's delimiting (#108), `IMemoryContextAdmissionPolicy` (`AgentMemory.AgentFramework.Security`)
+  evaluates each recalled-memory ITEM (not category block — see below) across entities, facts, preferences,
+  reasoning traces, and GraphRAG, before it's added to the model context. `DefaultMemoryContextAdmissionPolicy`
+  runs a lightweight, deterministic `InstructionLikeContentDetector` (a fixed alternation of unambiguous
+  phrasings, non-capturing groups, no repeating-group nesting — avoiding the catastrophic-backtracking
+  pitfall found in #88's heuristic policy). The new `ContextFormatOptions.SecurityMode` controls the
+  outcome: `Permissive` (default) still includes flagged content — every admitted item is delimited/escaped
+  regardless, and is now also logged at Debug level for observability — since detection is necessarily
+  heuristic and a false positive must never silently discard genuine stored information; `Strict` excludes
+  flagged items entirely, logging the category and reason at Warning (never the content). Evaluation is
+  per-item rather than per-block specifically so one flagged fact/entity/preference/trace can't silently
+  drop every other, unrelated item joined into the same rendered category. Fully additive; default
+  behavior is unchanged. Issue #92 remains open — trust metadata, provenance-through-extraction,
+  configurable message roles, and observed/inferred/verified knowledge distinctions are future phases.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added

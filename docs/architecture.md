@@ -210,7 +210,7 @@ in the API claims otherwise.
 | **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
 | **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
 | **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
-| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations |
+| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2) and its `DefaultMemoryContextAdmissionPolicy` implementation |
 | **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
 
 **Key Patterns:**
@@ -227,6 +227,7 @@ in the API claims otherwise.
    - `find_similar_tasks` — retrieve similar prior executions
 5. **Trace Capture** — `AgentTraceRecorder` records agent reasoning steps and tool calls to Neo4j for future analysis
 6. **Task-aware Automatic Recall (#88)** — `IAutomaticRecallPolicy.DecideAsync` runs inside `BuildContextAsync`, before the `RecallRequest` is built, and decides whether to recall at all, which memory categories to query, and which ranking intent to use — see §3.4.1.1
+7. **Memory-context Admission Policy (#92 Phase 2)** — `IMemoryContextAdmissionPolicy.Evaluate` runs inside `MafTypeMapper.ToContextMessages` for each candidate recalled-memory block, deciding whether to admit or exclude it based on a lightweight instruction-like-content detector — see §3.4.1.2
 
 **Namespace structure:**
 ```
@@ -235,6 +236,7 @@ AgentMemory.AgentFramework.Tools            — memory tool definitions and fact
 AgentMemory.AgentFramework.Mapping          — MAF type mapping
 AgentMemory.AgentFramework.Tracing          — reasoning trace recording
 AgentMemory.AgentFramework.Recall           — task-aware automatic recall policy (#88)
+AgentMemory.AgentFramework.Security         — memory-context admission policy (#92 Phase 2)
 ```
 
 #### 3.4.1.1 Task-aware automatic recall policy (#88)
@@ -278,6 +280,50 @@ decision pluggable, running deterministically inside `BuildContextAsync` before 
 - The decision is logged at Debug level (policy type, `ShouldRecall`, `Categories`, `Intent`) for
   observability. Automatic recall complements, and never replaces, the model-invokable memory tools
   (`Tools.MemoryToolFactory`).
+
+#### 3.4.1.2 Trust boundaries: memory-context admission policy (#92 Phase 2)
+
+Issue #92 is a large, explicitly multi-phase epic (full trust taxonomy, provenance-through-extraction,
+configurable message roles, observed/inferred/verified knowledge distinctions). **Phase 1** (#108, merged)
+made every recalled block delimited and escaped (`<recalled_memory category="...">...</recalled_memory>`,
+angle brackets escaped so content can't forge or close its own boundary) and framed the default
+`ContextFormatOptions.ContextPrefix` as an explicit untrusted-reference-data instruction. **Phase 2** (this
+slice) adds an admission-policy layer on top of that delimiting, still without the full trust-metadata
+model (deferred to a future phase):
+
+- `IMemoryContextAdmissionPolicy.Evaluate(MemoryAdmissionContext)` (`AgentMemory.AgentFramework.Security`)
+  runs inside `MafTypeMapper.ToContextMessages`, once per candidate recalled-memory ITEM within each of the
+  five categories Phase 1 delimited (entities, facts, preferences, reasoning traces, GraphRAG), before that
+  item contributes to the category's rendered block. Deliberately per-item, not per-block: entities/facts/
+  preferences/traces each join several independent items into one string, and evaluating the whole joined
+  string would mean one flagged item (a false positive, or a genuinely planted one) silently drops every
+  other, unrelated, legitimate item alongside it. GraphRAG is the one exception -- it arrives as a single
+  opaque string, not a list of items, so it is unavoidably evaluated as one block. Deliberately synchronous:
+  the built-in check is pure, CPU-bound pattern matching, no I/O.
+- `DefaultMemoryContextAdmissionPolicy` (the default, registered by `AddAgentMemoryFramework`) runs
+  `InstructionLikeContentDetector` — a lightweight, deterministic regex over a fixed set of unambiguous
+  phrasings ("ignore previous instructions", "reveal all secrets", "call this tool", etc.; a plain
+  alternation of fixed phrases, deliberately NOT a repeating group with nested quantifiers, per the
+  catastrophic-backtracking lesson learned building a similar detector for #88's `HeuristicAutomaticRecallPolicy`).
+  This is explicitly not a complete prompt-injection detector (see issue #92's non-goals) — applications
+  wanting stronger detection implement their own `IMemoryContextAdmissionPolicy`.
+- `ContextFormatOptions.SecurityMode` (`MemoryContextSecurityMode`) governs the outcome when an item is
+  flagged: `Permissive` (the default) still includes it — every admitted item is delimited/escaped
+  regardless (#92 Phase 1) — because detection is necessarily heuristic and a false positive must never
+  silently discard genuine stored information (issue #92's own deployment-runbook example: content that
+  merely *resembles* an instruction while being useful must not be dropped). `Strict` excludes flagged
+  items entirely instead, for hosts willing to accept that tradeoff.
+- A flagged-but-included item (Permissive) is logged at Debug level; a `Strict`-mode exclusion is logged at
+  Warning level. Both log only the category and (for exclusions) the reason — never the content itself.
+- **Not covered by Phase 2** (still open, part of #92's larger scope): trust metadata (`MemoryTrustLevel`,
+  provenance-through-extraction), configurable message role, observed/inferred/verified knowledge
+  distinctions, admission/trust telemetry beyond logs, non-tag-based injection techniques beyond the fixed
+  detector phrase list, and recalled conversation history (`RelevantMessages`/`RecentMessages`, including
+  the separate recall path in `Neo4jChatHistoryProvider`) — which, like Phase 1, keeps its
+  originally-persisted role rather than being re-injected as an unrestricted system message, and is
+  therefore not run through the admission policy. The threat this issue addresses is specifically content
+  gaining ELEVATED, unwarranted authority by being promoted to `ChatRole.System`; replaying a message under
+  its own original role does not do that.
 
 #### 3.4.2 GraphRAG Retrieval — built into AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
 
