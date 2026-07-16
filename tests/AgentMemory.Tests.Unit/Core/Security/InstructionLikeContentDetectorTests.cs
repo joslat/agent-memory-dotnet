@@ -1,7 +1,7 @@
 using FluentAssertions;
-using AgentMemory.AgentFramework.Security;
+using AgentMemory.Core.Security;
 
-namespace AgentMemory.Tests.Unit.AgentFramework.Security;
+namespace AgentMemory.Tests.Unit.Core.Security;
 
 public sealed class InstructionLikeContentDetectorTests
 {

@@ -224,19 +224,12 @@ internal static class MafTypeMapper
     /// "ignore previous instructions", role-header conventions, code fences); the prefix instruction, not
     /// this delimiter, is what asks the model to disregard those. It also does not apply to recalled
     /// conversation history (<c>RelevantMessages</c>), which keeps its originally-persisted role — both
-    /// are disclosed, explicit follow-up scope for #92, not silently dropped.
+    /// are disclosed, explicit follow-up scope for #92, not silently dropped. Delegates to
+    /// <c>AgentMemory.Core.Security.RecalledMemoryDelimiter</c> (relocated there in #92 Phase 6 so the
+    /// Semantic Kernel adapter can share the same delimiting/escaping logic).
     /// </summary>
     internal static string WrapUntrustedContent(string category, string content) =>
-        $"""<recalled_memory category="{category}">{EscapeForDelimiter(content)}</recalled_memory>""";
-
-    /// <summary>
-    /// Escapes every angle bracket in untrusted content so it cannot contain a literal
-    /// <c>&lt;recalled_memory&gt;</c>/<c>&lt;/recalled_memory&gt;</c> (or any other tag) — content can
-    /// therefore never prematurely close its own boundary or forge a nested one, the same principle as
-    /// HTML-encoding user content before embedding it in markup.
-    /// </summary>
-    private static string EscapeForDelimiter(string content) =>
-        content.Replace("<", "&lt;").Replace(">", "&gt;");
+        AgentMemory.Core.Security.RecalledMemoryDelimiter.Wrap(category, content);
 
     internal static string ToInternalRole(ChatRole role)
     {
