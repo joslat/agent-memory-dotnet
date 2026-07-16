@@ -192,6 +192,64 @@ Item-level transactionality (e.g. a fact and its provenance edges committing ato
 explicit non-goal of #101 — Neo4j write ordering here is still best-effort, not atomic, and nothing
 in the API claims otherwise.
 
+#### 3.2.2 Monotonic trust for facts on re-extraction (#92 Phase 5)
+
+Phase 3 made entity trust monotonic (re-resolving onto an already-`ApplicationTrusted` entity never
+silently downgrades it) but explicitly deferred the same protection for facts and preferences, since
+neither has an equivalent pre-fetch step: entity resolution hands `PersistenceStage` the existing,
+previously-persisted record for free when it resolves a mention onto a known entity, but facts and
+preferences flow straight from extraction into `PersistenceStage` with no such lookup.
+
+Phase 5 closes this gap **for facts only**: `Neo4jFactRepository.UpsertAsync` MERGEs on the exact
+`{subject, predicate, object, owner}` triple, and its Cypher `ON MATCH SET` unconditionally overwrites
+`metadata` — so re-extracting the identical triple at a lower trust level (e.g. an ordinary later chat
+turn re-stating a fact originally imported at `ApplicationTrusted`) would otherwise silently erase the
+earlier elevation. `PersistenceStage` now pre-fetches any existing fact with the same triple via
+`IFactRepository.FindByTripleAsync` before persisting, and takes the higher of the existing fact's trust
+level and the current call's — the same `MaxTrustLevel` logic Phase 3 already established for entities,
+preserving any other pre-existing `Metadata` keys along the way.
+
+**Deliberately scoped to owner-scoped facts only, and deliberately excludes shared facts from the
+pre-fetch itself.** `FindByTripleAsync`'s `MemoryScope?` parameter follows the read/recall convention
+where an owner-less lookup means "search across every owner" — the opposite of what a `null` `ownerId`
+means on the write side (the shared/global bucket). Pre-fetching with an owner-less scope for a
+shared/global fact would risk adopting a *different* owner's trust level into a shared fact — a
+cross-tenant leak. Unlike `FindDuplicateAsync` (whose raw `ownerId` parameter is documented as "null →
+shared bucket only"), no existing repository primitive supports a safe shared-bucket-only lookup, so the
+pre-fetch is skipped entirely when `ownerId` is null-or-empty (`string.IsNullOrEmpty`, matching
+`DefaultMemoryIsolationPolicy`'s own null/empty treatment — an early version checked `ownerId is null`
+only, missing the empty-string case); shared/global facts keep today's fresh-stamp behavior. This is a
+disclosed, narrower-than-ideal limitation, not a silent gap.
+
+For owner-scoped facts, the pre-fetch also passes `includeShared: false` — the opposite of
+`MemoryScope.For`'s own default. The default (include shared) is right for reads (surface everything the
+caller may see), but wrong here: `FindByTriple`'s Cypher has no `ORDER BY` before its `LIMIT 1`, so with
+the default, a shared fact and this owner's own fact could both match the same triple and which one comes
+back is unspecified — silently grafting an *unrelated* shared record's entire `Metadata` (not just its
+trust level) onto this owner's fact. Excluding shared facts from the pre-fetch confines it to "does this
+owner already have their own copy of this exact fact," which is the only question this fix needs to ask.
+
+`FindByTripleAsync` also matches case-insensitively, while `Upsert`'s Cypher `MERGE` key is an
+exact-string match. If a match is found, the fact actually persisted reuses the **existing** record's
+`Subject`/`Predicate`/`Object` (not the freshly-extracted casing) — otherwise a same-triple,
+different-casing re-extraction would `MERGE` onto a *different* node than the one just found, creating an
+unwanted duplicate that also inherits the found record's trust level instead of updating it in place.
+
+**Preferences are unaffected by this specific issue and don't need the same fix.** Unlike facts,
+`Neo4jPreferenceRepository`'s MERGE key is the freshly-generated `PreferenceId` (`MERGE (p:Preference
+{id: $id})`), not a natural key — so `PersistenceStage`'s extraction-time upsert never collides with an
+existing preference node in the first place; every extracted preference becomes a genuinely new node.
+The only path that reinforces an *existing* preference (`LongTermMemoryService`'s vector-similarity
+dedup-on-create, via `MarkDeduplicatedAsync`) only touches `confidence`, never `metadata` — so it carries
+no trust-downgrade risk either. (An earlier, less precise description of this limitation grouped facts
+and preferences together; this section supersedes it.)
+
+Proven live-Neo4j, not just at the mocked-repository unit level (`ExtractionOwnerStampIntegrationTests.
+FullExtractionPipeline_FactReExtractedAtLowerTrust_DoesNotDowngradeExistingHigherTrust`): the same
+"Ada works_at Acme" triple is extracted twice — first at `ApplicationTrusted`, then at a lower
+`UserProvided` — and the surviving node (confirmed to be the *same* node, not a duplicate) keeps its
+higher trust level.
+
 ### 3.3 AgentMemory.Neo4j
 
 | Attribute | Value |
@@ -356,13 +414,11 @@ speculative field in `Metadata` until its shape proves stable — see the backlo
   resolved match for a brand-new, unrelated mention. `PersistenceStage` takes the higher of the entity's
   existing trust level and the current call's, so an unrelated later low-trust mention can never silently
   erase an earlier, deliberate elevation (e.g. from a curated `ApplicationTrusted` import). **Known,
-  disclosed limitation:** the same protection does not yet extend to facts/preferences — those persist via
-  an unconditional `MERGE ... ON MATCH SET metadata = $metadata` (the same overwrite-on-re-extraction
-  semantics every other field on `Fact`/`Preference`, e.g. `Confidence`, already has), so a fact/preference
-  re-derived by a lower-trust extraction after being persisted at a higher trust level will have its trust
-  level (and every other metadata key) overwritten. Preserving it would need `PersistenceStage` to fetch the
-  existing fact/preference before upserting (entities get this for free via resolution; facts/preferences
-  don't have an equivalent pre-fetch step today) — deferred to a future phase.
+  disclosed limitation at the time of Phase 3:** the same protection did not yet extend to facts/preferences.
+  **Superseded by Phase 5** (§3.2.2): facts now get the same monotonic protection, scoped to owner-scoped
+  facts (shared/global facts remain a disclosed gap, for a different, cross-tenant-safety reason — see
+  §3.2.2). Preferences turned out not to need it: their extraction-time MERGE key is a fresh id, not a
+  natural key, so they never collide on re-extraction in the first place.
 - **Security: `trust_level` is a framework-reserved metadata key.** Because trust level lives in the same
   `Metadata` dictionary a caller can already populate through pre-existing, unrelated write paths — the
   `memory_add_fact` MCP tool's `metadataJson` parameter, and the public `IReasoningMemoryService.StartTraceAsync`

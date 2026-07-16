@@ -645,6 +645,187 @@ public sealed class PersistenceStageTests
             Arg.Any<CancellationToken>());
     }
 
+    // ── #92 Phase 5: monotonic trust for facts on exact-triple re-extraction ─
+
+    [Fact]
+    public async Task PersistAsync_Fact_ExistingSameTripleAlreadyTrusted_DoesNotDowngradeTrust()
+    {
+        // Trust is monotonic for facts too (#92 Phase 5), mirroring entities (Phase 3): the repository's
+        // Upsert MERGEs on the exact {subject,predicate,object,owner} triple and ON MATCH unconditionally
+        // overwrites metadata, so PersistenceStage now pre-fetches any existing fact with the same triple
+        // and never lets a later, ordinary, lower-trust re-extraction erase an earlier deliberate elevation.
+        var alreadyTrustedFact = new Fact
+        {
+            FactId = "f-existing", Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.ApplicationTrusted)
+        };
+        _factRepo.FindByTripleAsync("user", "lives in", "Zurich", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(alreadyTrustedFact);
+
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        // ownerId set: the pre-fetch only runs for owner-scoped facts (see the disclosed limitation in
+        // PersistenceStage.cs -- an owner-less lookup would risk a cross-tenant read).
+        await sut.PersistAsync(extraction, ownerId: "alice", trustLevel: MemoryTrustLevel.UserProvided); // an ordinary later mention
+
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.ApplicationTrusted),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_ExistingSameTripleLowerTrust_UpgradesToTheNewHigherTrust()
+    {
+        var previouslyUntrustedFact = new Fact
+        {
+            FactId = "f-existing", Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.UserProvided)
+        };
+        _factRepo.FindByTripleAsync("user", "lives in", "Zurich", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(previouslyUntrustedFact);
+
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, ownerId: "alice", trustLevel: MemoryTrustLevel.ApplicationTrusted);
+
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.ApplicationTrusted),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_ExistingSameTriple_OtherMetadataKeysArePreserved()
+    {
+        var existingFact = new Fact
+        {
+            FactId = "f-existing", Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object> { ["custom_key"] = "custom_value" }
+        };
+        _factRepo.FindByTripleAsync("user", "lives in", "Zurich", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(existingFact);
+
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, ownerId: "alice", trustLevel: MemoryTrustLevel.VerifiedExternal);
+
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f =>
+                f.Metadata.GetTrustLevel() == MemoryTrustLevel.VerifiedExternal &&
+                f.Metadata.ContainsKey("custom_key") && (string)f.Metadata["custom_key"] == "custom_value"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_NoExistingTripleFound_LooksUpByTheExtractedTripleAndOwnerScope_ExcludingShared()
+    {
+        // Wiring check: the pre-fetch must query by the extracted triple, scoped to the same owner the
+        // fact is about to be persisted under -- otherwise it could leak another owner's trust level or
+        // never find same-owner history at all. IncludeShared must be false: without it, a shared/global
+        // fact sharing the same triple could be returned instead of (or nondeterministically alongside)
+        // this owner's own record, grafting an unrelated record's entire metadata onto this owner's fact.
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "Ada", Predicate = "works_at", Object = "Acme", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, ownerId: "alice", trustLevel: MemoryTrustLevel.UserProvided);
+
+        await _factRepo.Received(1).FindByTripleAsync(
+            "Ada", "works_at", "Acme",
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice" && s.IncludeShared == false),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_SharedGlobalFact_SkipsThePreFetch_DisclosedLimitation()
+    {
+        // Disclosed limitation: FindByTripleAsync's MemoryScope? parameter treats an owner-less lookup as
+        // "search across every owner" (the read/recall convention), not "shared bucket only" (the write
+        // convention for a null ownerId) -- so pre-fetching for a shared/global fact would risk adopting
+        // another owner's trust level. Shared/global facts therefore don't get monotonic-trust protection
+        // yet; they keep today's fresh-stamp behavior, and the lookup must not be attempted at all.
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, ownerId: null, trustLevel: MemoryTrustLevel.UserProvided);
+
+        await _factRepo.DidNotReceive().FindByTripleAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.UserProvided),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_EmptyStringOwnerId_AlsoSkipsThePreFetch_LikeNullOwnerId()
+    {
+        // Regression: an earlier version of this guard checked `ownerId is null` only. The rest of this
+        // codebase treats an empty-string owner id the same as null (e.g. DefaultMemoryIsolationPolicy),
+        // and ExtractionRequest.UserId is an unvalidated string? -- an empty string reaching this far must
+        // not slip past the guard and trigger an unscoped (MemoryScope.For("").HasOwnerFilter == false)
+        // cross-tenant lookup.
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, ownerId: "", trustLevel: MemoryTrustLevel.UserProvided);
+
+        await _factRepo.DidNotReceive().FindByTripleAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_ExistingRecordHasDifferentCasing_PersistsUnderTheExistingCasing_NotADuplicate()
+    {
+        // Regression: FindByTripleAsync matches case-insensitively, but Upsert's Cypher MERGE key is an
+        // exact-string match. If the newly-extracted casing were used to build the Fact to persist, the
+        // MERGE would target a DIFFERENT node than the one just found -- creating a same-triple,
+        // different-casing duplicate that also inherits the found record's (higher) trust level instead of
+        // updating it in place. Persisting under the EXISTING record's casing keeps the MERGE on one node.
+        var existingFact = new Fact
+        {
+            FactId = "f-existing", Subject = "Ada", Predicate = "works_at", Object = "Acme", Confidence = 0.9,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.ApplicationTrusted)
+        };
+        _factRepo.FindByTripleAsync("ada", "WORKS_AT", "acme", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(existingFact);
+
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "ada", Predicate = "WORKS_AT", Object = "acme", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, ownerId: "alice", trustLevel: MemoryTrustLevel.UserProvided);
+
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f => f.Subject == "Ada" && f.Predicate == "works_at" && f.Object == "Acme"
+                && f.Metadata.GetTrustLevel() == MemoryTrustLevel.ApplicationTrusted),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── #101: structured ingestion outcomes ─────────────────────────────────
 
     [Fact]
