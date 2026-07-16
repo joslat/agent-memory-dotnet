@@ -158,10 +158,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SemVer-locked package boundary) and `MemoryRecallSecurityOptions`, wired into `Neo4jMemoryPlugin`'s
   constructor and `KernelMemoryExtensions.AddNeo4jMemoryPlugin` (both via additive, optional parameters).
   Role/authority (Phase 4) does not apply here — `RecallAsync` returns a plain string, not `ChatMessage`s
-  with a role. Fully additive: `Permissive` (the default) reproduces the same rendered content, just now
-  delimited. Issue #92 remains open — per-item (not per-request) trust attribution, monotonic trust for
-  shared/global facts, `ReasoningTrace` trust stamping, observed/inferred/verified knowledge distinctions,
-  and richer telemetry are future phases.
+  with a role. Every recalled block is now wrapped in a `<recalled_memory category="...">` tag regardless
+  of mode — a real, disclosed output-format change (new text that wasn't there before), even though
+  non-flagged content's substance is otherwise unchanged by default. **A second recall-to-text surface
+  found during self-review, after the initial fix:** `Neo4jTextSearch`'s `GetTextSearchResultsAsync`/
+  `GetSearchResultsAsync` built `TextSearchResult`s directly from raw text, entirely bypassing
+  `MemoryContextFormatter` — only the sibling `SearchAsync` inherited protection for free. Fixed with the
+  same per-item delimiting/admission, reusing a new shared `RecalledMemoryAdmission.ShouldAdmit` helper
+  (also `AgentMemory.Core.Security`) instead of a third copy of the same decision logic;
+  `Neo4jTextSearch`'s constructor and `KernelMemoryExtensions.AddNeo4jTextSearch` both gained the same kind
+  of optional `MemoryRecallSecurityOptions` parameter. `MemoryContextFormatter`'s three near-identical
+  `AppendEntities`/`AppendFacts`/`AppendPreferences` methods were also collapsed into one generic
+  `AppendCategory<T>` helper, matching `MafTypeMapper`'s existing `CategoryMessages<T>` pattern. Issue #92
+  remains open — per-item (not per-request) trust attribution, monotonic trust for shared/global facts,
+  `ReasoningTrace` trust stamping, observed/inferred/verified knowledge distinctions, and richer telemetry
+  are future phases.
 
 ## [1.2.0] - 2026-07-15
 

@@ -293,16 +293,33 @@ Phase 6 closes this gap, reusing rather than duplicating Phases 1-3's security-s
 - **Role/authority (Phase 4) does not apply here:** `Neo4jMemoryPlugin.RecallAsync` returns a plain
   `string` (a Semantic Kernel function result), not a list of `ChatMessage`s with a role — there is no
   System-vs-User distinction to make for this adapter.
-- Fully additive and behavior-preserving by default: `Strict = false`/`Permissive` reproduces the exact
-  pre-Phase-6 rendered text for non-flagged content (delimiting wraps every block regardless, matching
-  Phase 1's own always-on behavior), so this is a security *hardening*, not a breaking format change,
-  though the delimiter tags themselves are new text that a caller doing exact-string matching against the
-  previous raw output would notice.
+- **Not a byte-for-byte-unchanged, purely internal hardening: the rendered output format itself changes.**
+  Every recalled entity/fact/preference/GraphRAG block is now wrapped in a `<recalled_memory category="...">`
+  tag, in both `Neo4jMemoryPlugin.RecallAsync`'s output and `Neo4jTextSearch`'s per-item results, regardless
+  of `SecurityMode`/`Strict` — this is new text that wasn't there before, not merely a possible exclusion of
+  flagged content. Non-flagged content's *substance* is unchanged (nothing is dropped or reworded by
+  default), but any caller doing exact-string matching or naive prefix/suffix parsing against the previous
+  raw output will see a difference and should switch to substring matching, same as this phase's own test
+  updates (`Neo4jTextSearchTests`'s preference assertion moved from `.Be(...)` to `.Contain(...)`).
+- **A second, initially-missed recall-to-text surface in the same package:** a self-review pass (after the
+  initial fix) found that `Neo4jTextSearch`'s `GetTextSearchResultsAsync`/`GetSearchResultsAsync` build
+  `TextSearchResult`s directly from raw entity/fact/preference text, entirely bypassing
+  `MemoryContextFormatter` — only the sibling `SearchAsync` (which already calls `FormatRecallResult`)
+  inherited protection for free. Fixed by applying the same per-item delimiting and admission directly in
+  `Neo4jTextSearch.BuildTextSearchResults`, reusing a new shared `RecalledMemoryAdmission.ShouldAdmit`
+  boolean-decision helper (also in `AgentMemory.Core.Security`) rather than a third copy of the
+  bypass/detector/Strict-branch sequence; `Neo4jTextSearch`'s constructor and
+  `KernelMemoryExtensions.AddNeo4jTextSearch` both gained the same kind of optional `MemoryRecallSecurityOptions`
+  parameter `Neo4jMemoryPlugin`/`AddNeo4jMemoryPlugin` already had. `MemoryContextFormatter`'s own
+  `AppendEntities`/`AppendFacts`/`AppendPreferences` were also collapsed into one generic `AppendCategory<T>`
+  helper during the same pass, matching `MafTypeMapper`'s existing `CategoryMessages<T>` pattern, since the
+  three methods had become near-identical copies of the same admit-then-wrap sequence.
 
 Proven with unit tests in both `AgentMemory.Tests.Unit` (`MemoryContextFormatterSecurityTests`, Core-level,
 mirroring `MafTypeMapperTests`' delimiting/escaping/admission/trust-bypass coverage) and
 `AgentMemory.Tests.Unit.SemanticKernel` (`Neo4jMemoryPluginTests`, confirming `MemoryRecallSecurityOptions`
-wiring end-to-end through `RecallAsync`).
+wiring end-to-end through `RecallAsync`; `Neo4jTextSearchTests`, the same coverage for
+`GetTextSearchResultsAsync`/`GetSearchResultsAsync`).
 
 ### 3.3 AgentMemory.Neo4j
 

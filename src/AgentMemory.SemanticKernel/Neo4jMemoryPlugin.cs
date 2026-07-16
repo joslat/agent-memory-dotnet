@@ -17,7 +17,7 @@ public sealed class Neo4jMemoryPlugin
 {
     private readonly IMemoryService _memoryService;
     private readonly ILogger<Neo4jMemoryPlugin> _logger;
-    private readonly MemoryRecallSecurityOptions _security;
+    private readonly MemoryContextFormatterOptions _formatterOptions;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jMemoryPlugin"/>.</summary>
     public Neo4jMemoryPlugin(
@@ -28,7 +28,13 @@ public sealed class Neo4jMemoryPlugin
         ArgumentNullException.ThrowIfNull(memoryService);
         _memoryService = memoryService;
         _logger = logger ?? NullLogger<Neo4jMemoryPlugin>.Instance;
-        _security = securityOptions?.Value ?? new MemoryRecallSecurityOptions();
+
+        var security = securityOptions?.Value ?? new MemoryRecallSecurityOptions();
+        _formatterOptions = new MemoryContextFormatterOptions
+        {
+            Strict = security.SecurityMode == MemoryContextSecurityMode.Strict,
+            MinimumTrustForAdmissionBypass = security.MinimumTrustForAdmissionBypass
+        };
     }
 
     /// <summary>Recalls relevant memory context for the given query and session.</summary>
@@ -55,12 +61,7 @@ public sealed class Neo4jMemoryPlugin
             _logger.LogWarning(ex, "recall failed for session {SessionId}; returning empty context", sessionId);
             return string.Empty;
         }
-        var formatterOptions = new MemoryContextFormatterOptions
-        {
-            Strict = _security.SecurityMode == MemoryContextSecurityMode.Strict,
-            MinimumTrustForAdmissionBypass = _security.MinimumTrustForAdmissionBypass
-        };
-        return MemoryContextFormatter.FormatRecallResult(result, formatterOptions, _logger);
+        return MemoryContextFormatter.FormatRecallResult(result, _formatterOptions, _logger);
     }
 
     /// <summary>Adds a single message to short-term memory.</summary>

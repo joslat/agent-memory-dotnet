@@ -42,9 +42,15 @@ internal static class MemoryContextFormatter
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages);
-        AppendEntities(sb, ctx.RelevantEntities, opts, logger);
-        AppendFacts(sb, ctx.RelevantFacts, opts, logger);
-        AppendPreferences(sb, ctx.RelevantPreferences, opts, logger);
+        AppendCategory(sb, "entities", "### Known Entities", ctx.RelevantEntities.Items,
+            e => string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}",
+            e => e.Metadata.GetTrustLevel(), opts, logger);
+        AppendCategory(sb, "facts", "### Known Facts", ctx.RelevantFacts.Items,
+            f => $"- {f.Subject} {f.Predicate} {f.Object}",
+            f => f.Metadata.GetTrustLevel(), opts, logger);
+        AppendCategory(sb, "preferences", "### User Preferences", ctx.RelevantPreferences.Items,
+            p => $"- [{p.Category}] {p.PreferenceText}",
+            p => p.Metadata.GetTrustLevel(), opts, logger);
         if (!graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         return sb.ToString().TrimEnd();
     }
@@ -56,6 +62,11 @@ internal static class MemoryContextFormatter
     private static bool Admit(string category, string content, MemoryTrustLevel trustLevel,
         MemoryContextFormatterOptions opts, ILogger? logger)
     {
+        // Not delegated to the shared RecalledMemoryAdmission.ShouldAdmit (used by Neo4jTextSearch, which
+        // has no logger to plumb through): this call site additionally distinguishes "admitted outright"
+        // from "flagged but included under Permissive" for observability, which the shared boolean-only
+        // decision doesn't expose -- re-deriving that distinction here would mean evaluating the same
+        // checks twice, so this keeps its own self-contained sequence instead.
         if (trustLevel >= opts.MinimumTrustForAdmissionBypass) return true;
 
         if (!InstructionLikeContentDetector.IsMatch(content)) return true;
@@ -92,55 +103,26 @@ internal static class MemoryContextFormatter
         sb.AppendLine();
     }
 
-    private static void AppendEntities(
-        StringBuilder sb, MemoryContextSection<Entity> section, MemoryContextFormatterOptions opts, ILogger? logger)
+    // Renders a list-shaped category's (entities/facts/preferences) admitted items into one delimited,
+    // heading-prefixed block -- mirroring AgentMemory.AgentFramework.Mapping.MafTypeMapper's generic
+    // CategoryMessages<T> helper for the same three categories, instead of three near-identical
+    // hand-written loops that could silently drift apart.
+    private static void AppendCategory<T>(
+        StringBuilder sb, string category, string heading, IReadOnlyList<T> items,
+        Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel,
+        MemoryContextFormatterOptions opts, ILogger? logger)
     {
-        if (section.Items.Count == 0) return;
+        if (items.Count == 0) return;
         var lines = new List<string>();
-        foreach (var entity in section.Items)
+        foreach (var item in items)
         {
-            var desc = string.IsNullOrWhiteSpace(entity.Description) ? string.Empty : $" — {entity.Description}";
-            var line = $"- {entity.Name} ({entity.Type}){desc}";
-            if (Admit("entities", line, entity.Metadata.GetTrustLevel(), opts, logger))
+            var line = describe(item);
+            if (Admit(category, line, getTrustLevel(item), opts, logger))
                 lines.Add(line);
         }
         if (lines.Count == 0) return;
-        sb.AppendLine("### Known Entities");
-        sb.AppendLine(RecalledMemoryDelimiter.Wrap("entities", string.Join("\n", lines)));
-        sb.AppendLine();
-    }
-
-    private static void AppendFacts(
-        StringBuilder sb, MemoryContextSection<Fact> section, MemoryContextFormatterOptions opts, ILogger? logger)
-    {
-        if (section.Items.Count == 0) return;
-        var lines = new List<string>();
-        foreach (var fact in section.Items)
-        {
-            var line = $"- {fact.Subject} {fact.Predicate} {fact.Object}";
-            if (Admit("facts", line, fact.Metadata.GetTrustLevel(), opts, logger))
-                lines.Add(line);
-        }
-        if (lines.Count == 0) return;
-        sb.AppendLine("### Known Facts");
-        sb.AppendLine(RecalledMemoryDelimiter.Wrap("facts", string.Join("\n", lines)));
-        sb.AppendLine();
-    }
-
-    private static void AppendPreferences(
-        StringBuilder sb, MemoryContextSection<Preference> section, MemoryContextFormatterOptions opts, ILogger? logger)
-    {
-        if (section.Items.Count == 0) return;
-        var lines = new List<string>();
-        foreach (var pref in section.Items)
-        {
-            var line = $"- [{pref.Category}] {pref.PreferenceText}";
-            if (Admit("preferences", line, pref.Metadata.GetTrustLevel(), opts, logger))
-                lines.Add(line);
-        }
-        if (lines.Count == 0) return;
-        sb.AppendLine("### User Preferences");
-        sb.AppendLine(RecalledMemoryDelimiter.Wrap("preferences", string.Join("\n", lines)));
+        sb.AppendLine(heading);
+        sb.AppendLine(RecalledMemoryDelimiter.Wrap(category, string.Join("\n", lines)));
         sb.AppendLine();
     }
 }
