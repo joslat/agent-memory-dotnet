@@ -844,6 +844,28 @@ public sealed class MafTypeMapperTests
     }
 
     [Fact]
+    public void ToContextMessages_ConfiguredThreshold_GraphRagOnlyLeadBranch_RendersAsUser()
+    {
+        // GraphRagOnly/GraphRagThenMemory place GraphRAG in the "lead" list (a separate code path from the
+        // "memory" list's placement, further down in ToContextMessages) -- both must independently apply
+        // the same trust-gated role computation, not just the non-lead (memory) placement covered by
+        // ToContextMessages_ConfiguredThreshold_GraphRagWithNoTrustSignal_RendersAsUser above.
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            GraphRagContext = "graph-text",
+            BlendMode = RetrievalBlendMode.GraphRagOnly
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.UserProvided };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("graph-text"));
+        result.Should().NotContain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("graph-text"));
+    }
+
+    [Fact]
     public void ToContextMessages_ConfiguredDefaultMemoryRoleUser_AllPassingItemsRenderAsUser()
     {
         // A host can set DefaultMemoryRole itself to User to force every recalled block to the

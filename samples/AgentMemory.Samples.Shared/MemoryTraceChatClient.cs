@@ -6,8 +6,10 @@ namespace AgentMemory.Samples.Shared;
 
 /// <summary>
 /// Wraps a real <see cref="IChatClient"/> to print the memory the Neo4j memory context provider recalled
-/// and merged into the request as <c>&lt;recalled_memory category="..."&gt;</c> system messages — right
-/// before the live model call, so recall is visible instead of implicit.
+/// and merged into the request as <c>&lt;recalled_memory category="..."&gt;</c> blocks — right before the
+/// live model call, so recall is visible instead of implicit. Checks both <see cref="ChatRole.System"/> and
+/// <see cref="ChatRole.User"/> messages: a recalled block renders at one or the other depending on its
+/// trust level and the host's configured <c>ContextFormatOptions.MinimumTrustForSystemRole</c> (#92 Phase 4).
 /// </summary>
 public sealed partial class MemoryTraceChatClient(IChatClient inner) : DelegatingChatClient(inner)
 {
@@ -33,7 +35,8 @@ public sealed partial class MemoryTraceChatClient(IChatClient inner) : Delegatin
     {
         foreach (var message in messages)
         {
-            if (message.Role != ChatRole.System || string.IsNullOrEmpty(message.Text)) continue;
+            if (message.Role != ChatRole.System && message.Role != ChatRole.User) continue;
+            if (string.IsNullOrEmpty(message.Text)) continue;
 
             var match = RecalledMemoryPattern().Match(message.Text);
             if (!match.Success) continue;

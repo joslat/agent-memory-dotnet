@@ -108,8 +108,12 @@ internal static class MafTypeMapper
         RecalledMemoryMessageRole EffectiveRole(MemoryTrustLevel trustLevel) =>
             trustLevel >= options.MinimumTrustForSystemRole ? options.DefaultMemoryRole : RecalledMemoryMessageRole.User;
 
-        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) =>
-            EffectiveRole(trustLevel) == RecalledMemoryMessageRole.System ? ChatRole.System : ChatRole.User;
+        // The single point where RecalledMemoryMessageRole maps to the MEAI ChatRole it renders as --
+        // every call site below goes through this (or EffectiveChatRole) rather than re-deriving it.
+        ChatRole ToChatRole(RecalledMemoryMessageRole role) =>
+            role == RecalledMemoryMessageRole.System ? ChatRole.System : ChatRole.User;
+
+        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) => ToChatRole(EffectiveRole(trustLevel));
 
         // Renders a list-shaped category's (entities/facts/preferences/traces) admitted items into up to
         // two messages, one per effective role (#92 Phase 4) -- see the granularity note on Admit above for
@@ -129,10 +133,10 @@ internal static class MafTypeMapper
 
             var messages = new List<ChatMessage>();
             if (byRole.TryGetValue(RecalledMemoryMessageRole.System, out var systemTexts) && systemTexts.Count > 0)
-                messages.Add(new ChatMessage(ChatRole.System,
+                messages.Add(new ChatMessage(ToChatRole(RecalledMemoryMessageRole.System),
                     WrapUntrustedContent(category, $"{prefix}{string.Join(separator, systemTexts)}")));
             if (byRole.TryGetValue(RecalledMemoryMessageRole.User, out var userTexts) && userTexts.Count > 0)
-                messages.Add(new ChatMessage(ChatRole.User,
+                messages.Add(new ChatMessage(ToChatRole(RecalledMemoryMessageRole.User),
                     WrapUntrustedContent(category, $"{prefix}{string.Join(separator, userTexts)}")));
             return messages;
         }
@@ -150,8 +154,12 @@ internal static class MafTypeMapper
             lead.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
 
         bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
+        // GraphRAG has no per-item metadata (a single opaque string, not a list of items), so it's always
+        // evaluated at Untrusted -- computed once and reused at whichever of the two placements below
+        // applies (they're mutually exclusive per `graphFirst`, but the role must still agree between them).
+        var graphRagRole = EffectiveChatRole(MemoryTrustLevel.Untrusted);
         if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
-            lead.Add(new ChatMessage(EffectiveChatRole(MemoryTrustLevel.Untrusted), WrapUntrustedContent("graphrag", context.GraphRagContext)));
+            lead.Add(new ChatMessage(graphRagRole, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
         // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
@@ -185,7 +193,7 @@ internal static class MafTypeMapper
                 t => t.Metadata.GetTrustLevel(), "Similar past tasks: ", "; "));
 
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
-            memory.Add(new ChatMessage(EffectiveChatRole(MemoryTrustLevel.Untrusted), WrapUntrustedContent("graphrag", context.GraphRagContext)));
+            memory.Add(new ChatMessage(graphRagRole, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // MaxChatHistoryMessages bounds ONLY recalled chat history -- it is independent of lead/memory
         // counts (#91): entities/facts/preferences/traces/GraphRAG/the prefix are durable long-term
