@@ -2,7 +2,7 @@ namespace AgentMemory.AgentFramework.Security;
 
 /// <summary>
 /// Governs how <see cref="IMemoryContextAdmissionPolicy"/> treats recalled memory content that an
-/// <see cref="InstructionLikeContentDetector"/>-style check flags as instruction-like (#92 Phase 2).
+/// instruction-like-content detector flags (#92 Phase 2).
 /// </summary>
 public enum MemoryContextSecurityMode
 {

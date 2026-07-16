@@ -138,6 +138,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   open — per-item (not per-request) trust attribution, `ReasoningTrace` trust stamping, observed/inferred/
   verified knowledge distinctions, and richer telemetry are future phases.
 
+- **Semantic Kernel adapter trust boundaries: Phase 6 of trust boundaries and prompt-injection defenses
+  (#92).** A post-Phase-5 holistic audit — a fresh, whole-subsystem read, not a single phase's own
+  self-review, which only ever sees that phase's diff — found that `AgentMemory.SemanticKernel`'s
+  `Neo4jMemoryPlugin`/`MemoryContextFormatter` had none of Phases 1-3's protections: every recalled entity/
+  fact/preference/GraphRAG block rendered as plain, unescaped Markdown text, with no delimiting, no
+  instruction-like-content admission, and no trust-level awareness — a completely separate code path from
+  `MafTypeMapper` that no earlier phase had touched. Phase 6 closes this gap by reusing rather than
+  duplicating the relevant logic: `InstructionLikeContentDetector` and a new `RecalledMemoryDelimiter`
+  (extracted from `MafTypeMapper`'s escaping logic) moved from `AgentMemory.AgentFramework.Security` into
+  `AgentMemory.Core.Security` — both were already adapter-agnostic and already internals-visible to both
+  adapter packages, so no project references changed and this is not a public-API change.
+  `MemoryContextFormatter.FormatRecallResult` gained an optional internal options parameter (`Strict`,
+  `MinimumTrustForAdmissionBypass`) that delimits every recalled block (Phase 1), evaluates each item for
+  instruction-like content (Phase 2), and lets a trust-level bypass survive Strict mode (Phase 3) — reusing
+  the already-shared `MemoryTrustLevel`. New public surface in `AgentMemory.SemanticKernel`:
+  `MemoryContextSecurityMode` (a distinct type from the Agent Framework adapter's enum of the same name —
+  duplicating a two-value enum is far lower risk than relocating an already-public type across a
+  SemVer-locked package boundary) and `MemoryRecallSecurityOptions`, wired into `Neo4jMemoryPlugin`'s
+  constructor and `KernelMemoryExtensions.AddNeo4jMemoryPlugin` (both via additive, optional parameters).
+  Role/authority (Phase 4) does not apply here — `RecallAsync` returns a plain string, not `ChatMessage`s
+  with a role. Every recalled block is now wrapped in a `<recalled_memory category="...">` tag regardless
+  of mode — a real, disclosed output-format change (new text that wasn't there before), even though
+  non-flagged content's substance is otherwise unchanged by default. **A second recall-to-text surface
+  found during self-review, after the initial fix:** `Neo4jTextSearch`'s `GetTextSearchResultsAsync`/
+  `GetSearchResultsAsync` built `TextSearchResult`s directly from raw text, entirely bypassing
+  `MemoryContextFormatter` — only the sibling `SearchAsync` inherited protection for free. Fixed with the
+  same per-item delimiting/admission, reusing a new shared `RecalledMemoryAdmission.ShouldAdmit` helper
+  (also `AgentMemory.Core.Security`) instead of a third copy of the same decision logic;
+  `Neo4jTextSearch`'s constructor and `KernelMemoryExtensions.AddNeo4jTextSearch` both gained the same kind
+  of optional `MemoryRecallSecurityOptions` parameter. `MemoryContextFormatter`'s three near-identical
+  `AppendEntities`/`AppendFacts`/`AppendPreferences` methods were also collapsed into one generic
+  `AppendCategory<T>` helper, matching `MafTypeMapper`'s existing `CategoryMessages<T>` pattern. Issue #92
+  remains open — per-item (not per-request) trust attribution, monotonic trust for shared/global facts,
+  `ReasoningTrace` trust stamping, observed/inferred/verified knowledge distinctions, and richer telemetry
+  are future phases.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added
