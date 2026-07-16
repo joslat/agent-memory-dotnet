@@ -270,7 +270,7 @@ public sealed class ExtractionOwnerStampIntegrationTests : IAsyncLifetime
             Content = "Ada works at Acme and prefers dark mode.",
             TimestampUtc = DateTimeOffset.UtcNow,
         });
-        await pipeline.ExtractAsync(new ExtractionRequest
+        var secondResult = await pipeline.ExtractAsync(new ExtractionRequest
         {
             SessionId = sessionId,
             UserId = "alice",
@@ -283,6 +283,14 @@ public sealed class ExtractionOwnerStampIntegrationTests : IAsyncLifetime
         factAfterSecond!.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted,
             "a later, ordinary, lower-trust re-extraction of the identical triple must never silently downgrade an earlier deliberate elevation");
         factAfterSecond.FactId.Should().Be(factAfterFirst.FactId, "the Cypher MERGE must still collapse re-extraction onto the SAME node, not create a second one");
+
+        // Regression (found during a holistic post-Phase-5 audit): PersistenceStage previously discarded
+        // UpsertAsync's return value, so on a re-extraction hit (now a first-class, expected scenario per
+        // this very fix) the outcome reported a freshly-generated, never-persisted FactId instead of the
+        // triple's real, surviving node id -- ON MATCH deliberately never rewrites a fact's id.
+        var factOutcome = secondResult.Outcomes.Should().ContainSingle(o => o.Kind == MemoryItemKind.Fact).Subject;
+        factOutcome.PersistedId.Should().Be(factAfterFirst.FactId,
+            "the reported outcome must reference the real, surviving node -- not an orphaned, never-persisted id");
     }
 
     // ── Deterministic test extractors ──

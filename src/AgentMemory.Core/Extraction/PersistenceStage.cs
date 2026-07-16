@@ -129,6 +129,14 @@ internal sealed class PersistenceStage : IPersistenceStage
         var persistedFactCount = 0;
         foreach (var extracted in extraction.FilteredFacts)
         {
+            // factSourceKey (outcome/log identification) and the embedding below are both computed from the
+            // freshly-extracted casing, even though the fact ultimately persisted may use an existing
+            // record's casing instead when the #92 Phase 5 pre-fetch finds a case-insensitive match (see
+            // below) -- a disclosed, cosmetic-only inconsistency (found in a post-Phase-5 holistic audit):
+            // an outcome/log entry for a casing-only re-extraction won't textually match what was persisted,
+            // and the surviving node's Embedding and Subject/Predicate/Object can reflect two different
+            // casings of the same triple. Embeddings are semantically robust to case, so this hasn't been
+            // observed to affect retrieval quality; not fixed here to keep this phase's blast radius narrow.
             var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
 
             float[] factEmbedding;
@@ -157,6 +165,16 @@ internal sealed class PersistenceStage : IPersistenceStage
                 // facts have no upstream resolution step that hands PersistenceStage the prior record for
                 // free, so this pre-fetch is the "one extra round-trip" the Phase 3 doc flagged as needed.
                 // A lookup failure falls through to the same catch below as an ordinary persistence failure.
+                //
+                // Disclosed, unaddressed limitation (found in a post-Phase-5 holistic audit): this pre-fetch
+                // and the Upsert below are two separate, non-atomic Neo4j round-trips, not one atomic
+                // read-modify-write. Two concurrent extractions racing on the identical triple (e.g. a
+                // curated ApplicationTrusted import racing an ordinary chat-turn extraction) could each read
+                // the same stale prior state and independently compute their own "effective" trust, so
+                // whichever Upsert commits last wins outright rather than the two being reconciled -- a
+                // narrow, real gap in "never decreases" under genuine concurrency on the same triple.
+                // Matches this codebase's existing precedent of disclosing rather than solving multi-step,
+                // non-atomic writes (see the threat model's TT-12, record+provenance-edge non-atomicity).
                 //
                 // Only performed when ownerId is set (string.IsNullOrEmpty, matching how the rest of this
                 // codebase treats an empty owner id the same as a null one -- e.g. DefaultMemoryIsolationPolicy):
@@ -208,7 +226,13 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Metadata = factMetadata
                 };
 
-                await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
+                // Facts MERGE on the natural {subject,predicate,object,owner_key} triple, and ON MATCH
+                // deliberately never rewrites the surviving node's id (Neo4jFactRepository's own contract) --
+                // so on a re-extraction hit, fact.FactId (the freshly-generated guid above) is orphaned and
+                // was never actually persisted. Reassign from the repository's return value, mirroring the
+                // entity block above, so RecordSuccess and the EXTRACTED_FROM loop below use the real,
+                // surviving node's id.
+                fact = await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
                 RecordSuccess(outcomes, MemoryItemKind.Fact, factSourceKey, fact.FactId);
 
                 foreach (var msgId in sourceMessageIds)
