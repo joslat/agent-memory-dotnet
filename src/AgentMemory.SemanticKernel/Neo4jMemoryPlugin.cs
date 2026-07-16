@@ -29,12 +29,7 @@ public sealed class Neo4jMemoryPlugin
         _memoryService = memoryService;
         _logger = logger ?? NullLogger<Neo4jMemoryPlugin>.Instance;
 
-        var security = securityOptions?.Value ?? new MemoryRecallSecurityOptions();
-        _formatterOptions = new MemoryContextFormatterOptions
-        {
-            Strict = security.SecurityMode == MemoryContextSecurityMode.Strict,
-            MinimumTrustForAdmissionBypass = security.MinimumTrustForAdmissionBypass
-        };
+        _formatterOptions = (securityOptions?.Value ?? new MemoryRecallSecurityOptions()).ToFormatterOptions();
     }
 
     /// <summary>Recalls relevant memory context for the given query and session.</summary>
@@ -74,7 +69,14 @@ public sealed class Neo4jMemoryPlugin
         [Description("Text content of the message")] string content,
         CancellationToken cancellationToken = default)
     {
-        await _memoryService.AddMessageAsync(sessionId, conversationId, role, content, null, cancellationToken)
+        // #92 Phase 7: this function accepts an unvalidated, caller-supplied role -- including "system"/
+        // "tool", which most IChatClient implementations give elevated or special handling. Stamping
+        // ToolDerived (the same level memory_add_fact stamps, #92 Phase 3) doesn't restrict what role can
+        // be set, but ensures a privileged role can never resurface with full authority on recall unless a
+        // host explicitly configures MinimumTrustForSystemRole low enough to admit it (see
+        // RecalledMessageRoleGate, consulted by MemoryContextFormatter/Neo4jTextSearch).
+        var metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(MemoryTrustLevel.ToolDerived);
+        await _memoryService.AddMessageAsync(sessionId, conversationId, role, content, metadata, cancellationToken)
             .ConfigureAwait(false);
     }
 

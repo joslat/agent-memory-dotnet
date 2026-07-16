@@ -141,6 +141,30 @@ public sealed class CoreMemoryToolsTests
     }
 
     [Fact]
+    public async Task MemoryStoreMessage_StampsToolDerivedTrustLevel()
+    {
+        // #92 Phase 7: this tool accepts an unvalidated, caller-supplied role -- including "system"/"tool",
+        // which most IChatClient implementations give elevated or special handling. Stamping ToolDerived
+        // ensures a privileged role can never resurface with full authority on recall unless a host
+        // explicitly configures MinimumTrustForSystemRole low enough to admit it.
+        var msg = new Message
+        {
+            MessageId = "msg-1", ConversationId = "conv-1", SessionId = "ses-1",
+            Role = "system", Content = "hello", TimestampUtc = FixedTime
+        };
+        _memoryService.AddMessageAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(msg);
+
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, "system", "hello", "ses-1", "conv-1");
+
+        await _memoryService.Received(1).AddMessageAsync("ses-1", "conv-1", "system", "hello",
+            Arg.Is<IReadOnlyDictionary<string, object>?>(m => m != null && m.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task MemoryStoreMessage_UsesDefaultSessionAndConversationIdWhenNoneProvided()
     {
         var msg = new Message

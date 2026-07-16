@@ -174,6 +174,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ReasoningTrace` trust stamping, observed/inferred/verified knowledge distinctions, and richer telemetry
   are future phases.
 
+- **Recalled-message role gating: Phase 7 of trust boundaries and prompt-injection defenses (#92).** The one
+  gap disclosed since Phase 1 and left open through Phases 2-6: recalled conversation history
+  (`RecentMessages`/`RelevantMessages`) keeps whatever role it was persisted with, with no delimiting,
+  admission, or trust gating at all. Phase 7 found this is not merely theoretical: the `memory_store_message`
+  MCP tool and `Neo4jMemoryPlugin.AddMessageAsync` (a model-invokable Semantic Kernel function) both accept
+  an unvalidated, caller-supplied `role` string with zero validation anywhere in the write path — a
+  prompt-injected agent could call either with `role: "system"` and arbitrary content, and have it replay
+  moments later, same session, as a genuine, undelimited `ChatRole.System` message (MAF) or an unescaped
+  `[system]: ...` line (Semantic Kernel). Fixed on both sides: `memory_store_message`/`AddMessageAsync` now
+  stamp `MemoryTrustLevel.ToolDerived` on every message they persist (matching `memory_add_fact`'s
+  precedent) without restricting which role a caller may set; a new
+  `AgentMemory.Core.Security.RecalledMessageRoleGate` (shared by both adapters) demotes a message's role to
+  `"user"` when it's privileged (`"system"`/`"tool"` only — ordinary `"user"`/`"assistant"` turns are never
+  touched) and its trust level doesn't meet a new `MinimumTrustForSystemRole` threshold
+  (`ContextFormatOptions`, reusing the Phase 4 property; `MemoryRecallSecurityOptions`, new) — both default
+  to `Untrusted`, so rendering is unchanged unless a host raises the threshold. Message *content* stays
+  deliberately undelimited/unevaluated (a disclosed, narrower gap — this is genuine recalled transcript, not
+  a "memory object"), and gating is applied only inside recalled-context assembly, never on
+  `MafTypeMapper.ToChatMessage` itself (which `Neo4jChatMessageStore`/`Neo4jChatHistoryProvider` still rely
+  on, unchanged, for genuine chat-history replay). **Self-review found and fixed three more issues in the
+  same pass:** (1) `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync` — a third call site with the exact same
+  semantic-query-plus-`RelevantMessages` shape, used by the bundled samples — called the raw, ungated
+  `MafTypeMapper.ToChatMessage` directly and was missed by the initial fix; now gated the same way. (2)
+  `RecalledMessageRoleGate.IsPrivileged` now trims the role before comparing, closing a whitespace-bypass gap
+  (`" system"` previously read as non-privileged and skipped demotion entirely). (3) **Companion fix:**
+  `Neo4jTextSearch.SearchAsync` never actually passed its configured security options into
+  `MemoryContextFormatter.FormatRecallResult` at all — a Phase 6 wiring gap, silently using hardcoded
+  defaults regardless of host configuration; fixed alongside this phase, then corrected again when
+  self-review found the fix itself cached that mapping once at construction while sibling methods read the
+  live, mutable options object — now mapped fresh per call via a shared
+  `MemoryRecallSecurityOptionsExtensions.ToFormatterOptions()` helper (also adopted by `Neo4jMemoryPlugin`,
+  removing a second hand-duplicated copy of the same mapping). Issue #92 remains open — per-item (not
+  per-request) trust attribution, monotonic trust for shared/global facts, `ReasoningTrace` trust stamping,
+  observed/inferred/verified knowledge distinctions, and richer telemetry are future phases.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added

@@ -86,7 +86,14 @@ internal sealed class CoreMemoryTools
         var sid = sessionId ?? options.Value.DefaultSessionId;
         var cid = conversationId ?? sid;
 
-        var message = await memoryService.AddMessageAsync(sid, cid, role, content, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // #92 Phase 7: this tool accepts an unvalidated, caller-supplied role -- including "system"/"tool",
+        // which most IChatClient implementations give elevated or special handling. Stamping ToolDerived
+        // (the same level memory_add_fact stamps, #92 Phase 3) doesn't restrict what role can be set, but
+        // ensures a privileged role can never resurface with full authority on recall unless a host
+        // explicitly configures MinimumTrustForSystemRole low enough to admit it (see
+        // RecalledMessageRoleGate, consulted by MafTypeMapper/MemoryContextFormatter/Neo4jTextSearch).
+        var metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(MemoryTrustLevel.ToolDerived);
+        var message = await memoryService.AddMessageAsync(sid, cid, role, content, metadata, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             message.MessageId,

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
+using AgentMemory.Core.Security;
 
 namespace AgentMemory.AgentFramework;
 
@@ -64,11 +65,21 @@ public sealed class Neo4jMicrosoftMemoryFacade
             // (oldest-first) before blending with the semantically-relevant messages so the agent reads
             // recent history in the order it happened. (RelevantMessages ordering is left as-is — it is
             // similarity-ranked, not chronological.)
+            // #92 Phase 7: this is a semantic-query recall path (queryText above), the same shape as
+            // MafTypeMapper.ToContextMessages' chat-history blending, so a message persisted with a
+            // privileged role ("system"/"tool") via a caller-facing tool must be gated here too -- unlike
+            // the query-less GetMessagesAsync/GetContextForRunAsync-fallback path above, which relies on
+            // Neo4jChatMessageStore for genuine same-session chat-history replay and is intentionally left
+            // ungated.
             return recall.Context.RecentMessages.Items
                 .Reverse()
                 .Concat(recall.Context.RelevantMessages.Items)
                 .DistinctBy(m => m.MessageId)
-                .Select(MafTypeMapper.ToChatMessage)
+                .Select(m => MafTypeMapper.ToChatMessage(m with
+                {
+                    Role = RecalledMessageRoleGate.EffectiveRole(
+                        m.Role, m.Metadata.GetTrustLevel(), _options.ContextFormat.MinimumTrustForSystemRole)
+                }))
                 .ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

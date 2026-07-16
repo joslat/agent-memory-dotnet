@@ -111,6 +111,9 @@ public sealed class ContextFormatOptions
     /// is unchanged unless a host raises this threshold. GraphRAG content has no per-item trust signal and
     /// is always evaluated at <see cref="MemoryTrustLevel.Untrusted"/>, so it only moves off
     /// <see cref="DefaultMemoryRole"/> when a host raises this threshold above the default.
+    /// Also reused (#92 Phase 7, not a separate property) to gate a recalled conversation-history message's
+    /// privileged persisted role ("system"/"tool") -- see <c>AgentMemory.Core.Security.RecalledMessageRoleGate</c>.
+    /// Both uses share one threshold; there is currently no way to configure them independently.
     /// </summary>
     public MemoryTrustLevel MinimumTrustForSystemRole { get; set; } = MemoryTrustLevel.Untrusted;
 }

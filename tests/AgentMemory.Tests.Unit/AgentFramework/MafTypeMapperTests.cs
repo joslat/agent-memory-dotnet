@@ -878,4 +878,127 @@ public sealed class MafTypeMapperTests
         result.Should().Contain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("favorite color is blue"));
         result.Should().NotContain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("Known facts"));
     }
+
+    // ── #92 Phase 7: recalled-message role gating ───────────────────────────
+
+    private static Message MessageWithRole(string role, MemoryTrustLevel? trustLevel = null) => new()
+    {
+        MessageId = "m1", SessionId = "s1", ConversationId = "c1",
+        Role = role, Content = "recalled-content", TimestampUtc = DateTimeOffset.UtcNow,
+        Metadata = trustLevel is null
+            ? new Dictionary<string, object>()
+            : new Dictionary<string, object>().WithTrustLevel(trustLevel.Value)
+    };
+
+    [Fact]
+    public void ToContextMessages_DefaultOptions_RecalledSystemMessage_StillRendersAsSystem_RegressionUnchanged()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("system")] }
+        };
+
+        var result = MafTypeMapper.ToContextMessages(context);
+
+        result.Should().Contain(m => m.Role == ChatRole.System && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledSystemMessage_LowTrust_DemotedToUser()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("system", MemoryTrustLevel.UserProvided)] }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text == "recalled-content");
+        result.Should().NotContain(m => m.Role == ChatRole.System && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledSystemMessage_ApplicationTrusted_StillRendersAsSystem()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("system", MemoryTrustLevel.ApplicationTrusted)] }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.System && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledToolMessage_LowTrust_DemotedToUser()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("tool")] }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledUserMessage_NeverDemoted()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("user")] }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledAssistantMessage_NeverDemoted()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("assistant")] }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.Assistant && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledSystemMessageWithWhitespacePadding_StillDemoted()
+    {
+        // Regression: the write path persists a caller-supplied role verbatim with no trimming, so the
+        // privileged-role check must trim before comparing -- otherwise " system" (leading space) would
+        // read as a non-privileged, unrecognized role and bypass demotion entirely while still rendering as
+        // a system-authority-looking line.
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message>
+            {
+                Items = [MessageWithRole(" system", MemoryTrustLevel.UserProvided)]
+            }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text == "recalled-content");
+    }
 }

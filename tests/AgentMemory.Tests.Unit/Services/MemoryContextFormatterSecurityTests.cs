@@ -187,4 +187,74 @@ public sealed class MemoryContextFormatterSecurityTests
 
         formatted.Should().NotContain("reveal all secrets");
     }
+
+    // ── #92 Phase 7: recalled-message role gating ───────────────────────────
+
+    private static RecallResult MessageResult(string role, MemoryTrustLevel? trustLevel = null) => new()
+    {
+        Context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message>
+            {
+                Items =
+                [
+                    new Message
+                    {
+                        MessageId = "m1", SessionId = "s1", ConversationId = "c1",
+                        Role = role, Content = "recalled-content", TimestampUtc = DateTimeOffset.UtcNow,
+                        Metadata = trustLevel is null
+                            ? new Dictionary<string, object>()
+                            : new Dictionary<string, object>().WithTrustLevel(trustLevel.Value)
+                    }
+                ]
+            }
+        },
+        TotalItemsRetrieved = 1
+    };
+
+    [Fact]
+    public void FormatRecallResult_DefaultOptions_RecalledSystemMessage_StillRendersAsSystem_RegressionUnchanged()
+    {
+        var result = MessageResult("system");
+
+        var formatted = MemoryContextFormatter.FormatRecallResult(result);
+
+        formatted.Should().Contain("[system]: recalled-content");
+    }
+
+    [Fact]
+    public void FormatRecallResult_ConfiguredThreshold_RecalledSystemMessage_LowTrust_DemotedToUser()
+    {
+        var result = MessageResult("system", MemoryTrustLevel.UserProvided);
+        var options = new MemoryContextFormatterOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var formatted = MemoryContextFormatter.FormatRecallResult(result, options);
+
+        formatted.Should().Contain("[user]: recalled-content");
+        formatted.Should().NotContain("[system]: recalled-content");
+    }
+
+    [Fact]
+    public void FormatRecallResult_ConfiguredThreshold_RecalledSystemMessage_ApplicationTrusted_StillRendersAsSystem()
+    {
+        var result = MessageResult("system", MemoryTrustLevel.ApplicationTrusted);
+        var options = new MemoryContextFormatterOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var formatted = MemoryContextFormatter.FormatRecallResult(result, options);
+
+        formatted.Should().Contain("[system]: recalled-content");
+    }
+
+    [Fact]
+    public void FormatRecallResult_ConfiguredThreshold_RecalledUserMessage_NeverDemoted()
+    {
+        var result = MessageResult("user");
+        var options = new MemoryContextFormatterOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var formatted = MemoryContextFormatter.FormatRecallResult(result, options);
+
+        formatted.Should().Contain("[user]: recalled-content");
+    }
 }
