@@ -37,6 +37,8 @@ public static class ServiceCollectionExtensions
                 ctx.MaxChatHistoryMessages = src.MaxChatHistoryMessages;
                 ctx.SecurityMode = src.SecurityMode;
                 ctx.MinimumTrustForAdmissionBypass = src.MinimumTrustForAdmissionBypass;
+                ctx.DefaultMemoryRole = src.DefaultMemoryRole;
+                ctx.MinimumTrustForSystemRole = src.MinimumTrustForSystemRole;
             })
             .Validate(o => o.MaxChatHistoryMessages >= 0, "ContextFormatOptions.MaxChatHistoryMessages must be non-negative.")
             .ValidateOnStart();

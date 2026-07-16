@@ -102,15 +102,44 @@ internal static class MafTypeMapper
             return decision.Include;
         }
 
-        // Renders only the admitted items' text for a list-shaped category (entities/facts/preferences/
-        // traces) -- see the granularity note on Admit above for why this filters per item. Each item's
-        // trust level (#92 Phase 3) is read from its own Metadata via GetTrustLevel().
-        List<string> AdmittedText<T>(string category, IReadOnlyList<T> items, Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel) =>
-            items
+        // The chat-message role a recalled item renders at (#92 Phase 4): items at/above
+        // MinimumTrustForSystemRole get DefaultMemoryRole (System by default -- unchanged pre-Phase-4
+        // behavior); everything else renders at the fixed lower-authority role, User.
+        RecalledMemoryMessageRole EffectiveRole(MemoryTrustLevel trustLevel) =>
+            trustLevel >= options.MinimumTrustForSystemRole ? options.DefaultMemoryRole : RecalledMemoryMessageRole.User;
+
+        // The single point where RecalledMemoryMessageRole maps to the MEAI ChatRole it renders as --
+        // every call site below goes through this (or EffectiveChatRole) rather than re-deriving it.
+        ChatRole ToChatRole(RecalledMemoryMessageRole role) =>
+            role == RecalledMemoryMessageRole.System ? ChatRole.System : ChatRole.User;
+
+        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) => ToChatRole(EffectiveRole(trustLevel));
+
+        // Renders a list-shaped category's (entities/facts/preferences/traces) admitted items into up to
+        // two messages, one per effective role (#92 Phase 4) -- see the granularity note on Admit above for
+        // why admission itself also filters per item, not per block. Splitting by role the same way means a
+        // single ApplicationTrusted item bundled alongside several lower-trust ones still renders at the
+        // higher-authority role while the rest render at the lower one, instead of one block-wide decision.
+        // Each item's trust level (#92 Phase 3) is read from its own Metadata via GetTrustLevel().
+        List<ChatMessage> CategoryMessages<T>(
+            string category, IReadOnlyList<T> items, Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel,
+            string prefix, string separator)
+        {
+            var byRole = items
                 .Select(item => (Text: describe(item), Trust: getTrustLevel(item)))
                 .Where(x => Admit(category, x.Text, x.Trust))
-                .Select(x => x.Text)
-                .ToList();
+                .GroupBy(x => EffectiveRole(x.Trust))
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Text).ToList());
+
+            var messages = new List<ChatMessage>();
+            if (byRole.TryGetValue(RecalledMemoryMessageRole.System, out var systemTexts) && systemTexts.Count > 0)
+                messages.Add(new ChatMessage(ToChatRole(RecalledMemoryMessageRole.System),
+                    WrapUntrustedContent(category, $"{prefix}{string.Join(separator, systemTexts)}")));
+            if (byRole.TryGetValue(RecalledMemoryMessageRole.User, out var userTexts) && userTexts.Count > 0)
+                messages.Add(new ChatMessage(ToChatRole(RecalledMemoryMessageRole.User),
+                    WrapUntrustedContent(category, $"{prefix}{string.Join(separator, userTexts)}")));
+            return messages;
+        }
 
         // Build chat messages and memory-derived system messages into SEPARATE buckets and budget them
         // independently. The whole point of this provider is to inject long-term memory; appending memory
@@ -125,8 +154,12 @@ internal static class MafTypeMapper
             lead.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
 
         bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
+        // GraphRAG has no per-item metadata (a single opaque string, not a list of items), so it's always
+        // evaluated at Untrusted -- computed once and reused at whichever of the two placements below
+        // applies (they're mutually exclusive per `graphFirst`, but the role must still agree between them).
+        var graphRagRole = EffectiveChatRole(MemoryTrustLevel.Untrusted);
         if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
-            lead.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
+            lead.Add(new ChatMessage(graphRagRole, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
         // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
@@ -142,45 +175,25 @@ internal static class MafTypeMapper
         // cannot forge or prematurely close its own boundary.
         var memory = new List<ChatMessage>();
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
-        {
-            var entityTexts = AdmittedText("entities", context.RelevantEntities.Items,
+            memory.AddRange(CategoryMessages("entities", context.RelevantEntities.Items,
                 e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}",
-                e => e.Metadata.GetTrustLevel());
-            if (entityTexts.Count > 0)
-                memory.Add(new ChatMessage(ChatRole.System,
-                    WrapUntrustedContent("entities", $"Relevant entities: {string.Join(", ", entityTexts)}")));
-        }
+                e => e.Metadata.GetTrustLevel(), "Relevant entities: ", ", "));
 
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
-        {
-            var factTexts = AdmittedText("facts", context.RelevantFacts.Items,
+            memory.AddRange(CategoryMessages("facts", context.RelevantFacts.Items,
                 f => $"{f.Subject} {f.Predicate} {f.Object}",
-                f => f.Metadata.GetTrustLevel());
-            if (factTexts.Count > 0)
-                memory.Add(new ChatMessage(ChatRole.System,
-                    WrapUntrustedContent("facts", $"Known facts: {string.Join("; ", factTexts)}")));
-        }
+                f => f.Metadata.GetTrustLevel(), "Known facts: ", "; "));
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
-        {
-            var prefTexts = AdmittedText("preferences", context.RelevantPreferences.Items, p => p.PreferenceText,
-                p => p.Metadata.GetTrustLevel());
-            if (prefTexts.Count > 0)
-                memory.Add(new ChatMessage(ChatRole.System,
-                    WrapUntrustedContent("preferences", $"User preferences: {string.Join("; ", prefTexts)}")));
-        }
+            memory.AddRange(CategoryMessages("preferences", context.RelevantPreferences.Items, p => p.PreferenceText,
+                p => p.Metadata.GetTrustLevel(), "User preferences: ", "; "));
 
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
-        {
-            var traceTexts = AdmittedText("traces", context.SimilarTraces.Items, t => t.Task,
-                t => t.Metadata.GetTrustLevel());
-            if (traceTexts.Count > 0)
-                memory.Add(new ChatMessage(ChatRole.System,
-                    WrapUntrustedContent("traces", $"Similar past tasks: {string.Join("; ", traceTexts)}")));
-        }
+            memory.AddRange(CategoryMessages("traces", context.SimilarTraces.Items, t => t.Task,
+                t => t.Metadata.GetTrustLevel(), "Similar past tasks: ", "; "));
 
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
-            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
+            memory.Add(new ChatMessage(graphRagRole, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // MaxChatHistoryMessages bounds ONLY recalled chat history -- it is independent of lead/memory
         // counts (#91): entities/facts/preferences/traces/GraphRAG/the prefix are durable long-term

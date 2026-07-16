@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Recall;
@@ -273,6 +274,24 @@ public sealed class ServiceCollectionExtensionsTests
             .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
 
         contextFormat.SecurityMode.Should().Be(MemoryContextSecurityMode.Strict);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_WithConfigure_MapsPhase4RoleOptionsIntoContextFormatOptions()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts =>
+            {
+                opts.ContextFormat.DefaultMemoryRole = RecalledMemoryMessageRole.User;
+                opts.ContextFormat.MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted;
+            })
+            .BuildServiceProvider();
+
+        var contextFormat = provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        contextFormat.DefaultMemoryRole.Should().Be(RecalledMemoryMessageRole.User);
+        contextFormat.MinimumTrustForSystemRole.Should().Be(MemoryTrustLevel.ApplicationTrusted);
     }
 
     // ── idempotency ───────────────────────────────────────────────────────────

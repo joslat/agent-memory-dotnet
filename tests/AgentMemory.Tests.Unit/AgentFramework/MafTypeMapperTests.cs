@@ -746,4 +746,136 @@ public sealed class MafTypeMapperTests
         var back = MafTypeMapper.ToInternalRole(chatRole);
         back.Should().Be(role);
     }
+
+    // ── #92 Phase 4: configurable recall message role ───────────────────────
+
+    [Fact]
+    public void ToContextMessages_DefaultOptions_AllMemoryBlocksRenderAsSystem_RegressionUnchanged()
+    {
+        // DefaultMemoryRole=System + MinimumTrustForSystemRole=Untrusted (the lowest level) means every
+        // item always meets the threshold -- pre-Phase-4 behavior must be byte-for-byte unchanged.
+        var context = ContextWithFact("The user's favorite color is blue.");
+
+        var result = MafTypeMapper.ToContextMessages(context);
+
+        result.Should().Contain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("favorite color is blue"));
+        result.Should().NotContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("Known facts"));
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_LowTrustFact_RendersAsUser()
+    {
+        var context = ContextWithFact("The user's favorite color is blue.", MemoryTrustLevel.UserProvided);
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("favorite color is blue"));
+        result.Should().NotContain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("Known facts"));
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_ApplicationTrustedFact_StillRendersAsSystem()
+    {
+        var context = ContextWithFact("The user's favorite color is blue.", MemoryTrustLevel.ApplicationTrusted);
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("favorite color is blue"));
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_MixedTrustFactsInSameCategory_SplitAcrossTwoMessages()
+    {
+        // Items below and at/above the threshold, bundled in the same category, must render as TWO
+        // separate messages at two different roles -- not one block-wide decision.
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantFacts = new MemoryContextSection<Fact>
+            {
+                Items =
+                [
+                    new Fact
+                    {
+                        FactId = "f1", Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 1.0,
+                        CreatedAtUtc = DateTimeOffset.UtcNow,
+                        Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.ApplicationTrusted)
+                    },
+                    new Fact
+                    {
+                        FactId = "f2", Subject = "user", Predicate = "prefers", Object = "window seats", Confidence = 1.0,
+                        CreatedAtUtc = DateTimeOffset.UtcNow,
+                        Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.UserProvided)
+                    }
+                ]
+            }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        var systemFacts = result.Single(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("Known facts"));
+        var userFacts = result.Single(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("Known facts"));
+        systemFacts.Text!.Should().Contain("Zurich");
+        systemFacts.Text!.Should().NotContain("window seats");
+        userFacts.Text!.Should().Contain("window seats");
+        userFacts.Text!.Should().NotContain("Zurich");
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_GraphRagWithNoTrustSignal_RendersAsUser()
+    {
+        // GraphRAG has no per-item trust signal and is always evaluated at Untrusted -- it only moves off
+        // DefaultMemoryRole when a host raises the threshold above the default.
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            GraphRagContext = "graph-text"
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.UserProvided };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("graph-text"));
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_GraphRagOnlyLeadBranch_RendersAsUser()
+    {
+        // GraphRagOnly/GraphRagThenMemory place GraphRAG in the "lead" list (a separate code path from the
+        // "memory" list's placement, further down in ToContextMessages) -- both must independently apply
+        // the same trust-gated role computation, not just the non-lead (memory) placement covered by
+        // ToContextMessages_ConfiguredThreshold_GraphRagWithNoTrustSignal_RendersAsUser above.
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UtcNow,
+            GraphRagContext = "graph-text",
+            BlendMode = RetrievalBlendMode.GraphRagOnly
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.UserProvided };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("graph-text"));
+        result.Should().NotContain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("graph-text"));
+    }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredDefaultMemoryRoleUser_AllPassingItemsRenderAsUser()
+    {
+        // A host can set DefaultMemoryRole itself to User to force every recalled block to the
+        // lower-authority role, independent of any trust threshold.
+        var context = ContextWithFact("The user's favorite color is blue.", MemoryTrustLevel.ApplicationTrusted);
+        var options = new ContextFormatOptions { DefaultMemoryRole = RecalledMemoryMessageRole.User };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("favorite color is blue"));
+        result.Should().NotContain(m => m.Role == ChatRole.System && m.Text != null && m.Text.Contains("Known facts"));
+    }
 }

@@ -210,7 +210,7 @@ in the API claims otherwise.
 | **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
 | **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
 | **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
-| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2/3) and its `DefaultMemoryContextAdmissionPolicy` implementation |
+| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2/3) and its `DefaultMemoryContextAdmissionPolicy` implementation, `RecalledMemoryMessageRole` (#92 Phase 4) |
 | **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
 
 **Key Patterns:**
@@ -229,6 +229,7 @@ in the API claims otherwise.
 6. **Task-aware Automatic Recall (#88)** — `IAutomaticRecallPolicy.DecideAsync` runs inside `BuildContextAsync`, before the `RecallRequest` is built, and decides whether to recall at all, which memory categories to query, and which ranking intent to use — see §3.4.1.1
 7. **Memory-context Admission Policy (#92 Phase 2)** — `IMemoryContextAdmissionPolicy.Evaluate` runs inside `MafTypeMapper.ToContextMessages` for each candidate recalled-memory block, deciding whether to admit or exclude it based on a lightweight instruction-like-content detector — see §3.4.1.2
 8. **Trust-metadata Foundation (#92 Phase 3)** — `MemoryTrustLevel` stamped into each item's `Metadata` during extraction lets a host explicitly mark controlled sources as trusted enough to bypass instruction-like-content evaluation — see §3.4.1.3
+9. **Configurable Recall Message Role (#92 Phase 4)** — `MafTypeMapper.ToContextMessages` computes each recalled item's effective `ChatRole` (`System` vs. `User`) from its trust level against a configurable threshold, instead of unconditionally rendering every admitted block as `System` — see §3.4.1.4
 
 **Namespace structure:**
 ```
@@ -382,6 +383,46 @@ speculative field in `Metadata` until its shape proves stable — see the backlo
   trust level is always `Untrusted` — it bypasses only in the degenerate case where a host lowers
   `MinimumTrustForAdmissionBypass` to `Untrusted` too (which disables the gate for every category, not just
   GraphRAG).
+
+#### 3.4.1.4 Configurable recall message role (#92 Phase 4)
+
+Phases 1–3 addressed *what the model is told* about recalled memory (delimiting, admission, trust levels)
+but never touched *how much authority it's given*: `MafTypeMapper.ToContextMessages` unconditionally
+rendered every admitted block as `ChatRole.System`, regardless of trust level — even though most
+`IChatClient` implementations treat a `System` message as a higher-authority instruction than a `User`
+message. Phase 4 makes that role configurable and ties it to the trust signal Phase 3 introduced:
+
+- `RecalledMemoryMessageRole` (`AgentMemory.AgentFramework`) — a two-value enum, `System`/`User`. Restricted
+  to these two deliberately: many `IChatClient` implementations reject a bare `ChatRole.Tool` message
+  without a matching tool-call id, so a `Tool` option was considered and dropped for this phase.
+- `ContextFormatOptions.DefaultMemoryRole` (default `System`) and `ContextFormatOptions.MinimumTrustForSystemRole`
+  (default `MemoryTrustLevel.Untrusted`, the lowest level) — a recalled item at or above the threshold
+  renders at `DefaultMemoryRole`; everything else renders as `ChatRole.User` instead. There is no separate
+  "role for low-trust content" setting: the enum only distinguishes two authority levels, and `User` is
+  definitionally the lower one. Because the default threshold is the lowest possible trust level, every
+  item always meets it and rendering is byte-for-byte unchanged unless a host explicitly raises the
+  threshold — the same additive-by-default philosophy Phases 2–3 already established.
+- **Granularity is per-item, not per-category-block** — the same principle Phase 2's admission evaluation
+  already established for the same reason. `MafTypeMapper.ToContextMessages` groups each category's
+  admitted items by their computed role and renders up to *two* messages per category (one per role)
+  instead of one. A single `ApplicationTrusted` fact bundled alongside several `UserProvided` ones now
+  renders in its own `System`-role message while the rest render together in a separate `User`-role
+  message — one low-trust item can no longer force an unrelated high-trust item down to the lower role,
+  and vice versa.
+- GraphRAG has no per-item metadata to read (a single opaque string, not a list of items), so its trust
+  level is always evaluated as `Untrusted` — it only moves off `DefaultMemoryRole` when a host raises
+  `MinimumTrustForSystemRole` above the default.
+- **A host defending against stored prompt injection** raises `MinimumTrustForSystemRole` above
+  `ExtractionOptions.DefaultTrustLevel` (`UserProvided` by default) — e.g. to `ApplicationTrusted`, the
+  highest level — so nothing short of an explicitly-marked, application-controlled source ever renders as
+  `System`. This is proven end-to-end by a live-Neo4j integration test
+  (`StoredPromptInjectionCrossSessionIntegrationTests`): content that reads as an instruction, persisted in
+  one session, is recalled in a brand-new session for the same owner and asserted to arrive only as a
+  `ChatRole.User` message, never an unattributed `ChatRole.System` one — the acceptance criterion that had
+  been open since Phase 1.
+- **Known, disclosed limitation:** the default `MinimumTrustForSystemRole = Untrusted` means "secure by
+  default" is not achieved without opt-in configuration — the same tradeoff Phases 2–3 already accepted for
+  `SecurityMode`/`MinimumTrustForAdmissionBypass`, flagged again here for visibility.
 
 #### 3.4.2 GraphRAG Retrieval — built into AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
 
