@@ -1,7 +1,9 @@
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.AgentFramework.Security;
 
 namespace AgentMemory.AgentFramework.Mapping;
 
@@ -54,9 +56,54 @@ internal static class MafTypeMapper
     /// </summary>
     public static IReadOnlyList<ChatMessage> ToContextMessages(
         MemoryContext context,
-        ContextFormatOptions? formatOptions = null)
+        ContextFormatOptions? formatOptions = null,
+        IMemoryContextAdmissionPolicy? admissionPolicy = null,
+        ILogger? logger = null)
     {
         var options = formatOptions ?? new ContextFormatOptions();
+        var admission = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
+
+        // #92 Phase 2: evaluate a candidate item through the admission policy before it contributes to a
+        // category's rendered block. Per-ITEM, not per-block: entities/facts/preferences/traces each join
+        // several independent items into one string, and evaluating the whole joined string would mean one
+        // flagged item (a false positive or a genuinely planted one) silently drops every OTHER, unrelated,
+        // legitimate item concatenated alongside it. GraphRagContext is the one exception -- it arrives as
+        // a single opaque string, not a list of items, so it is unavoidably evaluated as one block.
+        // Every admitted item is still delimited/escaped via WrapUntrustedContent regardless (#92 Phase 1)
+        // -- admission only controls whether it appears at all (Strict mode) vs. is quoted either way
+        // (Permissive, the default).
+        bool Admit(string category, string content)
+        {
+            var decision = admission.Evaluate(new MemoryAdmissionContext
+            {
+                Category = category,
+                Content = content,
+                Mode = options.SecurityMode
+            });
+
+            // Flagged-but-included (Permissive, the default) is still observable -- Debug, not Warning,
+            // since nothing was actually excluded.
+            if (decision.InstructionLikeContentDetected && decision.Include)
+            {
+                logger?.LogDebug(
+                    "Recalled memory item in category '{Category}' flagged as instruction-like content " +
+                    "but included (SecurityMode={Mode}).", category, options.SecurityMode);
+            }
+
+            if (!decision.Include)
+            {
+                logger?.LogWarning(
+                    "Excluded a recalled memory item in category '{Category}' from context: {Reason}.",
+                    category, decision.ExclusionReason ?? "unspecified");
+            }
+
+            return decision.Include;
+        }
+
+        // Renders only the admitted items' text for a list-shaped category (entities/facts/preferences/
+        // traces) -- see the granularity note on Admit above for why this filters per item.
+        List<string> AdmittedText<T>(string category, IReadOnlyList<T> items, Func<T, string> describe) =>
+            items.Select(describe).Where(text => Admit(category, text)).ToList();
 
         // Build chat messages and memory-derived system messages into SEPARATE buckets and budget them
         // independently. The whole point of this provider is to inject long-term memory; appending memory
@@ -71,7 +118,7 @@ internal static class MafTypeMapper
             lead.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
 
         bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
-        if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
+        if (graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
             lead.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
@@ -89,35 +136,39 @@ internal static class MafTypeMapper
         var memory = new List<ChatMessage>();
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
         {
-            var entityText = string.Join(", ", context.RelevantEntities.Items
-                .Select(e => string.IsNullOrEmpty(e.Description)
-                    ? $"{e.Name} ({e.Type})"
-                    : $"{e.Name} ({e.Type}): {e.Description}"));
-            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("entities", $"Relevant entities: {entityText}")));
+            var entityTexts = AdmittedText("entities", context.RelevantEntities.Items,
+                e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}");
+            if (entityTexts.Count > 0)
+                memory.Add(new ChatMessage(ChatRole.System,
+                    WrapUntrustedContent("entities", $"Relevant entities: {string.Join(", ", entityTexts)}")));
         }
 
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
         {
-            var factText = string.Join("; ", context.RelevantFacts.Items
-                .Select(f => $"{f.Subject} {f.Predicate} {f.Object}"));
-            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("facts", $"Known facts: {factText}")));
+            var factTexts = AdmittedText("facts", context.RelevantFacts.Items,
+                f => $"{f.Subject} {f.Predicate} {f.Object}");
+            if (factTexts.Count > 0)
+                memory.Add(new ChatMessage(ChatRole.System,
+                    WrapUntrustedContent("facts", $"Known facts: {string.Join("; ", factTexts)}")));
         }
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
         {
-            var prefText = string.Join("; ", context.RelevantPreferences.Items
-                .Select(p => p.PreferenceText));
-            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("preferences", $"User preferences: {prefText}")));
+            var prefTexts = AdmittedText("preferences", context.RelevantPreferences.Items, p => p.PreferenceText);
+            if (prefTexts.Count > 0)
+                memory.Add(new ChatMessage(ChatRole.System,
+                    WrapUntrustedContent("preferences", $"User preferences: {string.Join("; ", prefTexts)}")));
         }
 
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
         {
-            var traceText = string.Join("; ", context.SimilarTraces.Items
-                .Select(t => t.Task));
-            memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("traces", $"Similar past tasks: {traceText}")));
+            var traceTexts = AdmittedText("traces", context.SimilarTraces.Items, t => t.Task);
+            if (traceTexts.Count > 0)
+                memory.Add(new ChatMessage(ChatRole.System,
+                    WrapUntrustedContent("traces", $"Similar past tasks: {string.Join("; ", traceTexts)}")));
         }
 
-        if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext))
+        if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
             memory.Add(new ChatMessage(ChatRole.System, WrapUntrustedContent("graphrag", context.GraphRagContext)));
 
         // MaxChatHistoryMessages bounds ONLY recalled chat history -- it is independent of lead/memory

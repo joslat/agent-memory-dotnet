@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.AgentFramework.Recall;
+using AgentMemory.AgentFramework.Security;
 using AgentMemory.AgentFramework.Tools;
 
 namespace AgentMemory.AgentFramework;
@@ -27,6 +28,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly MemoryToolFactory? _toolFactory;
     private readonly IAutomaticRecallPolicy _recallPolicy;
+    private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
     public Neo4jMemoryContextProvider(
@@ -41,7 +43,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         IMemoryStoreContext? storeContext = null,
         IWritableMemoryOwnerContext? ownerContext = null,
         MemoryToolFactory? toolFactory = null,
-        IAutomaticRecallPolicy? recallPolicy = null)
+        IAutomaticRecallPolicy? recallPolicy = null,
+        IMemoryContextAdmissionPolicy? admissionPolicy = null)
         // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
         // All three are passed as null: we supply our own ILogger via constructor injection,
         // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
@@ -58,6 +61,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _ownerContext = ownerContext;
         _toolFactory = toolFactory;
         _recallPolicy = recallPolicy ?? new ConfiguredAutomaticRecallPolicy();
+        _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -172,7 +176,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 return BuildResult();
             }
 
-            var contextMessages = MafTypeMapper.ToContextMessages(recallResult.Context, _formatOptions);
+            var contextMessages = MafTypeMapper.ToContextMessages(recallResult.Context, _formatOptions, _admissionPolicy, _logger);
 
             if (contextMessages.Count == 0)
                 return BuildResult();

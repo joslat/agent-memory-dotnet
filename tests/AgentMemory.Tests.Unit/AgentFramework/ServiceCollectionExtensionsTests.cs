@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Recall;
+using AgentMemory.AgentFramework.Security;
 using AgentMemory.AgentFramework.Tools;
 using NSubstitute;
 
@@ -217,6 +218,61 @@ public sealed class ServiceCollectionExtensionsTests
         var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
 
         sut.Should().BeOfType<HeuristicAutomaticRecallPolicy>();
+    }
+
+    // ── #92 Phase 2: memory-context admission policy ────────────────────────────
+
+    [Fact]
+    public void AddAgentMemoryFramework_RegistersDefaultMemoryContextAdmissionPolicy_AsScoped_ByDefault()
+    {
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IMemoryContextAdmissionPolicy) &&
+            d.ImplementationType == typeof(DefaultMemoryContextAdmissionPolicy) &&
+            d.Lifetime == ServiceLifetime.Scoped);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_ResolvesIMemoryContextAdmissionPolicy_WithDependencies()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework()
+            .BuildServiceProvider();
+
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IMemoryContextAdmissionPolicy>();
+
+        sut.Should().BeOfType<DefaultMemoryContextAdmissionPolicy>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostRegisteredAdmissionPolicyAfterCall_WinsOverDefault()
+    {
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+        var custom = Substitute.For<IMemoryContextAdmissionPolicy>();
+        services.AddScoped(_ => custom);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IMemoryContextAdmissionPolicy>();
+
+        sut.Should().BeSameAs(custom);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_WithConfigure_MapsSecurityModeIntoContextFormatOptions()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.SecurityMode = MemoryContextSecurityMode.Strict)
+            .BuildServiceProvider();
+
+        var contextFormat = provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        contextFormat.SecurityMode.Should().Be(MemoryContextSecurityMode.Strict);
     }
 
     // ── idempotency ───────────────────────────────────────────────────────────
