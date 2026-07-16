@@ -92,4 +92,25 @@ public sealed class ContextFormatOptions
     /// <c>ExtractionOptions.DefaultTrustLevel</c>) and explicitly reach this threshold to get the bypass.
     /// </summary>
     public MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; } = MemoryTrustLevel.ApplicationTrusted;
+
+    /// <summary>
+    /// The chat-message role used for a recalled-memory item whose trust level meets
+    /// <see cref="MinimumTrustForSystemRole"/> (#92 Phase 4). Defaults to
+    /// <see cref="RecalledMemoryMessageRole.System"/>, preserving pre-Phase-4 behavior. Items below the
+    /// threshold always render as <see cref="RecalledMemoryMessageRole.User"/> instead, regardless of this
+    /// setting -- there is no separate "role for low-trust content" knob because the enum only distinguishes
+    /// two authority levels and <c>User</c> is definitionally the lower one.
+    /// </summary>
+    public RecalledMemoryMessageRole DefaultMemoryRole { get; set; } = RecalledMemoryMessageRole.System;
+
+    /// <summary>
+    /// The minimum <see cref="MemoryTrustLevel"/> (#92 Phase 3) a recalled item must meet to render at
+    /// <see cref="DefaultMemoryRole"/>; items below this threshold render as
+    /// <see cref="RecalledMemoryMessageRole.User"/> instead (#92 Phase 4). Defaults to
+    /// <see cref="MemoryTrustLevel.Untrusted"/> -- the lowest level -- so every item meets it and behavior
+    /// is unchanged unless a host raises this threshold. GraphRAG content has no per-item trust signal and
+    /// is always evaluated at <see cref="MemoryTrustLevel.Untrusted"/>, so it only moves off
+    /// <see cref="DefaultMemoryRole"/> when a host raises this threshold above the default.
+    /// </summary>
+    public MemoryTrustLevel MinimumTrustForSystemRole { get; set; } = MemoryTrustLevel.Untrusted;
 }

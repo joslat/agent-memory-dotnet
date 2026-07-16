@@ -87,6 +87,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it. Issue #92 remains open — configurable message roles, observed/inferred/verified knowledge
   distinctions, and richer telemetry are future phases.
 
+- **Configurable recall message role: Phase 4 of trust boundaries and prompt-injection defenses (#92).**
+  Phases 1-3 addressed what the model is told about recalled memory (delimiting, admission, trust levels)
+  but not how much authority it's given: `MafTypeMapper.ToContextMessages` always rendered every admitted
+  block as `ChatRole.System`, regardless of trust level. New `RecalledMemoryMessageRole` enum
+  (`System`/`User`) plus `ContextFormatOptions.DefaultMemoryRole` (default `System`) and
+  `ContextFormatOptions.MinimumTrustForSystemRole` (default `Untrusted`, the lowest level, so every item
+  meets it and rendering is unchanged unless a host raises the threshold). A recalled item at or above the
+  threshold renders at `DefaultMemoryRole`; everything else renders as `ChatRole.User` instead. Granularity
+  is per-item, not per-category-block: a single `ApplicationTrusted` entity/fact/preference/trace bundled
+  alongside several lower-trust ones now renders in its own message at the higher-authority role, while the
+  rest render in a separate message at the lower one — the same per-item split Phase 2's admission
+  evaluation already established, for the same reason (one item's trust shouldn't determine an unrelated
+  item's authority). GraphRAG has no per-item trust signal and is always evaluated at `Untrusted`, so it
+  only moves off `DefaultMemoryRole` when a host raises the threshold above the default. Fully additive and
+  behavior-preserving by default. Bundled: a live-Neo4j end-to-end test proving the acceptance criterion
+  open since Phase 1 — content stored in one session that reads as an instruction ("stored prompt
+  injection") never resurfaces in a later, unrelated session as an unattributed `ChatRole.System` message,
+  once a host configures `MinimumTrustForSystemRole` above the default extraction trust level. Issue #92
+  remains open — per-item (not per-request) trust attribution, monotonic trust for facts/preferences,
+  `ReasoningTrace` trust stamping, observed/inferred/verified knowledge distinctions, and richer telemetry
+  are future phases.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added
