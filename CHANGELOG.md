@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Structured ingestion outcomes for partial extraction/persistence failures (#101).** `ExtractionResult`
+  gains `Status` (`IngestionStatus`: `Succeeded` / `PartiallySucceeded` / `Failed`) and `Outcomes`
+  (`IReadOnlyList<IngestionItemOutcome>`), so a caller can finally distinguish "everything persisted" from
+  "3 facts succeeded, 1 entity failed, 2 provenance edges didn't." Best-effort ingestion (continue past
+  per-item failures) remains the default via the new `ExtractionOptions.FailureMode` (`IngestionFailureMode.BestEffort`);
+  set it to `FailFast` to instead throw `MemoryIngestionException` (carrying every outcome completed
+  before the failure) at the first non-recoverable item. Covers extractor failures, entity
+  validation/resolution failures, persistence failures, and provenance failures — the last two now
+  distinctly staged, since a node can persist successfully while its `EXTRACTED_FROM` edge fails.
+  Routine confidence-threshold filtering is deliberately not recorded as an outcome. New
+  `memory.ingestion.operations`/`memory.ingestion.items.succeeded`/`memory.ingestion.items.failed`
+  metrics (tagged by status/failure-mode/item-kind/stage only — never owner IDs or memory content).
+  Fully additive: existing `ExtractionResult` properties and default behavior are unchanged.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added

@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 
@@ -18,6 +21,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     private readonly IRelationshipRepository _relationshipRepository;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
+    private readonly ExtractionOptions _options;
     private readonly ILogger<PersistenceStage> _logger;
 
     public PersistenceStage(
@@ -28,7 +32,8 @@ internal sealed class PersistenceStage : IPersistenceStage
         IRelationshipRepository relationshipRepository,
         IClock clock,
         IIdGenerator idGenerator,
-        ILogger<PersistenceStage> logger)
+        ILogger<PersistenceStage> logger,
+        IOptions<ExtractionOptions>? extractionOptions = null)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
@@ -38,6 +43,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         _clock = clock;
         _idGenerator = idGenerator;
         _logger = logger;
+        _options = extractionOptions?.Value ?? new ExtractionOptions();
     }
 
     public async Task<PersistenceResult> PersistAsync(
@@ -46,23 +52,39 @@ internal sealed class PersistenceStage : IPersistenceStage
         CancellationToken cancellationToken = default)
     {
         var sourceMessageIds = extraction.SourceMessageIds;
+        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
+        var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
 
         // 1. Embed + upsert entities; build a name→persisted Entity map for relationship resolution.
         var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, entity) in extraction.ResolvedEntityMap)
         {
-            try
+            var entityToSave = entity with { OwnerId = ownerId };
+
+            if (entityToSave.Embedding is null)
             {
-                var entityToSave = entity with { OwnerId = ownerId };
-                if (entityToSave.Embedding is null)
+                try
                 {
                     var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
                         entityToSave.Name, cancellationToken).ConfigureAwait(false);
                     entityToSave = entityToSave with { Embedding = embedding };
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
+                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
+                        MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
+                        $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
+                    continue; // no embedding — nothing to persist for this entity
+                }
+            }
 
+            try
+            {
                 entityToSave = await _entityRepository.UpsertAsync(entityToSave, cancellationToken).ConfigureAwait(false);
                 persistedEntityMap[name] = entityToSave;
+                RecordSuccess(outcomes, MemoryItemKind.Entity, name, entityToSave.EntityId);
 
                 foreach (var msgId in sourceMessageIds)
                 {
@@ -77,15 +99,22 @@ internal sealed class PersistenceStage : IPersistenceStage
                         _logger.LogWarning(ex,
                             "Failed to create EXTRACTED_FROM for entity '{Id}' → message '{MsgId}'.",
                             entityToSave.EntityId, msgId);
+                        RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Provenance,
+                            MemoryErrorCodes.ProvenancePersistenceFailed, name, entityToSave.EntityId, ex,
+                            $"Ingestion failed fast: provenance failed for entity '{name}'.");
                     }
                 }
 
                 _logger.LogDebug("Persisted entity '{Name}' (id={Id}).", entityToSave.Name, entityToSave.EntityId);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (MemoryIngestionException) { throw; } // already recorded + wrapped above — propagate as-is
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error persisting entity '{Name}'.", name);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Persistence,
+                    MemoryErrorCodes.EntityPersistenceFailed, name, null, ex,
+                    $"Ingestion failed fast: persistence failed for entity '{name}'.");
             }
         }
 
@@ -93,11 +122,26 @@ internal sealed class PersistenceStage : IPersistenceStage
         var persistedFactCount = 0;
         foreach (var extracted in extraction.FilteredFacts)
         {
+            var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
+
+            float[] factEmbedding;
             try
             {
-                var factEmbedding = await _embeddingOrchestrator.EmbedFactAsync(
+                factEmbedding = await _embeddingOrchestrator.EmbedFactAsync(
                     extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", factSourceKey);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, factSourceKey, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for fact '{factSourceKey}'.");
+                continue;
+            }
 
+            try
+            {
                 var fact = new Fact
                 {
                     FactId = _idGenerator.GenerateId(),
@@ -114,6 +158,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 };
 
                 await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
+                RecordSuccess(outcomes, MemoryItemKind.Fact, factSourceKey, fact.FactId);
 
                 foreach (var msgId in sourceMessageIds)
                 {
@@ -128,6 +173,9 @@ internal sealed class PersistenceStage : IPersistenceStage
                         _logger.LogWarning(ex,
                             "Failed to create EXTRACTED_FROM for fact '{Id}' → message '{MsgId}'.",
                             fact.FactId, msgId);
+                        RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Provenance,
+                            MemoryErrorCodes.ProvenancePersistenceFailed, factSourceKey, fact.FactId, ex,
+                            $"Ingestion failed fast: provenance failed for fact '{factSourceKey}'.");
                     }
                 }
 
@@ -135,11 +183,13 @@ internal sealed class PersistenceStage : IPersistenceStage
                 _logger.LogDebug("Persisted fact '{S} {P} {O}'.", fact.Subject, fact.Predicate, fact.Object);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (MemoryIngestionException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
-                    "Error persisting fact '{S} {P} {O}'.",
-                    extracted.Subject, extracted.Predicate, extracted.Object);
+                _logger.LogError(ex, "Error persisting fact '{Key}'.", factSourceKey);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Persistence,
+                    MemoryErrorCodes.FactPersistenceFailed, factSourceKey, null, ex,
+                    $"Ingestion failed fast: persistence failed for fact '{factSourceKey}'.");
             }
         }
 
@@ -147,11 +197,24 @@ internal sealed class PersistenceStage : IPersistenceStage
         var persistedPrefCount = 0;
         foreach (var extracted in extraction.FilteredPreferences)
         {
+            float[] prefEmbedding;
             try
             {
-                var prefEmbedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
+                prefEmbedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
                     extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
+                    "Ingestion failed fast: embedding generation failed for a preference.");
+                continue;
+            }
 
+            try
+            {
                 var preference = new Preference
                 {
                     PreferenceId = _idGenerator.GenerateId(),
@@ -166,6 +229,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 };
 
                 await _preferenceRepository.UpsertAsync(preference, cancellationToken).ConfigureAwait(false);
+                RecordSuccess(outcomes, MemoryItemKind.Preference, extracted.PreferenceText, preference.PreferenceId);
 
                 foreach (var msgId in sourceMessageIds)
                 {
@@ -180,6 +244,9 @@ internal sealed class PersistenceStage : IPersistenceStage
                         _logger.LogWarning(ex,
                             "Failed to create EXTRACTED_FROM for preference '{Id}' → message '{MsgId}'.",
                             preference.PreferenceId, msgId);
+                        RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Provenance,
+                            MemoryErrorCodes.ProvenancePersistenceFailed, extracted.PreferenceText, preference.PreferenceId, ex,
+                            "Ingestion failed fast: provenance failed for a preference.");
                     }
                 }
 
@@ -187,9 +254,13 @@ internal sealed class PersistenceStage : IPersistenceStage
                 _logger.LogDebug("Persisted preference in category '{Category}'.", preference.Category);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (MemoryIngestionException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error persisting preference '{Text}'.", extracted.PreferenceText);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Persistence,
+                    MemoryErrorCodes.PreferencePersistenceFailed, extracted.PreferenceText, null, ex,
+                    "Ingestion failed fast: persistence failed for a preference.");
             }
         }
 
@@ -197,11 +268,22 @@ internal sealed class PersistenceStage : IPersistenceStage
         var persistedRelCount = 0;
         foreach (var extracted in extraction.FilteredRelationships)
         {
+            var relSourceKey = $"{extracted.SourceEntity}-{extracted.RelationshipType}->{extracted.TargetEntity}";
+
             if (!persistedEntityMap.TryGetValue(extracted.SourceEntity, out var sourceEntity))
             {
                 _logger.LogWarning(
                     "Skipping relationship — source entity '{Source}' was not persisted.",
                     extracted.SourceEntity);
+                outcomes.Add(new IngestionItemOutcome
+                {
+                    Kind = MemoryItemKind.Relationship,
+                    Stage = IngestionStage.RelationshipPersistence,
+                    Status = IngestionItemStatus.Skipped,
+                    SourceKey = relSourceKey,
+                    ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
+                    ErrorMessage = $"Source entity '{extracted.SourceEntity}' was not persisted.",
+                });
                 continue;
             }
 
@@ -210,6 +292,15 @@ internal sealed class PersistenceStage : IPersistenceStage
                 _logger.LogWarning(
                     "Skipping relationship — target entity '{Target}' was not persisted.",
                     extracted.TargetEntity);
+                outcomes.Add(new IngestionItemOutcome
+                {
+                    Kind = MemoryItemKind.Relationship,
+                    Stage = IngestionStage.RelationshipPersistence,
+                    Status = IngestionItemStatus.Skipped,
+                    SourceKey = relSourceKey,
+                    ErrorCode = MemoryErrorCodes.RelationshipEndpointNotPersisted,
+                    ErrorMessage = $"Target entity '{extracted.TargetEntity}' was not persisted.",
+                });
                 continue;
             }
 
@@ -231,17 +322,22 @@ internal sealed class PersistenceStage : IPersistenceStage
 
                 await _relationshipRepository.UpsertAsync(relationship, cancellationToken).ConfigureAwait(false);
                 persistedRelCount++;
+                RecordSuccess(outcomes, MemoryItemKind.Relationship, relSourceKey, relationship.RelationshipId);
 
                 _logger.LogDebug(
                     "Persisted relationship '{Src}-{Type}->{Tgt}'.",
                     extracted.SourceEntity, extracted.RelationshipType, extracted.TargetEntity);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (MemoryIngestionException) { throw; } // consistent with the other item kinds (#101 review)
             catch (Exception ex)
             {
                 _logger.LogError(ex,
                     "Error persisting relationship '{Src}->{Tgt}'.",
                     extracted.SourceEntity, extracted.TargetEntity);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Relationship, IngestionStage.Persistence,
+                    MemoryErrorCodes.RelationshipPersistenceFailed, relSourceKey, null, ex,
+                    $"Ingestion failed fast: persistence failed for relationship '{relSourceKey}'.");
             }
         }
 
@@ -250,7 +346,55 @@ internal sealed class PersistenceStage : IPersistenceStage
             EntityCount = persistedEntityMap.Count,
             FactCount = persistedFactCount,
             PreferenceCount = persistedPrefCount,
-            RelationshipCount = persistedRelCount
+            RelationshipCount = persistedRelCount,
+            Outcomes = outcomes
         };
+    }
+
+    /// <summary>Appends a <see cref="IngestionItemStatus.Succeeded"/> outcome (#101).</summary>
+    private static void RecordSuccess(
+        List<IngestionItemOutcome> outcomes, MemoryItemKind kind, string? sourceKey, string? persistedId) =>
+        outcomes.Add(new IngestionItemOutcome
+        {
+            Kind = kind,
+            Stage = IngestionStage.Persistence,
+            Status = IngestionItemStatus.Succeeded,
+            SourceKey = sourceKey,
+            PersistedId = persistedId,
+        });
+
+    /// <summary>
+    /// Appends a <see cref="IngestionItemStatus.Failed"/> outcome and, under
+    /// <see cref="IngestionFailureMode.FailFast"/>, throws <see cref="MemoryIngestionException"/>
+    /// carrying every outcome recorded so far (#101). Centralizing this in one helper — rather than
+    /// repeating "add outcome, then maybe throw" at each of the ~10 call sites across four item kinds —
+    /// is what guarantees every one of them gets the same fail-fast behavior; hand-copying it previously
+    /// let the relationship block silently miss the failure-mode check entirely (caught in review).
+    /// </summary>
+    private static void RecordFailureAndMaybeThrow(
+        List<IngestionItemOutcome> outcomes,
+        bool failFast,
+        MemoryItemKind kind,
+        IngestionStage stage,
+        string errorCode,
+        string? sourceKey,
+        string? persistedId,
+        Exception ex,
+        string failFastMessage)
+    {
+        outcomes.Add(new IngestionItemOutcome
+        {
+            Kind = kind,
+            Stage = stage,
+            Status = IngestionItemStatus.Failed,
+            SourceKey = sourceKey,
+            PersistedId = persistedId,
+            ErrorCode = errorCode,
+            ErrorMessage = ex.Message,
+            Retryable = true,
+        });
+
+        if (failFast)
+            throw new MemoryIngestionException(failFastMessage, outcomes, ex);
     }
 }

@@ -206,13 +206,20 @@ internal sealed class AdvancedMemoryTools
         {
             sessionId = sid,
             sourceMessageId = message.MessageId,
+            // #101: surface structured ingestion outcomes so a caller can tell "everything persisted"
+            // from "some items failed" rather than only inferring it from the item counts below.
+            status = result.Status.ToString(),
+            isPartial = result.IsPartial,
             entityCount = result.Entities.Count,
             factCount = result.Facts.Count,
             preferenceCount = result.Preferences.Count,
             relationshipCount = result.Relationships.Count,
             entities = result.Entities.Select(e => new { e.Name, e.Type, e.Confidence }),
             facts = result.Facts.Select(f => new { f.Subject, f.Predicate, f.Object, f.Confidence }),
-            preferences = result.Preferences.Select(p => new { p.Category, p.PreferenceText, p.Confidence })
+            preferences = result.Preferences.Select(p => new { p.Category, p.PreferenceText, p.Confidence }),
+            failedOutcomes = result.Outcomes
+                .Where(o => o.Status == IngestionItemStatus.Failed)
+                .Select(o => new { kind = o.Kind.ToString(), stage = o.Stage.ToString(), o.ErrorCode, o.Retryable })
         });
     }
 

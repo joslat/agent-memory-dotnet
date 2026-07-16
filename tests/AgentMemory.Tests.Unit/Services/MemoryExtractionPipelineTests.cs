@@ -177,6 +177,116 @@ public sealed class MemoryExtractionPipelineTests
             Arg.Any<CancellationToken>());
     }
 
+    // ── #101: overall IngestionStatus derivation ────────────────────────────
+
+    private static IngestionItemOutcome MakeOutcome(IngestionItemStatus status) => new()
+    {
+        Kind = MemoryItemKind.Fact,
+        Stage = IngestionStage.Persistence,
+        Status = status,
+    };
+
+    [Fact]
+    public async Task ExtractAsync_NoOutcomes_StatusIsSucceeded()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult());
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest());
+
+        result.Status.Should().Be(IngestionStatus.Succeeded);
+        result.IsPartial.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ExtractAsync_AllOutcomesSucceeded_StatusIsSucceeded()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult() with
+            {
+                Outcomes = new[] { MakeOutcome(IngestionItemStatus.Succeeded), MakeOutcome(IngestionItemStatus.Succeeded) }
+            });
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest());
+
+        result.Status.Should().Be(IngestionStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_SomeSucceededSomeFailed_StatusIsPartiallySucceeded()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult() with
+            {
+                Outcomes = new[] { MakeOutcome(IngestionItemStatus.Succeeded), MakeOutcome(IngestionItemStatus.Failed) }
+            });
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest());
+
+        result.Status.Should().Be(IngestionStatus.PartiallySucceeded);
+        result.IsPartial.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ExtractAsync_AllOutcomesFailed_NoneSucceeded_StatusIsFailed()
+    {
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult() with
+            {
+                Outcomes = new[] { MakeOutcome(IngestionItemStatus.Failed), MakeOutcome(IngestionItemStatus.Failed) }
+            });
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest());
+
+        result.Status.Should().Be(IngestionStatus.Failed);
+        result.IsPartial.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ExtractAsync_SkippedOutcomesOnly_DoNotAffectStatus()
+    {
+        // Skipped items are neither success nor failure for overall-status purposes.
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult() with
+            {
+                Outcomes = new[] { MakeOutcome(IngestionItemStatus.Skipped) }
+            });
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest());
+
+        result.Status.Should().Be(IngestionStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ReturnsOutcomesFromPersistenceStage()
+    {
+        var outcome = MakeOutcome(IngestionItemStatus.Succeeded);
+        _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(MakeStageResult());
+        _persistenceStage.PersistAsync(Arg.Any<ExtractionStageResult>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(MakePersistenceResult() with { Outcomes = new[] { outcome } });
+
+        var sut = CreateSut();
+        var result = await sut.ExtractAsync(MakeRequest());
+
+        result.Outcomes.Should().ContainSingle().Which.Should().Be(outcome);
+    }
+
     [Fact]
     public async Task ExtractAsync_SourceMessageIdsFromStage()
     {

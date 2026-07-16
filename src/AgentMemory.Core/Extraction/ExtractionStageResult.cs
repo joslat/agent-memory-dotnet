@@ -46,4 +46,11 @@ internal sealed record ExtractionStageResult
     public int FactExtractorCount { get; init; }
     public int PreferenceExtractorCount { get; init; }
     public int RelationshipExtractorCount { get; init; }
+
+    /// <summary>
+    /// Item outcomes recorded during this stage (extractor failures, validation/resolution
+    /// failures and skips) -- see <see cref="IngestionItemOutcome"/> (#101). Carried forward and
+    /// appended to by <see cref="IPersistenceStage"/>.
+    /// </summary>
+    public IReadOnlyList<IngestionItemOutcome> Outcomes { get; init; } = Array.Empty<IngestionItemOutcome>();
 }
