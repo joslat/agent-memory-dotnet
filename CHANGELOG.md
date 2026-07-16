@@ -22,6 +22,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metrics (tagged by status/failure-mode/item-kind/stage only — never owner IDs or memory content).
   Fully additive: existing `ExtractionResult` properties and default behavior are unchanged.
 
+- **Pluggable, task-aware automatic recall policy for the Microsoft Agent Framework adapter (#88).**
+  `Neo4jMemoryContextProvider` previously ran the same configured `RecallOptions` for every turn with user
+  text. The new `IAutomaticRecallPolicy` (`AgentMemory.AgentFramework.Recall`) decides, before anything is
+  queried, whether to recall at all, which memory categories to query, and which ranking intent to use.
+  `ConfiguredAutomaticRecallPolicy` (the default, registered by `AddAgentMemoryFramework`) reproduces the
+  prior behavior exactly. `HeuristicAutomaticRecallPolicy` is a lightweight, deterministic, model-call-free
+  alternative — skips recall for a greeting/acknowledgement-only turn, uses `RankingIntent.Latest` for
+  recency-oriented phrasing, `RankingIntent.Analog` plus reasoning traces for precedent-oriented phrasing,
+  and includes reasoning traces for task/troubleshooting phrasing — opt in via
+  `services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>()`, or supply a fully custom
+  policy the same way. It never excludes GraphRAG (no rule about it is defined, so a host's independently
+  configured `EnableGraphRag`/`MaxGraphRagItems`/`BlendMode` is always preserved), and its greeting/
+  acknowledgement detection is a linear-time tokenizer rather than a regex, to avoid catastrophic
+  backtracking on adversarial input. Excluding a category now also skips its `MemoryContextAssembler`
+  repository call entirely (both the live and bitemporal recall paths) instead of issuing a zero-result
+  query; `AssembleContextAsync` additionally warns if `RetrievalBlendMode.GraphRagOnly` is requested and
+  the effective `MaxGraphRagItems<=0`, since that combination would otherwise silently return a completely
+  empty context every turn. Fully additive and behavior-preserving by default.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added

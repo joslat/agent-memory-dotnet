@@ -210,7 +210,7 @@ in the API claims otherwise.
 | **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
 | **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
 | **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
-| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder` |
+| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations |
 | **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
 
 **Key Patterns:**
@@ -226,6 +226,7 @@ in the API claims otherwise.
    - `search_knowledge` — search entities and facts
    - `find_similar_tasks` — retrieve similar prior executions
 5. **Trace Capture** — `AgentTraceRecorder` records agent reasoning steps and tool calls to Neo4j for future analysis
+6. **Task-aware Automatic Recall (#88)** — `IAutomaticRecallPolicy.DecideAsync` runs inside `BuildContextAsync`, before the `RecallRequest` is built, and decides whether to recall at all, which memory categories to query, and which ranking intent to use — see §3.4.1.1
 
 **Namespace structure:**
 ```
@@ -233,7 +234,50 @@ AgentMemory.AgentFramework.Integration     — context provider, message store, 
 AgentMemory.AgentFramework.Tools            — memory tool definitions and factory
 AgentMemory.AgentFramework.Mapping          — MAF type mapping
 AgentMemory.AgentFramework.Tracing          — reasoning trace recording
+AgentMemory.AgentFramework.Recall           — task-aware automatic recall policy (#88)
 ```
+
+#### 3.4.1.1 Task-aware automatic recall policy (#88)
+
+`Neo4jMemoryContextProvider` previously ran the same configured `RecallOptions` for every turn with user
+text, regardless of whether the turn actually needed long-term memory. `IAutomaticRecallPolicy` makes that
+decision pluggable, running deterministically inside `BuildContextAsync` before anything is queried:
+
+- `IAutomaticRecallPolicy.DecideAsync(AutomaticRecallContext, CancellationToken)` returns an
+  `AutomaticRecallDecision` with `ShouldRecall`, `Categories` (an `AutomaticRecallCategories` flags enum:
+  `RecentMessages`/`RelevantMessages`/`Entities`/`Facts`/`Preferences`/`ReasoningTraces`/`GraphRag`),
+  an optional `Intent` override (D3's `RankingIntent`), and an optional full `RecallOptions` override.
+- `ConfiguredAutomaticRecallPolicy` (the default, registered by `AddAgentMemoryFramework`) always returns
+  `Categories = AutomaticRecallCategories.All` with no `Intent`/`RecallOptions` override — this reproduces
+  the pre-#88 behavior exactly, deferring entirely to whatever the host already configured.
+- `HeuristicAutomaticRecallPolicy` is a lightweight, deterministic, model-call-free policy: skips recall
+  for an empty or greeting/acknowledgement-only turn (a linear-time tokenizer, not a regex — an earlier
+  regex-based version of this check exhibited catastrophic backtracking on adversarial input), applies
+  `RankingIntent.Latest` for recency-oriented phrasing, applies `RankingIntent.Analog` plus reasoning
+  traces for precedent-oriented phrasing ("similar case", "how did we solve this before"), and includes
+  reasoning traces for task/troubleshooting phrasing. It has no rule about GraphRAG at all, so its baseline
+  always retains the `GraphRag` category on top of `AutomaticRecallCategories.Default` — it must never
+  silently disable a host's independently configured `EnableGraphRag`/`MaxGraphRagItems`/`BlendMode`.
+  A host opts in via `services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>()` (after
+  `AddAgentMemoryFramework`, or a custom policy the same way) — plain `AddScoped` wins over the `TryAdd`-
+  registered default regardless of call order.
+- Excluding a category from the decision zeroes its `RecallOptions.MaxX` limit. `MemoryContextAssembler`
+  (Core) skips that category's repository call entirely instead of issuing a `LIMIT`/`TopK` 0 query — for
+  every category except GraphRag that query's result is always empty anyway, so this is a pure efficiency
+  win; for GraphRag specifically, `Neo4jGraphRagContextSource` treats `TopK<=0` as "use the configured
+  default TopK" (a pre-existing, unrelated quirk, not "return nothing"), so skipping the call here is what
+  makes `MaxGraphRagItems=0` actually mean "no GraphRAG" for the first time. This applies uniformly to both
+  `AssembleContextAsync` and the bitemporal `AssembleContextAsOfAsync`. Because `RetrievalBlendMode.GraphRagOnly`
+  retrieves nothing else, `AssembleContextAsync` logs a Warning if that blend mode is requested and the
+  effective `MaxGraphRagItems<=0` (in addition to the pre-existing warning for GraphRAG being unavailable)
+  — otherwise a host combining `GraphRagOnly` with a policy that excludes `GraphRag` would get a completely
+  empty context every turn with nothing to explain why.
+- Whichever branch produces the effective `RecallOptions`, `Scope` is always cleared afterwards — scope is
+  always resolved from the invocation's authenticated `userId` (#100's isolation policy), never from a
+  statically configured or policy-supplied value, unchanged from before #88.
+- The decision is logged at Debug level (policy type, `ShouldRecall`, `Categories`, `Intent`) for
+  observability. Automatic recall complements, and never replaces, the model-invokable memory tools
+  (`Tools.MemoryToolFactory`).
 
 #### 3.4.2 GraphRAG Retrieval — built into AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
 

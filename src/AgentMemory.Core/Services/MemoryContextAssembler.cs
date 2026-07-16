@@ -122,7 +122,12 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         //   others       → both sources (Blended / MemoryThenGraphRag / GraphRagThenMemory).
         bool includeMemory = blendMode != RetrievalBlendMode.GraphRagOnly;
         bool graphRagAvailable = _graphRag != null && _options.EnableGraphRag;
-        bool includeGraphRag = blendMode != RetrievalBlendMode.MemoryOnly && graphRagAvailable;
+        // #88: a task-aware recall policy that excludes GraphRag from its decision zeroes MaxGraphRagItems
+        // -- skip the (potentially expensive) GraphRAG round-trip entirely rather than call into it with
+        // TopK=0 (which Neo4jGraphRagContextSource treats as "use the configured default TopK", NOT "return
+        // nothing" -- an existing, unrelated quirk this skip sidesteps rather than depends on).
+        bool includeGraphRag = blendMode != RetrievalBlendMode.MemoryOnly && graphRagAvailable
+            && recallOpts.MaxGraphRagItems > 0;
 
         if (blendMode == RetrievalBlendMode.GraphRagOnly && !graphRagAvailable)
         {
@@ -130,6 +135,17 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 "GraphRagOnly blend mode requested for session {SessionId} but GraphRAG is unavailable " +
                 "(source not registered or EnableGraphRag=false); returning empty context.",
                 request.SessionId);
+        }
+        else if (blendMode == RetrievalBlendMode.GraphRagOnly && recallOpts.MaxGraphRagItems <= 0)
+        {
+            // #88: GraphRAG is registered/enabled (graphRagAvailable), but this turn's effective
+            // MaxGraphRagItems is zero -- e.g. an automatic recall policy excluded the GraphRag category.
+            // GraphRagOnly means nothing else is retrieved either, so without this warning a host combining
+            // GraphRagOnly with such a policy would silently get a completely empty context every turn.
+            _logger.LogWarning(
+                "GraphRagOnly blend mode requested for session {SessionId} but MaxGraphRagItems is {MaxGraphRagItems} " +
+                "(excluded by RecallOptions or an automatic recall policy decision); returning empty context.",
+                request.SessionId, recallOpts.MaxGraphRagItems);
         }
 
         // Start GraphRAG retrieval first so it overlaps memory retrieval when both are requested.
@@ -156,11 +172,16 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
-            // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding.
-            var recentTask = _shortTerm.GetRecentMessagesAsync(
-                request.SessionId, recallOpts.MaxRecentMessages, cancellationToken);
+            // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding. Each
+            // is also gated on its own MaxX > 0 (#88): a task-aware recall policy that excludes a category
+            // zeroes its limit, and skipping the call entirely (rather than issuing a LIMIT/TopK 0 query
+            // whose result is always empty) is what actually saves the embedding/database work the policy
+            // is asking to avoid.
+            var recentTask = recallOpts.MaxRecentMessages > 0
+                ? _shortTerm.GetRecentMessagesAsync(request.SessionId, recallOpts.MaxRecentMessages, cancellationToken)
+                : Empty<Message>();
 
-            var relevantTask = hasEmbedding
+            var relevantTask = hasEmbedding && recallOpts.MaxRelevantMessages > 0
                 ? _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken)
                 : Empty<Message>();
 
@@ -171,19 +192,19 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             bool overrideRanking = _rankingContext is not null && recallOpts.Intent != RankingIntent.Default;
             if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
 
-            var entitiesTask = hasEmbedding
+            var entitiesTask = hasEmbedding && recallOpts.MaxEntities > 0
                 ? _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
                 : Empty<Entity>();
 
-            var preferencesTask = hasEmbedding
+            var preferencesTask = hasEmbedding && recallOpts.MaxPreferences > 0
                 ? _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
                 : Empty<Preference>();
 
-            var factsTask = hasEmbedding
+            var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
                 ? _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken)
                 : Empty<Fact>();
 
-            var tracesTask = hasEmbedding
+            var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
                 ? _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
                 : Empty<ReasoningTrace>();
 
@@ -294,22 +315,25 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // messages, entities, preferences, and traces — which have no valid-time window — observe only
         // systemAsOf. Facts additionally observe the valid-time clock ($validAsOf) for their validity
         // window. When the clocks are equal (single-clock recall) this is byte-for-byte the old behaviour.
-        var recentTask = _shortTerm.GetRecentMessagesAsOfAsync(
-            request.SessionId, systemAsOf, recallOpts.MaxRecentMessages, cancellationToken);
+        // Each is gated on its own MaxX > 0 (#88), same as the live AssembleContextAsync path: skip the
+        // call entirely for a category a task-aware recall policy has excluded.
+        var recentTask = recallOpts.MaxRecentMessages > 0
+            ? _shortTerm.GetRecentMessagesAsOfAsync(request.SessionId, systemAsOf, recallOpts.MaxRecentMessages, cancellationToken)
+            : Empty<Message>();
 
-        var entitiesTask = hasEmbedding
+        var entitiesTask = hasEmbedding && recallOpts.MaxEntities > 0
             ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
             : Empty<Entity>();
 
-        var preferencesTask = hasEmbedding
+        var preferencesTask = hasEmbedding && recallOpts.MaxPreferences > 0
             ? _longTerm.SearchPreferencesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
             : Empty<Preference>();
 
-        var factsTask = hasEmbedding
+        var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
             ? _longTerm.SearchFactsAsOfAsync(queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken)
             : Empty<Fact>();
 
-        var tracesTask = hasEmbedding
+        var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
             ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
             : Empty<ReasoningTrace>();
 
