@@ -215,6 +215,76 @@ public sealed class ExtractionOwnerStampIntegrationTests : IAsyncLifetime
         preference.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted);
     }
 
+    /// <summary>
+    /// Live-Neo4j proof of #92 Phase 5's monotonic-trust fix for facts: <c>Neo4jFactRepository.UpsertAsync</c>
+    /// MERGEs on the exact {subject,predicate,object,owner} triple and its Cypher <c>ON MATCH SET</c>
+    /// unconditionally overwrites <c>metadata</c> -- a purely in-process unit test with a mocked repository
+    /// cannot prove this actually holds against real MERGE semantics, only that <c>PersistenceStage</c> calls
+    /// the right methods. Re-extracts the identical "Ada works_at Acme" triple twice, first at
+    /// <c>ApplicationTrusted</c> then at a lower <c>UserProvided</c>, and confirms the surviving node's trust
+    /// level is never downgraded -- and that it is still exactly one node, not two.
+    /// </summary>
+    [Fact]
+    public async Task FullExtractionPipeline_FactReExtractedAtLowerTrust_DoesNotDowngradeExistingHigherTrust()
+    {
+        using var scope = _provider.CreateScope();
+        var sp = scope.ServiceProvider;
+
+        var shortTerm = sp.GetRequiredService<IShortTermMemoryService>();
+        var pipeline = sp.GetRequiredService<IMemoryExtractionPipeline>();
+        var facts = sp.GetRequiredService<IFactRepository>();
+        var aliceScope = MemoryScope.For("alice");
+
+        const string sessionId = "session-trust-monotonic";
+        const string conversationId = "conv-trust-monotonic";
+        await shortTerm.AddConversationAsync(conversationId, sessionId, userId: "alice");
+
+        // First extraction: a curated/verified import, stamped ApplicationTrusted.
+        var firstMessage = await shortTerm.AddMessageAsync(new Message
+        {
+            MessageId = $"m-{Guid.NewGuid():N}",
+            ConversationId = conversationId,
+            SessionId = sessionId,
+            Role = "user",
+            Content = "Ada works at Acme and prefers dark mode.",
+            TimestampUtc = DateTimeOffset.UtcNow,
+        });
+        await pipeline.ExtractAsync(new ExtractionRequest
+        {
+            SessionId = sessionId,
+            UserId = "alice",
+            Messages = [firstMessage],
+            TrustLevel = MemoryTrustLevel.ApplicationTrusted
+        });
+
+        var factAfterFirst = await facts.FindByTripleAsync("Ada", "works_at", "Acme", scope: aliceScope);
+        factAfterFirst!.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted);
+
+        // Second extraction: an ordinary later turn re-stating the identical triple, at a lower trust level.
+        var secondMessage = await shortTerm.AddMessageAsync(new Message
+        {
+            MessageId = $"m-{Guid.NewGuid():N}",
+            ConversationId = conversationId,
+            SessionId = sessionId,
+            Role = "user",
+            Content = "Ada works at Acme and prefers dark mode.",
+            TimestampUtc = DateTimeOffset.UtcNow,
+        });
+        await pipeline.ExtractAsync(new ExtractionRequest
+        {
+            SessionId = sessionId,
+            UserId = "alice",
+            Messages = [secondMessage],
+            TrustLevel = MemoryTrustLevel.UserProvided
+        });
+
+        var factAfterSecond = await facts.FindByTripleAsync("Ada", "works_at", "Acme", scope: aliceScope);
+        factAfterSecond.Should().NotBeNull();
+        factAfterSecond!.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted,
+            "a later, ordinary, lower-trust re-extraction of the identical triple must never silently downgrade an earlier deliberate elevation");
+        factAfterSecond.FactId.Should().Be(factAfterFirst.FactId, "the Cypher MERGE must still collapse re-extraction onto the SAME node, not create a second one");
+    }
+
     // ── Deterministic test extractors ──
     // The default Stub*Extractor registrations produce no output (Phase-1 no-ops), so a live test needs
     // real-ish extractors that deterministically produce one of each type plus a relationship between two

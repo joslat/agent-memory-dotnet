@@ -109,6 +109,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ReasoningTrace` trust stamping, observed/inferred/verified knowledge distinctions, and richer telemetry
   are future phases.
 
+- **Monotonic trust for facts on re-extraction: Phase 5 of trust boundaries and prompt-injection defenses
+  (#92).** Phase 3 made entity trust monotonic but explicitly deferred the same protection for facts and
+  preferences, since neither had an equivalent pre-fetch step. `PersistenceStage` now pre-fetches any
+  existing fact with the same `{subject, predicate, object}` triple (via `IFactRepository.FindByTripleAsync`)
+  before persisting, and takes the higher of its existing trust level and the current call's — so an
+  ordinary, later, lower-trust re-extraction of an identical triple (e.g. a curated `ApplicationTrusted`
+  import later re-stated in a normal chat turn) can no longer silently erase the earlier elevation.
+  Deliberately scoped to **owner-scoped facts only**: `FindByTripleAsync`'s `MemoryScope?` parameter treats
+  an owner-less lookup as "search across every owner" (the read/recall convention) rather than "shared
+  bucket only" (the write convention for a `null` owner), so pre-fetching for a shared/global fact would
+  risk adopting a *different* owner's trust level — a cross-tenant leak. No existing repository primitive
+  supports a safe shared-bucket-only lookup, so shared/global facts keep today's fresh-stamp behavior; a
+  disclosed, narrower-than-ideal limitation, not a silent gap. **Preferences turned out not to need this
+  fix**: unlike facts, their extraction-time MERGE key is a freshly-generated id, not a natural key, so they
+  never collide with an existing node on re-extraction in the first place — correcting an earlier, less
+  precise description that grouped facts and preferences together. Proven live-Neo4j (not just at the
+  mocked-repository unit level): the same triple is extracted twice at two different trust levels, and the
+  surviving node — confirmed to be the same node, not a duplicate — keeps the higher one. Issue #92 remains
+  open — per-item (not per-request) trust attribution, `ReasoningTrace` trust stamping, observed/inferred/
+  verified knowledge distinctions, and richer telemetry are future phases.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added

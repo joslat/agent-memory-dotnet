@@ -149,6 +149,35 @@ internal sealed class PersistenceStage : IPersistenceStage
 
             try
             {
+                // Trust is monotonic for owner-scoped facts too (#92 Phase 5), mirroring entities (Phase 3):
+                // the repository's Upsert MERGEs on the exact {subject,predicate,object,owner} triple and its
+                // Cypher ON MATCH unconditionally overwrites metadata, so re-extracting the identical triple
+                // at a lower trust level (e.g. an ordinary chat turn re-stating a fact originally imported at
+                // ApplicationTrusted) would otherwise silently erase the earlier elevation. Unlike entities,
+                // facts have no upstream resolution step that hands PersistenceStage the prior record for
+                // free, so this pre-fetch is the "one extra round-trip" the Phase 3 doc flagged as needed.
+                // A lookup failure falls through to the same catch below as an ordinary persistence failure.
+                //
+                // Only performed when ownerId is set: FindByTripleAsync's MemoryScope? parameter follows the
+                // read/recall convention where an unscoped lookup (null, or a scope with no OwnerId) means
+                // "search across every owner" -- the opposite of what a null ownerId means on the WRITE side
+                // (the shared/global bucket). Passing an owner-less scope here would risk adopting another
+                // owner's trust level into a shared fact -- a cross-tenant leak. Unlike FindDuplicateAsync
+                // (whose raw ownerId parameter is documented as "null -> shared bucket only"), there is no
+                // existing repository primitive for a safe shared-bucket-only lookup, so shared/global facts
+                // don't get this protection yet -- a disclosed, narrower-than-ideal limitation for this phase.
+                Fact? existingFact = ownerId is null
+                    ? null
+                    : await _factRepository.FindByTripleAsync(
+                        extracted.Subject, extracted.Predicate, extracted.Object,
+                        MemoryScope.For(ownerId), cancellationToken).ConfigureAwait(false);
+                var effectiveFactTrustLevel = existingFact is null
+                    ? trustLevel
+                    : MaxTrustLevel(existingFact.Metadata.GetTrustLevel(), trustLevel);
+                var factMetadata = existingFact is null
+                    ? MemoryTrustMetadataExtensions.CreateWithTrustLevel(effectiveFactTrustLevel)
+                    : existingFact.Metadata.WithTrustLevel(effectiveFactTrustLevel);
+
                 var fact = new Fact
                 {
                     FactId = _idGenerator.GenerateId(),
@@ -162,7 +191,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow,
-                    Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
+                    Metadata = factMetadata
                 };
 
                 await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
