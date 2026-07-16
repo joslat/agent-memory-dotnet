@@ -2,6 +2,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.AgentFramework.Recall;
+using AgentMemory.AgentFramework.Security;
 using AgentMemory.Core.Services;
 
 namespace AgentMemory.AgentFramework;
@@ -33,9 +35,20 @@ public static class ServiceCollectionExtensions
                 ctx.IncludeReasoningTraces = src.IncludeReasoningTraces;
                 ctx.ContextPrefix = src.ContextPrefix;
                 ctx.MaxChatHistoryMessages = src.MaxChatHistoryMessages;
+                ctx.SecurityMode = src.SecurityMode;
+                ctx.MinimumTrustForAdmissionBypass = src.MinimumTrustForAdmissionBypass;
+                ctx.DefaultMemoryRole = src.DefaultMemoryRole;
+                ctx.MinimumTrustForSystemRole = src.MinimumTrustForSystemRole;
             })
             .Validate(o => o.MaxChatHistoryMessages >= 0, "ContextFormatOptions.MaxChatHistoryMessages must be non-negative.")
             .ValidateOnStart();
+
+        // Task-aware automatic recall policy (#88). TryAdd: a host registering its own
+        // IAutomaticRecallPolicy either before or after this call always wins over this default.
+        services.TryAddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
+
+        // Memory-context admission policy (#92 Phase 2). TryAdd: same override semantics as above.
+        services.TryAddScoped<IMemoryContextAdmissionPolicy, DefaultMemoryContextAdmissionPolicy>();
 
         services.TryAddScoped<Neo4jMemoryContextProvider>();
         services.TryAddScoped<Neo4jChatMessageStore>();

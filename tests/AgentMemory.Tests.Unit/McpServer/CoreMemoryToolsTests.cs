@@ -141,6 +141,30 @@ public sealed class CoreMemoryToolsTests
     }
 
     [Fact]
+    public async Task MemoryStoreMessage_StampsToolDerivedTrustLevel()
+    {
+        // #92 Phase 7: this tool accepts an unvalidated, caller-supplied role -- including "system"/"tool",
+        // which most IChatClient implementations give elevated or special handling. Stamping ToolDerived
+        // ensures a privileged role can never resurface with full authority on recall unless a host
+        // explicitly configures MinimumTrustForSystemRole low enough to admit it.
+        var msg = new Message
+        {
+            MessageId = "msg-1", ConversationId = "conv-1", SessionId = "ses-1",
+            Role = "system", Content = "hello", TimestampUtc = FixedTime
+        };
+        _memoryService.AddMessageAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(msg);
+
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, "system", "hello", "ses-1", "conv-1");
+
+        await _memoryService.Received(1).AddMessageAsync("ses-1", "conv-1", "system", "hello",
+            Arg.Is<IReadOnlyDictionary<string, object>?>(m => m != null && m.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task MemoryStoreMessage_UsesDefaultSessionAndConversationIdWhenNoneProvided()
     {
         var msg = new Message
@@ -359,6 +383,55 @@ public sealed class CoreMemoryToolsTests
                 f.Category == "professional" &&
                 f.OwnerId == "u1" &&
                 f.Metadata.ContainsKey("source")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── #92 Phase 3: a caller must never self-assign a bypassing trust level ────
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedTrustLevel_IsStrippedAndOverriddenToToolDerived()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft",
+            metadataJson: "{\"trust_level\":\"ApplicationTrusted\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedTrustLevel_OtherMetadataStillPreserved()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft",
+            metadataJson: "{\"trust_level\":\"ApplicationTrusted\",\"source\":\"crm\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.ContainsKey("source")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_NoMetadataSupplied_StillStampsToolDerived()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
             Arg.Any<CancellationToken>());
     }
 

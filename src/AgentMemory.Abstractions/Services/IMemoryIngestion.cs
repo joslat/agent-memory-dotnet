@@ -49,7 +49,12 @@ public interface IMemoryIngestion
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Extracts and persists long-term memory from messages.
+    /// Extracts and persists long-term memory from messages. The returned <see cref="ExtractionResult"/>
+    /// carries structured per-item outcomes and an overall <see cref="IngestionStatus"/> (#101). Under the
+    /// default <c>ExtractionOptions.FailureMode</c> (<c>IngestionFailureMode.BestEffort</c>) this never
+    /// throws for a per-item failure; under <c>IngestionFailureMode.FailFast</c> it throws
+    /// <see cref="AgentMemory.Abstractions.Exceptions.MemoryIngestionException"/> at the first one,
+    /// carrying every outcome completed before the failure.
     /// </summary>
     Task<ExtractionResult> ExtractAndPersistAsync(
         ExtractionRequest request,
@@ -59,7 +64,10 @@ public interface IMemoryIngestion
     /// Retroactively runs the extraction pipeline on all messages in a session and persists the
     /// resulting entities, facts, preferences, and relationships. When <paramref name="userId"/> is
     /// supplied (R1) the extracted nodes are owner-stamped and resolution is owner-scoped; null ⇒ the
-    /// nodes are stored as shared/global (the prior single-tenant behavior).
+    /// nodes are stored as shared/global (the prior single-tenant behavior). Under
+    /// <c>IngestionFailureMode.FailFast</c> (#101) can throw
+    /// <see cref="AgentMemory.Abstractions.Exceptions.MemoryIngestionException"/>; this method's <c>void</c>
+    /// return means the per-item outcomes are only observable via that exception, not on success.
     /// </summary>
     Task ExtractFromSessionAsync(
         string sessionId,
@@ -69,7 +77,10 @@ public interface IMemoryIngestion
     /// <summary>
     /// Retroactively runs the extraction pipeline on all messages in a conversation and persists the
     /// results. When <paramref name="userId"/> is supplied (R1) the extracted nodes are owner-stamped
-    /// and resolution is owner-scoped; null ⇒ stored as shared/global.
+    /// and resolution is owner-scoped; null ⇒ stored as shared/global. Under
+    /// <c>IngestionFailureMode.FailFast</c> (#101) can throw
+    /// <see cref="AgentMemory.Abstractions.Exceptions.MemoryIngestionException"/>; this method's <c>void</c>
+    /// return means the per-item outcomes are only observable via that exception, not on success.
     /// </summary>
     Task ExtractFromConversationAsync(
         string conversationId,

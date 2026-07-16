@@ -49,7 +49,8 @@ public static class ServiceCollectionExtensions
             {
                 var inner = CreateInstance<IMemoryService>(provider, descriptor);
                 var metrics = provider.GetRequiredService<MemoryMetrics>();
-                return new InstrumentedMemoryService(inner, metrics);
+                var extractionOptions = provider.GetService<Microsoft.Extensions.Options.IOptions<Abstractions.Options.ExtractionOptions>>();
+                return new InstrumentedMemoryService(inner, metrics, extractionOptions);
             },
             descriptor.Lifetime));
     }

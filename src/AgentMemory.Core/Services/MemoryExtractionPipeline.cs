@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -18,6 +19,7 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
     private readonly IPersistenceStage _persistenceStage;
     private readonly ILogger<MemoryExtractionPipeline> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
+    private readonly ExtractionOptions _options;
 
     // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
     // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
@@ -25,12 +27,14 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         IExtractionStage extractionStage,
         IPersistenceStage persistenceStage,
         ILogger<MemoryExtractionPipeline> logger,
-        IMemoryIsolationPolicy isolationPolicy)
+        IMemoryIsolationPolicy isolationPolicy,
+        IOptions<ExtractionOptions>? extractionOptions = null)
     {
         _extractionStage = extractionStage;
         _persistenceStage = persistenceStage;
         _logger = logger;
         _isolationPolicy = isolationPolicy;
+        _options = extractionOptions?.Value ?? new ExtractionOptions();
     }
 
     /// <inheritdoc/>
@@ -54,7 +58,9 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
         var ownerId = _isolationPolicy.ResolveWriteOwner(request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
-        var persisted = await _persistenceStage.PersistAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
+        // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
+        var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
+        var persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
         _logger.LogInformation(
@@ -74,6 +80,8 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             Preferences = staged.RawPreferences,
             Relationships = staged.RawRelationships,
             SourceMessageIds = staged.SourceMessageIds,
+            Status = ComputeStatus(persisted.Outcomes),
+            Outcomes = persisted.Outcomes,
             Metadata = new Dictionary<string, object>
             {
                 ["sessionId"] = request.SessionId,
@@ -84,5 +92,24 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                 ["relationshipCount"] = persisted.RelationshipCount
             }
         };
+    }
+
+    /// <summary>
+    /// Derives the overall <see cref="IngestionStatus"/> (#101) from item outcomes: any failure makes
+    /// it at best partial; a total loss (failures present, nothing succeeded) is Failed; no failures at
+    /// all — including the trivial case of nothing to ingest — is Succeeded.
+    /// </summary>
+    private static IngestionStatus ComputeStatus(IReadOnlyList<IngestionItemOutcome> outcomes)
+    {
+        var failed = 0;
+        var succeeded = 0;
+        foreach (var outcome in outcomes)
+        {
+            if (outcome.Status == IngestionItemStatus.Failed) failed++;
+            else if (outcome.Status == IngestionItemStatus.Succeeded) succeeded++;
+        }
+
+        if (failed == 0) return IngestionStatus.Succeeded;
+        return succeeded > 0 ? IngestionStatus.PartiallySucceeded : IngestionStatus.Failed;
     }
 }

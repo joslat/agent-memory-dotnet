@@ -37,4 +37,19 @@ public sealed record ExtractionResult
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =
         new Dictionary<string, object>();
+
+    /// <summary>
+    /// Overall ingestion outcome (#101). Defaults to <see cref="IngestionStatus.Succeeded"/> so existing
+    /// callers that only read the item collections above see unchanged behavior.
+    /// </summary>
+    public IngestionStatus Status { get; init; } = IngestionStatus.Succeeded;
+
+    /// <summary>
+    /// Per-item outcomes recorded across the extraction and persistence stages (#101): failures,
+    /// meaningful skips, and successes. Empty by default. See <see cref="IngestionItemOutcome"/>.
+    /// </summary>
+    public IReadOnlyList<IngestionItemOutcome> Outcomes { get; init; } = Array.Empty<IngestionItemOutcome>();
+
+    /// <summary>Convenience accessor: <see langword="true"/> when <see cref="Status"/> is <see cref="IngestionStatus.PartiallySucceeded"/>.</summary>
+    public bool IsPartial => Status == IngestionStatus.PartiallySucceeded;
 }

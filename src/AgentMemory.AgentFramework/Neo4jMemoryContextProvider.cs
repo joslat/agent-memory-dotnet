@@ -6,6 +6,8 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
+using AgentMemory.AgentFramework.Recall;
+using AgentMemory.AgentFramework.Security;
 using AgentMemory.AgentFramework.Tools;
 
 namespace AgentMemory.AgentFramework;
@@ -25,6 +27,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     private readonly IMemoryStoreContext? _storeContext;
     private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly MemoryToolFactory? _toolFactory;
+    private readonly IAutomaticRecallPolicy _recallPolicy;
+    private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
     private readonly ILogger<Neo4jMemoryContextProvider> _logger;
 
     public Neo4jMemoryContextProvider(
@@ -38,7 +42,9 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         ILogger<Neo4jMemoryContextProvider> logger,
         IMemoryStoreContext? storeContext = null,
         IWritableMemoryOwnerContext? ownerContext = null,
-        MemoryToolFactory? toolFactory = null)
+        MemoryToolFactory? toolFactory = null,
+        IAutomaticRecallPolicy? recallPolicy = null,
+        IMemoryContextAdmissionPolicy? admissionPolicy = null)
         // AIContextProvider(IServiceProvider? sp, ILogger? logger, string? stateKey)
         // All three are passed as null: we supply our own ILogger via constructor injection,
         // we don't need the base-class IServiceProvider, and StateKey is exposed as our own property.
@@ -54,6 +60,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _storeContext = storeContext;
         _ownerContext = ownerContext;
         _toolFactory = toolFactory;
+        _recallPolicy = recallPolicy ?? new ConfiguredAutomaticRecallPolicy();
+        _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -99,6 +107,33 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 
             var queryText = string.Join("\n", userMessages.Select(m => m.Text));
 
+            // Task-aware automatic recall (#88): let the policy decide, before anything is queried,
+            // whether this turn needs recall at all and which categories/intent are relevant. The default
+            // ConfiguredAutomaticRecallPolicy always returns Categories=All + Intent=null, which
+            // ResolveEffectiveOptions below turns into a complete no-op -- so the pre-#88 behavior is
+            // preserved exactly unless a host opts into a different policy.
+            var decision = await _recallPolicy
+                .DecideAsync(
+                    new AutomaticRecallContext
+                    {
+                        Messages = userMessages,
+                        SessionId = sessionId,
+                        ConversationId = conversationId,
+                        UserId = userId
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            _logger.LogDebug(
+                "Automatic recall decision for session {SessionId}: policy={Policy} recall={ShouldRecall} " +
+                "categories={Categories} intent={Intent}",
+                sessionId, _recallPolicy.GetType().Name, decision.ShouldRecall, decision.Categories, decision.Intent);
+
+            if (!decision.ShouldRecall)
+                return BuildResult();
+
+            var effectiveOptions = ResolveEffectiveOptions(decision);
+
             float[]? queryEmbedding = null;
             try
             {
@@ -121,13 +156,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 UserId = userId,
                 Query = queryText,
                 QueryEmbedding = queryEmbedding,
-                // Retrieval tuning (limits, MinSimilarityScore, BlendMode, Intent) comes from the
-                // configured RecallOptions (#87) -- but Scope is explicitly cleared: scope must always be
-                // resolved from this invocation's authenticated userId (via #100's isolation policy),
-                // never from a statically configured value. A host who ever sets
-                // MemoryOptions.Recall.Scope globally must not have it silently override the real,
-                // per-invocation owner here.
-                Options = _recallOptions with { Scope = null }
+                Options = effectiveOptions
             };
 
             RecallResult recallResult;
@@ -147,7 +176,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 return BuildResult();
             }
 
-            var contextMessages = MafTypeMapper.ToContextMessages(recallResult.Context, _formatOptions);
+            var contextMessages = MafTypeMapper.ToContextMessages(recallResult.Context, _formatOptions, _admissionPolicy, _logger);
 
             if (contextMessages.Count == 0)
                 return BuildResult();
@@ -177,6 +206,33 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             ? _toolFactory?.CreateAIFunctions()
             : null,
     };
+
+    /// <summary>
+    /// Resolves the effective <see cref="RecallOptions"/> for this turn from the policy's decision (#88).
+    /// An explicit <see cref="AutomaticRecallDecision.RecallOptions"/> is used verbatim; otherwise the
+    /// configured base <see cref="RecallOptions"/> is used, with the per-category limit zeroed for every
+    /// <see cref="AutomaticRecallCategories"/> flag the decision excludes (so <c>MemoryContextAssembler</c>
+    /// skips that category's retrieval entirely instead of querying and discarding it) and
+    /// <see cref="AutomaticRecallDecision.Intent"/> applied when set. Either way, <c>Scope</c> is always
+    /// cleared afterwards: scope must always be resolved from this invocation's authenticated userId (via
+    /// #100's isolation policy), never from a statically configured or policy-supplied value.
+    /// </summary>
+    private RecallOptions ResolveEffectiveOptions(AutomaticRecallDecision decision)
+    {
+        var effective = decision.RecallOptions ?? _recallOptions with
+        {
+            MaxRecentMessages = decision.Categories.HasFlag(AutomaticRecallCategories.RecentMessages) ? _recallOptions.MaxRecentMessages : 0,
+            MaxRelevantMessages = decision.Categories.HasFlag(AutomaticRecallCategories.RelevantMessages) ? _recallOptions.MaxRelevantMessages : 0,
+            MaxEntities = decision.Categories.HasFlag(AutomaticRecallCategories.Entities) ? _recallOptions.MaxEntities : 0,
+            MaxFacts = decision.Categories.HasFlag(AutomaticRecallCategories.Facts) ? _recallOptions.MaxFacts : 0,
+            MaxPreferences = decision.Categories.HasFlag(AutomaticRecallCategories.Preferences) ? _recallOptions.MaxPreferences : 0,
+            MaxTraces = decision.Categories.HasFlag(AutomaticRecallCategories.ReasoningTraces) ? _recallOptions.MaxTraces : 0,
+            MaxGraphRagItems = decision.Categories.HasFlag(AutomaticRecallCategories.GraphRag) ? _recallOptions.MaxGraphRagItems : 0,
+            Intent = decision.Intent ?? _recallOptions.Intent
+        };
+
+        return effective with { Scope = null };
+    }
 
     /// <summary>
     /// Post-run hook: persists response messages and optionally triggers extraction.

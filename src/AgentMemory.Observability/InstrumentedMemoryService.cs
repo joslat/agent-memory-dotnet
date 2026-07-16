@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
 namespace AgentMemory.Observability;
@@ -11,11 +14,14 @@ internal sealed class InstrumentedMemoryService : IMemoryService
 {
     private readonly IMemoryService _inner;
     private readonly MemoryMetrics _metrics;
+    private readonly IngestionFailureMode _failureMode;
 
-    public InstrumentedMemoryService(IMemoryService inner, MemoryMetrics metrics)
+    public InstrumentedMemoryService(
+        IMemoryService inner, MemoryMetrics metrics, IOptions<ExtractionOptions>? extractionOptions = null)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        _failureMode = extractionOptions?.Value.FailureMode ?? IngestionFailureMode.BestEffort;
     }
 
     public async Task<RecallResult> RecallAsync(
@@ -181,7 +187,19 @@ internal sealed class InstrumentedMemoryService : IMemoryService
             activity?.SetTag("memory.extraction.entity_count", result.Entities.Count);
             activity?.SetTag("memory.extraction.fact_count", result.Facts.Count);
             activity?.SetTag("memory.extraction.preference_count", result.Preferences.Count);
+            RecordIngestionOutcome(result, activity);
             return result;
+        }
+        catch (MemoryIngestionException ex)
+        {
+            // Fail-fast (#101): still surfaces the completed-outcomes item counters, then re-throws.
+            RecordItemOutcomes(ex.CompletedOutcomes);
+            _metrics.IngestionOperations.Add(1,
+                new KeyValuePair<string, object?>("status", nameof(IngestionStatus.Failed)),
+                new KeyValuePair<string, object?>("failure_mode", _failureMode.ToString()));
+            _metrics.ExtractionErrors.Add(1);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
         }
         catch (Exception ex)
         {
@@ -192,6 +210,34 @@ internal sealed class InstrumentedMemoryService : IMemoryService
         finally
         {
             _metrics.ExtractionDurationMs.Record(sw.Elapsed.TotalMilliseconds);
+        }
+    }
+
+    /// <summary>Emits ingestion metrics/tags for a completed (non-throwing) ingestion (#101).</summary>
+    private void RecordIngestionOutcome(ExtractionResult result, Activity? activity)
+    {
+        activity?.SetTag("memory.ingestion.status", result.Status.ToString());
+        _metrics.IngestionOperations.Add(1,
+            new KeyValuePair<string, object?>("status", result.Status.ToString()),
+            new KeyValuePair<string, object?>("failure_mode", _failureMode.ToString()));
+        RecordItemOutcomes(result.Outcomes);
+    }
+
+    /// <summary>Emits per-item succeeded/failed counters, tagged by kind and stage only (#101) —
+    /// never owner IDs, memory text, or exception messages.</summary>
+    private void RecordItemOutcomes(IReadOnlyList<IngestionItemOutcome> outcomes)
+    {
+        foreach (var outcome in outcomes)
+        {
+            var tags = new[]
+            {
+                new KeyValuePair<string, object?>("item.kind", outcome.Kind.ToString()),
+                new KeyValuePair<string, object?>("stage", outcome.Stage.ToString()),
+            };
+            if (outcome.Status == IngestionItemStatus.Succeeded)
+                _metrics.IngestionItemsSucceeded.Add(1, tags);
+            else if (outcome.Status == IngestionItemStatus.Failed)
+                _metrics.IngestionItemsFailed.Add(1, tags);
         }
     }
 

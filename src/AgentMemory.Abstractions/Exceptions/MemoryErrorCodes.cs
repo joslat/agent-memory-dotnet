@@ -53,4 +53,48 @@ public static class MemoryErrorCodes
 
     /// <summary>Persisting one or more memory items to the graph failed.</summary>
     public const string PersistenceFailed       = "MEMORY_PERSISTENCE_FAILED";
+
+    // ── Ingestion outcome codes (#101) — used as IngestionItemOutcome.ErrorCode ──
+
+    /// <summary>An entity extractor threw.</summary>
+    public const string EntityExtractionFailed       = "MEMORY_ENTITY_EXTRACTION_FAILED";
+
+    /// <summary>A fact extractor threw.</summary>
+    public const string FactExtractionFailed         = "MEMORY_FACT_EXTRACTION_FAILED";
+
+    /// <summary>A preference extractor threw.</summary>
+    public const string PreferenceExtractionFailed   = "MEMORY_PREFERENCE_EXTRACTION_FAILED";
+
+    /// <summary>A relationship extractor threw.</summary>
+    public const string RelationshipExtractionFailed = "MEMORY_RELATIONSHIP_EXTRACTION_FAILED";
+
+    /// <summary>An extracted entity candidate failed <c>EntityValidator</c> validation.</summary>
+    public const string EntityValidationFailed       = "MEMORY_ENTITY_VALIDATION_FAILED";
+
+    /// <summary>Entity resolution (matching/deduplication) threw for one candidate.</summary>
+    public const string EntityResolutionFailed       = "MEMORY_ENTITY_RESOLUTION_FAILED";
+
+    /// <summary>A relationship's source or target entity was never resolved during extraction.</summary>
+    public const string RelationshipEndpointUnresolved = "MEMORY_RELATIONSHIP_ENDPOINT_UNRESOLVED";
+
+    /// <summary>Generating an embedding for an item to persist failed.</summary>
+    public const string EmbeddingGenerationFailed    = "MEMORY_EMBEDDING_GENERATION_FAILED";
+
+    /// <summary>Persisting an entity node failed.</summary>
+    public const string EntityPersistenceFailed       = "MEMORY_ENTITY_PERSISTENCE_FAILED";
+
+    /// <summary>Persisting a fact node failed.</summary>
+    public const string FactPersistenceFailed         = "MEMORY_FACT_PERSISTENCE_FAILED";
+
+    /// <summary>Persisting a preference node failed.</summary>
+    public const string PreferencePersistenceFailed   = "MEMORY_PREFERENCE_PERSISTENCE_FAILED";
+
+    /// <summary>Persisting a relationship edge failed.</summary>
+    public const string RelationshipPersistenceFailed = "MEMORY_RELATIONSHIP_PERSISTENCE_FAILED";
+
+    /// <summary>A relationship's source or target entity was never persisted.</summary>
+    public const string RelationshipEndpointNotPersisted = "MEMORY_RELATIONSHIP_ENDPOINT_NOT_PERSISTED";
+
+    /// <summary>Creating an <c>EXTRACTED_FROM</c> provenance edge failed for an otherwise-persisted item.</summary>
+    public const string ProvenancePersistenceFailed   = "MEMORY_PROVENANCE_PERSISTENCE_FAILED";
 }

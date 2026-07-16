@@ -2,8 +2,11 @@ using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework.Recall;
+using AgentMemory.AgentFramework.Security;
 using AgentMemory.AgentFramework.Tools;
 using NSubstitute;
 
@@ -157,6 +160,138 @@ public sealed class ServiceCollectionExtensionsTests
         var sut = scope.ServiceProvider.GetRequiredService<Neo4jChatHistoryProvider>();
 
         sut.Should().NotBeNull();
+    }
+
+    // ── #88: task-aware automatic recall policy ────────────────────────────────
+
+    [Fact]
+    public void AddAgentMemoryFramework_RegistersConfiguredAutomaticRecallPolicy_AsScoped_ByDefault()
+    {
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IAutomaticRecallPolicy) &&
+            d.ImplementationType == typeof(ConfiguredAutomaticRecallPolicy) &&
+            d.Lifetime == ServiceLifetime.Scoped);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_ResolvesIAutomaticRecallPolicy_WithDependencies()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework()
+            .BuildServiceProvider();
+
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
+
+        sut.Should().BeOfType<ConfiguredAutomaticRecallPolicy>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostRegisteredPolicyBeforeCall_IsNotOverridden()
+    {
+        // TryAdd: a host that registers its own IAutomaticRecallPolicy before AddAgentMemoryFramework
+        // must keep that registration -- the built-in Configured policy must not clobber it.
+        var services = BuildBaseServices();
+        services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>();
+        services.AddAgentMemoryFramework();
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
+
+        sut.Should().BeOfType<HeuristicAutomaticRecallPolicy>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostRegisteredPolicyAfterCall_WinsOverDefault()
+    {
+        // A host that registers its own IAutomaticRecallPolicy after AddAgentMemoryFramework must win --
+        // plain AddScoped appends, and the last registration is what resolves for a non-keyed service.
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+        services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>();
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
+
+        sut.Should().BeOfType<HeuristicAutomaticRecallPolicy>();
+    }
+
+    // ── #92 Phase 2: memory-context admission policy ────────────────────────────
+
+    [Fact]
+    public void AddAgentMemoryFramework_RegistersDefaultMemoryContextAdmissionPolicy_AsScoped_ByDefault()
+    {
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IMemoryContextAdmissionPolicy) &&
+            d.ImplementationType == typeof(DefaultMemoryContextAdmissionPolicy) &&
+            d.Lifetime == ServiceLifetime.Scoped);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_ResolvesIMemoryContextAdmissionPolicy_WithDependencies()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework()
+            .BuildServiceProvider();
+
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IMemoryContextAdmissionPolicy>();
+
+        sut.Should().BeOfType<DefaultMemoryContextAdmissionPolicy>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostRegisteredAdmissionPolicyAfterCall_WinsOverDefault()
+    {
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+        var custom = Substitute.For<IMemoryContextAdmissionPolicy>();
+        services.AddScoped(_ => custom);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IMemoryContextAdmissionPolicy>();
+
+        sut.Should().BeSameAs(custom);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_WithConfigure_MapsSecurityModeIntoContextFormatOptions()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.SecurityMode = MemoryContextSecurityMode.Strict)
+            .BuildServiceProvider();
+
+        var contextFormat = provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        contextFormat.SecurityMode.Should().Be(MemoryContextSecurityMode.Strict);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_WithConfigure_MapsPhase4RoleOptionsIntoContextFormatOptions()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts =>
+            {
+                opts.ContextFormat.DefaultMemoryRole = RecalledMemoryMessageRole.User;
+                opts.ContextFormat.MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted;
+            })
+            .BuildServiceProvider();
+
+        var contextFormat = provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        contextFormat.DefaultMemoryRole.Should().Be(RecalledMemoryMessageRole.User);
+        contextFormat.MinimumTrustForSystemRole.Should().Be(MemoryTrustLevel.ApplicationTrusted);
     }
 
     // ── idempotency ───────────────────────────────────────────────────────────

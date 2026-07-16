@@ -23,6 +23,20 @@ public sealed class ExtractionOptions
     public double StrongPatternConfidence { get; set; } = 0.95;
     /// <summary>Confidence assigned to standard regex matches in PatternBasedPreferenceDetector.</summary>
     public double RegexMatchConfidence { get; set; } = 0.85;
+    /// <summary>
+    /// How the pipeline reacts to a per-item ingestion failure (#101). Defaults to
+    /// <see cref="IngestionFailureMode.BestEffort"/> -- today's behavior, unchanged.
+    /// </summary>
+    public IngestionFailureMode FailureMode { get; set; } = IngestionFailureMode.BestEffort;
+
+    /// <summary>
+    /// The trust level stamped on every entity/fact/preference persisted, unless a specific
+    /// <c>ExtractionRequest.TrustLevel</c> overrides it for that call (#92 Phase 3). Defaults to
+    /// <see cref="MemoryTrustLevel.UserProvided"/> -- everything extracted through the normal pipeline is
+    /// derived from real conversation content, distinct from content a host explicitly marks
+    /// <see cref="MemoryTrustLevel.ApplicationTrusted"/>.
+    /// </summary>
+    public MemoryTrustLevel DefaultTrustLevel { get; set; } = MemoryTrustLevel.UserProvided;
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

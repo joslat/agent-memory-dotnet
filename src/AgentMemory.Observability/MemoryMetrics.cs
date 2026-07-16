@@ -110,6 +110,20 @@ public sealed class MemoryMetrics : IDisposable
             "memory.enrichment.duration",
             unit: "ms",
             description: "Duration of enrichment operations in milliseconds");
+
+        // #101: structured ingestion outcomes. Dimensions (status, failure_mode, item.kind, stage) are
+        // all low-cardinality enum values -- never owner IDs, memory text, or arbitrary exception text.
+        IngestionOperations = _meter.CreateCounter<long>(
+            "memory.ingestion.operations",
+            description: "Number of ingestion (extract+persist) operations, tagged by overall status and failure mode");
+
+        IngestionItemsSucceeded = _meter.CreateCounter<long>(
+            "memory.ingestion.items.succeeded",
+            description: "Number of ingestion items that succeeded, tagged by item kind and stage");
+
+        IngestionItemsFailed = _meter.CreateCounter<long>(
+            "memory.ingestion.items.failed",
+            description: "Number of ingestion items that failed, tagged by item kind and stage");
     }
 
     /// <summary>
@@ -180,4 +194,13 @@ public sealed class MemoryMetrics : IDisposable
 
     /// <summary>Duration of enrichment operations in milliseconds.</summary>
     internal Histogram<double> EnrichmentDurationMs { get; }
+
+    /// <summary>Number of ingestion operations, tagged by overall status and failure mode (#101).</summary>
+    internal Counter<long> IngestionOperations { get; }
+
+    /// <summary>Number of ingestion items that succeeded, tagged by item kind and stage (#101).</summary>
+    internal Counter<long> IngestionItemsSucceeded { get; }
+
+    /// <summary>Number of ingestion items that failed, tagged by item kind and stage (#101).</summary>
+    internal Counter<long> IngestionItemsFailed { get; }
 }

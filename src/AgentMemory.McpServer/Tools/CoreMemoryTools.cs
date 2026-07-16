@@ -86,7 +86,14 @@ internal sealed class CoreMemoryTools
         var sid = sessionId ?? options.Value.DefaultSessionId;
         var cid = conversationId ?? sid;
 
-        var message = await memoryService.AddMessageAsync(sid, cid, role, content, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // #92 Phase 7: this tool accepts an unvalidated, caller-supplied role -- including "system"/"tool",
+        // which most IChatClient implementations give elevated or special handling. Stamping ToolDerived
+        // (the same level memory_add_fact stamps, #92 Phase 3) doesn't restrict what role can be set, but
+        // ensures a privileged role can never resurface with full authority on recall unless a host
+        // explicitly configures MinimumTrustForSystemRole low enough to admit it (see
+        // RecalledMessageRoleGate, consulted by MafTypeMapper/MemoryContextFormatter/Neo4jTextSearch).
+        var metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(MemoryTrustLevel.ToolDerived);
+        var message = await memoryService.AddMessageAsync(sid, cid, role, content, metadata, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             message.MessageId,
@@ -197,6 +204,12 @@ internal sealed class CoreMemoryTools
         CancellationToken cancellationToken = default)
     {
         var confidenceValue = confidence ?? options.Value.DefaultConfidence;
+        // #92 Phase 3: trust_level is a framework-reserved metadata key -- strip any caller-supplied value
+        // (a caller must never be able to self-assign ApplicationTrusted and bypass the admission policy's
+        // instruction-like-content detection) and stamp ToolDerived, since this fact arrived via a direct
+        // tool call rather than the extraction pipeline.
+        var callerMetadata = (ParseMetadata(metadataJson) ?? new Dictionary<string, object>())
+            .WithoutCallerSuppliedTrustLevel();
         var fact = new Fact
         {
             FactId = idGenerator.GenerateId(),
@@ -207,7 +220,7 @@ internal sealed class CoreMemoryTools
             Confidence = confidenceValue,
             OwnerId = userId,
             CreatedAtUtc = clock.UtcNow,
-            Metadata = ParseMetadata(metadataJson) ?? new Dictionary<string, object>()
+            Metadata = callerMetadata.WithTrustLevel(MemoryTrustLevel.ToolDerived)
         };
 
         var result = await longTermMemory.AddFactAsync(fact, cancellationToken).ConfigureAwait(false);

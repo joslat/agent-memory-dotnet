@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -16,13 +17,19 @@ public sealed class Neo4jMemoryPlugin
 {
     private readonly IMemoryService _memoryService;
     private readonly ILogger<Neo4jMemoryPlugin> _logger;
+    private readonly MemoryContextFormatterOptions _formatterOptions;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jMemoryPlugin"/>.</summary>
-    public Neo4jMemoryPlugin(IMemoryService memoryService, ILogger<Neo4jMemoryPlugin>? logger = null)
+    public Neo4jMemoryPlugin(
+        IMemoryService memoryService,
+        ILogger<Neo4jMemoryPlugin>? logger = null,
+        IOptions<MemoryRecallSecurityOptions>? securityOptions = null)
     {
         ArgumentNullException.ThrowIfNull(memoryService);
         _memoryService = memoryService;
         _logger = logger ?? NullLogger<Neo4jMemoryPlugin>.Instance;
+
+        _formatterOptions = (securityOptions?.Value ?? new MemoryRecallSecurityOptions()).ToFormatterOptions();
     }
 
     /// <summary>Recalls relevant memory context for the given query and session.</summary>
@@ -49,7 +56,7 @@ public sealed class Neo4jMemoryPlugin
             _logger.LogWarning(ex, "recall failed for session {SessionId}; returning empty context", sessionId);
             return string.Empty;
         }
-        return MemoryContextFormatter.FormatRecallResult(result);
+        return MemoryContextFormatter.FormatRecallResult(result, _formatterOptions, _logger);
     }
 
     /// <summary>Adds a single message to short-term memory.</summary>
@@ -62,7 +69,14 @@ public sealed class Neo4jMemoryPlugin
         [Description("Text content of the message")] string content,
         CancellationToken cancellationToken = default)
     {
-        await _memoryService.AddMessageAsync(sessionId, conversationId, role, content, null, cancellationToken)
+        // #92 Phase 7: this function accepts an unvalidated, caller-supplied role -- including "system"/
+        // "tool", which most IChatClient implementations give elevated or special handling. Stamping
+        // ToolDerived (the same level memory_add_fact stamps, #92 Phase 3) doesn't restrict what role can
+        // be set, but ensures a privileged role can never resurface with full authority on recall unless a
+        // host explicitly configures MinimumTrustForSystemRole low enough to admit it (see
+        // RecalledMessageRoleGate, consulted by MemoryContextFormatter/Neo4jTextSearch).
+        var metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(MemoryTrustLevel.ToolDerived);
+        await _memoryService.AddMessageAsync(sessionId, conversationId, role, content, metadata, cancellationToken)
             .ConfigureAwait(false);
     }
 

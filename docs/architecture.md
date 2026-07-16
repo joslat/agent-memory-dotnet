@@ -142,7 +142,7 @@ graph TD
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.5.1 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 48 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, etc.), 39 service interfaces (incl. `IMemoryIsolationPolicy`, #100), 11 repository interfaces, 16 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`), 18 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`) (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
+| **Key types** | 49 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, etc.), 39 service interfaces (incl. `IMemoryIsolationPolicy`, #100), 11 repository interfaces, 16 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`), 24 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`) (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
 
 **Namespace structure:**
 ```
@@ -159,7 +159,229 @@ AgentMemory.Abstractions.Options       — configuration records
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
 | **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.5.1, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5, FuzzySharp |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
-| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver |
+| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7) |
+
+#### 3.2.1 Ingestion outcomes (#101)
+
+`ExtractAndPersistAsync`/`IMemoryExtractionPipeline.ExtractAsync` extract and persist independent
+items (entities, facts, preferences, relationships) from a batch of messages. Individual items can
+fail at any stage — an extractor throws, an entity fails validation or resolution, a node fails to
+persist, or its `EXTRACTED_FROM` provenance edge fails after the node itself succeeded — and by
+default (`IngestionFailureMode.BestEffort`) the pipeline keeps going: one bad item must not discard
+several good ones. `ExtractionResult` makes that visible instead of only logging it:
+
+- `Status` (`IngestionStatus`: `Succeeded` / `PartiallySucceeded` / `Failed`) — derived from
+  `Outcomes`: any `Failed` item outcome makes it at least `PartiallySucceeded`; `Failed` overall only
+  when *nothing* succeeded. Nothing to ingest is `Succeeded`, not `Failed`.
+- `Outcomes` (`IReadOnlyList<IngestionItemOutcome>`) — one entry per meaningful event (a success, a
+  validation/resolution skip, or a failure), each carrying `Kind` (entity/fact/preference/
+  relationship), `Stage` (extraction/validation/resolution/persistence/provenance/relationship-
+  persistence), a stable `ErrorCode` (`MemoryErrorCodes`, all `MEMORY_`-prefixed), and `Retryable`.
+  Routine confidence-threshold filtering is deliberately **not** recorded — it's expected pipeline
+  behavior, not a failure or a meaningful skip.
+
+Set `ExtractionOptions.FailureMode = IngestionFailureMode.FailFast` to instead stop at the first
+failure and throw `MemoryIngestionException`, which carries every `IngestionItemOutcome` completed
+before the failure (`CompletedOutcomes`) so a caller can see exactly how far ingestion got. The four
+extractor categories (entity/fact/preference/relationship) run concurrently and can't be pre-empted
+mid-flight, so fail-fast takes effect at the next stoppable point: once all four finish, or inside
+the sequential per-item resolution/persistence loops. `OperationCanceledException` always propagates
+as itself — under either mode — never converted into a partial or failed outcome.
+
+Item-level transactionality (e.g. a fact and its provenance edges committing atomically) is an
+explicit non-goal of #101 — Neo4j write ordering here is still best-effort, not atomic, and nothing
+in the API claims otherwise.
+
+#### 3.2.2 Monotonic trust for facts on re-extraction (#92 Phase 5)
+
+Phase 3 made entity trust monotonic (re-resolving onto an already-`ApplicationTrusted` entity never
+silently downgrades it) but explicitly deferred the same protection for facts and preferences, since
+neither has an equivalent pre-fetch step: entity resolution hands `PersistenceStage` the existing,
+previously-persisted record for free when it resolves a mention onto a known entity, but facts and
+preferences flow straight from extraction into `PersistenceStage` with no such lookup.
+
+Phase 5 closes this gap **for facts only**: `Neo4jFactRepository.UpsertAsync` MERGEs on the exact
+`{subject, predicate, object, owner}` triple, and its Cypher `ON MATCH SET` unconditionally overwrites
+`metadata` — so re-extracting the identical triple at a lower trust level (e.g. an ordinary later chat
+turn re-stating a fact originally imported at `ApplicationTrusted`) would otherwise silently erase the
+earlier elevation. `PersistenceStage` now pre-fetches any existing fact with the same triple via
+`IFactRepository.FindByTripleAsync` before persisting, and takes the higher of the existing fact's trust
+level and the current call's — the same `MaxTrustLevel` logic Phase 3 already established for entities,
+preserving any other pre-existing `Metadata` keys along the way.
+
+**Deliberately scoped to owner-scoped facts only, and deliberately excludes shared facts from the
+pre-fetch itself.** `FindByTripleAsync`'s `MemoryScope?` parameter follows the read/recall convention
+where an owner-less lookup means "search across every owner" — the opposite of what a `null` `ownerId`
+means on the write side (the shared/global bucket). Pre-fetching with an owner-less scope for a
+shared/global fact would risk adopting a *different* owner's trust level into a shared fact — a
+cross-tenant leak. Unlike `FindDuplicateAsync` (whose raw `ownerId` parameter is documented as "null →
+shared bucket only"), no existing repository primitive supports a safe shared-bucket-only lookup, so the
+pre-fetch is skipped entirely when `ownerId` is null-or-empty (`string.IsNullOrEmpty`, matching
+`DefaultMemoryIsolationPolicy`'s own null/empty treatment — an early version checked `ownerId is null`
+only, missing the empty-string case); shared/global facts keep today's fresh-stamp behavior. This is a
+disclosed, narrower-than-ideal limitation, not a silent gap.
+
+For owner-scoped facts, the pre-fetch also passes `includeShared: false` — the opposite of
+`MemoryScope.For`'s own default. The default (include shared) is right for reads (surface everything the
+caller may see), but wrong here: `FindByTriple`'s Cypher has no `ORDER BY` before its `LIMIT 1`, so with
+the default, a shared fact and this owner's own fact could both match the same triple and which one comes
+back is unspecified — silently grafting an *unrelated* shared record's entire `Metadata` (not just its
+trust level) onto this owner's fact. Excluding shared facts from the pre-fetch confines it to "does this
+owner already have their own copy of this exact fact," which is the only question this fix needs to ask.
+
+`FindByTripleAsync` also matches case-insensitively, while `Upsert`'s Cypher `MERGE` key is an
+exact-string match. If a match is found, the fact actually persisted reuses the **existing** record's
+`Subject`/`Predicate`/`Object` (not the freshly-extracted casing) — otherwise a same-triple,
+different-casing re-extraction would `MERGE` onto a *different* node than the one just found, creating an
+unwanted duplicate that also inherits the found record's trust level instead of updating it in place.
+
+**Preferences are unaffected by this specific issue and don't need the same fix.** Unlike facts,
+`Neo4jPreferenceRepository`'s MERGE key is the freshly-generated `PreferenceId` (`MERGE (p:Preference
+{id: $id})`), not a natural key — so `PersistenceStage`'s extraction-time upsert never collides with an
+existing preference node in the first place; every extracted preference becomes a genuinely new node.
+The only path that reinforces an *existing* preference (`LongTermMemoryService`'s vector-similarity
+dedup-on-create, via `MarkDeduplicatedAsync`) only touches `confidence`, never `metadata` — so it carries
+no trust-downgrade risk either. (An earlier, less precise description of this limitation grouped facts
+and preferences together; this section supersedes it.)
+
+Proven live-Neo4j, not just at the mocked-repository unit level (`ExtractionOwnerStampIntegrationTests.
+FullExtractionPipeline_FactReExtractedAtLowerTrust_DoesNotDowngradeExistingHigherTrust`): the same
+"Ada works_at Acme" triple is extracted twice — first at `ApplicationTrusted`, then at a lower
+`UserProvided` — and the surviving node (confirmed to be the *same* node, not a duplicate) keeps its
+higher trust level.
+
+#### 3.2.3 Trust boundaries for the Semantic Kernel adapter (#92 Phase 6)
+
+A post-Phase-5 holistic audit of #92 (not a single phase's own self-review, which only ever sees that
+phase's diff — a fresh, whole-subsystem read) found that `AgentMemory.SemanticKernel`'s `Neo4jMemoryPlugin`/
+`MemoryContextFormatter` had **none** of Phases 1-3's protections: every recalled entity/fact/preference/
+GraphRAG block rendered as plain, unescaped Markdown text, with no delimiting, no instruction-like-content
+admission, and no trust-level awareness at all — a completely separate code path from
+`AgentMemory.AgentFramework.Mapping.MafTypeMapper` that no earlier phase had touched.
+
+Phase 6 closes this gap, reusing rather than duplicating Phases 1-3's security-sensitive logic:
+
+- **Relocated, not duplicated:** `InstructionLikeContentDetector` (the regex-based instruction-like-content
+  detector) and a new `RecalledMemoryDelimiter` (extracted from `MafTypeMapper`'s `WrapUntrustedContent`/
+  escaping logic) moved from `AgentMemory.AgentFramework.Security` into `AgentMemory.Core.Security` —
+  both were already adapter-agnostic (pure string-in, bool/string-out, no MAF-specific types), and
+  `AgentMemory.Core`'s `InternalsVisibleTo` already granted both `AgentMemory.AgentFramework` and
+  `AgentMemory.SemanticKernel` visibility into its internals, so no project reference changes were needed.
+  `MafTypeMapper.WrapUntrustedContent` now delegates to the relocated `RecalledMemoryDelimiter`, eliminating
+  the duplicate copy rather than leaving two independent implementations to drift apart. Both were already
+  `internal`, so this is not a public-API change.
+- **`MemoryContextFormatter.FormatRecallResult`** gained an optional `MemoryContextFormatterOptions`
+  parameter (internal — Core cannot reference an adapter's public option types, the wrong dependency
+  direction) with `Strict` (default `false`) and `MinimumTrustForAdmissionBypass` (default
+  `ApplicationTrusted`). Every recalled entity/fact/preference/GraphRAG block is now delimited via
+  `RecalledMemoryDelimiter.Wrap` regardless of mode (matching Phase 1); each item is evaluated by the same
+  `InstructionLikeContentDetector` (Phase 2), with a trust-level bypass (Phase 3) using the already-shared
+  `MemoryTrustLevel`/`GetTrustLevel()` (no relocation needed — always lived in `AgentMemory.Abstractions.Domain`).
+  Delimiting/admission is block-level per category (matching MAF's granularity for the joined-text
+  categories) but item-level for admission — a single flagged fact must not drop unrelated facts rendered
+  in the same category block. Recalled conversation history (`RecentMessages`/`RelevantMessages`) is
+  intentionally NOT delimited or evaluated, matching the Agent Framework adapter's own disclosed scope.
+- **New public surface in `AgentMemory.SemanticKernel`:** `MemoryContextSecurityMode` (`Permissive`/`Strict`
+  — a distinct type from `AgentMemory.AgentFramework.Security.MemoryContextSecurityMode`, since neither
+  adapter references the other and duplicating a two-value enum is far lower risk than relocating an
+  already-public type across a SemVer-locked package boundary) and `MemoryRecallSecurityOptions`
+  (`SecurityMode`, `MinimumTrustForAdmissionBypass`). `Neo4jMemoryPlugin`'s constructor gained an optional
+  trailing `IOptions<MemoryRecallSecurityOptions>?` parameter (additive, matching this project's established
+  pattern for extending existing public constructors); `KernelMemoryExtensions.AddNeo4jMemoryPlugin` gained
+  an optional `configureSecurity` delegate parameter for DI-driven hosts, and an optional
+  `MemoryRecallSecurityOptions?` parameter for the non-DI `Kernel` overload.
+- **Role/authority (Phase 4) does not apply here:** `Neo4jMemoryPlugin.RecallAsync` returns a plain
+  `string` (a Semantic Kernel function result), not a list of `ChatMessage`s with a role — there is no
+  System-vs-User distinction to make for this adapter.
+- **Not a byte-for-byte-unchanged, purely internal hardening: the rendered output format itself changes.**
+  Every recalled entity/fact/preference/GraphRAG block is now wrapped in a `<recalled_memory category="...">`
+  tag, in both `Neo4jMemoryPlugin.RecallAsync`'s output and `Neo4jTextSearch`'s per-item results, regardless
+  of `SecurityMode`/`Strict` — this is new text that wasn't there before, not merely a possible exclusion of
+  flagged content. Non-flagged content's *substance* is unchanged (nothing is dropped or reworded by
+  default), but any caller doing exact-string matching or naive prefix/suffix parsing against the previous
+  raw output will see a difference and should switch to substring matching, same as this phase's own test
+  updates (`Neo4jTextSearchTests`'s preference assertion moved from `.Be(...)` to `.Contain(...)`).
+- **A second, initially-missed recall-to-text surface in the same package:** a self-review pass (after the
+  initial fix) found that `Neo4jTextSearch`'s `GetTextSearchResultsAsync`/`GetSearchResultsAsync` build
+  `TextSearchResult`s directly from raw entity/fact/preference text, entirely bypassing
+  `MemoryContextFormatter` — only the sibling `SearchAsync` (which already calls `FormatRecallResult`)
+  inherited protection for free. Fixed by applying the same per-item delimiting and admission directly in
+  `Neo4jTextSearch.BuildTextSearchResults`, reusing a new shared `RecalledMemoryAdmission.ShouldAdmit`
+  boolean-decision helper (also in `AgentMemory.Core.Security`) rather than a third copy of the
+  bypass/detector/Strict-branch sequence; `Neo4jTextSearch`'s constructor and
+  `KernelMemoryExtensions.AddNeo4jTextSearch` both gained the same kind of optional `MemoryRecallSecurityOptions`
+  parameter `Neo4jMemoryPlugin`/`AddNeo4jMemoryPlugin` already had. `MemoryContextFormatter`'s own
+  `AppendEntities`/`AppendFacts`/`AppendPreferences` were also collapsed into one generic `AppendCategory<T>`
+  helper during the same pass, matching `MafTypeMapper`'s existing `CategoryMessages<T>` pattern, since the
+  three methods had become near-identical copies of the same admit-then-wrap sequence.
+
+Proven with unit tests in both `AgentMemory.Tests.Unit` (`MemoryContextFormatterSecurityTests`, Core-level,
+mirroring `MafTypeMapperTests`' delimiting/escaping/admission/trust-bypass coverage) and
+`AgentMemory.Tests.Unit.SemanticKernel` (`Neo4jMemoryPluginTests`, confirming `MemoryRecallSecurityOptions`
+wiring end-to-end through `RecallAsync`; `Neo4jTextSearchTests`, the same coverage for
+`GetTextSearchResultsAsync`/`GetSearchResultsAsync`).
+
+#### 3.2.4 Recalled-message role gating (#92 Phase 7)
+
+The one gap disclosed since Phase 1 and left open through Phases 2-6: recalled conversation history
+(`RecallResult`'s `RecentMessages`/`RelevantMessages`) keeps whatever role it was persisted with, with no
+delimiting, admission check, or trust gating at all — unlike entities/facts/preferences/GraphRAG. Phase 7
+found this is not merely theoretical: two existing caller-facing tools — the `memory_store_message` MCP
+tool and this package's own `Neo4jMemoryPlugin.AddMessageAsync` (a model-invokable Semantic Kernel function)
+— accept an **unvalidated, caller-supplied `role` string**, with zero validation anywhere in the write path
+(`ShortTermMemoryService.AddMessageAsync`/`IMessageRepository.AddAsync` store it verbatim). A prompt-injected
+agent (or any MCP client) could call either tool with `role: "system"` and arbitrary instruction-like
+content, and have it replay moments later — same session, no cross-session recall needed, since
+`MemoryContextAssembler`'s `RelevantMessages` search is itself always scoped to the current session — as a
+genuine, undelimited `ChatRole.System` message (MAF) or an unescaped `[system]: ...` line (Semantic Kernel).
+
+Two complementary fixes, matching this issue's established defense-in-depth pattern (Phase 1 delimits
+regardless of cause; Phase 3 both sanitized caller input and kept the trust concept general-purpose):
+
+- **Write side:** `memory_store_message` and `Neo4jMemoryPlugin.AddMessageAsync` now stamp
+  `MemoryTrustLevel.ToolDerived` on every message they persist (via `Message.Metadata` — no schema change,
+  reusing the same mechanism Phase 3 established), matching `memory_add_fact`'s existing precedent. This
+  does **not** restrict which role a caller may set — the tools' own documentation always advertised
+  `"system"` as a valid example role — it only ensures a privileged role can never carry elevated trust by
+  default.
+- **Read side:** a new `AgentMemory.Core.Security.RecalledMessageRoleGate` (shared by both adapters) demotes
+  a message's role to `"user"` when it's privileged (`"system"` or `"tool"` — the two roles most
+  `IChatClient`s/tool-calling conventions give special handling; deliberately narrow, since demoting a
+  genuine `"user"`/`"assistant"` turn would be wrong, not a security improvement) and its trust level
+  doesn't meet a new `MinimumTrustForSystemRole` threshold — `ContextFormatOptions.MinimumTrustForSystemRole`
+  (Agent Framework, reusing the exact property Phase 4 already added for entities/facts/preferences/GraphRAG)
+  and `MemoryRecallSecurityOptions.MinimumTrustForSystemRole` (Semantic Kernel, new). Both default to
+  `MemoryTrustLevel.Untrusted` — the lowest level — so rendering is unchanged unless a host raises the
+  threshold, the same additive-by-default posture every phase since Phase 2 has used.
+- **Deliberately NOT delimited/admission-checked**: message *content* stays exactly as before — this is
+  genuinely recalled conversation transcript, not a "memory object" being injected as if authoritative, and
+  delimiting ordinary chat history would be a much larger, more visible behavior change for comparatively
+  little additional security value once the role itself is gated (a demoted message is merely
+  user-authority content, the same threat model the model already has to handle safely as ordinary input).
+- **Not applied to genuine chat-history replay**: `MafTypeMapper.ToChatMessage` itself (used by
+  `Neo4jChatMessageStore`/`Neo4jChatHistoryProvider` to continue an actual conversation with an LLM) is
+  untouched — gating is applied only on a role-adjusted copy of the message (`message with { Role = ... }`),
+  never on the underlying conversion helper other components depend on for correctness. Both components only
+  ever query `RecentMessages` from the SAME session with an empty query (no `RelevantMessages`), so they are
+  genuinely out of this gap's reach, not merely unaudited.
+- **A third call site, initially missed:** a self-review pass (after the initial fix) found
+  `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync` — a convenience facade the bundled samples use — runs
+  the exact same semantic-query-plus-`RelevantMessages` shape as `MafTypeMapper.ToContextMessages` but called
+  the raw, ungated `MafTypeMapper.ToChatMessage` directly. Fixed the same way, reusing
+  `AgentFrameworkOptions.ContextFormat.MinimumTrustForSystemRole` as the threshold.
+- **Whitespace-bypass hardening:** `RecalledMessageRoleGate.IsPrivileged`'s privileged-role check now trims
+  the role before comparing — the write path persists a caller-supplied role verbatim with no normalization,
+  so an untrimmed comparison would have let a role like `" system"` (leading space) bypass demotion entirely
+  while still reading as a system-authority line to a model.
+- **Companion fix, found in the same pass**: `Neo4jTextSearch.SearchAsync` was discovered to never actually
+  pass its configured `MemoryRecallSecurityOptions`/`MemoryContextFormatterOptions` into
+  `MemoryContextFormatter.FormatRecallResult` at all (a Phase 6 wiring gap) — every call silently used the
+  hardcoded defaults regardless of what a host configured. Fixed alongside Phase 7 since it's directly
+  adjacent code; a self-review pass then found the fix itself had cached that mapping once at construction
+  time while `GetTextSearchResultsAsync`/`GetSearchResultsAsync` read the live, mutable
+  `MemoryRecallSecurityOptions` instance — inconsistent within the same class if a host mutates it after
+  construction. Fixed by mapping fresh on every call via a shared `MemoryRecallSecurityOptionsExtensions.ToFormatterOptions()`
+  helper (also now used by `Neo4jMemoryPlugin`, removing a second hand-duplicated copy of the same mapping).
 
 ### 3.3 AgentMemory.Neo4j
 
@@ -179,7 +401,7 @@ AgentMemory.Abstractions.Options       — configuration records
 | **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
 | **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
 | **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
-| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder` |
+| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2/3) and its `DefaultMemoryContextAdmissionPolicy` implementation, `RecalledMemoryMessageRole` (#92 Phase 4) |
 | **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
 
 **Key Patterns:**
@@ -195,6 +417,11 @@ AgentMemory.Abstractions.Options       — configuration records
    - `search_knowledge` — search entities and facts
    - `find_similar_tasks` — retrieve similar prior executions
 5. **Trace Capture** — `AgentTraceRecorder` records agent reasoning steps and tool calls to Neo4j for future analysis
+6. **Task-aware Automatic Recall (#88)** — `IAutomaticRecallPolicy.DecideAsync` runs inside `BuildContextAsync`, before the `RecallRequest` is built, and decides whether to recall at all, which memory categories to query, and which ranking intent to use — see §3.4.1.1
+7. **Memory-context Admission Policy (#92 Phase 2)** — `IMemoryContextAdmissionPolicy.Evaluate` runs inside `MafTypeMapper.ToContextMessages` for each candidate recalled-memory block, deciding whether to admit or exclude it based on a lightweight instruction-like-content detector — see §3.4.1.2
+8. **Trust-metadata Foundation (#92 Phase 3)** — `MemoryTrustLevel` stamped into each item's `Metadata` during extraction lets a host explicitly mark controlled sources as trusted enough to bypass instruction-like-content evaluation — see §3.4.1.3
+9. **Configurable Recall Message Role (#92 Phase 4)** — `MafTypeMapper.ToContextMessages` computes each recalled item's effective `ChatRole` (`System` vs. `User`) from its trust level against a configurable threshold, instead of unconditionally rendering every admitted block as `System` — see §3.4.1.4
+10. **Recalled-message Role Gating (#92 Phase 7)** — `MafTypeMapper.ToContextMessages` (and `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync`, its own separate semantic-recall path) demote a recalled chat message's persisted role from `system`/`tool` to `user` when its trust level doesn't meet a configurable threshold, closing the caller-controlled-role gap disclosed in §3.4.1.2 — see §3.2.4
 
 **Namespace structure:**
 ```
@@ -202,7 +429,194 @@ AgentMemory.AgentFramework.Integration     — context provider, message store, 
 AgentMemory.AgentFramework.Tools            — memory tool definitions and factory
 AgentMemory.AgentFramework.Mapping          — MAF type mapping
 AgentMemory.AgentFramework.Tracing          — reasoning trace recording
+AgentMemory.AgentFramework.Recall           — task-aware automatic recall policy (#88)
+AgentMemory.AgentFramework.Security         — memory-context admission policy (#92 Phase 2)
 ```
+
+#### 3.4.1.1 Task-aware automatic recall policy (#88)
+
+`Neo4jMemoryContextProvider` previously ran the same configured `RecallOptions` for every turn with user
+text, regardless of whether the turn actually needed long-term memory. `IAutomaticRecallPolicy` makes that
+decision pluggable, running deterministically inside `BuildContextAsync` before anything is queried:
+
+- `IAutomaticRecallPolicy.DecideAsync(AutomaticRecallContext, CancellationToken)` returns an
+  `AutomaticRecallDecision` with `ShouldRecall`, `Categories` (an `AutomaticRecallCategories` flags enum:
+  `RecentMessages`/`RelevantMessages`/`Entities`/`Facts`/`Preferences`/`ReasoningTraces`/`GraphRag`),
+  an optional `Intent` override (D3's `RankingIntent`), and an optional full `RecallOptions` override.
+- `ConfiguredAutomaticRecallPolicy` (the default, registered by `AddAgentMemoryFramework`) always returns
+  `Categories = AutomaticRecallCategories.All` with no `Intent`/`RecallOptions` override — this reproduces
+  the pre-#88 behavior exactly, deferring entirely to whatever the host already configured.
+- `HeuristicAutomaticRecallPolicy` is a lightweight, deterministic, model-call-free policy: skips recall
+  for an empty or greeting/acknowledgement-only turn (a linear-time tokenizer, not a regex — an earlier
+  regex-based version of this check exhibited catastrophic backtracking on adversarial input), applies
+  `RankingIntent.Latest` for recency-oriented phrasing, applies `RankingIntent.Analog` plus reasoning
+  traces for precedent-oriented phrasing ("similar case", "how did we solve this before"), and includes
+  reasoning traces for task/troubleshooting phrasing. It has no rule about GraphRAG at all, so its baseline
+  always retains the `GraphRag` category on top of `AutomaticRecallCategories.Default` — it must never
+  silently disable a host's independently configured `EnableGraphRag`/`MaxGraphRagItems`/`BlendMode`.
+  A host opts in via `services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>()` (after
+  `AddAgentMemoryFramework`, or a custom policy the same way) — plain `AddScoped` wins over the `TryAdd`-
+  registered default regardless of call order.
+- Excluding a category from the decision zeroes its `RecallOptions.MaxX` limit. `MemoryContextAssembler`
+  (Core) skips that category's repository call entirely instead of issuing a `LIMIT`/`TopK` 0 query — for
+  every category except GraphRag that query's result is always empty anyway, so this is a pure efficiency
+  win; for GraphRag specifically, `Neo4jGraphRagContextSource` treats `TopK<=0` as "use the configured
+  default TopK" (a pre-existing, unrelated quirk, not "return nothing"), so skipping the call here is what
+  makes `MaxGraphRagItems=0` actually mean "no GraphRAG" for the first time. This applies uniformly to both
+  `AssembleContextAsync` and the bitemporal `AssembleContextAsOfAsync`. Because `RetrievalBlendMode.GraphRagOnly`
+  retrieves nothing else, `AssembleContextAsync` logs a Warning if that blend mode is requested and the
+  effective `MaxGraphRagItems<=0` (in addition to the pre-existing warning for GraphRAG being unavailable)
+  — otherwise a host combining `GraphRagOnly` with a policy that excludes `GraphRag` would get a completely
+  empty context every turn with nothing to explain why.
+- Whichever branch produces the effective `RecallOptions`, `Scope` is always cleared afterwards — scope is
+  always resolved from the invocation's authenticated `userId` (#100's isolation policy), never from a
+  statically configured or policy-supplied value, unchanged from before #88.
+- The decision is logged at Debug level (policy type, `ShouldRecall`, `Categories`, `Intent`) for
+  observability. Automatic recall complements, and never replaces, the model-invokable memory tools
+  (`Tools.MemoryToolFactory`).
+
+#### 3.4.1.2 Trust boundaries: memory-context admission policy (#92 Phase 2)
+
+Issue #92 is a large, explicitly multi-phase epic (full trust taxonomy, provenance-through-extraction,
+configurable message roles, observed/inferred/verified knowledge distinctions). **Phase 1** (#108, merged)
+made every recalled block delimited and escaped (`<recalled_memory category="...">...</recalled_memory>`,
+angle brackets escaped so content can't forge or close its own boundary) and framed the default
+`ContextFormatOptions.ContextPrefix` as an explicit untrusted-reference-data instruction. **Phase 2** (this
+slice) adds an admission-policy layer on top of that delimiting, still without the full trust-metadata
+model (deferred to a future phase):
+
+- `IMemoryContextAdmissionPolicy.Evaluate(MemoryAdmissionContext)` (`AgentMemory.AgentFramework.Security`)
+  runs inside `MafTypeMapper.ToContextMessages`, once per candidate recalled-memory ITEM within each of the
+  five categories Phase 1 delimited (entities, facts, preferences, reasoning traces, GraphRAG), before that
+  item contributes to the category's rendered block. Deliberately per-item, not per-block: entities/facts/
+  preferences/traces each join several independent items into one string, and evaluating the whole joined
+  string would mean one flagged item (a false positive, or a genuinely planted one) silently drops every
+  other, unrelated, legitimate item alongside it. GraphRAG is the one exception -- it arrives as a single
+  opaque string, not a list of items, so it is unavoidably evaluated as one block. Deliberately synchronous:
+  the built-in check is pure, CPU-bound pattern matching, no I/O.
+- `DefaultMemoryContextAdmissionPolicy` (the default, registered by `AddAgentMemoryFramework`) runs
+  `InstructionLikeContentDetector` — a lightweight, deterministic regex over a fixed set of unambiguous
+  phrasings ("ignore previous instructions", "reveal all secrets", "call this tool", etc.; a plain
+  alternation of fixed phrases, deliberately NOT a repeating group with nested quantifiers, per the
+  catastrophic-backtracking lesson learned building a similar detector for #88's `HeuristicAutomaticRecallPolicy`).
+  This is explicitly not a complete prompt-injection detector (see issue #92's non-goals) — applications
+  wanting stronger detection implement their own `IMemoryContextAdmissionPolicy`.
+- `ContextFormatOptions.SecurityMode` (`MemoryContextSecurityMode`) governs the outcome when an item is
+  flagged: `Permissive` (the default) still includes it — every admitted item is delimited/escaped
+  regardless (#92 Phase 1) — because detection is necessarily heuristic and a false positive must never
+  silently discard genuine stored information (issue #92's own deployment-runbook example: content that
+  merely *resembles* an instruction while being useful must not be dropped). `Strict` excludes flagged
+  items entirely instead, for hosts willing to accept that tradeoff.
+- A flagged-but-included item (Permissive) is logged at Debug level; a `Strict`-mode exclusion is logged at
+  Warning level. Both log only the category and (for exclusions) the reason — never the content itself.
+- **Not covered by Phase 2** (trust metadata landed in Phase 3 below; the rest is still open, part of #92's
+  larger scope): configurable message role, observed/inferred/verified knowledge distinctions, admission/
+  trust telemetry beyond logs, non-tag-based injection techniques beyond the fixed detector phrase list, and
+  recalled conversation history (`RelevantMessages`/`RecentMessages`, including the separate recall path in
+  `Neo4jChatHistoryProvider`) — its *content* is, like Phase 1, never delimited or admission-checked (an
+  intentional, still-open narrower scope; see §3.2.4). At the time of Phase 2, this content also always
+  replayed unconditionally under its own persisted role, on the theory that "replaying a message under its
+  own original role" (unlike promoting it to `ChatRole.System`) grants no elevated authority. **Phase 7
+  (§3.2.4) found that theory incomplete**: the "originally-persisted role" is itself caller-controlled — a
+  caller-facing tool can persist a message with role `"system"`/`"tool"` in the first place — so replaying
+  it unconditionally was not actually safe. Phase 7 closes that specific gap by gating the role (not the
+  content); content-level delimiting/admission for recalled messages remains open.
+
+#### 3.4.1.3 Trust-metadata foundation (#92 Phase 3)
+
+Phases 1–2 treated every recalled item uniformly as untrusted-but-useful, with no way for a host to
+distinguish content it has explicit reason to trust more. Phase 3 adds that foundation, deliberately without
+a new first-class schema property (following this repo's own established convention of landing a
+speculative field in `Metadata` until its shape proves stable — see the backlog's provenance-scoring idea):
+
+- `MemoryTrustLevel` (`AgentMemory.Abstractions.Domain`) — `Untrusted` < `UserProvided` < `ModelGenerated` <
+  `ToolDerived` < `VerifiedExternal` < `ApplicationTrusted`, ordered so `>=` comparisons work for a
+  minimum-threshold gate.
+- `MemoryTrustMetadataExtensions.GetTrustLevel()`/`WithTrustLevel(...)` read/write the level from/to the
+  `Metadata` dictionary every `Entity`/`Fact`/`Preference`/`ReasoningTrace` already carries. `Metadata`
+  round-trips through Neo4j as one serialized JSON string property (`Neo4jRecordMapper`), so trust level
+  persists with **zero repository/Cypher/schema changes** — it rides along for free. A value read back after
+  persistence arrives as a `JsonElement`, not the original CLR string; `GetTrustLevel()` handles both shapes.
+- `ExtractionOptions.DefaultTrustLevel` (default `UserProvided`) is stamped on every entity/fact/preference
+  `PersistenceStage` persists, unless a specific call's `ExtractionRequest.TrustLevel` overrides it — e.g. a
+  host importing a curated/verified document can pass `ApplicationTrusted`/`VerifiedExternal` for that one
+  call. **Known, disclosed limitation:** stamping happens once per extraction *request*, not per extracted
+  *item* — today's extractors take the whole message batch and return items with no per-item attribution to
+  a specific source message, so distinguishing "the user said this" from "the assistant said that" within
+  the same turn is not yet possible without deeper extractor changes (out of scope for this phase).
+  `ReasoningTrace` is not stamped by this phase either — traces are recorded directly by
+  `AgentTraceRecorder`, a separate mechanism from the extraction pipeline, and default to `Untrusted` when
+  read back (the safe default) until a future phase gives that path its own trust treatment.
+- **Trust is monotonic for entities**: entity resolution (auto-merge/SAME_AS) can hand `PersistenceStage` an
+  *existing*, previously-persisted entity — already carrying its own prior `Metadata`/trust level — as the
+  resolved match for a brand-new, unrelated mention. `PersistenceStage` takes the higher of the entity's
+  existing trust level and the current call's, so an unrelated later low-trust mention can never silently
+  erase an earlier, deliberate elevation (e.g. from a curated `ApplicationTrusted` import). **Known,
+  disclosed limitation at the time of Phase 3:** the same protection did not yet extend to facts/preferences.
+  **Superseded by Phase 5** (§3.2.2): facts now get the same monotonic protection, scoped to owner-scoped
+  facts (shared/global facts remain a disclosed gap, for a different, cross-tenant-safety reason — see
+  §3.2.2). Preferences turned out not to need it: their extraction-time MERGE key is a fresh id, not a
+  natural key, so they never collide on re-extraction in the first place.
+- **Security: `trust_level` is a framework-reserved metadata key.** Because trust level lives in the same
+  `Metadata` dictionary a caller can already populate through pre-existing, unrelated write paths — the
+  `memory_add_fact` MCP tool's `metadataJson` parameter, and the public `IReasoningMemoryService.StartTraceAsync`
+  — nothing before this fix stopped a caller (including a prompt-injected agent invoking an MCP tool) from
+  self-assigning `trust_level: ApplicationTrusted` and fully bypassing the admission policy's
+  instruction-like-content detection. `MemoryTrustMetadataExtensions.WithoutCallerSuppliedTrustLevel()`
+  strips any caller-supplied `trust_level` entry before combining external metadata with a
+  framework-assigned value; `memory_add_fact` applies it and stamps `MemoryTrustLevel.ToolDerived` (below
+  the default bypass threshold), and `StartTraceAsync` applies it with no replacement stamp (traces aren't
+  given trust treatment this phase, per the limitation above). Any future write path that accepts
+  caller-supplied `Entity`/`Fact`/`Preference`/`ReasoningTrace` metadata must apply the same sanitization.
+- `DefaultMemoryContextAdmissionPolicy` gains a bypass: an item whose trust level is at or above
+  `ContextFormatOptions.MinimumTrustForAdmissionBypass` (default `ApplicationTrusted`, the highest level) skips
+  instruction-like-content evaluation entirely, regardless of `SecurityMode`. This is what "applications can
+  explicitly mark controlled sources as trusted" means in practice — a host must both raise an item's trust
+  level *and* explicitly reach the configured threshold to get the bypass, so nothing changes by default.
+  GraphRAG content has no per-item metadata to read (a single opaque string, not a list of items), so its
+  trust level is always `Untrusted` — it bypasses only in the degenerate case where a host lowers
+  `MinimumTrustForAdmissionBypass` to `Untrusted` too (which disables the gate for every category, not just
+  GraphRAG).
+
+#### 3.4.1.4 Configurable recall message role (#92 Phase 4)
+
+Phases 1–3 addressed *what the model is told* about recalled memory (delimiting, admission, trust levels)
+but never touched *how much authority it's given*: `MafTypeMapper.ToContextMessages` unconditionally
+rendered every admitted block as `ChatRole.System`, regardless of trust level — even though most
+`IChatClient` implementations treat a `System` message as a higher-authority instruction than a `User`
+message. Phase 4 makes that role configurable and ties it to the trust signal Phase 3 introduced:
+
+- `RecalledMemoryMessageRole` (`AgentMemory.AgentFramework`) — a two-value enum, `System`/`User`. Restricted
+  to these two deliberately: many `IChatClient` implementations reject a bare `ChatRole.Tool` message
+  without a matching tool-call id, so a `Tool` option was considered and dropped for this phase.
+- `ContextFormatOptions.DefaultMemoryRole` (default `System`) and `ContextFormatOptions.MinimumTrustForSystemRole`
+  (default `MemoryTrustLevel.Untrusted`, the lowest level) — a recalled item at or above the threshold
+  renders at `DefaultMemoryRole`; everything else renders as `ChatRole.User` instead. There is no separate
+  "role for low-trust content" setting: the enum only distinguishes two authority levels, and `User` is
+  definitionally the lower one. Because the default threshold is the lowest possible trust level, every
+  item always meets it and rendering is byte-for-byte unchanged unless a host explicitly raises the
+  threshold — the same additive-by-default philosophy Phases 2–3 already established.
+- **Granularity is per-item, not per-category-block** — the same principle Phase 2's admission evaluation
+  already established for the same reason. `MafTypeMapper.ToContextMessages` groups each category's
+  admitted items by their computed role and renders up to *two* messages per category (one per role)
+  instead of one. A single `ApplicationTrusted` fact bundled alongside several `UserProvided` ones now
+  renders in its own `System`-role message while the rest render together in a separate `User`-role
+  message — one low-trust item can no longer force an unrelated high-trust item down to the lower role,
+  and vice versa.
+- GraphRAG has no per-item metadata to read (a single opaque string, not a list of items), so its trust
+  level is always evaluated as `Untrusted` — it only moves off `DefaultMemoryRole` when a host raises
+  `MinimumTrustForSystemRole` above the default.
+- **A host defending against stored prompt injection** raises `MinimumTrustForSystemRole` above
+  `ExtractionOptions.DefaultTrustLevel` (`UserProvided` by default) — e.g. to `ApplicationTrusted`, the
+  highest level — so nothing short of an explicitly-marked, application-controlled source ever renders as
+  `System`. This is proven end-to-end by a live-Neo4j integration test
+  (`StoredPromptInjectionCrossSessionIntegrationTests`): content that reads as an instruction, persisted in
+  one session, is recalled in a brand-new session for the same owner and asserted to arrive only as a
+  `ChatRole.User` message, never an unattributed `ChatRole.System` one — the acceptance criterion that had
+  been open since Phase 1.
+- **Known, disclosed limitation:** the default `MinimumTrustForSystemRole = Untrusted` means "secure by
+  default" is not achieved without opt-in configuration — the same tradeoff Phases 2–3 already accepted for
+  `SecurityMode`/`MinimumTrustForAdmissionBypass`, flagged again here for visibility.
 
 #### 3.4.2 GraphRAG Retrieval — built into AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
 
