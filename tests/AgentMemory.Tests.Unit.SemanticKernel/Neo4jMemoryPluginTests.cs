@@ -165,7 +165,12 @@ public sealed class Neo4jMemoryPluginTests
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(MakeMessage("s1", "c1", "user", "Hello"));
         await _sut.AddMessageAsync("s1", "c1", "user", "Hello");
-        await _memoryService.Received(1).AddMessageAsync("s1", "c1", "user", "Hello", null, Arg.Any<CancellationToken>());
+        // #92 Phase 7: this call now stamps ToolDerived (a caller-supplied role -- including "system"/
+        // "tool" -- must never resurface with full authority on recall unless a host explicitly configures
+        // MinimumTrustForSystemRole low enough to admit it).
+        await _memoryService.Received(1).AddMessageAsync("s1", "c1", "user", "Hello",
+            Arg.Is<IReadOnlyDictionary<string, object>?>(m => m != null && m.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

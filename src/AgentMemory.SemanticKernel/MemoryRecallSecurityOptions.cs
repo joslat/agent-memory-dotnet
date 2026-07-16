@@ -28,4 +28,15 @@ public sealed class MemoryRecallSecurityOptions
     /// <c>ExtractionOptions.DefaultTrustLevel</c>) and explicitly reach this threshold to get the bypass.
     /// </summary>
     public MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; } = MemoryTrustLevel.ApplicationTrusted;
+
+    /// <summary>
+    /// The minimum <see cref="MemoryTrustLevel"/> (#92 Phase 7) a recalled conversation-history message
+    /// must meet to keep a privileged role ("system"/"tool") when rendered; below it, the message's role
+    /// label is demoted to "user" instead. Defaults to <see cref="MemoryTrustLevel.Untrusted"/> -- the
+    /// lowest level -- so every message meets it and rendering is unchanged unless a host raises this
+    /// threshold. Guards against a message persisted with a privileged role via a caller-facing tool (the
+    /// <c>memory_store_message</c> MCP tool, or this package's own <see cref="Neo4jMemoryPlugin.AddMessageAsync"/>)
+    /// resurfacing with that role unchanged.
+    /// </summary>
+    public MemoryTrustLevel MinimumTrustForSystemRole { get; set; } = MemoryTrustLevel.Untrusted;
 }

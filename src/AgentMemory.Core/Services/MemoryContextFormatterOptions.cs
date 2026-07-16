@@ -26,4 +26,13 @@ internal sealed record MemoryContextFormatterOptions
     /// a host both raises an item's trust level and explicitly reaches this threshold.
     /// </summary>
     public MemoryTrustLevel MinimumTrustForAdmissionBypass { get; init; } = MemoryTrustLevel.ApplicationTrusted;
+
+    /// <summary>
+    /// The minimum <see cref="MemoryTrustLevel"/> (#92 Phase 7) a recalled conversation-history message
+    /// must meet to keep a privileged role ("system"/"tool") when rendered; below it, the message's role
+    /// is demoted to "user" instead (see <c>AgentMemory.Core.Security.RecalledMessageRoleGate</c>). Defaults
+    /// to <see cref="MemoryTrustLevel.Untrusted"/> -- the lowest level -- so every message meets it and
+    /// rendering is unchanged unless a host raises this threshold.
+    /// </summary>
+    public MemoryTrustLevel MinimumTrustForSystemRole { get; init; } = MemoryTrustLevel.Untrusted;
 }

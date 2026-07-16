@@ -15,9 +15,11 @@ namespace AgentMemory.Core.Services;
 /// #92 Phase 6: entities/facts/preferences/GraphRAG are now delimited (<see cref="RecalledMemoryDelimiter"/>,
 /// #92 Phase 1) and individually evaluated by an instruction-like-content admission check (#92 Phase 2/3),
 /// bringing the same protections the Agent Framework adapter has had since those phases to any adapter that
-/// renders recalled memory as plain text -- previously this formatter had none of them. Matches the Agent
-/// Framework adapter's disclosed scope: recalled conversation history (<see cref="RecallResult"/>'s
-/// <c>RecentMessages</c>/<c>RelevantMessages</c>) is intentionally NOT delimited or evaluated here either.
+/// renders recalled memory as plain text -- previously this formatter had none of them. Recalled
+/// conversation history (<see cref="RecallResult"/>'s <c>RecentMessages</c>/<c>RelevantMessages</c>)
+/// remains intentionally NOT delimited or admission-checked (a disclosed, narrower gap -- this is genuinely
+/// recalled transcript, not a "memory object" being injected as if authoritative), but its ROLE label is
+/// gated (#92 Phase 7): see <see cref="AppendMessages"/>.
 /// </remarks>
 internal static class MemoryContextFormatter
 {
@@ -40,8 +42,8 @@ internal static class MemoryContextFormatter
         bool graphFirst = ctx.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
 
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
-        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages);
-        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages);
+        AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts);
+        AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts);
         AppendCategory(sb, "entities", "### Known Entities", ctx.RelevantEntities.Items,
             e => string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}",
             e => e.Metadata.GetTrustLevel(), opts, logger);
@@ -94,12 +96,22 @@ internal static class MemoryContextFormatter
         sb.AppendLine(RecalledMemoryDelimiter.Wrap("graphrag", graphRagContext));
     }
 
-    private static void AppendMessages(StringBuilder sb, string heading, MemoryContextSection<Message> section)
+    // #92 Phase 7: message CONTENT is deliberately not delimited/admission-checked here (a disclosed,
+    // narrower gap -- this is genuinely recalled conversation transcript, not a "memory object" being
+    // injected as if authoritative), but a message's ROLE label still is: a privileged role ("system"/
+    // "tool") persisted via a caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync)
+    // must not resurface with its label unchanged unless sufficiently trusted.
+    private static void AppendMessages(
+        StringBuilder sb, string heading, MemoryContextSection<Message> section, MemoryContextFormatterOptions opts)
     {
         if (section.Items.Count == 0) return;
         sb.AppendLine(heading);
         foreach (var msg in section.Items)
-            sb.AppendLine($"[{msg.Role}]: {msg.Content}");
+        {
+            var effectiveRole = RecalledMessageRoleGate.EffectiveRole(
+                msg.Role, msg.Metadata.GetTrustLevel(), opts.MinimumTrustForSystemRole);
+            sb.AppendLine($"[{effectiveRole}]: {msg.Content}");
+        }
         sb.AppendLine();
     }
 

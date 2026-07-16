@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Security;
+using AgentMemory.Core.Security;
 
 namespace AgentMemory.AgentFramework.Mapping;
 
@@ -163,10 +164,23 @@ internal static class MafTypeMapper
 
         // Chat (truncatable): dedup across RecentMessages and RelevantMessages — a message may appear in
         // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
+        // #92 Phase 7: unlike entities/facts/preferences/GraphRAG (Phases 1-6), recalled chat history has
+        // never been delimited or admission-checked -- an intentionally disclosed, narrower gap, since this
+        // is genuinely recalled conversation transcript, not a "memory object" being injected as if
+        // authoritative. But its ROLE is still gated: a message persisted with a privileged role
+        // ("system"/"tool") via a caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync)
+        // could otherwise resurface here with full, undiminished ChatRole.System/Tool authority. Ordinary
+        // "user"/"assistant" messages are read via the SAME ToChatMessage this method's sibling
+        // Neo4jChatMessageStore/Neo4jChatHistoryProvider use for genuine chat-history replay -- gating is
+        // applied here only, on the recalled-context path, not on that shared conversion helper itself.
         var chatMessages = context.RecentMessages.Items
             .Concat(context.RelevantMessages.Items)
             .DistinctBy(m => m.MessageId)
-            .Select(ToChatMessage)
+            .Select(m => ToChatMessage(m with
+            {
+                Role = RecalledMessageRoleGate.EffectiveRole(
+                    m.Role, m.Metadata.GetTrustLevel(), options.MinimumTrustForSystemRole)
+            }))
             .ToList();
 
         // Memory-derived system messages (always kept). Each is delimited and escaped (#92 Phase 1) so

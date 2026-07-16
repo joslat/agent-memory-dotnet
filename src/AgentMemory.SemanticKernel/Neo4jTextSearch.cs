@@ -23,8 +23,10 @@ namespace AgentMemory.SemanticKernel;
 /// <see cref="MemoryContextFormatter.FormatRecallResult"/>). Each item is now delimited
 /// (<see cref="RecalledMemoryDelimiter"/>, #92 Phase 1) and evaluated for instruction-like content with a
 /// trust-level bypass (#92 Phase 2/3), matching <c>MemoryContextFormatter</c>'s per-item granularity.
-/// Recalled conversation history (<c>RecentMessages</c>/<c>RelevantMessages</c>) is intentionally NOT
-/// delimited or evaluated here either, matching the disclosed scope everywhere else in #92.
+/// Recalled conversation history (<c>RecentMessages</c>/<c>RelevantMessages</c>) still isn't delimited or
+/// admission-checked (a disclosed, narrower gap -- this is genuinely recalled transcript, not a "memory
+/// object" being injected as if authoritative), but its role IS gated (#92 Phase 7): see
+/// <c>RecalledMessageRoleGate</c>.
 /// </remarks>
 public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
 {
@@ -32,6 +34,7 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
     private readonly string _sessionId;
     private readonly string? _userId;
     private readonly MemoryRecallSecurityOptions _security;
+    private readonly MemoryContextFormatterOptions _formatterOptions;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jTextSearch"/>.</summary>
     /// <param name="memoryService">The backing memory service.</param>
@@ -50,6 +53,12 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         _sessionId = sessionId;
         _userId = userId;
         _security = securityOptions ?? new MemoryRecallSecurityOptions();
+        _formatterOptions = new MemoryContextFormatterOptions
+        {
+            Strict = _security.SecurityMode == MemoryContextSecurityMode.Strict,
+            MinimumTrustForAdmissionBypass = _security.MinimumTrustForAdmissionBypass,
+            MinimumTrustForSystemRole = _security.MinimumTrustForSystemRole
+        };
     }
 
     /// <inheritdoc/>
@@ -59,7 +68,10 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         CancellationToken cancellationToken = default)
     {
         var result = await RecallAsync(query, cancellationToken).ConfigureAwait(false);
-        var formatted = MemoryContextFormatter.FormatRecallResult(result);
+        // Regression fix (found alongside #92 Phase 7): this call previously omitted _formatterOptions
+        // entirely, so a host's configured MemoryRecallSecurityOptions silently had no effect on SearchAsync
+        // specifically -- always rendering under the hardcoded defaults regardless of what was configured.
+        var formatted = MemoryContextFormatter.FormatRecallResult(result, _formatterOptions);
         var items = string.IsNullOrEmpty(formatted)
             ? AsyncEnumerable.Empty<string>()
             : YieldSingle(formatted, cancellationToken);
@@ -123,10 +135,15 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.CompletedTask.ConfigureAwait(false);
+        // #92 Phase 7: message content stays undelimited/unevaluated (disclosed, narrower gap -- see the
+        // class remarks), but a privileged role ("system"/"tool") is demoted unless sufficiently trusted,
+        // matching MemoryContextFormatter.AppendMessages.
         foreach (var msg in ctx.RecentMessages.Items.Concat(ctx.RelevantMessages.Items))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return new TextSearchResult(msg.Content) { Name = msg.Role };
+            var effectiveRole = RecalledMessageRoleGate.EffectiveRole(
+                msg.Role, msg.Metadata.GetTrustLevel(), security.MinimumTrustForSystemRole);
+            yield return new TextSearchResult(msg.Content) { Name = effectiveRole };
         }
         foreach (var entity in ctx.RelevantEntities.Items)
         {

@@ -159,7 +159,7 @@ AgentMemory.Abstractions.Options       — configuration records
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
 | **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.5.1, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5, FuzzySharp |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
-| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phase 6) |
+| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7) |
 
 #### 3.2.1 Ingestion outcomes (#101)
 
@@ -320,6 +320,54 @@ mirroring `MafTypeMapperTests`' delimiting/escaping/admission/trust-bypass cover
 `AgentMemory.Tests.Unit.SemanticKernel` (`Neo4jMemoryPluginTests`, confirming `MemoryRecallSecurityOptions`
 wiring end-to-end through `RecallAsync`; `Neo4jTextSearchTests`, the same coverage for
 `GetTextSearchResultsAsync`/`GetSearchResultsAsync`).
+
+#### 3.2.4 Recalled-message role gating (#92 Phase 7)
+
+The one gap disclosed since Phase 1 and left open through Phases 2-6: recalled conversation history
+(`RecallResult`'s `RecentMessages`/`RelevantMessages`) keeps whatever role it was persisted with, with no
+delimiting, admission check, or trust gating at all — unlike entities/facts/preferences/GraphRAG. Phase 7
+found this is not merely theoretical: two existing caller-facing tools — the `memory_store_message` MCP
+tool and this package's own `Neo4jMemoryPlugin.AddMessageAsync` (a model-invokable Semantic Kernel function)
+— accept an **unvalidated, caller-supplied `role` string**, with zero validation anywhere in the write path
+(`ShortTermMemoryService.AddMessageAsync`/`IMessageRepository.AddAsync` store it verbatim). A prompt-injected
+agent (or any MCP client) could call either tool with `role: "system"` and arbitrary instruction-like
+content, and have it replay moments later — same session, no cross-session recall needed, since
+`MemoryContextAssembler`'s `RelevantMessages` search is itself always scoped to the current session — as a
+genuine, undelimited `ChatRole.System` message (MAF) or an unescaped `[system]: ...` line (Semantic Kernel).
+
+Two complementary fixes, matching this issue's established defense-in-depth pattern (Phase 1 delimits
+regardless of cause; Phase 3 both sanitized caller input and kept the trust concept general-purpose):
+
+- **Write side:** `memory_store_message` and `Neo4jMemoryPlugin.AddMessageAsync` now stamp
+  `MemoryTrustLevel.ToolDerived` on every message they persist (via `Message.Metadata` — no schema change,
+  reusing the same mechanism Phase 3 established), matching `memory_add_fact`'s existing precedent. This
+  does **not** restrict which role a caller may set — the tools' own documentation always advertised
+  `"system"` as a valid example role — it only ensures a privileged role can never carry elevated trust by
+  default.
+- **Read side:** a new `AgentMemory.Core.Security.RecalledMessageRoleGate` (shared by both adapters) demotes
+  a message's role to `"user"` when it's privileged (`"system"` or `"tool"` — the two roles most
+  `IChatClient`s/tool-calling conventions give special handling; deliberately narrow, since demoting a
+  genuine `"user"`/`"assistant"` turn would be wrong, not a security improvement) and its trust level
+  doesn't meet a new `MinimumTrustForSystemRole` threshold — `ContextFormatOptions.MinimumTrustForSystemRole`
+  (Agent Framework, reusing the exact property Phase 4 already added for entities/facts/preferences/GraphRAG)
+  and `MemoryRecallSecurityOptions.MinimumTrustForSystemRole` (Semantic Kernel, new). Both default to
+  `MemoryTrustLevel.Untrusted` — the lowest level — so rendering is unchanged unless a host raises the
+  threshold, the same additive-by-default posture every phase since Phase 2 has used.
+- **Deliberately NOT delimited/admission-checked**: message *content* stays exactly as before — this is
+  genuinely recalled conversation transcript, not a "memory object" being injected as if authoritative, and
+  delimiting ordinary chat history would be a much larger, more visible behavior change for comparatively
+  little additional security value once the role itself is gated (a demoted message is merely
+  user-authority content, the same threat model the model already has to handle safely as ordinary input).
+- **Not applied to genuine chat-history replay**: `MafTypeMapper.ToChatMessage` itself (used by
+  `Neo4jChatMessageStore`/`Neo4jChatHistoryProvider` to continue an actual conversation with an LLM) is
+  untouched — gating is applied only inside `ToContextMessages`' recalled-memory-context assembly, on a
+  role-adjusted copy of the message (`message with { Role = ... }`), never on the underlying conversion
+  helper other components depend on for correctness.
+- **Companion fix, found in the same pass**: `Neo4jTextSearch.SearchAsync` was discovered to never actually
+  pass its configured `MemoryRecallSecurityOptions`/`MemoryContextFormatterOptions` into
+  `MemoryContextFormatter.FormatRecallResult` at all (a Phase 6 wiring gap) — every call silently used the
+  hardcoded defaults regardless of what a host configured. Fixed alongside Phase 7 since it's directly
+  adjacent code.
 
 ### 3.3 AgentMemory.Neo4j
 
