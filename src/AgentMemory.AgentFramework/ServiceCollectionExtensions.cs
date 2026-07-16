@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.AgentFramework.Recall;
 using AgentMemory.Core.Services;
 
 namespace AgentMemory.AgentFramework;
@@ -36,6 +37,10 @@ public static class ServiceCollectionExtensions
             })
             .Validate(o => o.MaxChatHistoryMessages >= 0, "ContextFormatOptions.MaxChatHistoryMessages must be non-negative.")
             .ValidateOnStart();
+
+        // Task-aware automatic recall policy (#88). TryAdd: a host registering its own
+        // IAutomaticRecallPolicy either before or after this call always wins over this default.
+        services.TryAddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
 
         services.TryAddScoped<Neo4jMemoryContextProvider>();
         services.TryAddScoped<Neo4jChatMessageStore>();

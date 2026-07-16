@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
@@ -186,6 +187,189 @@ public sealed class MemoryContextAssemblerTests
         result.RelevantEntities.Items.Should().BeEmpty();
         result.GraphRagContext.Should().Contain("graph-only context");
         result.BlendMode.Should().Be(RetrievalBlendMode.GraphRagOnly);
+    }
+
+    // ── #88: a zeroed per-category limit skips that category's retrieval entirely ──
+    // (as opposed to issuing a LIMIT/TopK 0 call whose result is always empty) -- this is what actually
+    // saves the embedding/database work a task-aware IAutomaticRecallPolicy is asking to avoid.
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxRecentMessagesZero_SkipsRecentMessagesCall()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxRecentMessages = 0 }
+        };
+
+        var result = await sut.AssembleContextAsync(request);
+
+        await _shortTerm.DidNotReceive()
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        result.RecentMessages.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxRelevantMessagesZero_SkipsSearchMessagesCall()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxRelevantMessages = 0 }
+        };
+
+        await sut.AssembleContextAsync(request);
+
+        await _shortTerm.DidNotReceive().SearchMessagesAsync(
+            Arg.Any<string?>(), Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxEntitiesZero_SkipsSearchEntitiesCall()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxEntities = 0 }
+        };
+
+        var result = await sut.AssembleContextAsync(request);
+
+        await _longTerm.DidNotReceive().SearchEntitiesAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        result.RelevantEntities.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxFactsZero_SkipsSearchFactsCall()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxFacts = 0 }
+        };
+
+        await sut.AssembleContextAsync(request);
+
+        await _longTerm.DidNotReceive().SearchFactsAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxPreferencesZero_SkipsSearchPreferencesCall()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxPreferences = 0 }
+        };
+
+        await sut.AssembleContextAsync(request);
+
+        await _longTerm.DidNotReceive().SearchPreferencesAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxTracesZero_SkipsSearchSimilarTracesCall()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxTraces = 0 }
+        };
+
+        await sut.AssembleContextAsync(request);
+
+        await _reasoning.DidNotReceive().SearchSimilarTracesAsync(
+            Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_MaxGraphRagItemsZero_SkipsGraphRagCall_EvenWhenEnabledAndBlended()
+    {
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = CreateSut(options: options, graphRag: _graphRag);
+        var request = CreateRequest(queryEmbedding: new float[1536], blendMode: RetrievalBlendMode.Blended) with
+        {
+            Options = RecallOptions.Default with { BlendMode = RetrievalBlendMode.Blended, MaxGraphRagItems = 0 }
+        };
+
+        var result = await sut.AssembleContextAsync(request);
+
+        await _graphRag.DidNotReceive()
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
+        result.GraphRagContext.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_GraphRagOnly_MaxGraphRagItemsZero_WarnsInsteadOfSilentBlackout()
+    {
+        // #88 review finding: GraphRAG registered/enabled (graphRagAvailable=true) but this turn's
+        // effective MaxGraphRagItems is zero (e.g. an automatic recall policy excluded the GraphRag
+        // category) -- GraphRagOnly means nothing else is retrieved either, so this must be observable,
+        // not a silent completely-empty context every turn.
+        var logger = Substitute.For<ILogger<MemoryContextAssembler>>();
+        var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
+        var sut = new MemoryContextAssembler(
+            _shortTerm, _longTerm, _reasoning, _graphRag, _embeddingOrchestrator, _clock,
+            options, logger, SingleTenantPolicy);
+        var request = CreateRequest(queryEmbedding: new float[1536], blendMode: RetrievalBlendMode.GraphRagOnly) with
+        {
+            Options = RecallOptions.Default with { BlendMode = RetrievalBlendMode.GraphRagOnly, MaxGraphRagItems = 0 }
+        };
+
+        var result = await sut.AssembleContextAsync(request);
+
+        await _graphRag.DidNotReceive()
+            .GetContextAsync(Arg.Any<GraphRagContextRequest>(), Arg.Any<CancellationToken>());
+        result.GraphRagContext.Should().BeNull();
+        var warned = logger.ReceivedCalls().Any(c =>
+            c.GetMethodInfo().Name == nameof(ILogger.Log) && c.GetArguments()[0] is LogLevel.Warning);
+        warned.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_AllCategoryLimitsZero_QueriesNothing_ReturnsEmptyContext()
+    {
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = new RecallOptions
+            {
+                MaxRecentMessages = 0, MaxRelevantMessages = 0, MaxEntities = 0,
+                MaxFacts = 0, MaxPreferences = 0, MaxTraces = 0, MaxGraphRagItems = 0
+            }
+        };
+
+        var result = await sut.AssembleContextAsync(request);
+
+        result.RecentMessages.Items.Should().BeEmpty();
+        result.RelevantMessages.Items.Should().BeEmpty();
+        result.RelevantEntities.Items.Should().BeEmpty();
+        result.RelevantFacts.Items.Should().BeEmpty();
+        result.RelevantPreferences.Items.Should().BeEmpty();
+        result.SimilarTraces.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsync_NonZeroLimits_StillQueriesNormally()
+    {
+        // Regression guard: the #88 gating must not accidentally suppress a normal, nonzero-limit recall.
+        var sut = CreateSut();
+
+        await sut.AssembleContextAsync(CreateRequest(queryEmbedding: new float[1536]));
+
+        await _shortTerm.Received(1)
+            .GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        await _longTerm.Received(1).SearchEntitiesAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _longTerm.Received(1).SearchFactsAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _longTerm.Received(1).SearchPreferencesAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _reasoning.Received(1).SearchSimilarTracesAsync(
+            Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -618,6 +802,64 @@ public sealed class MemoryContextAssemblerTests
 
         result.RelevantEntities.Items.Should().BeEmpty();
         result.RelevantFacts.Items.Should().BeEmpty();
+    }
+
+    // ── #88: the same zero-limit gating applies to the bitemporal (AsOf) recall path ──
+
+    [Fact]
+    public async Task AssembleContextAsOfAsync_MaxEntitiesZero_SkipsSearchEntitiesAsOfCall()
+    {
+        _shortTerm
+            .GetRecentMessagesAsOfAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>()));
+        _longTerm
+            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
+        _longTerm
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxEntities = 0 }
+        };
+
+        var result = await sut.AssembleContextAsOfAsync(request, _fixedTime);
+
+        await _longTerm.DidNotReceive().SearchEntitiesAsOfAsync(
+            Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        result.RelevantEntities.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AssembleContextAsOfAsync_MaxRecentMessagesZero_SkipsRecentMessagesAsOfCall()
+    {
+        _longTerm
+            .SearchEntitiesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+        _longTerm
+            .SearchPreferencesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Preference>>(Array.Empty<Preference>()));
+        _longTerm
+            .SearchFactsAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>()));
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
+        var sut = CreateSut();
+        var request = CreateRequest(queryEmbedding: new float[1536]) with
+        {
+            Options = RecallOptions.Default with { MaxRecentMessages = 0 }
+        };
+
+        var result = await sut.AssembleContextAsOfAsync(request, _fixedTime);
+
+        await _shortTerm.DidNotReceive().GetRecentMessagesAsOfAsync(
+            Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.RecentMessages.Items.Should().BeEmpty();
     }
 
     // ---- Helpers ----

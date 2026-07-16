@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
+using AgentMemory.AgentFramework.Recall;
 using AgentMemory.AgentFramework.Tools;
 using NSubstitute;
 
@@ -157,6 +158,65 @@ public sealed class ServiceCollectionExtensionsTests
         var sut = scope.ServiceProvider.GetRequiredService<Neo4jChatHistoryProvider>();
 
         sut.Should().NotBeNull();
+    }
+
+    // ── #88: task-aware automatic recall policy ────────────────────────────────
+
+    [Fact]
+    public void AddAgentMemoryFramework_RegistersConfiguredAutomaticRecallPolicy_AsScoped_ByDefault()
+    {
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+
+        services.Should().ContainSingle(d =>
+            d.ServiceType == typeof(IAutomaticRecallPolicy) &&
+            d.ImplementationType == typeof(ConfiguredAutomaticRecallPolicy) &&
+            d.Lifetime == ServiceLifetime.Scoped);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_ResolvesIAutomaticRecallPolicy_WithDependencies()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework()
+            .BuildServiceProvider();
+
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
+
+        sut.Should().BeOfType<ConfiguredAutomaticRecallPolicy>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostRegisteredPolicyBeforeCall_IsNotOverridden()
+    {
+        // TryAdd: a host that registers its own IAutomaticRecallPolicy before AddAgentMemoryFramework
+        // must keep that registration -- the built-in Configured policy must not clobber it.
+        var services = BuildBaseServices();
+        services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>();
+        services.AddAgentMemoryFramework();
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
+
+        sut.Should().BeOfType<HeuristicAutomaticRecallPolicy>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostRegisteredPolicyAfterCall_WinsOverDefault()
+    {
+        // A host that registers its own IAutomaticRecallPolicy after AddAgentMemoryFramework must win --
+        // plain AddScoped appends, and the last registration is what resolves for a non-keyed service.
+        var services = BuildBaseServices();
+        services.AddAgentMemoryFramework();
+        services.AddScoped<IAutomaticRecallPolicy, HeuristicAutomaticRecallPolicy>();
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
+
+        sut.Should().BeOfType<HeuristicAutomaticRecallPolicy>();
     }
 
     // ── idempotency ───────────────────────────────────────────────────────────
