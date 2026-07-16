@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
@@ -678,5 +679,180 @@ public sealed class ExtractionStageTests
         result.RawPreferences.Should().HaveCount(2);
         result.FilteredPreferences.Should().ContainSingle()
             .Which.PreferenceText.Should().Be("espresso");
+    }
+
+    // ── #101: structured ingestion outcomes ─────────────────────────────────
+
+    [Fact]
+    public async Task ExtractAsync_ExtractorThrows_RecordsFailedExtractionOutcome()
+    {
+        var failing = Substitute.For<IEntityExtractor>();
+        failing.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("LLM unavailable"));
+
+        var sut = CreateSut(entityExtractors: new[] { failing });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Entity &&
+            o.Stage == IngestionStage.Extraction &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.EntityExtractionFailed);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_EntityFailsValidation_RecordsSkippedOutcome()
+    {
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("the", 0.9) }); // stopword — fails validation
+
+        var sut = CreateSut(entityExtractors: new[] { ext });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Entity &&
+            o.Stage == IngestionStage.Validation &&
+            o.Status == IngestionItemStatus.Skipped &&
+            o.SourceKey == "the" &&
+            o.ErrorCode == MemoryErrorCodes.EntityValidationFailed);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_LowConfidenceEntity_DoesNotRecordAnOutcome()
+    {
+        // Confidence-threshold filtering is routine, expected behavior, not a failure or meaningful
+        // skip — deliberately not tracked (#101 scope decision).
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice", 0.1) });
+
+        var sut = CreateSut(
+            entityExtractors: new[] { ext },
+            options: new ExtractionOptions { MinConfidenceThreshold = 0.5 });
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExtractAsync_EntityResolutionFails_RecordsFailedOutcome()
+    {
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("BadEntity") });
+
+        var sut = CreateSut(entityExtractors: new[] { ext });
+        _resolver
+            .ResolveEntityAsync(Arg.Is<ExtractedEntity>(e => e.Name == "BadEntity"),
+                Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("resolution failed"));
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Entity &&
+            o.Stage == IngestionStage.Resolution &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.SourceKey == "BadEntity" &&
+            o.ErrorCode == MemoryErrorCodes.EntityResolutionFailed &&
+            o.Retryable);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_RelationshipEndpointUnresolved_RecordsSkippedOutcome()
+    {
+        var relExt = Substitute.For<IRelationshipExtractor>();
+        relExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Ghost", TargetEntity = "Nobody", RelationshipType = "KNOWS", Confidence = 0.9 }
+            });
+
+        var sut = CreateSut(relExtractors: new[] { relExt });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Relationship &&
+            o.Stage == IngestionStage.Resolution &&
+            o.Status == IngestionItemStatus.Skipped &&
+            o.ErrorCode == MemoryErrorCodes.RelationshipEndpointUnresolved);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_FailFast_ExtractorThrows_ThrowsMemoryIngestionExceptionWithOutcomes()
+    {
+        var failing = Substitute.For<IEntityExtractor>();
+        failing.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var sut = CreateSut(
+            entityExtractors: new[] { failing },
+            options: new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+
+        var act = () => sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        var ex = await act.Should().ThrowAsync<MemoryIngestionException>();
+        ex.Which.CompletedOutcomes.Should().ContainSingle(o =>
+            o.Status == IngestionItemStatus.Failed && o.ErrorCode == MemoryErrorCodes.EntityExtractionFailed);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_FailFast_ResolutionFails_ThrowsMemoryIngestionExceptionWithOutcomes()
+    {
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("BadEntity") });
+
+        var sut = CreateSut(
+            entityExtractors: new[] { ext },
+            options: new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+        _resolver
+            .ResolveEntityAsync(Arg.Is<ExtractedEntity>(e => e.Name == "BadEntity"),
+                Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("resolution failed"));
+
+        var act = () => sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        var ex = await act.Should().ThrowAsync<MemoryIngestionException>();
+        ex.Which.CompletedOutcomes.Should().ContainSingle(o =>
+            o.Stage == IngestionStage.Resolution && o.Status == IngestionItemStatus.Failed);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_BestEffortIsDefault_FailFastNotConfigured_DoesNotThrow()
+    {
+        var failing = Substitute.For<IEntityExtractor>();
+        failing.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("boom"));
+
+        var sut = CreateSut(entityExtractors: new[] { failing }); // default options — BestEffort
+
+        var act = () => sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ResolutionCancelled_DoesNotThrowMemoryIngestionException()
+    {
+        // Cancellation must propagate as OperationCanceledException, never be reinterpreted as a
+        // fail-fast ingestion failure — even under FailFast (#101 acceptance criterion).
+        using var cts = new CancellationTokenSource();
+        var ext = Substitute.For<IEntityExtractor>();
+        ext.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice") });
+        var sut = CreateSut(
+            entityExtractors: new[] { ext },
+            options: new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+
+        _resolver
+            .ResolveEntityAsync(Arg.Any<ExtractedEntity>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Entity>>(_ => { cts.Cancel(); throw new OperationCanceledException(cts.Token); });
+
+        var act = () => sut.ExtractAsync(TestMessages, ExtractionTypes.All, scope: null, cancellationToken: cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 }

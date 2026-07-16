@@ -74,6 +74,8 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             Preferences = staged.RawPreferences,
             Relationships = staged.RawRelationships,
             SourceMessageIds = staged.SourceMessageIds,
+            Status = ComputeStatus(persisted.Outcomes),
+            Outcomes = persisted.Outcomes,
             Metadata = new Dictionary<string, object>
             {
                 ["sessionId"] = request.SessionId,
@@ -84,5 +86,24 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
                 ["relationshipCount"] = persisted.RelationshipCount
             }
         };
+    }
+
+    /// <summary>
+    /// Derives the overall <see cref="IngestionStatus"/> (#101) from item outcomes: any failure makes
+    /// it at best partial; a total loss (failures present, nothing succeeded) is Failed; no failures at
+    /// all — including the trivial case of nothing to ingest — is Succeeded.
+    /// </summary>
+    private static IngestionStatus ComputeStatus(IReadOnlyList<IngestionItemOutcome> outcomes)
+    {
+        var failed = 0;
+        var succeeded = 0;
+        foreach (var outcome in outcomes)
+        {
+            if (outcome.Status == IngestionItemStatus.Failed) failed++;
+            else if (outcome.Status == IngestionItemStatus.Succeeded) succeeded++;
+        }
+
+        if (failed == 0) return IngestionStatus.Succeeded;
+        return succeeded > 0 ? IngestionStatus.PartiallySucceeded : IngestionStatus.Failed;
     }
 }

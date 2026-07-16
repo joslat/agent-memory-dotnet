@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using FluentAssertions;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Observability;
 using NSubstitute;
@@ -415,6 +416,139 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
         await _inner.Received(1).AddMessagesAsync(messages, Arg.Any<CancellationToken>());
         await _inner.Received(1).ExtractAndPersistAsync(extractRequest, Arg.Any<CancellationToken>());
         await _inner.Received(1).ClearSessionAsync("s1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── #101: ingestion outcome metrics/tags ────────────────────────────────
+
+    [Fact]
+    public async Task ExtractAndPersist_TagsActivityWithIngestionStatus()
+    {
+        var request = new ExtractionRequest { SessionId = "s1", Messages = new[] { CreateMessage("msg-1", "s1") } };
+        _inner.ExtractAndPersistAsync(request, Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult { Status = IngestionStatus.PartiallySucceeded });
+
+        await _sut.ExtractAndPersistAsync(request);
+
+        var activity = _capturedActivities.Should().ContainSingle(
+            a => a.OperationName == "memory.extract_and_persist").Subject;
+        activity.GetTagItem("memory.ingestion.status").Should().Be("PartiallySucceeded");
+    }
+
+    [Fact]
+    public async Task ExtractAndPersist_RecordsIngestionOperationsAndItemCounters()
+    {
+        var request = new ExtractionRequest { SessionId = "s1", Messages = new[] { CreateMessage("msg-1", "s1") } };
+        _inner.ExtractAndPersistAsync(request, Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult
+            {
+                Status = IngestionStatus.PartiallySucceeded,
+                Outcomes = new IngestionItemOutcome[]
+                {
+                    new() { Kind = MemoryItemKind.Fact, Stage = IngestionStage.Persistence, Status = IngestionItemStatus.Succeeded },
+                    new() { Kind = MemoryItemKind.Entity, Stage = IngestionStage.Persistence, Status = IngestionItemStatus.Failed },
+                }
+            });
+
+        long operations = 0, succeeded = 0, failed = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == MemoryMetrics.MeterName) l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+        {
+            switch (instrument.Name)
+            {
+                case "memory.ingestion.operations": Interlocked.Add(ref operations, value); break;
+                case "memory.ingestion.items.succeeded": Interlocked.Add(ref succeeded, value); break;
+                case "memory.ingestion.items.failed": Interlocked.Add(ref failed, value); break;
+            }
+        });
+        listener.Start();
+
+        await _sut.ExtractAndPersistAsync(request);
+        listener.Dispose();
+
+        operations.Should().Be(1);
+        succeeded.Should().Be(1);
+        failed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExtractAndPersist_ConfiguredFailFast_TagsSuccessfulRunWithActualFailureMode()
+    {
+        // #101 review: the success-path metric previously hardcoded failure_mode="BestEffort" regardless
+        // of the actual configured mode, so a FailFast host's successful runs were misreported.
+        var request = new ExtractionRequest { SessionId = "s1", Messages = new[] { CreateMessage("msg-1", "s1") } };
+        _inner.ExtractAndPersistAsync(request, Arg.Any<CancellationToken>())
+            .Returns(new ExtractionResult { Status = IngestionStatus.Succeeded });
+
+        var options = Microsoft.Extensions.Options.Options.Create(
+            new AgentMemory.Abstractions.Options.ExtractionOptions
+            {
+                FailureMode = AgentMemory.Abstractions.Options.IngestionFailureMode.FailFast
+            });
+        var sut = new InstrumentedMemoryService(_inner, _metrics, options);
+
+        string? failureMode = null;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == MemoryMetrics.MeterName) l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
+        {
+            if (instrument.Name != "memory.ingestion.operations") return;
+            foreach (var tag in tags)
+                if (tag.Key == "failure_mode") failureMode = tag.Value?.ToString();
+        });
+        listener.Start();
+
+        await sut.ExtractAndPersistAsync(request);
+        listener.Dispose();
+
+        failureMode.Should().Be("FailFast");
+    }
+
+    [Fact]
+    public async Task ExtractAndPersist_FailFast_RecordsCompletedOutcomesBeforeRethrowing()
+    {
+        var request = new ExtractionRequest { SessionId = "s1", Messages = new[] { CreateMessage("msg-1", "s1") } };
+        var completedOutcomes = new IngestionItemOutcome[]
+        {
+            new() { Kind = MemoryItemKind.Entity, Stage = IngestionStage.Persistence, Status = IngestionItemStatus.Failed }
+        };
+        _inner.ExtractAndPersistAsync(request, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new MemoryIngestionException("failed fast", completedOutcomes));
+
+        long failed = 0, operations = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == MemoryMetrics.MeterName) l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+        {
+            switch (instrument.Name)
+            {
+                case "memory.ingestion.items.failed": Interlocked.Add(ref failed, value); break;
+                case "memory.ingestion.operations": Interlocked.Add(ref operations, value); break;
+            }
+        });
+        listener.Start();
+
+        var act = () => _sut.ExtractAndPersistAsync(request);
+        await act.Should().ThrowAsync<MemoryIngestionException>();
+        listener.Dispose();
+
+        failed.Should().Be(1);
+        operations.Should().Be(1);
     }
 
     // ---- Helpers ----

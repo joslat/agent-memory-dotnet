@@ -1,6 +1,9 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
@@ -46,9 +49,9 @@ public sealed class PersistenceStageTests
             .Returns(ci => Task.FromResult(ci.Arg<Relationship>()));
     }
 
-    private PersistenceStage CreateSut() =>
+    private PersistenceStage CreateSut(ExtractionOptions? options = null) =>
         new(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen,
-            NullLogger<PersistenceStage>.Instance);
+            NullLogger<PersistenceStage>.Instance, Options.Create(options ?? new ExtractionOptions()));
 
     private static ExtractionStageResult EmptyResult(IReadOnlyList<string>? sourceIds = null) =>
         new()
@@ -500,5 +503,330 @@ public sealed class PersistenceStageTests
         result.FactCount.Should().Be(1);
         result.PreferenceCount.Should().Be(1);
         result.RelationshipCount.Should().Be(1);
+    }
+
+    // ── #101: structured ingestion outcomes ─────────────────────────────────
+
+    [Fact]
+    public async Task PersistAsync_EntitySucceeds_RecordsSucceededOutcome()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Entity &&
+            o.Stage == IngestionStage.Persistence &&
+            o.Status == IngestionItemStatus.Succeeded &&
+            o.SourceKey == "Alice" &&
+            o.PersistedId == "e-1");
+    }
+
+    [Fact]
+    public async Task PersistAsync_EntityEmbeddingFails_RecordsFailedOutcomeAtEmbeddingStage_NotPersistence()
+    {
+        // #101 review: embedding failures must be distinguishable from graph-write failures — a caller
+        // building retry/alerting logic on Stage/ErrorCode needs to tell "the embedding provider is down"
+        // apart from "the Neo4j write failed".
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<float[]>(new InvalidOperationException("embedding provider down")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Entity &&
+            o.Stage == IngestionStage.Embedding &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.EmbeddingGenerationFailed);
+        await _entityRepo.DidNotReceive().UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_FactEmbeddingFails_RecordsFailedOutcomeAtEmbeddingStage_NotPersistence()
+    {
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<float[]>(new InvalidOperationException("embedding provider down")));
+
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "A", Predicate = "b", Object = "c", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Fact &&
+            o.Stage == IngestionStage.Embedding &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.EmbeddingGenerationFailed);
+        await _factRepo.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_FailFast_EmbeddingFails_ThrowsMemoryIngestionException()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<float[]>(new InvalidOperationException("embedding provider down")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut(new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+        var act = () => sut.PersistAsync(extraction);
+
+        var ex = await act.Should().ThrowAsync<MemoryIngestionException>();
+        ex.Which.CompletedOutcomes.Should().ContainSingle(o => o.Stage == IngestionStage.Embedding);
+    }
+
+    [Fact]
+    public async Task PersistAsync_EntityUpsertFails_RecordsFailedOutcome()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Entity>(new InvalidOperationException("DB error")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Entity &&
+            o.Stage == IngestionStage.Persistence &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.EntityPersistenceFailed &&
+            o.Retryable);
+    }
+
+    [Fact]
+    public async Task PersistAsync_ExtractedFromFails_RecordsProvenanceFailure_SeparateFromPersistenceSuccess()
+    {
+        // Required behavior from #101: a fact/entity node can persist successfully while its
+        // provenance edge fails — both outcomes must be visible, distinctly staged.
+        var entity = new Entity { EntityId = "e-1", Name = "Bob", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _entityRepo.CreateExtractedFromRelationshipAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new Exception("DB connection failed")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Bob"] = entity }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Entity && o.Stage == IngestionStage.Persistence && o.Status == IngestionItemStatus.Succeeded);
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Entity && o.Stage == IngestionStage.Provenance && o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.ProvenancePersistenceFailed);
+    }
+
+    [Fact]
+    public async Task PersistAsync_FactSucceeds_RecordsSucceededOutcome()
+    {
+        _idGen.GenerateId().Returns("fact-1");
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "Alice", Predicate = "likes", Object = "coffee", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Fact &&
+            o.Stage == IngestionStage.Persistence &&
+            o.Status == IngestionItemStatus.Succeeded &&
+            o.PersistedId == "fact-1");
+    }
+
+    [Fact]
+    public async Task PersistAsync_FactUpsertFails_RecordsFailedOutcome()
+    {
+        _factRepo.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Fact>(new InvalidOperationException("DB error")));
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "A", Predicate = "b", Object = "c", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Fact &&
+            o.Stage == IngestionStage.Persistence &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.FactPersistenceFailed);
+    }
+
+    [Fact]
+    public async Task PersistAsync_PreferenceUpsertFails_RecordsFailedOutcome()
+    {
+        _prefRepo.UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Preference>(new InvalidOperationException("DB error")));
+        var extraction = EmptyResult() with
+        {
+            FilteredPreferences = new[] { new ExtractedPreference { Category = "a", PreferenceText = "text1", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Preference &&
+            o.Stage == IngestionStage.Persistence &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.PreferencePersistenceFailed);
+    }
+
+    [Fact]
+    public async Task PersistAsync_RelationshipEndpointNotPersisted_RecordsSkippedOutcome()
+    {
+        var extraction = EmptyResult() with
+        {
+            FilteredRelationships = new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Ghost", TargetEntity = "Nobody", RelationshipType = "KNOWS", Confidence = 0.9 }
+            }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Relationship &&
+            o.Stage == IngestionStage.RelationshipPersistence &&
+            o.Status == IngestionItemStatus.Skipped &&
+            o.ErrorCode == MemoryErrorCodes.RelationshipEndpointNotPersisted);
+    }
+
+    [Fact]
+    public async Task PersistAsync_RelationshipUpsertFails_RecordsFailedOutcome()
+    {
+        var alice = new Entity { EntityId = "e-alice", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var bob = new Entity { EntityId = "e-bob", Name = "Bob", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _relRepo.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Relationship>(new InvalidOperationException("DB error")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = alice, ["Bob"] = bob },
+            FilteredRelationships = new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Bob", RelationshipType = "KNOWS", Confidence = 0.9 }
+            }
+        };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Relationship &&
+            o.Stage == IngestionStage.Persistence &&
+            o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.RelationshipPersistenceFailed);
+    }
+
+    [Fact]
+    public async Task PersistAsync_PriorOutcomesFromExtractionStage_ArePreservedInResult()
+    {
+        var priorOutcome = new IngestionItemOutcome
+        {
+            Kind = MemoryItemKind.Entity,
+            Stage = IngestionStage.Extraction,
+            Status = IngestionItemStatus.Failed,
+            SourceKey = "some-extractor",
+            ErrorCode = MemoryErrorCodes.EntityExtractionFailed,
+        };
+        var extraction = EmptyResult() with { Outcomes = new[] { priorOutcome } };
+
+        var sut = CreateSut();
+        var result = await sut.PersistAsync(extraction);
+
+        result.Outcomes.Should().Contain(priorOutcome);
+    }
+
+    [Fact]
+    public async Task PersistAsync_FailFast_EntityPersistenceFails_ThrowsMemoryIngestionException()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Entity>(new InvalidOperationException("DB error")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut(new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+        var act = () => sut.PersistAsync(extraction);
+
+        var ex = await act.Should().ThrowAsync<MemoryIngestionException>();
+        ex.Which.CompletedOutcomes.Should().ContainSingle(o =>
+            o.Status == IngestionItemStatus.Failed && o.ErrorCode == MemoryErrorCodes.EntityPersistenceFailed);
+    }
+
+    [Fact]
+    public async Task PersistAsync_FailFast_ProvenanceFails_ThrowsMemoryIngestionException()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Bob", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _entityRepo.CreateExtractedFromRelationshipAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double?>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new Exception("DB connection failed")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Bob"] = entity }
+        };
+
+        var sut = CreateSut(new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+        var act = () => sut.PersistAsync(extraction);
+
+        var ex = await act.Should().ThrowAsync<MemoryIngestionException>();
+        ex.Which.CompletedOutcomes.Should().Contain(o =>
+            o.Stage == IngestionStage.Provenance && o.Status == IngestionItemStatus.Failed);
+        // The entity's own persistence success must still be visible even though provenance failed fast.
+        ex.Which.CompletedOutcomes.Should().Contain(o =>
+            o.Stage == IngestionStage.Persistence && o.Status == IngestionItemStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task PersistAsync_BestEffortIsDefault_DoesNotThrowOnPersistenceFailure()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        _entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<Entity>(new InvalidOperationException("DB error")));
+
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut(); // default options — BestEffort
+        var act = () => sut.PersistAsync(extraction);
+
+        await act.Should().NotThrowAsync();
     }
 }
