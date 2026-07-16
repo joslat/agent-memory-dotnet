@@ -23,9 +23,15 @@ internal static class RecalledMessageRoleGate
 {
     private static readonly string[] PrivilegedRoles = ["system", "tool"];
 
-    /// <summary>True when <paramref name="role"/> (case-insensitive) is one this gate treats as privileged.</summary>
+    /// <summary>
+    /// True when <paramref name="role"/> (case-insensitive, leading/trailing whitespace ignored) is one
+    /// this gate treats as privileged. Trimmed because the write path (<c>memory_store_message</c>,
+    /// <c>Neo4jMemoryPlugin.AddMessageAsync</c>) persists a caller-supplied role verbatim with no
+    /// normalization -- an untrimmed comparison would let a role like <c>" system"</c> bypass demotion
+    /// entirely while still reading as a system-authority line to a model.
+    /// </summary>
     public static bool IsPrivileged(string role) =>
-        PrivilegedRoles.Contains(role, StringComparer.OrdinalIgnoreCase);
+        PrivilegedRoles.Contains(role.Trim(), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Returns <paramref name="role"/> unchanged unless it's privileged and <paramref name="trustLevel"/>

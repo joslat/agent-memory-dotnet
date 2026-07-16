@@ -979,4 +979,26 @@ public sealed class MafTypeMapperTests
 
         result.Should().Contain(m => m.Role == ChatRole.Assistant && m.Text == "recalled-content");
     }
+
+    [Fact]
+    public void ToContextMessages_ConfiguredThreshold_RecalledSystemMessageWithWhitespacePadding_StillDemoted()
+    {
+        // Regression: the write path persists a caller-supplied role verbatim with no trimming, so the
+        // privileged-role check must trim before comparing -- otherwise " system" (leading space) would
+        // read as a non-privileged, unrecognized role and bypass demotion entirely while still rendering as
+        // a system-authority-looking line.
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow,
+            RelevantMessages = new MemoryContextSection<Message>
+            {
+                Items = [MessageWithRole(" system", MemoryTrustLevel.UserProvided)]
+            }
+        };
+        var options = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted };
+
+        var result = MafTypeMapper.ToContextMessages(context, options);
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text == "recalled-content");
+    }
 }

@@ -29,13 +29,7 @@ public sealed class Neo4jMemoryPlugin
         _memoryService = memoryService;
         _logger = logger ?? NullLogger<Neo4jMemoryPlugin>.Instance;
 
-        var security = securityOptions?.Value ?? new MemoryRecallSecurityOptions();
-        _formatterOptions = new MemoryContextFormatterOptions
-        {
-            Strict = security.SecurityMode == MemoryContextSecurityMode.Strict,
-            MinimumTrustForAdmissionBypass = security.MinimumTrustForAdmissionBypass,
-            MinimumTrustForSystemRole = security.MinimumTrustForSystemRole
-        };
+        _formatterOptions = (securityOptions?.Value ?? new MemoryRecallSecurityOptions()).ToFormatterOptions();
     }
 
     /// <summary>Recalls relevant memory context for the given query and session.</summary>

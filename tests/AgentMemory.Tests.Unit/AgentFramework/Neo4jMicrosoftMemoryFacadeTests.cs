@@ -231,4 +231,69 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    // ── #92 Phase 7: recalled-message role gating (found missing here during self-review; this facade's
+    // semantic-query recall path -- RecentMessages + RelevantMessages via a real queryText -- is the exact
+    // same shape MafTypeMapper.ToContextMessages gates, so it must be gated too) ────────────────────────
+
+    private static Message MessageWithRole(string role, MemoryTrustLevel? trustLevel = null) => new()
+    {
+        MessageId = "m1", SessionId = "s1", ConversationId = "c1",
+        Role = role, Content = "recalled-content", TimestampUtc = _now,
+        Metadata = trustLevel is null
+            ? new Dictionary<string, object>()
+            : new Dictionary<string, object>().WithTrustLevel(trustLevel.Value)
+    };
+
+    [Fact]
+    public async Task GetContextForRunAsync_DefaultOptions_RecalledSystemMessage_StillRendersAsSystem_RegressionUnchanged()
+    {
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RecallResult
+            {
+                Context = new MemoryContext
+                {
+                    SessionId = "s1",
+                    AssembledAtUtc = _now,
+                    RecentMessages = new MemoryContextSection<Message> { Items = [] },
+                    RelevantMessages = new MemoryContextSection<Message> { Items = [MessageWithRole("system")] }
+                }
+            });
+
+        var messages = new List<ChatMessage> { new(ChatRole.User, "find relevant history") };
+        var result = await _sut.GetContextForRunAsync(messages, "s1", "c1");
+
+        result.Should().Contain(m => m.Role == ChatRole.System && m.Text == "recalled-content");
+    }
+
+    [Fact]
+    public async Task GetContextForRunAsync_ConfiguredThreshold_RecalledSystemMessage_LowTrust_DemotedToUser()
+    {
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RecallResult
+            {
+                Context = new MemoryContext
+                {
+                    SessionId = "s1",
+                    AssembledAtUtc = _now,
+                    RecentMessages = new MemoryContextSection<Message> { Items = [] },
+                    RelevantMessages = new MemoryContextSection<Message>
+                    {
+                        Items = [MessageWithRole("system", MemoryTrustLevel.UserProvided)]
+                    }
+                }
+            });
+        var options = new AgentFrameworkOptions
+        {
+            ContextFormat = new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted }
+        };
+        var sut = new Neo4jMicrosoftMemoryFacade(
+            _memoryService, _messageStore, Options.Create(options), NullLogger<Neo4jMicrosoftMemoryFacade>.Instance);
+
+        var messages = new List<ChatMessage> { new(ChatRole.User, "find relevant history") };
+        var result = await sut.GetContextForRunAsync(messages, "s1", "c1");
+
+        result.Should().Contain(m => m.Role == ChatRole.User && m.Text == "recalled-content");
+        result.Should().NotContain(m => m.Role == ChatRole.System && m.Text == "recalled-content");
+    }
 }

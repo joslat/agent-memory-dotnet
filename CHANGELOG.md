@@ -193,12 +193,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deliberately undelimited/unevaluated (a disclosed, narrower gap — this is genuine recalled transcript, not
   a "memory object"), and gating is applied only inside recalled-context assembly, never on
   `MafTypeMapper.ToChatMessage` itself (which `Neo4jChatMessageStore`/`Neo4jChatHistoryProvider` still rely
-  on, unchanged, for genuine chat-history replay). **Companion fix found in the same pass:**
+  on, unchanged, for genuine chat-history replay). **Self-review found and fixed three more issues in the
+  same pass:** (1) `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync` — a third call site with the exact same
+  semantic-query-plus-`RelevantMessages` shape, used by the bundled samples — called the raw, ungated
+  `MafTypeMapper.ToChatMessage` directly and was missed by the initial fix; now gated the same way. (2)
+  `RecalledMessageRoleGate.IsPrivileged` now trims the role before comparing, closing a whitespace-bypass gap
+  (`" system"` previously read as non-privileged and skipped demotion entirely). (3) **Companion fix:**
   `Neo4jTextSearch.SearchAsync` never actually passed its configured security options into
   `MemoryContextFormatter.FormatRecallResult` at all — a Phase 6 wiring gap, silently using hardcoded
-  defaults regardless of host configuration; fixed alongside this phase. Issue #92 remains open — per-item
-  (not per-request) trust attribution, monotonic trust for shared/global facts, `ReasoningTrace` trust
-  stamping, observed/inferred/verified knowledge distinctions, and richer telemetry are future phases.
+  defaults regardless of host configuration; fixed alongside this phase, then corrected again when
+  self-review found the fix itself cached that mapping once at construction while sibling methods read the
+  live, mutable options object — now mapped fresh per call via a shared
+  `MemoryRecallSecurityOptionsExtensions.ToFormatterOptions()` helper (also adopted by `Neo4jMemoryPlugin`,
+  removing a second hand-duplicated copy of the same mapping). Issue #92 remains open — per-item (not
+  per-request) trust attribution, monotonic trust for shared/global facts, `ReasoningTrace` trust stamping,
+  observed/inferred/verified knowledge distinctions, and richer telemetry are future phases.
 
 ## [1.2.0] - 2026-07-15
 

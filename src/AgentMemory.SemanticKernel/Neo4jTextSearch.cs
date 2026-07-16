@@ -34,7 +34,6 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
     private readonly string _sessionId;
     private readonly string? _userId;
     private readonly MemoryRecallSecurityOptions _security;
-    private readonly MemoryContextFormatterOptions _formatterOptions;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jTextSearch"/>.</summary>
     /// <param name="memoryService">The backing memory service.</param>
@@ -53,12 +52,6 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         _sessionId = sessionId;
         _userId = userId;
         _security = securityOptions ?? new MemoryRecallSecurityOptions();
-        _formatterOptions = new MemoryContextFormatterOptions
-        {
-            Strict = _security.SecurityMode == MemoryContextSecurityMode.Strict,
-            MinimumTrustForAdmissionBypass = _security.MinimumTrustForAdmissionBypass,
-            MinimumTrustForSystemRole = _security.MinimumTrustForSystemRole
-        };
     }
 
     /// <inheritdoc/>
@@ -68,10 +61,13 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
         CancellationToken cancellationToken = default)
     {
         var result = await RecallAsync(query, cancellationToken).ConfigureAwait(false);
-        // Regression fix (found alongside #92 Phase 7): this call previously omitted _formatterOptions
+        // Regression fix (found alongside #92 Phase 7): this call previously omitted formatter options
         // entirely, so a host's configured MemoryRecallSecurityOptions silently had no effect on SearchAsync
         // specifically -- always rendering under the hardcoded defaults regardless of what was configured.
-        var formatted = MemoryContextFormatter.FormatRecallResult(result, _formatterOptions);
+        // Mapped fresh from the live _security each call (not cached) so a mutated MemoryRecallSecurityOptions
+        // instance -- shared, e.g., via DI -- is reflected consistently with GetTextSearchResultsAsync/
+        // GetSearchResultsAsync below, which already read _security live rather than a construction-time snapshot.
+        var formatted = MemoryContextFormatter.FormatRecallResult(result, _security.ToFormatterOptions());
         var items = string.IsNullOrEmpty(formatted)
             ? AsyncEnumerable.Empty<string>()
             : YieldSingle(formatted, cancellationToken);

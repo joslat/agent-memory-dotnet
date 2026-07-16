@@ -103,10 +103,13 @@ internal static class MafTypeMapper
             return decision.Include;
         }
 
-        // The chat-message role a recalled item renders at (#92 Phase 4): items at/above
+        // The chat-message role a recalled ITEM's BLOCK renders at (#92 Phase 4): items at/above
         // MinimumTrustForSystemRole get DefaultMemoryRole (System by default -- unchanged pre-Phase-4
-        // behavior); everything else renders at the fixed lower-authority role, User.
-        RecalledMemoryMessageRole EffectiveRole(MemoryTrustLevel trustLevel) =>
+        // behavior); everything else renders at the fixed lower-authority role, User. Named distinctly from
+        // RecalledMessageRoleGate.EffectiveRole (#92 Phase 7, used below for recalled MESSAGES) -- these are
+        // two different decisions (entity/fact/preference/GraphRAG block role vs. chat-message role) that
+        // happen to share a name pattern; kept separate on purpose, not a duplicate.
+        RecalledMemoryMessageRole EffectiveBlockRole(MemoryTrustLevel trustLevel) =>
             trustLevel >= options.MinimumTrustForSystemRole ? options.DefaultMemoryRole : RecalledMemoryMessageRole.User;
 
         // The single point where RecalledMemoryMessageRole maps to the MEAI ChatRole it renders as --
@@ -114,7 +117,7 @@ internal static class MafTypeMapper
         ChatRole ToChatRole(RecalledMemoryMessageRole role) =>
             role == RecalledMemoryMessageRole.System ? ChatRole.System : ChatRole.User;
 
-        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) => ToChatRole(EffectiveRole(trustLevel));
+        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) => ToChatRole(EffectiveBlockRole(trustLevel));
 
         // Renders a list-shaped category's (entities/facts/preferences/traces) admitted items into up to
         // two messages, one per effective role (#92 Phase 4) -- see the granularity note on Admit above for
@@ -129,7 +132,7 @@ internal static class MafTypeMapper
             var byRole = items
                 .Select(item => (Text: describe(item), Trust: getTrustLevel(item)))
                 .Where(x => Admit(category, x.Text, x.Trust))
-                .GroupBy(x => EffectiveRole(x.Trust))
+                .GroupBy(x => EffectiveBlockRole(x.Trust))
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Text).ToList());
 
             var messages = new List<ChatMessage>();
@@ -237,8 +240,11 @@ internal static class MafTypeMapper
     /// not detect or block instruction-like content that never relies on the tag (e.g. plain-language
     /// "ignore previous instructions", role-header conventions, code fences); the prefix instruction, not
     /// this delimiter, is what asks the model to disregard those. It also does not apply to recalled
-    /// conversation history (<c>RelevantMessages</c>), which keeps its originally-persisted role — both
-    /// are disclosed, explicit follow-up scope for #92, not silently dropped. Delegates to
+    /// conversation history (<c>RelevantMessages</c>) -- message CONTENT is disclosed, explicit follow-up
+    /// scope for #92, not silently dropped. Its ROLE, however, is NOT simply kept as originally persisted:
+    /// a privileged role ("system"/"tool") is gated separately (#92 Phase 7, see
+    /// <c>AgentMemory.Core.Security.RecalledMessageRoleGate</c>) rather than replayed unconditionally, since
+    /// the "original" role itself can be caller-controlled. Delegates to
     /// <c>AgentMemory.Core.Security.RecalledMemoryDelimiter</c> (relocated there in #92 Phase 6 so the
     /// Semantic Kernel adapter can share the same delimiting/escaping logic).
     /// </summary>
