@@ -158,19 +158,33 @@ internal sealed class PersistenceStage : IPersistenceStage
                 // free, so this pre-fetch is the "one extra round-trip" the Phase 3 doc flagged as needed.
                 // A lookup failure falls through to the same catch below as an ordinary persistence failure.
                 //
-                // Only performed when ownerId is set: FindByTripleAsync's MemoryScope? parameter follows the
-                // read/recall convention where an unscoped lookup (null, or a scope with no OwnerId) means
-                // "search across every owner" -- the opposite of what a null ownerId means on the WRITE side
-                // (the shared/global bucket). Passing an owner-less scope here would risk adopting another
-                // owner's trust level into a shared fact -- a cross-tenant leak. Unlike FindDuplicateAsync
-                // (whose raw ownerId parameter is documented as "null -> shared bucket only"), there is no
-                // existing repository primitive for a safe shared-bucket-only lookup, so shared/global facts
-                // don't get this protection yet -- a disclosed, narrower-than-ideal limitation for this phase.
-                Fact? existingFact = ownerId is null
+                // Only performed when ownerId is set (string.IsNullOrEmpty, matching how the rest of this
+                // codebase treats an empty owner id the same as a null one -- e.g. DefaultMemoryIsolationPolicy):
+                // FindByTripleAsync's MemoryScope? parameter follows the read/recall convention where an
+                // unscoped lookup (null, or a scope with no OwnerId) means "search across every owner" -- the
+                // opposite of what a null ownerId means on the WRITE side (the shared/global bucket). Passing
+                // an owner-less scope here would risk adopting another owner's trust level into a shared fact
+                // -- a cross-tenant leak. Unlike FindDuplicateAsync (whose raw ownerId parameter is documented
+                // as "null -> shared bucket only"), there is no existing repository primitive for a safe
+                // shared-bucket-only lookup, so shared/global facts don't get this protection yet -- a
+                // disclosed, narrower-than-ideal limitation for this phase.
+                //
+                // includeShared: false -- deliberately excludes shared/global facts from the pre-fetch even
+                // though MemoryScope.For defaults to including them. The default is right for READS (surface
+                // everything the caller may see), but wrong here: with no ORDER BY, a shared fact and this
+                // owner's own fact could both match the same triple, and picking up the shared one would
+                // graft an unrelated record's ENTIRE metadata (not just its trust level) onto this owner's
+                // fact -- conflating two conceptually distinct records that merely share text.
+                //
+                // FindByTripleAsync matches case-insensitively but Upsert's MERGE key is an exact-string
+                // match -- if a match is found, this fact is built from the EXISTING record's Subject/
+                // Predicate/Object (not the freshly-extracted casing) so the subsequent Upsert's MERGE
+                // still targets the SAME node instead of creating a same-triple, different-casing duplicate.
+                Fact? existingFact = string.IsNullOrEmpty(ownerId)
                     ? null
                     : await _factRepository.FindByTripleAsync(
                         extracted.Subject, extracted.Predicate, extracted.Object,
-                        MemoryScope.For(ownerId), cancellationToken).ConfigureAwait(false);
+                        MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
                 var effectiveFactTrustLevel = existingFact is null
                     ? trustLevel
                     : MaxTrustLevel(existingFact.Metadata.GetTrustLevel(), trustLevel);
@@ -181,9 +195,9 @@ internal sealed class PersistenceStage : IPersistenceStage
                 var fact = new Fact
                 {
                     FactId = _idGenerator.GenerateId(),
-                    Subject = extracted.Subject,
-                    Predicate = extracted.Predicate,
-                    Object = extracted.Object,
+                    Subject = existingFact?.Subject ?? extracted.Subject,
+                    Predicate = existingFact?.Predicate ?? extracted.Predicate,
+                    Object = existingFact?.Object ?? extracted.Object,
                     Confidence = extracted.Confidence,
                     ValidFrom = extracted.ValidFrom,
                     ValidUntil = extracted.ValidUntil,

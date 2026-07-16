@@ -209,15 +209,31 @@ earlier elevation. `PersistenceStage` now pre-fetches any existing fact with the
 level and the current call's — the same `MaxTrustLevel` logic Phase 3 already established for entities,
 preserving any other pre-existing `Metadata` keys along the way.
 
-**Deliberately scoped to owner-scoped facts only.** `FindByTripleAsync`'s `MemoryScope?` parameter
-follows the read/recall convention where an owner-less lookup means "search across every owner" — the
-opposite of what a `null` `ownerId` means on the write side (the shared/global bucket). Pre-fetching with
-an owner-less scope for a shared/global fact would risk adopting a *different* owner's trust level into a
-shared fact — a cross-tenant leak. Unlike `FindDuplicateAsync` (whose raw `ownerId` parameter is
-documented as "null → shared bucket only"), no existing repository primitive supports a safe
-shared-bucket-only lookup, so the pre-fetch is skipped entirely when `ownerId` is `null`; shared/global
-facts keep today's fresh-stamp behavior. This is a disclosed, narrower-than-ideal limitation, not a
-silent gap.
+**Deliberately scoped to owner-scoped facts only, and deliberately excludes shared facts from the
+pre-fetch itself.** `FindByTripleAsync`'s `MemoryScope?` parameter follows the read/recall convention
+where an owner-less lookup means "search across every owner" — the opposite of what a `null` `ownerId`
+means on the write side (the shared/global bucket). Pre-fetching with an owner-less scope for a
+shared/global fact would risk adopting a *different* owner's trust level into a shared fact — a
+cross-tenant leak. Unlike `FindDuplicateAsync` (whose raw `ownerId` parameter is documented as "null →
+shared bucket only"), no existing repository primitive supports a safe shared-bucket-only lookup, so the
+pre-fetch is skipped entirely when `ownerId` is null-or-empty (`string.IsNullOrEmpty`, matching
+`DefaultMemoryIsolationPolicy`'s own null/empty treatment — an early version checked `ownerId is null`
+only, missing the empty-string case); shared/global facts keep today's fresh-stamp behavior. This is a
+disclosed, narrower-than-ideal limitation, not a silent gap.
+
+For owner-scoped facts, the pre-fetch also passes `includeShared: false` — the opposite of
+`MemoryScope.For`'s own default. The default (include shared) is right for reads (surface everything the
+caller may see), but wrong here: `FindByTriple`'s Cypher has no `ORDER BY` before its `LIMIT 1`, so with
+the default, a shared fact and this owner's own fact could both match the same triple and which one comes
+back is unspecified — silently grafting an *unrelated* shared record's entire `Metadata` (not just its
+trust level) onto this owner's fact. Excluding shared facts from the pre-fetch confines it to "does this
+owner already have their own copy of this exact fact," which is the only question this fix needs to ask.
+
+`FindByTripleAsync` also matches case-insensitively, while `Upsert`'s Cypher `MERGE` key is an
+exact-string match. If a match is found, the fact actually persisted reuses the **existing** record's
+`Subject`/`Predicate`/`Object` (not the freshly-extracted casing) — otherwise a same-triple,
+different-casing re-extraction would `MERGE` onto a *different* node than the one just found, creating an
+unwanted duplicate that also inherits the found record's trust level instead of updating it in place.
 
 **Preferences are unaffected by this specific issue and don't need the same fix.** Unlike facts,
 `Neo4jPreferenceRepository`'s MERGE key is the freshly-generated `PreferenceId` (`MERGE (p:Preference

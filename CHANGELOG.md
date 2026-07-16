@@ -116,17 +116,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before persisting, and takes the higher of its existing trust level and the current call's — so an
   ordinary, later, lower-trust re-extraction of an identical triple (e.g. a curated `ApplicationTrusted`
   import later re-stated in a normal chat turn) can no longer silently erase the earlier elevation.
-  Deliberately scoped to **owner-scoped facts only**: `FindByTripleAsync`'s `MemoryScope?` parameter treats
-  an owner-less lookup as "search across every owner" (the read/recall convention) rather than "shared
-  bucket only" (the write convention for a `null` owner), so pre-fetching for a shared/global fact would
-  risk adopting a *different* owner's trust level — a cross-tenant leak. No existing repository primitive
-  supports a safe shared-bucket-only lookup, so shared/global facts keep today's fresh-stamp behavior; a
-  disclosed, narrower-than-ideal limitation, not a silent gap. **Preferences turned out not to need this
-  fix**: unlike facts, their extraction-time MERGE key is a freshly-generated id, not a natural key, so they
-  never collide with an existing node on re-extraction in the first place — correcting an earlier, less
-  precise description that grouped facts and preferences together. Proven live-Neo4j (not just at the
-  mocked-repository unit level): the same triple is extracted twice at two different trust levels, and the
-  surviving node — confirmed to be the same node, not a duplicate — keeps the higher one. Issue #92 remains
+  Deliberately scoped to **owner-scoped facts only** (a null-or-empty `ownerId` skips the pre-fetch
+  entirely): `FindByTripleAsync`'s `MemoryScope?` parameter treats an owner-less lookup as "search across
+  every owner" (the read/recall convention) rather than "shared bucket only" (the write convention for a
+  `null` owner), so pre-fetching for a shared/global fact would risk adopting a *different* owner's trust
+  level — a cross-tenant leak. No existing repository primitive supports a safe shared-bucket-only lookup,
+  so shared/global facts keep today's fresh-stamp behavior; a disclosed, narrower-than-ideal limitation,
+  not a silent gap. The owner-scoped pre-fetch itself also excludes shared facts (`includeShared: false`,
+  the opposite of `MemoryScope.For`'s own default) — self-review caught that the default would let a
+  shared fact sharing the same triple be returned instead of this owner's own record (no `ORDER BY` before
+  `FindByTriple`'s `LIMIT 1`), grafting an unrelated shared record's entire metadata onto an owner-scoped
+  fact. Also fixed during self-review: a same-triple, different-casing re-extraction now persists under
+  the *existing* record's casing (found via `FindByTripleAsync`'s case-insensitive match) rather than the
+  freshly-extracted casing, since `Upsert`'s Cypher `MERGE` key is exact-string and would otherwise create
+  a duplicate node. **Preferences turned out not to need this fix**: unlike facts, their extraction-time
+  MERGE key is a freshly-generated id, not a natural key, so they never collide with an existing node on
+  re-extraction in the first place — correcting an earlier, less precise description that grouped facts
+  and preferences together. Proven live-Neo4j (not just at the mocked-repository unit level): the same
+  triple is extracted twice at two different trust levels, and the surviving node — confirmed to be the
+  same node, not a duplicate — keeps the higher one. Issue #92 remains
   open — per-item (not per-request) trust attribution, `ReasoningTrace` trust stamping, observed/inferred/
   verified knowledge distinctions, and richer telemetry are future phases.
 
