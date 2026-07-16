@@ -72,13 +72,15 @@ internal static class MafTypeMapper
         // Every admitted item is still delimited/escaped via WrapUntrustedContent regardless (#92 Phase 1)
         // -- admission only controls whether it appears at all (Strict mode) vs. is quoted either way
         // (Permissive, the default).
-        bool Admit(string category, string content)
+        bool Admit(string category, string content, MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted)
         {
             var decision = admission.Evaluate(new MemoryAdmissionContext
             {
                 Category = category,
                 Content = content,
-                Mode = options.SecurityMode
+                Mode = options.SecurityMode,
+                TrustLevel = trustLevel,
+                MinimumTrustForAdmissionBypass = options.MinimumTrustForAdmissionBypass
             });
 
             // Flagged-but-included (Permissive, the default) is still observable -- Debug, not Warning,
@@ -101,9 +103,14 @@ internal static class MafTypeMapper
         }
 
         // Renders only the admitted items' text for a list-shaped category (entities/facts/preferences/
-        // traces) -- see the granularity note on Admit above for why this filters per item.
-        List<string> AdmittedText<T>(string category, IReadOnlyList<T> items, Func<T, string> describe) =>
-            items.Select(describe).Where(text => Admit(category, text)).ToList();
+        // traces) -- see the granularity note on Admit above for why this filters per item. Each item's
+        // trust level (#92 Phase 3) is read from its own Metadata via GetTrustLevel().
+        List<string> AdmittedText<T>(string category, IReadOnlyList<T> items, Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel) =>
+            items
+                .Select(item => (Text: describe(item), Trust: getTrustLevel(item)))
+                .Where(x => Admit(category, x.Text, x.Trust))
+                .Select(x => x.Text)
+                .ToList();
 
         // Build chat messages and memory-derived system messages into SEPARATE buckets and budget them
         // independently. The whole point of this provider is to inject long-term memory; appending memory
@@ -137,7 +144,8 @@ internal static class MafTypeMapper
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
         {
             var entityTexts = AdmittedText("entities", context.RelevantEntities.Items,
-                e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}");
+                e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}",
+                e => e.Metadata.GetTrustLevel());
             if (entityTexts.Count > 0)
                 memory.Add(new ChatMessage(ChatRole.System,
                     WrapUntrustedContent("entities", $"Relevant entities: {string.Join(", ", entityTexts)}")));
@@ -146,7 +154,8 @@ internal static class MafTypeMapper
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
         {
             var factTexts = AdmittedText("facts", context.RelevantFacts.Items,
-                f => $"{f.Subject} {f.Predicate} {f.Object}");
+                f => $"{f.Subject} {f.Predicate} {f.Object}",
+                f => f.Metadata.GetTrustLevel());
             if (factTexts.Count > 0)
                 memory.Add(new ChatMessage(ChatRole.System,
                     WrapUntrustedContent("facts", $"Known facts: {string.Join("; ", factTexts)}")));
@@ -154,7 +163,8 @@ internal static class MafTypeMapper
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
         {
-            var prefTexts = AdmittedText("preferences", context.RelevantPreferences.Items, p => p.PreferenceText);
+            var prefTexts = AdmittedText("preferences", context.RelevantPreferences.Items, p => p.PreferenceText,
+                p => p.Metadata.GetTrustLevel());
             if (prefTexts.Count > 0)
                 memory.Add(new ChatMessage(ChatRole.System,
                     WrapUntrustedContent("preferences", $"User preferences: {string.Join("; ", prefTexts)}")));
@@ -162,7 +172,8 @@ internal static class MafTypeMapper
 
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
         {
-            var traceTexts = AdmittedText("traces", context.SimilarTraces.Items, t => t.Task);
+            var traceTexts = AdmittedText("traces", context.SimilarTraces.Items, t => t.Task,
+                t => t.Metadata.GetTrustLevel());
             if (traceTexts.Count > 0)
                 memory.Add(new ChatMessage(ChatRole.System,
                     WrapUntrustedContent("traces", $"Similar past tasks: {string.Join("; ", traceTexts)}")));

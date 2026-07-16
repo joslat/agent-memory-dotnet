@@ -197,6 +197,12 @@ internal sealed class CoreMemoryTools
         CancellationToken cancellationToken = default)
     {
         var confidenceValue = confidence ?? options.Value.DefaultConfidence;
+        // #92 Phase 3: trust_level is a framework-reserved metadata key -- strip any caller-supplied value
+        // (a caller must never be able to self-assign ApplicationTrusted and bypass the admission policy's
+        // instruction-like-content detection) and stamp ToolDerived, since this fact arrived via a direct
+        // tool call rather than the extraction pipeline.
+        var callerMetadata = (ParseMetadata(metadataJson) ?? new Dictionary<string, object>())
+            .WithoutCallerSuppliedTrustLevel();
         var fact = new Fact
         {
             FactId = idGenerator.GenerateId(),
@@ -207,7 +213,7 @@ internal sealed class CoreMemoryTools
             Confidence = confidenceValue,
             OwnerId = userId,
             CreatedAtUtc = clock.UtcNow,
-            Metadata = ParseMetadata(metadataJson) ?? new Dictionary<string, object>()
+            Metadata = callerMetadata.WithTrustLevel(MemoryTrustLevel.ToolDerived)
         };
 
         var result = await longTermMemory.AddFactAsync(fact, cancellationToken).ConfigureAwait(false);

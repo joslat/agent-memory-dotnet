@@ -505,6 +505,146 @@ public sealed class PersistenceStageTests
         result.RelationshipCount.Should().Be(1);
     }
 
+    // ── #92 Phase 3: trust-level stamping ────────────────────────────────────
+
+    [Fact]
+    public async Task PersistAsync_Entity_StampsProvidedTrustLevel()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, trustLevel: MemoryTrustLevel.ApplicationTrusted);
+
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e => e.Metadata.GetTrustLevel() == MemoryTrustLevel.ApplicationTrusted),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Fact_StampsProvidedTrustLevel()
+    {
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Zurich", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, trustLevel: MemoryTrustLevel.VerifiedExternal);
+
+        await _factRepo.Received(1).UpsertAsync(
+            Arg.Is<Fact>(f => f.Metadata.GetTrustLevel() == MemoryTrustLevel.VerifiedExternal),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Preference_StampsProvidedTrustLevel()
+    {
+        var extraction = EmptyResult() with
+        {
+            FilteredPreferences = new[] { new ExtractedPreference { Category = "style", PreferenceText = "dark mode", Confidence = 0.9 } }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, trustLevel: MemoryTrustLevel.ModelGenerated);
+
+        await _prefRepo.Received(1).UpsertAsync(
+            Arg.Is<Preference>(p => p.Metadata.GetTrustLevel() == MemoryTrustLevel.ModelGenerated),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_NoTrustLevelArgument_DefaultsToUntrusted()
+    {
+        var entity = new Entity { EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow };
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction); // trustLevel omitted
+
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e => e.Metadata.GetTrustLevel() == MemoryTrustLevel.Untrusted),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Entity_StampingTrustLevel_PreservesExistingMetadata()
+    {
+        var entity = new Entity
+        {
+            EntityId = "e-1", Name = "Alice", Type = "Person", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object> { ["custom_key"] = "custom_value" }
+        };
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, trustLevel: MemoryTrustLevel.UserProvided);
+
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e =>
+                e.Metadata.GetTrustLevel() == MemoryTrustLevel.UserProvided &&
+                e.Metadata.ContainsKey("custom_key") && (string)e.Metadata["custom_key"] == "custom_value"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Entity_ResolvedOntoAlreadyTrustedExistingEntity_DoesNotDowngradeTrust()
+    {
+        // Trust is monotonic (#92 Phase 3 security fix): entity resolution (auto-merge/SAME_AS) can hand
+        // PersistenceStage an EXISTING, previously-persisted entity (already stamped ApplicationTrusted by
+        // an earlier curated import) as the resolved match for a brand-new, unrelated, lower-trust mention.
+        // That later mention must never silently erase the earlier, deliberate trust elevation.
+        var alreadyTrustedEntity = new Entity
+        {
+            EntityId = "e-1", Name = "Acme Corp", Type = "Organization", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.ApplicationTrusted)
+        };
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Acme Corp"] = alreadyTrustedEntity }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, trustLevel: MemoryTrustLevel.UserProvided); // an ordinary later mention
+
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e => e.Metadata.GetTrustLevel() == MemoryTrustLevel.ApplicationTrusted),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PersistAsync_Entity_ResolvedOntoLowerTrustExistingEntity_UpgradesToTheNewHigherTrust()
+    {
+        // The symmetric case: a curated, higher-trust import touching an entity that previously only
+        // existed at a lower trust level correctly raises it -- monotonic means "never decreases",
+        // not "first write wins".
+        var previouslyUntrustedEntity = new Entity
+        {
+            EntityId = "e-1", Name = "Acme Corp", Type = "Organization", Confidence = 0.9, CreatedAtUtc = DateTimeOffset.UtcNow,
+            Metadata = new Dictionary<string, object>().WithTrustLevel(MemoryTrustLevel.UserProvided)
+        };
+        var extraction = EmptyResult() with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Acme Corp"] = previouslyUntrustedEntity }
+        };
+
+        var sut = CreateSut();
+        await sut.PersistAsync(extraction, trustLevel: MemoryTrustLevel.ApplicationTrusted);
+
+        await _entityRepo.Received(1).UpsertAsync(
+            Arg.Is<Entity>(e => e.Metadata.GetTrustLevel() == MemoryTrustLevel.ApplicationTrusted),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── #101: structured ingestion outcomes ─────────────────────────────────
 
     [Fact]

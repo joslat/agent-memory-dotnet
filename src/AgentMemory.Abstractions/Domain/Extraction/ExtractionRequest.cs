@@ -26,6 +26,15 @@ public sealed record ExtractionRequest
     public ExtractionTypes TypesToExtract { get; init; } = ExtractionTypes.All;
 
     /// <summary>
+    /// Per-request override for the trust level stamped on everything persisted from this call (#92 Phase
+    /// 3) -- e.g. a host importing a curated/verified document can pass
+    /// <see cref="MemoryTrustLevel.ApplicationTrusted"/> or <see cref="MemoryTrustLevel.VerifiedExternal"/>
+    /// for that one extraction. Null (the default) falls back to the configured
+    /// <c>ExtractionOptions.DefaultTrustLevel</c>.
+    /// </summary>
+    public MemoryTrustLevel? TrustLevel { get; init; }
+
+    /// <summary>
     /// Additional extraction options.
     /// </summary>
     public IReadOnlyDictionary<string, object> Options { get; init; } =

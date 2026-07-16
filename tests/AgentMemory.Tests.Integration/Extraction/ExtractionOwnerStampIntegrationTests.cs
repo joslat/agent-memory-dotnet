@@ -161,6 +161,60 @@ public sealed class ExtractionOwnerStampIntegrationTests : IAsyncLifetime
         (await entities.GetByNameAsync("Ada", scope: null)).Should().ContainSingle(e => e.OwnerId == "alice");
     }
 
+    /// <summary>
+    /// Live-Neo4j proof that <c>MemoryTrustLevel</c> (#92 Phase 3) survives a real write + read: stamped by
+    /// <c>PersistenceStage</c> into <c>Metadata</c>, serialized to a JSON string property by
+    /// <c>Neo4jRecordMapper</c>, and read back correctly via <c>GetTrustLevel()</c> -- which must handle the
+    /// <c>JsonElement</c> shape a round-tripped value actually arrives as, not just the original CLR string
+    /// a purely in-process unit test would see.
+    /// </summary>
+    [Fact]
+    public async Task FullExtractionPipeline_RequestTrustLevelOverride_RoundTripsThroughNeo4j()
+    {
+        using var scope = _provider.CreateScope();
+        var sp = scope.ServiceProvider;
+
+        var shortTerm = sp.GetRequiredService<IShortTermMemoryService>();
+        var pipeline = sp.GetRequiredService<IMemoryExtractionPipeline>();
+
+        const string sessionId = "session-trust-level";
+        const string conversationId = "conv-trust-level";
+
+        await shortTerm.AddConversationAsync(conversationId, sessionId, userId: "alice");
+        var message = await shortTerm.AddMessageAsync(new Message
+        {
+            MessageId = $"m-{Guid.NewGuid():N}",
+            ConversationId = conversationId,
+            SessionId = sessionId,
+            Role = "user",
+            Content = "Ada works at Acme and prefers dark mode.",
+            TimestampUtc = DateTimeOffset.UtcNow,
+        });
+
+        await pipeline.ExtractAsync(new ExtractionRequest
+        {
+            SessionId = sessionId,
+            UserId = "alice",
+            Messages = [message],
+            TrustLevel = MemoryTrustLevel.ApplicationTrusted
+        });
+
+        var entities = sp.GetRequiredService<IEntityRepository>();
+        var facts = sp.GetRequiredService<IFactRepository>();
+        var preferences = sp.GetRequiredService<IPreferenceRepository>();
+        var aliceScope = MemoryScope.For("alice");
+
+        var ada = (await entities.GetByNameAsync("Ada", scope: aliceScope)).Should().ContainSingle().Subject;
+        ada.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted);
+
+        var fact = await facts.FindByTripleAsync("Ada", "works_at", "Acme", scope: aliceScope);
+        fact!.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted);
+
+        var preference = (await preferences.GetByCategoryAsync("style", scope: aliceScope))
+            .Should().ContainSingle(p => p.PreferenceText == "prefers dark mode").Subject;
+        preference.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.ApplicationTrusted);
+    }
+
     // ── Deterministic test extractors ──
     // The default Stub*Extractor registrations produce no output (Phase-1 no-ops), so a live test needs
     // real-ish extractors that deterministically produce one of each type plus a relationship between two

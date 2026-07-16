@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -18,6 +19,7 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
     private readonly IPersistenceStage _persistenceStage;
     private readonly ILogger<MemoryExtractionPipeline> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
+    private readonly ExtractionOptions _options;
 
     // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
     // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
@@ -25,12 +27,14 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         IExtractionStage extractionStage,
         IPersistenceStage persistenceStage,
         ILogger<MemoryExtractionPipeline> logger,
-        IMemoryIsolationPolicy isolationPolicy)
+        IMemoryIsolationPolicy isolationPolicy,
+        IOptions<ExtractionOptions>? extractionOptions = null)
     {
         _extractionStage = extractionStage;
         _persistenceStage = persistenceStage;
         _logger = logger;
         _isolationPolicy = isolationPolicy;
+        _options = extractionOptions?.Value ?? new ExtractionOptions();
     }
 
     /// <inheritdoc/>
@@ -54,7 +58,9 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
             request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
         var ownerId = _isolationPolicy.ResolveWriteOwner(request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
-        var persisted = await _persistenceStage.PersistAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
+        // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
+        var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
+        var persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
         _logger.LogInformation(

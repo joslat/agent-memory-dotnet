@@ -49,6 +49,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     public async Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
         string? ownerId = null,
+        MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
     {
         var sourceMessageIds = extraction.SourceMessageIds;
@@ -59,7 +60,13 @@ internal sealed class PersistenceStage : IPersistenceStage
         var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, entity) in extraction.ResolvedEntityMap)
         {
-            var entityToSave = entity with { OwnerId = ownerId };
+            // Trust is monotonic, never silently downgraded: when entity resolution (auto-merge/SAME_AS)
+            // resolves this mention onto an EXISTING, previously-persisted entity, `entity` already carries
+            // that entity's own prior Metadata/trust level. An unrelated later mention at a lower trust
+            // level (e.g. an ordinary chat turn) must not erase a deliberately-elevated trust stamp (e.g.
+            // from a curated ApplicationTrusted import) -- take whichever of the two is higher.
+            var effectiveTrustLevel = MaxTrustLevel(entity.Metadata.GetTrustLevel(), trustLevel);
+            var entityToSave = entity with { OwnerId = ownerId, Metadata = entity.Metadata.WithTrustLevel(effectiveTrustLevel) };
 
             if (entityToSave.Embedding is null)
             {
@@ -154,7 +161,8 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Embedding = factEmbedding,
                     OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
-                    CreatedAtUtc = _clock.UtcNow
+                    CreatedAtUtc = _clock.UtcNow,
+                    Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
                 };
 
                 await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
@@ -225,7 +233,8 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Embedding = prefEmbedding,
                     OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
-                    CreatedAtUtc = _clock.UtcNow
+                    CreatedAtUtc = _clock.UtcNow,
+                    Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
                 };
 
                 await _preferenceRepository.UpsertAsync(preference, cancellationToken).ConfigureAwait(false);
@@ -350,6 +359,12 @@ internal sealed class PersistenceStage : IPersistenceStage
             Outcomes = outcomes
         };
     }
+
+    /// <summary>
+    /// Trust is monotonic (#92 Phase 3): re-touching an already-persisted entity must never silently lower
+    /// its trust level below whatever it already had.
+    /// </summary>
+    private static MemoryTrustLevel MaxTrustLevel(MemoryTrustLevel a, MemoryTrustLevel b) => a > b ? a : b;
 
     /// <summary>Appends a <see cref="IngestionItemStatus.Succeeded"/> outcome (#101).</summary>
     private static void RecordSuccess(

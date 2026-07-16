@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.AgentFramework.Security;
 
 namespace AgentMemory.AgentFramework;
@@ -82,4 +83,13 @@ public sealed class ContextFormatOptions
     /// entirely instead.
     /// </summary>
     public MemoryContextSecurityMode SecurityMode { get; set; } = MemoryContextSecurityMode.Permissive;
+
+    /// <summary>
+    /// The minimum <see cref="MemoryTrustLevel"/> (#92 Phase 3) that bypasses instruction-like-content
+    /// evaluation entirely, regardless of <see cref="SecurityMode"/>. Defaults to
+    /// <see cref="MemoryTrustLevel.ApplicationTrusted"/> -- the highest level -- so nothing bypasses by
+    /// default; a host must both raise an item's trust level (via <c>ExtractionRequest.TrustLevel</c> or
+    /// <c>ExtractionOptions.DefaultTrustLevel</c>) and explicitly reach this threshold to get the bypass.
+    /// </summary>
+    public MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; } = MemoryTrustLevel.ApplicationTrusted;
 }
