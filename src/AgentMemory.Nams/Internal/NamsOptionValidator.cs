@@ -43,4 +43,12 @@ internal static class NamsOptionValidator
     public static bool HasNonNegativeMaxRetryAttempts(NamsOptions options) => options.MaxRetryAttempts >= 0;
 
     public static bool HasNonNegativeInitialRetryDelay(NamsOptions options) => options.InitialRetryDelay >= TimeSpan.Zero;
+
+    /// <summary>
+    /// True when <see cref="NamsOptions.ApiKey"/> is set. The only authentication mechanism this phase's client
+    /// implements is a static API key -- JWT/Auth0 support is deferred (its refresh/expiry contract is
+    /// unconfirmed; see <c>strategy/NAMS/Neo4j_Questions.md</c> #30) -- so a registration with no credential at
+    /// all can never successfully authenticate a request.
+    /// </summary>
+    public static bool HasApiKey(NamsOptions options) => !string.IsNullOrWhiteSpace(options.ApiKey);
 }

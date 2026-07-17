@@ -931,7 +931,7 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 - ✅ Neo4j .csproj: Neo4j.Driver 6.0.0 + M.E.DI/Logging/Options (no Microsoft.Agents.*, no MCP SDK)
 - ✅ `grep` for `Microsoft.Agents` across `src/AgentMemory.Neo4j/` returns zero matches
 - ✅ GraphRAG retrieval (`Neo4jGraphRagContextSource`, `IRetriever`, `VectorRetriever`, `FulltextRetriever`, `HybridRetriever`) lives inside `AgentMemory.Neo4j` — no separate `GraphRagAdapter` package exists
-- ✅ `AgentMemory.Nams` .csproj: `Microsoft.Extensions.DependencyInjection.Abstractions` + `Microsoft.Extensions.Options` only, zero `<ProjectReference>` elements (B9) — a configuration-surface-only skeleton, listed in `eng/release-packages.txt` (mandatory for every `src/*` package) but with no client/HTTP-call behavior yet (see `docs/reviews/NAMS_Phase1_PackageSkeleton_PlanningAndImplementationPlan.md`)
+- ✅ `AgentMemory.Nams` .csproj: `Microsoft.Extensions.DependencyInjection.Abstractions` + `Microsoft.Extensions.Options` + `Microsoft.Extensions.Logging.Abstractions` + `Microsoft.Extensions.Http`, zero `<ProjectReference>` elements (B9) — as of Phase 2 it also has a low-level REST client, retry policy, and error model (its own `HttpClient`-based implementation, no dependency on the external `Neo4j.AgentMemory` TCK client — see `docs/reviews/NAMS_Phase2_LowLevelClientAdapter_PlanningAndImplementationPlan.md`), listed in `eng/release-packages.txt` (mandatory for every `src/*` package), still with no recall/persistence integration into the memory pipeline
 
 ---
 
