@@ -1,10 +1,12 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Nams;
 using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
+using AgentMemory.Nams.Identity;
 
 namespace AgentMemory.Tests.Unit.Nams;
 
@@ -283,5 +285,38 @@ public sealed class NamsServiceCollectionExtensionsTests
         using var provider = services.BuildServiceProvider();
 
         provider.GetService<INamsClient>().Should().BeNull();
+    }
+
+    // ── Phase 3: identity and conversation mapping DI wiring ─────────────────
+
+    [Fact]
+    public void AddNamsAgentMemory_ResolvesDefaultInMemoryStateStoreAndResolver()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<INamsConversationStateStore>().Should().BeOfType<InMemoryNamsConversationStateStore>();
+        provider.GetRequiredService<INamsConversationResolver>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddNamsAgentMemory_HostRegisteredStateStore_TakesPrecedenceOverDefault()
+    {
+        var customStore = Substitute.For<INamsConversationStateStore>();
+        var services = new ServiceCollection();
+        services.AddSingleton(customStore); // registered before AddNamsAgentMemory
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<INamsConversationStateStore>().Should().BeSameAs(customStore);
     }
 }
