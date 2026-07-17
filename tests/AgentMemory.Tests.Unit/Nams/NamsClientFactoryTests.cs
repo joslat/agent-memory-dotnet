@@ -52,4 +52,36 @@ public sealed class NamsClientFactoryTests
         client.BaseAddress.Should().Be(new Uri("https://memory.neo4jlabs.com/v1/"));
         client.Timeout.Should().Be(TimeSpan.FromSeconds(7));
     }
+
+    [Fact]
+    public void ConfigureHttpClient_WorkspaceIdSet_AddsWorkspaceHeader()
+    {
+        using var client = new HttpClient();
+        var options = new NamsOptions
+        {
+            Endpoint = new Uri("https://memory.neo4jlabs.com/v1"),
+            ApiKey = "nams_key",
+            WorkspaceId = "a3c6679c-31a9-4035-95d9-7dfae2349cb5"
+        };
+
+        NamsClientFactory.ConfigureHttpClient(client, options);
+
+        client.DefaultRequestHeaders.GetValues("X-Workspace-Id").Should().ContainSingle()
+            .Which.Should().Be("a3c6679c-31a9-4035-95d9-7dfae2349cb5");
+    }
+
+    [Fact]
+    public void ConfigureHttpClient_NoWorkspaceId_OmitsWorkspaceHeader()
+    {
+        using var client = new HttpClient();
+        var options = new NamsOptions
+        {
+            Endpoint = new Uri("https://memory.neo4jlabs.com/v1"),
+            ApiKey = "nams_key"
+        };
+
+        NamsClientFactory.ConfigureHttpClient(client, options);
+
+        client.DefaultRequestHeaders.Contains("X-Workspace-Id").Should().BeFalse();
+    }
 }

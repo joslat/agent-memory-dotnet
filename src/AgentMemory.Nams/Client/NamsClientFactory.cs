@@ -8,6 +8,12 @@ internal static class NamsClientFactory
     {
         httpClient.BaseAddress = NormalizeBaseAddress(options.Endpoint);
         httpClient.Timeout = options.RequestTimeout;
+
+        // Only an account-wide (admin) API key needs this -- a workspace-scoped key already carries its
+        // workspace implicitly. Static for the client's lifetime (unlike Authorization, which is refreshed
+        // per-request by NamsAuthenticationHandler): a workspace binding never expires mid-session.
+        if (!string.IsNullOrWhiteSpace(options.WorkspaceId))
+            httpClient.DefaultRequestHeaders.Add("X-Workspace-Id", options.WorkspaceId);
     }
 
     /// <summary>

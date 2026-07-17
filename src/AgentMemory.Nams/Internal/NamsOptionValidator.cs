@@ -51,4 +51,14 @@ internal static class NamsOptionValidator
     /// all can never successfully authenticate a request.
     /// </summary>
     public static bool HasApiKey(NamsOptions options) => !string.IsNullOrWhiteSpace(options.ApiKey);
+
+    /// <summary>
+    /// True when <see cref="NamsOptions.WorkspaceId"/> is unset (it's optional -- a workspace-scoped API key
+    /// carries its workspace implicitly; only an account-wide key needs this set) or contains no control
+    /// characters. It is sent verbatim as the <c>X-Workspace-Id</c> header by
+    /// <see cref="Client.NamsClientFactory.ConfigureHttpClient"/>; a stray CR/LF would otherwise throw a
+    /// <see cref="FormatException"/> lazily on the first HTTP request instead of failing fast here at startup.
+    /// </summary>
+    public static bool HasValidWorkspaceId(NamsOptions options) =>
+        options.WorkspaceId is null || !options.WorkspaceId.Any(char.IsControl);
 }
