@@ -73,35 +73,8 @@ internal static class MafTypeMapper
         // Every admitted item is still delimited/escaped via WrapUntrustedContent regardless (#92 Phase 1)
         // -- admission only controls whether it appears at all (Strict mode) vs. is quoted either way
         // (Permissive, the default).
-        bool Admit(string category, string content, MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted)
-        {
-            var decision = admission.Evaluate(new MemoryAdmissionContext
-            {
-                Category = category,
-                Content = content,
-                Mode = options.SecurityMode,
-                TrustLevel = trustLevel,
-                MinimumTrustForAdmissionBypass = options.MinimumTrustForAdmissionBypass
-            });
-
-            // Flagged-but-included (Permissive, the default) is still observable -- Debug, not Warning,
-            // since nothing was actually excluded.
-            if (decision.InstructionLikeContentDetected && decision.Include)
-            {
-                logger?.LogDebug(
-                    "Recalled memory item in category '{Category}' flagged as instruction-like content " +
-                    "but included (SecurityMode={Mode}).", category, options.SecurityMode);
-            }
-
-            if (!decision.Include)
-            {
-                logger?.LogWarning(
-                    "Excluded a recalled memory item in category '{Category}' from context: {Reason}.",
-                    category, decision.ExclusionReason ?? "unspecified");
-            }
-
-            return decision.Include;
-        }
+        bool Admit(string category, string content, MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted) =>
+            AdmitItem(category, content, trustLevel, options, admission, logger);
 
         // The chat-message role a recalled ITEM's BLOCK renders at (#92 Phase 4): items at/above
         // MinimumTrustForSystemRole get DefaultMemoryRole (System by default -- unchanged pre-Phase-4
@@ -236,6 +209,71 @@ internal static class MafTypeMapper
         result.AddRange(keptChat);
         result.AddRange(memory);
         return result;
+    }
+
+    // Extracted from ToContextMessages' local Admit closure (stabilization fix) so it can be shared with
+    // ToGatedChatMessages below, instead of the two call sites re-deriving the same admission decision and
+    // logging independently. Behavior is unchanged from the closure this replaces.
+    private static bool AdmitItem(
+        string category, string content, MemoryTrustLevel trustLevel,
+        ContextFormatOptions options, IMemoryContextAdmissionPolicy admission, ILogger? logger)
+    {
+        var decision = admission.Evaluate(new MemoryAdmissionContext
+        {
+            Category = category,
+            Content = content,
+            Mode = options.SecurityMode,
+            TrustLevel = trustLevel,
+            MinimumTrustForAdmissionBypass = options.MinimumTrustForAdmissionBypass
+        });
+
+        // Flagged-but-included (Permissive, the default) is still observable -- Debug, not Warning,
+        // since nothing was actually excluded.
+        if (decision.InstructionLikeContentDetected && decision.Include)
+        {
+            logger?.LogDebug(
+                "Recalled memory item in category '{Category}' flagged as instruction-like content " +
+                "but included (SecurityMode={Mode}).", category, options.SecurityMode);
+        }
+
+        if (!decision.Include)
+        {
+            logger?.LogWarning(
+                "Excluded a recalled memory item in category '{Category}' from context: {Reason}.",
+                category, decision.ExclusionReason ?? "unspecified");
+        }
+
+        return decision.Include;
+    }
+
+    /// <summary>
+    /// Applies the same per-item admission check (#92 Phase 2/8) and privileged-role gating (#92 Phase 7)
+    /// <see cref="ToContextMessages"/> applies to <c>RecentMessages</c>/<c>RelevantMessages</c>, to any OTHER
+    /// surface that replays a session's own chat history back to it -- <c>Neo4jChatHistoryProvider</c> and
+    /// <c>Neo4jChatMessageStore.GetMessagesAsync</c> were found during a stabilization audit to skip both
+    /// protections entirely, mapping messages through the bare <see cref="ToChatMessage"/> with no gating at
+    /// all. A message persisted with a privileged role via <c>memory_store_message</c> (MCP) or
+    /// <c>Neo4jMemoryPlugin.AddMessageAsync</c> (SK) -- both accept an unvalidated caller-supplied role --
+    /// would otherwise replay with full, unrestricted authority on every future turn of the SAME session, not
+    /// only via cross-session recall. Like every other gate in this file, this is a no-op under default
+    /// options: it only changes behavior once a host raises <c>SecurityMode</c> to <c>Strict</c> or raises
+    /// <c>MinimumTrustForSystemRole</c> above <c>Untrusted</c>. Message content is admission-checked but
+    /// never delimited, matching <see cref="ToContextMessages"/>'s treatment of chat history (#92 Phase 8).
+    /// </summary>
+    internal static List<ChatMessage> ToGatedChatMessages(
+        IEnumerable<Message> messages,
+        ContextFormatOptions options,
+        IMemoryContextAdmissionPolicy admissionPolicy,
+        ILogger? logger = null)
+    {
+        return messages
+            .Select(m => (Message: m, TrustLevel: m.Metadata.GetTrustLevel()))
+            .Where(x => AdmitItem("chathistory", x.Message.Content, x.TrustLevel, options, admissionPolicy, logger))
+            .Select(x => ToChatMessage(x.Message with
+            {
+                Role = RecalledMessageRoleGate.EffectiveRole(x.Message.Role, x.TrustLevel, options.MinimumTrustForSystemRole)
+            }))
+            .ToList();
     }
 
     /// <summary>

@@ -26,6 +26,7 @@ public static class ServiceCollectionExtensions
             .Validate(o => !string.IsNullOrWhiteSpace(o.Database), "Neo4j Database must be provided.")
             .Validate(o => o.MaxConnectionPoolSize > 0, "Neo4j MaxConnectionPoolSize must be positive.")
             .Validate(o => o.EmbeddingDimensions > 0, "Neo4j EmbeddingDimensions must be positive.")
+            .Validate(o => o.ConnectionAcquisitionTimeout > TimeSpan.Zero, "Neo4j ConnectionAcquisitionTimeout must be positive.")
             .ValidateOnStart();
 
         // Infrastructure
@@ -43,7 +44,12 @@ public static class ServiceCollectionExtensions
         // null ApplicationId routes to Neo4jOptions.Database, exactly reproducing single-store behavior.
         // IMemoryStoreContext is a singleton whose ApplicationId is AsyncLocal-backed, so it is safe to
         // set per request/agent-run flow (IC6) — concurrent requests cannot corrupt each other's routing.
-        services.AddOptions<MemoryStoreOptions>().Configure(o => configureStore?.Invoke(o));
+        services.AddOptions<MemoryStoreOptions>()
+            .Configure(o => configureStore?.Invoke(o))
+            .Validate(
+                o => o.Strategy != MemoryStorageStrategy.DatabasePerApplication || !string.IsNullOrWhiteSpace(o.DatabasePrefix),
+                "MemoryStoreOptions.DatabasePrefix must be non-blank when Strategy is DatabasePerApplication.")
+            .ValidateOnStart();
         services.TryAddSingleton<DefaultMemoryStoreContext>();
         services.TryAddSingleton<IMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());
         services.TryAddSingleton<IWritableMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());

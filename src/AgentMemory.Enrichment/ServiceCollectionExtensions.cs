@@ -49,6 +49,12 @@ public static class ServiceCollectionExtensions
         var cacheOptions = services.AddOptions<EnrichmentCacheOptions>();
         if (configureCaching is not null)
             cacheOptions.Configure(configureCaching);
+        // Stabilization fix: unlike its two siblings above, this registration had no validation at all; a
+        // non-positive cache duration previously only failed inside IMemoryCache.Set at first cache write.
+        cacheOptions
+            .Validate(o => o.GeocodingCacheDuration > TimeSpan.Zero, "EnrichmentCacheOptions.GeocodingCacheDuration must be positive.")
+            .Validate(o => o.EnrichmentCacheDuration > TimeSpan.Zero, "EnrichmentCacheOptions.EnrichmentCacheDuration must be positive.")
+            .ValidateOnStart();
 
         // In-memory cache (no-op if already registered)
         services.AddMemoryCache();

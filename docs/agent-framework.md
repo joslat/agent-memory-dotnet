@@ -369,33 +369,40 @@ mechanism is the one its scoped services require, and it does strictly more (mul
   `MaxContextMessages` is a `[Obsolete]` compatibility alias for the same value.
 - `ContextFormat.ContextPrefix` — the untrusted-reference-data framing prepended to the context block.
 
-**Trust boundary (#92 Phase 1).** Recalled entities/facts/preferences/reasoning traces/GraphRAG content
-may originate from users, external documents, tool results, or the model itself — it is not injected as a
-raw, unrestricted system instruction. Each block is delimited and angle-bracket-escaped
-(`<recalled_memory category="...">...</recalled_memory>`, with `<`/`>` in the content escaped so it can't
-forge or prematurely close its own boundary), and the default `ContextPrefix` explicitly tells the model
-this content is untrusted reference data, not instructions to follow.
+**Trust boundary (#92, Phases 1-8, all shipped).** Recalled entities/facts/preferences/reasoning
+traces/GraphRAG content may originate from users, external documents, tool results, or the model itself —
+it is not injected as a raw, unrestricted system instruction. Each block is delimited and
+angle-bracket-escaped (`<recalled_memory category="...">...</recalled_memory>`, with `<`/`>` in the content
+escaped so it can't forge or prematurely close its own boundary), and the default `ContextPrefix` explicitly
+tells the model this content is untrusted reference data, not instructions to follow (Phase 1).
 
-Be clear about what this does and doesn't cover:
-- The escaping defeats *boundary forgery* specifically (a recalled value can't fake or close the
-  `<recalled_memory>` tag). It does **not** detect or block injection techniques that don't rely on that
-  tag — role-header conventions, code fences, or a plain-language instruction like "ignore previous
-  instructions" all pass through unescaped inside the block. The `ContextPrefix` instruction is what
-  actually asks the model not to follow them; the delimiter only guarantees the model can tell where the
-  untrusted block starts and ends. An instruction-like-content detector is explicit future work (#92).
-- **Recalled conversation history (`RelevantMessages` — messages resurfaced by semantic search, not the
-  current turn's recent chat) is not wrapped by this mitigation and keeps its originally-persisted role.**
-  If a prior turn's history ever contained a `system`-role message, recalling it replays it with full
-  system authority. This is a known, disclosed gap, not silently dropped — the Phase-1 slice covers
-  exactly the categories named in its scope (entities/facts/preferences/traces/GraphRAG); recalled message
-  history is a separate surface for a future pass.
-- Setting `ContextPrefix` to `string.Empty` — or having already customized it before this default changed
-  — removes the trust framing (the content stays wrapped in `<recalled_memory>` tags, but nothing tells
-  the model what those mean). A host with a pre-existing custom `ContextPrefix` should add equivalent
-  framing to it; the new default only helps hosts using the out-of-the-box value.
+On top of that boundary-escaping foundation, the full protection now in place is:
+- **Admission** (`IMemoryContextAdmissionPolicy`, Phase 2): per-item instruction-like-content detection,
+  `Permissive` (default, flags but still includes) or `Strict` (excludes) via `ContextFormatOptions.SecurityMode`.
+- **Trust metadata** (`MemoryTrustLevel`, Phase 3): every persisted entity/fact/preference/message is
+  stamped with a trust level; `MinimumTrustForAdmissionBypass` lets a host mark specific sources as
+  explicitly trusted enough to skip admission checks entirely.
+- **Configurable recall message role** (`ContextFormatOptions.DefaultMemoryRole`/`MinimumTrustForSystemRole`,
+  Phase 4): low-trust recalled content can render as `ChatRole.User` instead of always `ChatRole.System`.
+- **Monotonic trust on re-extraction** (Phase 5): re-extracting a fact/entity never silently downgrades its
+  existing trust level (owner-scoped facts; shared/global facts remain a disclosed, narrower gap).
+- **Semantic Kernel parity** (Phase 6): the same delimiting/admission/trust-bypass protections extended to
+  the SK adapter's `Neo4jMemoryPlugin`/`Neo4jTextSearch`.
+- **Recalled-message role gating** (`RecalledMessageRoleGate`, Phase 7): a message persisted with a
+  privileged role (`"system"`/`"tool"`) via a caller-facing tool can no longer replay with full,
+  unrestricted authority unless its stamped trust level meets a configurable threshold.
+- **Recalled-message content admission** (Phase 8): the same Strict/Permissive instruction-like-content
+  check Phase 2 applies to entities/facts/preferences now also applies to recalled message *content*
+  (deliberately still not delimited — a recalled message renders as an individual conversation turn, not a
+  separately-injected block).
 
-This is a first, intentionally small slice of the full trust model proposed in #92 (trust metadata, an
-admission policy, configurable message roles, and instruction-like-content detection remain open work).
+The escaping from Phase 1 defeats *boundary forgery* specifically (a recalled value can't fake or close the
+`<recalled_memory>` tag); it does not by itself detect plain-language injection attempts — that's what the
+Phase 2 admission policy's instruction-like-content detector is for, and every phase above it is opt-in,
+defaulting to Phase 1's original behavior until a host explicitly configures it. See
+`docs/architecture.md` §3.2.2-3.2.4 and `docs/security/threat-model.md` (TT-05) for the full detail and the
+current disclosed residual gaps (MCP's raw-JSON recall surfaces, per-item vs. per-request trust
+attribution, and the others tracked against issue #92).
 
 ## Real providers vs. offline defaults
 

@@ -40,7 +40,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice");
+        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice");
 
         await _longTermMemory.Received(1).GetEntitiesByNameAsync("Alice", true, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
@@ -63,7 +63,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(entities);
 
-        var result = await EntityTools.MemoryGetEntity(_longTermMemory, "Alice");
+        var result = await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -79,7 +79,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        var result = await EntityTools.MemoryGetEntity(_longTermMemory, "Nobody");
+        var result = await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Nobody");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -92,7 +92,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice", userId: "alice");
+        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice", userId: "alice");
 
         await _longTermMemory.Received(1).GetEntitiesByNameAsync(
             "Alice", true,
@@ -103,16 +103,20 @@ public sealed class EntityToolsTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public async Task MemoryGetEntity_WithoutUserId_PassesNullScope(string? userId)
+    public async Task MemoryGetEntity_WithoutUserId_PassesUnfilteredScope(string? userId)
     {
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        await EntityTools.MemoryGetEntity(_longTermMemory, "Alice", userId: userId);
+        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice", userId: userId);
 
+        // Stabilization fix: now routed through IMemoryIsolationPolicy.ResolveReadScope, matching
+        // MemoryGetEntityProvenance's convention -- an absent userId resolves to MemoryScope.Global (a
+        // concrete "no owner filter" sentinel, HasOwnerFilter=false), not a literal null MemoryScope, but
+        // is behaviorally identical: no owner filter is applied either way.
         await _longTermMemory.Received(1).GetEntitiesByNameAsync(
             "Alice", true,
-            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Is<MemoryScope?>(s => s != null && !s.HasOwnerFilter),
             Arg.Any<CancellationToken>());
     }
 
@@ -190,7 +194,7 @@ public sealed class EntityToolsTests
         _longTermMemory.RecordEntityFeedbackAsync("e-1", true, Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(updated);
 
-        var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true);
+        var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, _isolationPolicy,"e-1", positive: true);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeTrue();
@@ -204,7 +208,7 @@ public sealed class EntityToolsTests
         _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns((Entity?)null);
 
-        var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "missing", positive: false);
+        var result = await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, _isolationPolicy,"missing", positive: false);
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
@@ -217,7 +221,7 @@ public sealed class EntityToolsTests
         _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns((Entity?)null);
 
-        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true, userId: "alice");
+        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, _isolationPolicy,"e-1", positive: true, userId: "alice");
 
         await _longTermMemory.Received(1).RecordEntityFeedbackAsync(
             "e-1", true, Arg.Any<double?>(),
@@ -226,16 +230,18 @@ public sealed class EntityToolsTests
     }
 
     [Fact]
-    public async Task MemoryRecordEntityFeedback_WithoutUserId_PassesNullScope()
+    public async Task MemoryRecordEntityFeedback_WithoutUserId_PassesUnfilteredScope()
     {
         _longTermMemory.RecordEntityFeedbackAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<double?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns((Entity?)null);
 
-        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, "e-1", positive: true);
+        await EntityTools.MemoryRecordEntityFeedback(_longTermMemory, _isolationPolicy,"e-1", positive: true);
 
+        // Stabilization fix: see MemoryGetEntity_WithoutUserId_PassesUnfilteredScope above -- same
+        // isolation-policy routing, same behaviorally-equivalent MemoryScope.Global representation.
         await _longTermMemory.Received(1).RecordEntityFeedbackAsync(
             "e-1", true, Arg.Any<double?>(),
-            Arg.Is<MemoryScope?>(s => s == null),
+            Arg.Is<MemoryScope?>(s => s != null && !s.HasOwnerFilter),
             Arg.Any<CancellationToken>());
     }
 

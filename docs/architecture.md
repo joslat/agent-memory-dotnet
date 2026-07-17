@@ -1,6 +1,6 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-07-11 (preview.4 reality check)
+**Last Updated:** 2026-07-17 (#92 Phase 8 + stabilization pass)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
@@ -68,7 +68,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │  │ (OTel decorators)    │  │ AzureLanguage        │  │(Geocoding)│ │
 │  │                      │  │ (Azure Text Analytics│  │           │ │
 │  │ + OpenTelemetry.Api  │  │                      │  │ + Nominat │ │
-│  │   1.12.0             │  │ + Azure.AI.TextAnal) │  │ + Wikimed │ │
+│  │   1.15.3             │  │ + Azure.AI.TextAnal) │  │ + Wikimed │ │
 │  └──────────┬───────────┘  └──────────┬───────────┘  └─────┬─────┘ │
 │             │                         │                    │         │
 │             └─────────────┬───────────┘────────────────────┘         │
@@ -82,7 +82,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │  │  (persistence — repositories, Cypher, schema, transactions) │   │
 │  │                                                              │   │
 │  │  + Neo4j.Driver 6.0.0                                       │   │
-│  │  + Microsoft.Extensions.DI/Logging/Options 10.0.5           │   │
+│  │  + Microsoft.Extensions.DI/Logging/Options 10.0.10           │   │
 │  └──────────────────────┬───────────────────────────────────────┘   │
 │                         │  depends on                               │
 │                         ▼                                           │
@@ -93,7 +93,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │  │  AgentMemory.Core                                     │   │
 │  │  (services, stubs, validation, context assembly)            │   │
 │  │                                                              │   │
-│  │  + Microsoft.Extensions.DI/Logging/Options 10.0.5           │   │
+│  │  + Microsoft.Extensions.DI/Logging/Options 10.0.10           │   │
 │  └──────────────────────┬───────────────────────────────────────┘   │
 │                         │  depends on                               │
 │                         ▼                                           │
@@ -106,7 +106,7 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │  │   configuration options — IGeocodingService,                │   │
 │  │   IEnrichmentService added Phase 5)                         │   │
 │  │                                                              │   │
-│  │  One approved external dep: M.E.AI.Abstractions 10.5.1      │   │
+│  │  One approved external dep: M.E.AI.Abstractions 10.8.0      │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -140,7 +140,7 @@ graph TD
 | Attribute | Value |
 |---|---|
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
-| **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.5.1 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
+| **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.0 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
 | **Key types** | 49 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, etc.), 39 service interfaces (incl. `IMemoryIsolationPolicy`, #100), 11 repository interfaces, 16 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`), 24 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`) (see the catalogs in `design.md §5/§6` for the authoritative, per-type list) |
 
@@ -157,7 +157,7 @@ AgentMemory.Abstractions.Options       — configuration records
 | Attribute | Value |
 |---|---|
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
-| **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.5.1, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5, FuzzySharp |
+| **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.8.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10, FuzzySharp |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
 | **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7) |
 
@@ -388,7 +388,7 @@ regardless of cause; Phase 3 both sanitized caller input and kept the trust conc
 | Attribute | Value |
 |---|---|
 | **Purpose** | Persistence — Neo4j repository implementations, Cypher queries, schema management, driver infrastructure |
-| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j.Driver 6.0.0, Microsoft.Extensions.AI.Abstractions 10.5.1, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j.Driver 6.0.0, Microsoft.Extensions.AI.Abstractions 10.8.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Microsoft.Agents.* |
 | **Key types** | Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions |
 
@@ -399,7 +399,7 @@ regardless of cause; Phase 3 both sanitized caller input and kept the trust conc
 | Attribute | Value |
 |---|---|
 | **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
-| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
 | **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2/3) and its `DefaultMemoryContextAdmissionPolicy` implementation, `RecalledMemoryMessageRole` (#92 Phase 4) |
 | **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
@@ -646,7 +646,7 @@ AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 | Attribute | Value |
 |---|---|
 | **Purpose** | Opt-in OTel decorator that wraps `IMemoryService` and `IGraphRagContextSource` with distributed tracing spans and metrics |
-| **Dependencies** | Abstractions (project ref), Core (project ref), OpenTelemetry.Api 1.12.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.5 |
+| **Dependencies** | Abstractions (project ref), Core (project ref), OpenTelemetry.Api 1.15.3, Microsoft.Extensions.DI/Logging.Abstractions 10.0.10 |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
 | **Key types** | `InstrumentedMemoryService`, `InstrumentedGraphRagContextSource`, `MemoryActivitySource`, `MemoryMetrics`, `ServiceCollectionExtensions` |
 
@@ -668,7 +668,7 @@ AgentMemory.Observability    — all types (decorators, metrics, activity source
 | Attribute | Value |
 |---|---|
 | **Purpose** | Alternative extraction backend using Azure Cognitive Services (Text Analytics) |
-| **Dependencies** | Abstractions (project ref), Core (project ref), Azure.AI.TextAnalytics 5.3.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Azure.AI.TextAnalytics 5.3.0, Microsoft.Extensions.DI/Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Business logic — extraction only, no memory persistence |
 | **Key types** | `AzureEntityExtractor : IEntityExtractor`, `AzureKeyPhraseExtractor : IFactExtractor`, `AzurePiiExtractor : IEntityExtractor` |
 
@@ -690,7 +690,7 @@ AgentMemory.Extraction.AzureLanguage    — Azure-backed extractors and DI
 | Attribute | Value |
 |---|---|
 | **Purpose** | Geocoding and entity enrichment services with caching and rate limiting |
-| **Dependencies** | Abstractions (project ref only — no Core ref), Microsoft.Extensions.DI/Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5, Microsoft.Extensions.Http 10.0.5, Microsoft.Extensions.Caching.Memory 10.0.5 |
+| **Dependencies** | Abstractions (project ref only — no Core ref), Microsoft.Extensions.DI/Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10, Microsoft.Extensions.Http 10.0.10, Microsoft.Extensions.Caching.Memory 10.0.10 |
 | **MUST NOT reference** | Neo4j.Driver (repositories handle persistence) |
 | **Key types** | `IGeocodingService`, `IEnrichmentService` (interfaces in Abstractions), `NominatimGeocodingService`, `WikimediaEntityEnrichmentService`, `CachedGeocodingService`, `RateLimitedGeocodingService` |
 
@@ -719,14 +719,14 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|
-| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 25 MCP tools, 6 resources, 3 prompts |
+| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 33 MCP tools, 12 resources, 6 prompts |
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 
 | Attribute | Value |
 |---|---|
 | **Purpose** | Optional Neo4j Graph Data Science (GDS) analytics over the entity `RELATED_TO` graph — PageRank (memory importance) and Louvain community detection (topic clustering) |
-| **Dependencies** | Abstractions (project ref), Neo4j (project ref), Microsoft.Extensions.DependencyInjection.Abstractions 10.0.5, Microsoft.Extensions.Logging.Abstractions 10.0.5, Microsoft.Extensions.Options 10.0.5 |
+| **Dependencies** | Abstractions (project ref), Neo4j (project ref), Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Microsoft.Agents.*, any framework adapter SDK |
 | **Key types** | `IMemoryPageRankService` / `MemoryPageRankService`, `IMemoryCommunityService` / `MemoryCommunityService`, `IGdsAvailability` / `GdsAvailability`, `EntityRank`, `EntityCommunity`, `GdsAnalyticsOptions`, `ServiceCollectionExtensions` |
 | **Core responsibility** | Surface graph-importance and topic-cluster signals when the GDS plugin is installed; degrade to a graceful no-op (empty results) when it is not |
@@ -925,7 +925,7 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 **Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
 
 **Current Verification (as of Gap Closure Sprint + MEAI adoption D-AR2-1):**
-- ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.5.1 (approved, B1)
+- ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.8.0 (approved, B1)
 - ✅ Core .csproj: FuzzySharp + M.E.AI.Abstractions + M.E.DI/Logging/Options (no Neo4j.Driver, no framework SDKs)
 - ✅ Neo4j .csproj: Neo4j.Driver 6.0.0 + M.E.DI/Logging/Options (no Microsoft.Agents.*, no MCP SDK)
 - ✅ `grep` for `Microsoft.Agents` across `src/AgentMemory.Neo4j/` returns zero matches
@@ -1080,7 +1080,7 @@ Each package exists to prevent a specific unwanted transitive dependency from re
 | 7 | **AgentFramework** | Microsoft.Agents.AI.Abstractions 1.9.0 | Abstractions, Core | **MAF firewall.** Non-MAF users (MCP hosts, standalone apps) should never see Microsoft.Agents.* in their dependency tree. |
 | 8 | **SemanticKernel** | Microsoft.SemanticKernel 1.74.0 | Abstractions, Core | **SK firewall.** SK-specific integration layer — only SK users pay this cost (the full SK package, not just contracts). |
 | 9 | **McpServer** | ModelContextProtocol 1.2.0, M.E.Hosting | Abstractions | **MCP SDK firewall.** Only relevant for MCP server deployments. Library consumers never inherit MCP protocol overhead. |
-| 10 | **Observability** | OpenTelemetry.Api 1.12.0 | Abstractions, Core | **OTel opt-in.** Observability is additive, not mandatory. Consumers who don't export traces shouldn't reference OTel. |
+| 10 | **Observability** | OpenTelemetry.Api 1.15.3 | Abstractions, Core | **OTel opt-in.** Observability is additive, not mandatory. Consumers who don't export traces shouldn't reference OTel. |
 | 11 | **Analytics** | *(no new NuGet dep — GDS is a server-side Neo4j plugin)* | Abstractions, Neo4j | **Optional GDS analytics.** PageRank + Louvain community detection over the entity `RELATED_TO` graph. Opt-in; degrades to a graceful no-op when the GDS plugin is absent. The only extension package that references Neo4j (issues Cypher on the same driver). |
 
 ### 9.2 Dependency Graph (Simplified)

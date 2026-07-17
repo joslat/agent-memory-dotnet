@@ -16,7 +16,7 @@
   <!-- Multi-target the publishable src/ libraries: every dependency they reference (Neo4j.Driver,
        Microsoft.Extensions.AI.Abstractions, Microsoft.Agents.AI.Abstractions, Microsoft.SemanticKernel,
        ModelContextProtocol) ships net8.0 and net10.0 binaries at the exact pinned versions used here
-       (OpenTelemetry.Api 1.12.0 has no net10.0-specific asset but falls back to its netstandard2.0 build,
+       (OpenTelemetry.Api 1.15.3 has no net10.0-specific asset but falls back to its netstandard2.0 build,
        which builds and runs cleanly under net10.0). net8.0 costs nothing to add and lets consumers on the
        still-widely-deployed .NET 8 LTS use the library without adopting a newer runtime; net10.0 keeps
        pace with the newest release. Verified with real builds and executed tests on all three TFMs, not

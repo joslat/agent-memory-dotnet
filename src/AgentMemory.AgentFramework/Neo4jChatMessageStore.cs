@@ -1,8 +1,10 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
+using AgentMemory.AgentFramework.Security;
 
 namespace AgentMemory.AgentFramework;
 
@@ -15,17 +17,28 @@ public sealed class Neo4jChatMessageStore
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<Neo4jChatMessageStore> _logger;
+    private readonly ContextFormatOptions _formatOptions;
+    private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
 
     public Neo4jChatMessageStore(
         IMemoryService memoryService,
         IClock clock,
         IIdGenerator idGenerator,
-        ILogger<Neo4jChatMessageStore> logger)
+        ILogger<Neo4jChatMessageStore> logger,
+        IOptions<ContextFormatOptions>? formatOptions = null,
+        IMemoryContextAdmissionPolicy? admissionPolicy = null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        // Stabilization fix: GetMessagesAsync previously mapped RecentMessages through the bare
+        // MafTypeMapper.ToChatMessage with no admission-check or privileged-role gating at all -- see
+        // MafTypeMapper.ToGatedChatMessages' remarks. Both parameters are optional and DI-resolvable
+        // (registered whenever AddAgentMemoryFramework is called, the only place this class is registered),
+        // so direct/manual construction (tests, samples) is unaffected by this addition.
+        _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
+        _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
     }
 
     /// <summary>
@@ -88,10 +101,8 @@ public sealed class Neo4jChatMessageStore
 
             // RecentMessages is newest-first (recall orders DESC); return chat history chronologically
             // (oldest-first) so the agent reads the conversation in the order it happened.
-            return recallResult.Context.RecentMessages.Items
-                .Reverse()
-                .Select(MafTypeMapper.ToChatMessage)
-                .ToList();
+            return MafTypeMapper.ToGatedChatMessages(
+                recallResult.Context.RecentMessages.Items.Reverse(), _formatOptions, _admissionPolicy, _logger);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

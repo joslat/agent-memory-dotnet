@@ -62,6 +62,19 @@ public sealed class AgentMemoryMcpOptionsTests
     }
 
     [Fact]
+    public void AddAgentMemoryMcpTools_OutOfRangeDefaultConfidence_FailsValidationOnStart()
+    {
+        var services = new ServiceCollection();
+        services.AddMcpServer().AddAgentMemoryMcpTools(o => o.DefaultConfidence = 1.5);
+
+        using var sp = services.BuildServiceProvider();
+
+        var act = () => _ = sp.GetRequiredService<IOptions<AgentMemoryMcpOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
+    [Fact]
     public void Properties_CanBeOverridden()
     {
         var options = new AgentMemoryMcpOptions

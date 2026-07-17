@@ -66,8 +66,16 @@ internal sealed class DefaultMemoryIsolationPolicy : IMemoryIsolationPolicy
                 break;
 
             case MemoryIsolationMode.SingleTenant:
-            default:
                 break;
+
+            // Stabilization fix: an unmapped Mode value (e.g. an out-of-range int bound from
+            // configuration, or a future enum member added without updating this switch) previously fell
+            // through to SingleTenant -- the most PERMISSIVE behavior -- silently failing open instead of
+            // closed. MemoryOptions.Isolation.Mode is now also validated at DI registration
+            // (AddAgentMemoryCore), so this default should be unreachable in practice; it exists as a
+            // defense-in-depth backstop, not the primary guard.
+            default:
+                throw new InvalidOperationException($"Unrecognized {nameof(MemoryIsolationMode)}: {_options.Value.Mode}.");
         }
     }
 }
