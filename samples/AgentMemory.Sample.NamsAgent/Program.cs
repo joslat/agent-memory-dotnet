@@ -69,6 +69,7 @@ builder.Services.AddSingleton<IChatClient>(
     new MemoryTraceChatClient(azureClient.GetChatClient(chatDeployment).AsIChatClient()));
 
 var host = builder.Build();
+await using var hostDisposal = (IAsyncDisposable)host; // dispose the DI container (HttpClient, etc.) on exit
 await RunAsync(host.Services);
 
 static async Task RunAsync(IServiceProvider root)

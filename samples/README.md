@@ -39,6 +39,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | --- | --- |
 | **AgentWithMemory** | The flagship golden path — the .NET equivalent of the official [`04_memory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/01-get-started/04_memory) / [`AgentWithMemory`](https://github.com/microsoft/agent-framework/tree/main/dotnet/samples/02-agents/AgentWithMemory) sample, backed by **durable Neo4j memory**: `Neo4jMemoryContextProvider` + memory tools, explicit `WithMemoryIdentity(...)` owner/application/session scope, multi-turn session, **session serialize/restore** (`SerializeSessionAsync`/`DeserializeSessionAsync`), and **durable cross-session recall**. |
 | **ShoppingAssistant** | The **.NET reimplementation of the official Neo4j retail-assistant example** — a shopping assistant that learns preferences and recommends products via graph traversal: `Neo4jMemoryContextProvider` + memory tools + **custom product tools** over a Neo4j product graph, a retail prompt, and durable cross-session recall. The agent itself decides when to call the memory/product tools — nothing is scripted. |
+| **NamsAgent** | The NAMS-backed sibling of AgentWithMemory — the same golden-path shape, but memory lives in the real [NAMS](https://memory.neo4jlabs.com) SaaS via `NamsMemoryContextProvider` (`AgentMemory.AgentFramework.Nams`) instead of a direct Neo4j connection: multi-turn session, session serialize/restore, and durable cross-session recall, all against the live service. |
 | **RealAgent** | A real `ChatClientAgent` with `Neo4jMemoryContextProvider` (long-term memory) **and** the memory tools, multi-turn `AgentSession`, and native MAF `UseOpenTelemetry()`. |
 | **MemoryToolsAgent** | The memory tools (`MemoryToolFactory.CreateAIFunctions()`, the `create_memory_tools` equivalent): registered on an agent and invoked directly against Neo4j. |
 | **ChatHistoryProvider** | `Neo4jChatHistoryProvider` wired via `ChatClientAgentOptions.ChatHistoryProvider` — per-session conversation history (distinct from long-term memory). |
@@ -47,18 +48,19 @@ a memory **context provider** (injects memory before each run, persists after) p
 | **McpHost** | Hosting the AgentMemory MCP server. |
 | **AspireDemo** | A .NET Aspire AppHost orchestrating Neo4j + a scripted demo app. |
 
-**AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider, and ShoppingAssistant call a REAL
-Azure OpenAI chat model and a REAL Azure OpenAI embedding model — there is no mock `IChatClient` and
-no offline fallback.** Each fails fast with setup instructions if credentials are missing. The model
-decides on its own when to call the memory (and, for ShoppingAssistant, product) tools — nothing is
-scripted. Live tool calls and any memory the context provider recalls are printed to the console
-(memory in light blue) via the shared `AgentMemory.Samples.Shared` helper
-(`RealAzureOpenAI`/`MemoryTraceChatClient`/`SampleConsole`). See
-`AgentMemory.Sample.AgentWithMemory/README.md` for the identity/provider seams. Memory operations
-degrade gracefully when no live Neo4j is available. BlendedAgent, MinimalAgent, and McpHost don't
-drive a chat model at all — they exercise the facade/tool layer directly — but they too now use a
-**real** Azure OpenAI embedding model via the same shared `RealAzureOpenAI` helper; no sample in this
-repo uses `StubEmbeddingGenerator` anymore.
+**AgentWithMemory, RealAgent, MemoryToolsAgent, ChatHistoryProvider, ShoppingAssistant, and NamsAgent call
+a REAL Azure OpenAI chat model — there is no mock `IChatClient` and no offline fallback.** Each fails fast
+with setup instructions if credentials are missing. The model decides on its own when to call the memory
+(and, for ShoppingAssistant, product) tools — nothing is scripted. Live tool calls and any memory the
+context provider recalls are printed to the console (memory in light blue) via the shared
+`AgentMemory.Samples.Shared` helper (`RealAzureOpenAI`/`MemoryTraceChatClient`/`SampleConsole`). See
+`AgentMemory.Sample.AgentWithMemory/README.md` for the identity/provider seams. Memory operations degrade
+gracefully when no live Neo4j is available. All of these except **NamsAgent** also use a REAL Azure OpenAI
+**embedding** model — NAMS performs embedding/extraction server-side, so `NamsAgent` needs no local
+embedding generator at all, and instead calls the **real, live NAMS SaaS** for memory. BlendedAgent,
+MinimalAgent, and McpHost don't drive a chat model at all — they exercise the facade/tool layer directly —
+but they too now use a **real** Azure OpenAI embedding model via the same shared `RealAzureOpenAI` helper;
+no sample in this repo uses `StubEmbeddingGenerator` anymore.
 
 ## Running
 
