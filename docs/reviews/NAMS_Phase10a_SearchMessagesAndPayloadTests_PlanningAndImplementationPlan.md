@@ -40,7 +40,24 @@ test's assertions, rather than assuming what "should" happen:
   "non-text" payload category, interpreted as structured/code-like text (there's no binary/attachment
   concept anywhere in `NamsMessageToPersist`, so "non-text" can't mean literal binary).
 
-## 3. Verification
+## 3. Self-review findings and fixes
+
+2 parallel reviewers (correctness/test-soundness + combined cross-file/conventions):
+
+- **Test over-claiming its name** (correctness angle): `PersistTurnAsync_MultipleMessagesInOneTurn_PersistsAllInOrder`
+  asserted only a bare count (4 IDs), never actually verifying order -- `NamsPersistenceResult.PersistedMessageIds`
+  has no content/role correlation, and NAMS's own bulk-response ordering guarantee (if any) isn't independently
+  confirmed, so nothing in this test could prove ordering even if it tried. Renamed to
+  `...PersistsAllFour` and added a doc comment stating exactly what is and isn't proven, rather than building a
+  shakier ordering-verification mechanism to match an overclaimed name.
+- **Stale interface doc comment** (cross-file angle): `INamsClient.cs`'s top-of-interface comment still said
+  "covers only the 4 operations" and called `SearchMessagesAsync` "dropped" -- both wrong after this branch
+  (and already wrong before it, post-Phase-9's `ListEntitiesAsync`). This branch is exactly the "add it once
+  verified live" trigger that comment itself named, so fixed it here rather than leaving it stale again.
+
+Re-verified after fixes: 11/11 live tests still green.
+
+## 4. Verification
 
 - `dotnet build AgentMemory.slnx -c Release` -- 0 warnings, 0 errors.
 - `dotnet test tests/AgentMemory.Tests.Unit` -- full suite green, +1 new unit test (`SearchMessagesAsync`
@@ -48,10 +65,11 @@ test's assertions, rather than assuming what "should" happen:
 - `dotnet test tests/AgentMemory.Tests.Integration --filter "...NamsLiveConnectivityTests"` -- **11/11 live**
   (7 previous + 4 new), ~7s total, against the real NAMS SaaS.
 
-## 4. Definition of done
+## 5. Definition of done
 
 - [x] `SearchMessagesAsync` added to `INamsClient`/`Neo4jNamsClientAdapter`, instrumented (Phase 9 metrics,
       operation name `search_messages` matching the plan's own span-name anticipation), unit tested.
 - [x] 4 payload edge-case live tests added, each verified against real live behavior first.
 - [x] Full unit + live suites green.
-- [ ] Self-reviewed, PR opened, CI green, merged to `main`.
+- [x] Self-reviewed and fixes applied.
+- [ ] PR opened, CI green, merged to `main`.

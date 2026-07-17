@@ -274,8 +274,14 @@ public sealed class NamsLiveConnectivityTests
         found.Should().BeTrue("a 5,000-character message (within the default recall budget) should round-trip through NAMS");
     }
 
+    /// <summary>
+    /// Deliberately does NOT assert message ordering -- <see cref="NamsPersistenceResult.PersistedMessageIds"/>
+    /// is a bare <c>IReadOnlyList&lt;string&gt;</c> with no content/role correlation, and NAMS's own bulk-add
+    /// response ordering guarantee (if any) isn't independently confirmed, so this can only prove all 4
+    /// messages in one turn reach NAMS via the one bulk call, not that they arrive in submission order.
+    /// </summary>
     [LiveNamsFact]
-    public async Task PersistTurnAsync_MultipleMessagesInOneTurn_PersistsAllInOrder()
+    public async Task PersistTurnAsync_MultipleMessagesInOneTurn_PersistsAllFour()
     {
         var services = _fixture.Services!;
         var resolver = services.GetRequiredService<INamsConversationResolver>();
