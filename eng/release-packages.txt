@@ -10,6 +10,7 @@ AgentMemory.Enrichment|src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj
 AgentMemory.Extraction.AzureLanguage|src/AgentMemory.Extraction.AzureLanguage/AgentMemory.Extraction.AzureLanguage.csproj
 AgentMemory.Extraction.Llm|src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj
 AgentMemory.McpServer|src/AgentMemory.McpServer/AgentMemory.McpServer.csproj
+AgentMemory.Nams|src/AgentMemory.Nams/AgentMemory.Nams.csproj
 AgentMemory.Neo4j|src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj
 AgentMemory.Observability|src/AgentMemory.Observability/AgentMemory.Observability.csproj
 AgentMemory.SemanticKernel|src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj

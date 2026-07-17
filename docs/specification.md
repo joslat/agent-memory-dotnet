@@ -38,7 +38,7 @@ The shipped source packages are:
 
 Supporting projects include `tools/AgentMemory.Cli`, samples, benchmarks, and unit/integration/performance tests.
 
-`AgentMemory.Nams` also exists under `src/` as of the NAMS backend engineering effort, but is deliberately **not** in the shipped set above: it is a configuration-surface-only skeleton (no client, no HTTP calls) and is not yet listed in `eng/release-packages.txt`. See `docs/reviews/NAMS_Phase1_PackageSkeleton_PlanningAndImplementationPlan.md`.
+`AgentMemory.Nams` also exists under `src/` as of the NAMS backend engineering effort. It's listed in `eng/release-packages.txt` (a mandatory, CI-checked inventory of every `src/*` package, not an opt-in publish gate) but is a configuration-surface-only skeleton with no client and no HTTP calls yet — see `docs/reviews/NAMS_Phase1_PackageSkeleton_PlanningAndImplementationPlan.md`.
 
 ## Required Architecture
 
