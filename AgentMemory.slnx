@@ -26,6 +26,7 @@
     <Project Path="src/AgentMemory.McpServer/AgentMemory.McpServer.csproj" />
     <Project Path="src/AgentMemory.Nams/AgentMemory.Nams.csproj" />
     <Project Path="src/AgentMemory.AgentFramework.Nams/AgentMemory.AgentFramework.Nams.csproj" />
+    <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
   </Folder>

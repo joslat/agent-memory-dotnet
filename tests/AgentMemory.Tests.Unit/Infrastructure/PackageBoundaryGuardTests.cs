@@ -3,13 +3,14 @@ using System.Xml.Linq;
 using FluentAssertions;
 using AgentMemory.AgentFramework.Nams;
 using AgentMemory.Core.Services;
+using AgentMemory.McpServer.Nams;
 using AgentMemory.Nams;
 using AgentMemory.Neo4j.Repositories;
 
 namespace AgentMemory.Tests.Unit.Infrastructure;
 
 /// <summary>
-/// CI guard for the package boundary rules in <c>docs/architecture.md §5</c> (B2–B6, B8–B10) for the
+/// CI guard for the package boundary rules in <c>docs/architecture.md §5</c> (B2–B6, B8–B11) for the
 /// lower layers. B1 (Abstractions) is covered by <see cref="AbstractionsContractGuardTests"/>; B7
 /// ("no business logic in adapters") is a non-mechanical review rule.
 ///
@@ -66,6 +67,16 @@ public sealed class PackageBoundaryGuardTests
             typeof(NamsMemoryContextProvider).Assembly,
             ForbiddenExternalPrefixes: ["Microsoft.SemanticKernel", "ModelContextProtocol", "Neo4j.Driver"],
             AllowedInternalReferences: ["AgentMemory.Abstractions", "AgentMemory.Core", "AgentMemory.AgentFramework", "AgentMemory.Nams"]),
+
+        // NAMS engineering plan Phase 8 / B11: the NAMS MCP tool surface, isolated in its own package for the
+        // same reason as B9/B10 -- AgentMemory.Nams (B9) can't take on a ModelContextProtocol dependency, and
+        // this package has no reason to depend on Microsoft.Agents (MAF) or Neo4j.Driver at all. Unlike B10,
+        // Microsoft.Agents.* IS forbidden here -- this package is MCP-only, not a MAF adapter.
+        new BoundaryRule(
+            "AgentMemory.McpServer.Nams",
+            typeof(NamsMcpToolRegistry).Assembly,
+            ForbiddenExternalPrefixes: ["Microsoft.Agents", "Microsoft.SemanticKernel", "Neo4j.Driver"],
+            AllowedInternalReferences: ["AgentMemory.Nams"]),
     }.ToDictionary(r => r.Project);
 
     public static IEnumerable<object[]> ProjectNames() =>
