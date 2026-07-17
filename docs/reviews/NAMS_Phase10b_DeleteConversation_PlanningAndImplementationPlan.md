@@ -33,16 +33,38 @@ Because `INamsClient` is `internal`, the live-integration test needs direct acce
 `AgentMemory.Nams.csproj`'s `InternalsVisibleTo` grant to `AgentMemory.Tests.Integration`, mirroring
 `AgentMemory.AgentFramework`'s identical existing grant to both test projects.
 
-## 3. Verification
+## 3. Self-review findings and fixes
+
+2 parallel reviewers (correctness/test-soundness + combined cross-file/conventions):
+
+- **Test-soundness gap** (correctness angle): `DeleteConversationAsync_ThenGetContext_...` persisted a
+  message then immediately deleted, without confirming the message had actually been indexed into
+  `recentMessages` first. Given NAMS's own asynchronous indexing (the same reason other tests in this file
+  need bounded polling), the "empty tiers after delete" assertion could have passed vacuously -- true
+  whether or not delete actually cleared anything, since there might never have been anything there to
+  begin with. Fixed by adding a pre-delete bounded poll confirming the message is genuinely indexed before
+  deleting, so the post-delete "empty" assertion actually proves deletion cleared real content.
+- **Doc completeness** (cross-file angle, optional but applied for consistency): the B9 verification bullet
+  in `docs/architecture.md` logs each phase's additions to `AgentMemory.Nams`'s dependency surface; added a
+  clause for this branch's `InternalsVisibleTo` grant, noting explicitly that it's invisible to B9
+  enforcement (confirmed by re-reading `PackageBoundaryGuardTests`'s actual check logic, not assumed).
+- A second correctness-angle observation (`DeserializeAsync<T>` throwing if NAMS ever returns an empty body
+  for a 200) was confirmed to be an existing assumption shared by all 6 client operations, not a new defect
+  introduced here -- no fix needed, noted for awareness only.
+
+Re-verified after fixes: 13/13 live tests still green.
+
+## 4. Verification
 
 - `dotnet build AgentMemory.slnx -c Release` -- 0 warnings, 0 errors.
 - `dotnet test tests/AgentMemory.Tests.Unit` -- full suite green, +2 new unit tests (success path + retry).
 - `dotnet test tests/AgentMemory.Tests.Integration --filter "...NamsLiveConnectivityTests"` -- **13/13 live**
   (11 previous + 2 new), against the real NAMS SaaS.
 
-## 4. Definition of done
+## 5. Definition of done
 
 - [x] `DeleteConversationAsync` added to `INamsClient`/`Neo4jNamsClientAdapter`, instrumented, unit tested.
 - [x] 2 live tests added: delete-then-verify-degraded-state, and delete-twice-is-idempotent.
 - [x] Full unit + live suites green.
-- [ ] Self-reviewed, PR opened, CI green, merged to `main`.
+- [x] Self-reviewed and fixes applied.
+- [ ] PR opened, CI green, merged to `main`.

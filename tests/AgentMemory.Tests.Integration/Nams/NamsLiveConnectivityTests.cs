@@ -348,8 +348,21 @@ public sealed class NamsLiveConnectivityTests
         var namsClient = services.GetRequiredService<INamsClient>();
         var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
 
+        var marker = $"hello-before-delete-{Guid.NewGuid():N}";
         await persistence.PersistTurnAsync(
-            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist("hello before delete")], assistantMessages: [], CancellationToken.None);
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist(marker)], assistantMessages: [], CancellationToken.None);
+
+        // Confirm the message is genuinely indexed BEFORE deleting -- otherwise the "empty tiers after
+        // delete" assertion below could pass vacuously (nothing was ever there to begin with) instead of
+        // actually proving deletion cleared real content, given NAMS's own asynchronous indexing.
+        var indexed = await PollUntilAsync(
+            async () =>
+            {
+                var ctx = await namsClient.GetContextAsync(conversation.NamsConversationId, CancellationToken.None);
+                return ctx.RecentMessages.Any(m => m.Content.Contains(marker, StringComparison.Ordinal));
+            },
+            timeout: TimeSpan.FromSeconds(30));
+        indexed.Should().BeTrue("the message must be indexed before delete can meaningfully be proven to clear it");
 
         var deleteAct = () => namsClient.DeleteConversationAsync(conversation.NamsConversationId, CancellationToken.None);
         await deleteAct.Should().NotThrowAsync();
