@@ -43,4 +43,15 @@ internal interface INamsClient
     /// health probe.
     /// </summary>
     Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Searches a conversation's own message history (<c>POST /v1/conversations/{id}/search</c>) --
+    /// confirmed live as part of the Phase 10 scenario-matrix expansion. Phase 2's original design dropped
+    /// this (as <c>SearchMessagesAsync</c>) for lack of confirmation at the time; it's added now, standalone,
+    /// deliberately NOT wired into <c>INamsRecallService.RecallAsync</c>'s already-shipped, tested Phase 4-6
+    /// behavior -- that would be a real behavior change to the automatic recall pipeline, a separate decision
+    /// from adding the client capability itself.
+    /// </summary>
+    Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
+        string conversationId, string query, int limit, CancellationToken cancellationToken);
 }

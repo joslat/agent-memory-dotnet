@@ -97,6 +97,21 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         return response.Entities;
     }
 
+    public async Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
+        string conversationId, string query, int limit, CancellationToken cancellationToken)
+    {
+        // A POST verb, but a pure read-only query with no server-side side effects -- same idempotent-for-
+        // retry-purposes treatment as SearchEntitiesAsync above.
+        var path = $"conversations/{Uri.EscapeDataString(conversationId)}/search";
+        var response = await InvokeAsync(
+            "search_messages",
+            () => BuildJsonRequest(HttpMethod.Post, path, new SearchMessagesRequestBody(query, limit)),
+            isIdempotent: true,
+            DeserializeAsync<SearchMessagesResponseBody>,
+            cancellationToken).ConfigureAwait(false);
+        return response.Messages;
+    }
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -184,4 +199,12 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
 
     private sealed record ListEntitiesResponseBody(
         [property: JsonPropertyName("entities")] IReadOnlyList<NamsEntity> Entities);
+
+    private sealed record SearchMessagesRequestBody(
+        [property: JsonPropertyName("query")] string Query,
+        [property: JsonPropertyName("limit")] int Limit);
+
+    private sealed record SearchMessagesResponseBody(
+        [property: JsonPropertyName("messages")] IReadOnlyList<NamsMessage> Messages,
+        [property: JsonPropertyName("searchType")] string? SearchType);
 }
