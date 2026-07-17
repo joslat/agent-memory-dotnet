@@ -4,6 +4,7 @@
 AgentMemory|src/AgentMemory/AgentMemory.csproj
 AgentMemory.Abstractions|src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj
 AgentMemory.AgentFramework|src/AgentMemory.AgentFramework/AgentMemory.AgentFramework.csproj
+AgentMemory.AgentFramework.Nams|src/AgentMemory.AgentFramework.Nams/AgentMemory.AgentFramework.Nams.csproj
 AgentMemory.Analytics|src/AgentMemory.Analytics/AgentMemory.Analytics.csproj
 AgentMemory.Core|src/AgentMemory.Core/AgentMemory.Core.csproj
 AgentMemory.Enrichment|src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj
