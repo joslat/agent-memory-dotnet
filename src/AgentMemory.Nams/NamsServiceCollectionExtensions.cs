@@ -5,6 +5,7 @@ using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Identity;
 using AgentMemory.Nams.Internal;
+using AgentMemory.Nams.Recall;
 
 namespace AgentMemory.Nams;
 
@@ -57,6 +58,12 @@ public static class NamsServiceCollectionExtensions
         // INamsConversationStateStore BEFORE calling AddNamsAgentMemory -- this default is single-process only.
         services.TryAddSingleton<INamsConversationStateStore, InMemoryNamsConversationStateStore>();
         services.TryAddSingleton<INamsConversationResolver, NamsConversationResolver>();
+
+        services.AddOptions<NamsRecallOptions>()
+            .Validate(NamsRecallOptionValidator.HasPositiveEntitySearchLimit, "NamsRecallOptions.EntitySearchLimit must be positive.")
+            .Validate(NamsRecallOptionValidator.HasPositiveMaxTotalCharacters, "NamsRecallOptions.MaxTotalCharacters must be positive.")
+            .ValidateOnStart();
+        services.TryAddSingleton<INamsRecallService, NamsRecallService>();
 
         return services;
     }

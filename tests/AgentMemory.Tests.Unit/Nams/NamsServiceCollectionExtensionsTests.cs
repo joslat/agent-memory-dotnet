@@ -7,6 +7,7 @@ using AgentMemory.Nams;
 using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Identity;
+using AgentMemory.Nams.Recall;
 
 namespace AgentMemory.Tests.Unit.Nams;
 
@@ -318,5 +319,42 @@ public sealed class NamsServiceCollectionExtensionsTests
         using var provider = services.BuildServiceProvider();
 
         provider.GetRequiredService<INamsConversationStateStore>().Should().BeSameAs(customStore);
+    }
+
+    // ── Phase 4: recall and context mapping DI wiring ────────────────────────
+
+    [Fact]
+    public void AddNamsAgentMemory_ResolvesRecallServiceWithDefaultOptions()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<INamsRecallService>().Should().NotBeNull();
+        var recallOptions = provider.GetRequiredService<IOptions<NamsRecallOptions>>().Value;
+        recallOptions.IncludeEntitySearch.Should().BeTrue();
+        recallOptions.EntitySearchLimit.Should().Be(5);
+        recallOptions.MaxTotalCharacters.Should().Be(8000);
+    }
+
+    [Fact]
+    public void AddNamsAgentMemory_InvalidRecallOptions_FailsValidation()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        services.Configure<NamsRecallOptions>(o => o.EntitySearchLimit = -1);
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<NamsRecallOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
     }
 }
