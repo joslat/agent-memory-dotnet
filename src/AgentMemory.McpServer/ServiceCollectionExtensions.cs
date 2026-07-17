@@ -75,7 +75,14 @@ public static class ServiceCollectionExtensions
         this IMcpServerBuilder builder,
         Action<AgentMemoryMcpOptions> configure)
     {
-        builder.Services.Configure(configure);
+        // Stabilization fix: this registration previously had no validation at all. DefaultConfidence is
+        // stamped directly onto every entity/fact/preference created via an MCP write tool; an out-of-range
+        // value would corrupt the confidence semantics every ranking/dedup/decay computation elsewhere
+        // relies on, with no error until that corruption was already observed downstream.
+        builder.Services.AddOptions<AgentMemoryMcpOptions>()
+            .Configure(configure)
+            .Validate(o => o.DefaultConfidence is >= 0 and <= 1, "AgentMemoryMcpOptions.DefaultConfidence must be between 0 and 1.")
+            .ValidateOnStart();
         return builder.AddAgentMemoryMcpTools();
     }
 }

@@ -27,6 +27,9 @@ public static class ServiceCollectionExtensions
             .Validate(o => Uri.TryCreate(o.Endpoint, UriKind.Absolute, out _), "AzureLanguage Endpoint must be a valid absolute URI.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "AzureLanguage ApiKey must be provided.")
             .Validate(o => o.MaxDocumentBatchSize > 0, "AzureLanguage MaxDocumentBatchSize must be positive.")
+            .Validate(o => o.PreferenceSentimentThreshold is >= 0 and <= 1, "AzureLanguage PreferenceSentimentThreshold must be between 0 and 1.")
+            .Validate(o => o.KeyPhraseFactConfidence is >= 0 and <= 1, "AzureLanguage KeyPhraseFactConfidence must be between 0 and 1.")
+            .Validate(o => o.LinkedEntityFactConfidence is >= 0 and <= 1, "AzureLanguage LinkedEntityFactConfidence must be between 0 and 1.")
             .ValidateOnStart();
 
         services.AddSingleton<TextAnalyticsClient>(sp =>

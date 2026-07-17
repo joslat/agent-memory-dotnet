@@ -353,4 +353,58 @@ public sealed class ServiceCollectionExtensionsTests
 
         act.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
     }
+
+    // ── Stabilization fix: ContextFormatOptions enum knobs previously had no range validation ──
+
+    [Fact]
+    public void AddAgentMemoryFramework_UndefinedSecurityMode_FailsValidationOnStart()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.SecurityMode = (MemoryContextSecurityMode)99)
+            .BuildServiceProvider();
+
+        var act = () => provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        act.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_UndefinedMinimumTrustForAdmissionBypass_FailsValidationOnStart()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.MinimumTrustForAdmissionBypass = (MemoryTrustLevel)99)
+            .BuildServiceProvider();
+
+        var act = () => provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        act.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_UndefinedDefaultMemoryRole_FailsValidationOnStart()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.DefaultMemoryRole = (RecalledMemoryMessageRole)99)
+            .BuildServiceProvider();
+
+        var act = () => provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        act.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_UndefinedMinimumTrustForSystemRole_FailsValidationOnStart()
+    {
+        var provider = BuildBaseServices()
+            .AddAgentMemoryFramework(opts => opts.ContextFormat.MinimumTrustForSystemRole = (MemoryTrustLevel)99)
+            .BuildServiceProvider();
+
+        var act = () => provider
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<ContextFormatOptions>>().Value;
+
+        act.Should().Throw<Microsoft.Extensions.Options.OptionsValidationException>();
+    }
 }

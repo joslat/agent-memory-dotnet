@@ -35,6 +35,8 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
 
       - name: Derive version from tag
         id: version
@@ -113,6 +115,7 @@ jobs:
           dotnet build samples/AgentMemory.Sample.MinimalAgent/AgentMemory.Sample.MinimalAgent.csproj -c Release --no-restore
           dotnet build samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj -c Release --no-restore
           dotnet build samples/AgentMemory.Sample.McpHost/AgentMemory.Sample.McpHost.csproj -c Release --no-restore
+          dotnet build samples/AgentMemory.Sample.ShoppingAssistant/AgentMemory.Sample.ShoppingAssistant.csproj -c Release --no-restore
           dotnet build samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj -c Release --no-restore
           dotnet build samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj -c Release --no-restore
 

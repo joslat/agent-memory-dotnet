@@ -42,11 +42,16 @@ internal sealed class EntityTools
     [McpServerTool(Name = "memory_get_entity"), Description("Get entities by name (exact or alias match). Returns matching entities; use memory_create_relationship / graph queries for edges.")]
     public static async Task<string> MemoryGetEntity(
         ILongTermMemoryService longTermMemory,
+        IMemoryIsolationPolicy isolationPolicy,
         [Description("Name to search for (searches exact and alias matches)")] string name,
         [Description("Owner/user identifier (optional). Null = all owners (unscoped/admin); set it to return only that owner's plus shared (un-owned) entities. Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
+        // Stabilization fix: matches MemoryGetEntityProvenance's convention (and every other tenant-facing
+        // tool in this package) -- fails closed under StrictMultiTenant before the repository call, instead
+        // of relying solely on LongTermMemoryService's internal re-resolution as a safety net.
+        var scope = isolationPolicy.ResolveReadScope(
+            explicitScope: null, userId, nameof(MemoryGetEntity), MemoryOperationAccess.Tenant);
         var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
         return ToolJsonContext.Serialize(entities.Select(e => new
         {
@@ -66,13 +71,16 @@ internal sealed class EntityTools
     [McpServerTool(Name = "memory_record_entity_feedback"), Description("Record feedback on an entity by nudging its confidence: positive reinforces, negative penalizes (clamped to 0..1). Returns the updated entity, or found=false if it does not exist or is out of scope.")]
     public static async Task<string> MemoryRecordEntityFeedback(
         ILongTermMemoryService longTermMemory,
+        IMemoryIsolationPolicy isolationPolicy,
         [Description("Entity ID to apply feedback to")] string entityId,
         [Description("True to reinforce (increase confidence), false to penalize (decrease)")] bool positive,
         [Description("Magnitude of the confidence nudge (optional; defaults to the configured feedback delta)")] double? delta = null,
         [Description("Owner/user identifier (optional). When set, feedback only affects that user's own or shared entities — never another user's private entity.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
+        // Stabilization fix: see MemoryGetEntity above -- same convention, same rationale.
+        var scope = isolationPolicy.ResolveReadScope(
+            explicitScope: null, userId, nameof(MemoryRecordEntityFeedback), MemoryOperationAccess.Tenant);
         var entity = await longTermMemory.RecordEntityFeedbackAsync(entityId, positive, delta, scope, cancellationToken).ConfigureAwait(false);
         if (entity is null)
             return ToolJsonContext.Serialize(new { entityId, found = false });

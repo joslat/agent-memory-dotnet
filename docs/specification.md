@@ -1,7 +1,7 @@
 # Agent Memory for .NET - Current Specification
 
 **Status:** Current, code-aligned specification
-**Last updated:** 2026-07-09
+**Last updated:** 2026-07-17
 
 This document is the active specification for the shipped preview.
 
@@ -72,6 +72,10 @@ The system supports:
 The default single-database deployment is logically isolated by `owner_id` and `MemoryScope`. Null owner means shared/global memory. The optional store tier routes an `ApplicationId` to a dedicated Neo4j database through `MemoryStorageStrategy.DatabasePerApplication`, which requires Neo4j Enterprise or AuraDB.
 
 Scoped reads must return only the owner's private memory plus shared memory when `IncludeShared` is enabled. Destructive or mutating operations that accept an owner must not cross owner buckets.
+
+A central `IMemoryIsolationPolicy` (#100) resolves the read scope and write owner for every operation under one of three modes — `SingleTenant` (default, today's behavior), `WarnOnUnscoped`, or `StrictMultiTenant` (fails closed before any repository call when identity is absent) — so isolation enforcement lives in one place rather than being re-derived per service, across every MAF/SK/MCP tenant-facing entry point.
+
+Recalled memory is also subject to a trust-boundary program (#92, Phases 1-8): every recalled entity/fact/preference/message is delimited/escaped, admission-checked against instruction-like content, and stamped with a `MemoryTrustLevel`, so a host can treat recalled content as untrusted reference data rather than an unrestricted system instruction. See `docs/security/threat-model.md` (TT-05) for the full detail.
 
 ## Integration Requirements
 

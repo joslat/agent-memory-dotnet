@@ -12,12 +12,14 @@ namespace AgentMemory.Core.Security;
 /// Deliberately narrow: only "system" and "tool" are treated as privileged -- the two roles most
 /// <c>IChatClient</c>s/tool-calling conventions give elevated or special handling. Ordinary "user"/
 /// "assistant" messages (and any other custom role) pass through unchanged; demoting a genuine user or
-/// assistant turn would be wrong, not a security improvement. This is intentionally NOT applied to plain
-/// chat-history replay (e.g. continuing an actual conversation via <c>Neo4jChatMessageStore</c>) -- only to
-/// messages rendered as additional RECALLED context alongside the current turn, where a message persisted
-/// via a caller-facing tool (e.g. the <c>memory_store_message</c> MCP tool or the Semantic Kernel adapter's
-/// <c>add_message</c> function -- both accept an unvalidated, caller-supplied role string) could otherwise
-/// resurface with full, undiminished authority.
+/// assistant turn would be wrong, not a security improvement. Applied to every surface that renders
+/// <c>RecentMessages</c>/<c>RelevantMessages</c> as chat messages -- both the recalled-context path
+/// (<c>MafTypeMapper.ToContextMessages</c>) and plain same-session chat-history replay
+/// (<c>Neo4jChatMessageStore</c>/<c>Neo4jChatHistoryProvider</c>, via the shared
+/// <c>MafTypeMapper.ToGatedChatMessages</c>) -- since a message persisted via a caller-facing tool (e.g. the
+/// <c>memory_store_message</c> MCP tool or the Semantic Kernel adapter's <c>add_message</c> function -- both
+/// accept an unvalidated, caller-supplied role string) could otherwise resurface with full, undiminished
+/// authority on either path, not only via cross-session recall.
 /// </remarks>
 internal static class RecalledMessageRoleGate
 {

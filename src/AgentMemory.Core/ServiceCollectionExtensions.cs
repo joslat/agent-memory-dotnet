@@ -26,7 +26,50 @@ public static class ServiceCollectionExtensions
         Action<MemoryOptions> configure)
     {
         // Configure root options
-        services.AddOptions<MemoryOptions>().Configure(configure);
+        // Stabilization fix: this tree of options previously had zero DI-time validation. A malformed
+        // Isolation.Mode (e.g. an out-of-range int bound from JSON config) fell through
+        // DefaultMemoryIsolationPolicy's switch to the most permissive (SingleTenant) behavior instead of
+        // failing closed; numeric thresholds meant to be [0,1] or positive could silently misconfigure
+        // deduplication/feedback/query-limit behavior with no error until the first affected call.
+        services.AddOptions<MemoryOptions>()
+            .Configure(configure)
+            .Validate(
+                o => Enum.IsDefined(typeof(MemoryIsolationMode), o.Isolation.Mode),
+                "MemoryOptions.Isolation.Mode must be a defined MemoryIsolationMode value.")
+            .Validate(
+                o => o.LongTerm.MinConfidenceThreshold is >= 0 and <= 1,
+                "MemoryOptions.LongTerm.MinConfidenceThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.LongTerm.DeduplicationSimilarityThreshold is >= 0 and <= 1,
+                "MemoryOptions.LongTerm.DeduplicationSimilarityThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.LongTerm.DeduplicationConfidenceBump is >= 0 and <= 1,
+                "MemoryOptions.LongTerm.DeduplicationConfidenceBump must be between 0 and 1.")
+            .Validate(
+                o => o.LongTerm.FeedbackConfidenceDelta is >= 0 and <= 1,
+                "MemoryOptions.LongTerm.FeedbackConfidenceDelta must be between 0 and 1.")
+            .Validate(
+                o => o.ShortTerm.DefaultRecentMessageLimit > 0,
+                "MemoryOptions.ShortTerm.DefaultRecentMessageLimit must be positive.")
+            .Validate(
+                o => o.ShortTerm.MaxMessagesPerQuery > 0,
+                "MemoryOptions.ShortTerm.MaxMessagesPerQuery must be positive.")
+            .Validate(
+                o => o.ShortTerm.DefaultRecentMessageLimit <= o.ShortTerm.MaxMessagesPerQuery,
+                "MemoryOptions.ShortTerm.DefaultRecentMessageLimit must not exceed MaxMessagesPerQuery.")
+            .Validate(
+                o => o.Reasoning.MaxTracesPerSession is null or > 0,
+                "MemoryOptions.Reasoning.MaxTracesPerSession must be positive when set.")
+            .Validate(
+                o => o.Extraction.AutoMergeThreshold is >= 0 and <= 1,
+                "MemoryOptions.Extraction.AutoMergeThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.Extraction.SameAsThreshold is >= 0 and <= 1,
+                "MemoryOptions.Extraction.SameAsThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.Extraction.SameAsThreshold <= o.Extraction.AutoMergeThreshold,
+                "MemoryOptions.Extraction.SameAsThreshold must not exceed AutoMergeThreshold.")
+            .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on
         // IOptions<ShortTermMemoryOptions> etc. receive the values configured on MemoryOptions.

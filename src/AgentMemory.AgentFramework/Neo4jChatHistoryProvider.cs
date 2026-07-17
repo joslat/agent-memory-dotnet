@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Mapping;
+using AgentMemory.AgentFramework.Security;
 
 namespace AgentMemory.AgentFramework;
 
@@ -26,6 +27,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
     private readonly IMemoryStoreContext? _storeContext;
     private readonly IWritableMemoryOwnerContext? _ownerContext;
     private readonly ILogger<Neo4jChatHistoryProvider> _logger;
+    private readonly IMemoryContextAdmissionPolicy _admissionPolicy;
 
     /// <inheritdoc />
     public override IReadOnlyList<string> StateKeys { get; } =
@@ -38,7 +40,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         AgentFrameworkOptions options,
         ILogger<Neo4jChatHistoryProvider> logger,
         IMemoryStoreContext? storeContext = null,
-        IWritableMemoryOwnerContext? ownerContext = null)
+        IWritableMemoryOwnerContext? ownerContext = null,
+        IMemoryContextAdmissionPolicy? admissionPolicy = null)
         // storeInputRequestMessageFilter narrows MAF's own default (which excludes only ChatHistory-sourced
         // messages) down to External-only. Without this, when a host also configures an AIContextProvider
         // (e.g. Neo4jMemoryContextProvider) on the same agent, that provider's injected messages (recalled
@@ -58,6 +61,10 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         _storeContext = storeContext;
         _ownerContext = ownerContext;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        // Stabilization fix: this provider previously mapped RecentMessages through the bare
+        // MafTypeMapper.ToChatMessage with no admission-check or privileged-role gating at all, unlike
+        // ToContextMessages' handling of the identical underlying data -- see ToGatedChatMessages' remarks.
+        _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
     }
 
     /// <summary>
@@ -71,13 +78,20 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         var ids = ExtractIds(context.Session, context.Agent);
         using var storeScope = ApplyStoreContext(ids.applicationId);
         using var ownerScope = ApplyOwnerContext(ids.userId);
+        return await PerformProvideAsync(ids.sessionId, ids.userId, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Internal helper exposed for unit/integration testing (mirrors <see cref="PerformStoreAsync"/>).</summary>
+    internal async Task<IReadOnlyList<ChatMessage>> PerformProvideAsync(
+        string sessionId, string? userId, CancellationToken cancellationToken = default)
+    {
         try
         {
             var recallResult = await _memoryService.RecallAsync(
                 new Abstractions.Domain.RecallRequest
                 {
-                    SessionId = ids.sessionId,
-                    UserId = ids.userId,
+                    SessionId = sessionId,
+                    UserId = userId,
                     Query = string.Empty,
                     Options = new RecallOptions
                     {
@@ -87,10 +101,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
 
             // RecentMessages is newest-first (the recall query orders DESC); a chat-history provider must
             // hand the agent its prior turns in chronological (oldest-first) order, so reverse here.
-            return recallResult.Context.RecentMessages.Items
-                .Reverse()
-                .Select(MafTypeMapper.ToChatMessage)
-                .ToList();
+            return MafTypeMapper.ToGatedChatMessages(
+                recallResult.Context.RecentMessages.Items.Reverse(), _options.ContextFormat, _admissionPolicy, _logger);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -99,7 +111,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Failed to retrieve chat history for session {SessionId}.", ids.sessionId);
+                "Failed to retrieve chat history for session {SessionId}.", sessionId);
             return [];
         }
     }

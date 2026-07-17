@@ -255,7 +255,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var sp = scope.ServiceProvider;
 
         var act = () => EntityTools.MemoryGetEntity(
-            sp.GetRequiredService<ILongTermMemoryService>(), name: "Alice");
+            sp.GetRequiredService<ILongTermMemoryService>(), sp.GetRequiredService<IMemoryIsolationPolicy>(), name: "Alice");
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }
@@ -267,7 +267,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var sp = scope.ServiceProvider;
 
         var act = () => EntityTools.MemoryRecordEntityFeedback(
-            sp.GetRequiredService<ILongTermMemoryService>(), entityId: "e1", positive: true);
+            sp.GetRequiredService<ILongTermMemoryService>(), sp.GetRequiredService<IMemoryIsolationPolicy>(), entityId: "e1", positive: true);
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
     }

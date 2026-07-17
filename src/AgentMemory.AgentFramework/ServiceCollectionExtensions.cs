@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Recall;
 using AgentMemory.AgentFramework.Security;
@@ -41,6 +42,18 @@ public static class ServiceCollectionExtensions
                 ctx.MinimumTrustForSystemRole = src.MinimumTrustForSystemRole;
             })
             .Validate(o => o.MaxChatHistoryMessages >= 0, "ContextFormatOptions.MaxChatHistoryMessages must be non-negative.")
+            // Stabilization fix: none of these four #92 enum knobs were previously range-checked.
+            // IConfiguration's enum binder accepts any integer for a numeric enum, not just defined
+            // members, so e.g. "MinimumTrustForAdmissionBypass": 99 would silently bind to an undefined
+            // MemoryTrustLevel and change bypass comparisons instead of failing at startup.
+            .Validate(o => Enum.IsDefined(typeof(MemoryContextSecurityMode), o.SecurityMode),
+                "ContextFormatOptions.SecurityMode must be a defined MemoryContextSecurityMode value.")
+            .Validate(o => Enum.IsDefined(typeof(MemoryTrustLevel), o.MinimumTrustForAdmissionBypass),
+                "ContextFormatOptions.MinimumTrustForAdmissionBypass must be a defined MemoryTrustLevel value.")
+            .Validate(o => Enum.IsDefined(typeof(RecalledMemoryMessageRole), o.DefaultMemoryRole),
+                "ContextFormatOptions.DefaultMemoryRole must be a defined RecalledMemoryMessageRole value.")
+            .Validate(o => Enum.IsDefined(typeof(MemoryTrustLevel), o.MinimumTrustForSystemRole),
+                "ContextFormatOptions.MinimumTrustForSystemRole must be a defined MemoryTrustLevel value.")
             .ValidateOnStart();
 
         // Task-aware automatic recall policy (#88). TryAdd: a host registering its own
