@@ -112,6 +112,16 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         return response.Messages;
     }
 
+    public Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "delete_conversation",
+            () => new HttpRequestMessage(HttpMethod.Delete, $"conversations/{Uri.EscapeDataString(conversationId)}"),
+            // Confirmed live: deleting an already-deleted (or otherwise nonexistent) conversation still
+            // returns 200, not 404 -- genuinely idempotent, safe to retry like any other read.
+            isIdempotent: true,
+            DeserializeAsync<DeleteConversationResponseBody>,
+            cancellationToken);
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -207,4 +217,9 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private sealed record SearchMessagesResponseBody(
         [property: JsonPropertyName("messages")] IReadOnlyList<NamsMessage> Messages,
         [property: JsonPropertyName("searchType")] string? SearchType);
+
+    // Confirmed live: the real value is "deleted", not the "success" the plan's own OpenAPI guess assumed.
+    // Not exposed publicly -- callers only care whether DeleteConversationAsync threw.
+    private sealed record DeleteConversationResponseBody(
+        [property: JsonPropertyName("status")] string? Status);
 }

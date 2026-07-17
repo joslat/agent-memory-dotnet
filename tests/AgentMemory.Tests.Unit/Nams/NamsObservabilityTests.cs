@@ -260,6 +260,9 @@ public sealed class NamsObservabilityTests
             string conversationId, string query, int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
