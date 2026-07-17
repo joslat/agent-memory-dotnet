@@ -23,6 +23,7 @@
     <Project Path="src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj" />
     <Project Path="src/AgentMemory.Observability/AgentMemory.Observability.csproj" />
     <Project Path="src/AgentMemory.McpServer/AgentMemory.McpServer.csproj" />
+    <Project Path="src/AgentMemory.Nams/AgentMemory.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
   </Folder>

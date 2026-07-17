@@ -921,8 +921,9 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 | **B6** | Neo4j MUST NOT reference any framework adapter SDK (Microsoft.Agents.*, SemanticKernel.*, MCP SDK) | Persistence and retrieval layer has no framework knowledge; it is consumed by adapter packages, never the reverse |
 | **B7** | No adapter may contain business logic that belongs in Core | Adapters are thin translation layers only |
 | **B8** | Adapters depend on Core/Abstractions — never the reverse | Dependency inversion; core doesn't know about adapters |
+| **B9** | `AgentMemory.Nams` MUST NOT reference any framework adapter SDK, Neo4j.Driver, or any sibling `AgentMemory.*` project | NAMS backend engineering plan Phase 1: an additive, self-contained skeleton kept fully independent of Core/Neo4j internals, so a later phase (the real client adapter) can't casually reach into them instead of going through whatever narrow, backend-neutral contract eventually gets designed |
 
-**Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
+**Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8/B9** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
 
 **Current Verification (as of Gap Closure Sprint + MEAI adoption D-AR2-1):**
 - ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.8.0 (approved, B1)
@@ -930,6 +931,7 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 - ✅ Neo4j .csproj: Neo4j.Driver 6.0.0 + M.E.DI/Logging/Options (no Microsoft.Agents.*, no MCP SDK)
 - ✅ `grep` for `Microsoft.Agents` across `src/AgentMemory.Neo4j/` returns zero matches
 - ✅ GraphRAG retrieval (`Neo4jGraphRagContextSource`, `IRetriever`, `VectorRetriever`, `FulltextRetriever`, `HybridRetriever`) lives inside `AgentMemory.Neo4j` — no separate `GraphRagAdapter` package exists
+- ✅ `AgentMemory.Nams` .csproj: `Microsoft.Extensions.DependencyInjection.Abstractions` + `Microsoft.Extensions.Options` only, zero `<ProjectReference>` elements (B9) — a configuration-surface-only skeleton, listed in `eng/release-packages.txt` (mandatory for every `src/*` package) but with no client/HTTP-call behavior yet (see `docs/reviews/NAMS_Phase1_PackageSkeleton_PlanningAndImplementationPlan.md`)
 
 ---
 
