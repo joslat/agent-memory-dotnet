@@ -7,6 +7,7 @@ using AgentMemory.Nams;
 using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Identity;
+using AgentMemory.Nams.Persistence;
 using AgentMemory.Nams.Recall;
 
 namespace AgentMemory.Tests.Unit.Nams;
@@ -356,5 +357,21 @@ public sealed class NamsServiceCollectionExtensionsTests
         var act = () => _ = provider.GetRequiredService<IOptions<NamsRecallOptions>>().Value;
 
         act.Should().Throw<OptionsValidationException>();
+    }
+
+    // ── Phase 5: post-turn persistence DI wiring ─────────────────────────────
+
+    [Fact]
+    public void AddNamsAgentMemory_ResolvesPersistenceService()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<INamsPersistenceService>().Should().NotBeNull();
     }
 }
