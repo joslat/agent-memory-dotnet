@@ -54,4 +54,18 @@ internal interface INamsClient
     /// </summary>
     Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
         string conversationId, string query, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a conversation (<c>DELETE /v1/conversations/{id}</c>) -- confirmed live as part of the Phase
+    /// 10 data-lifecycle scenario. Idempotent: confirmed live that deleting an already-deleted conversation
+    /// still returns success rather than a not-found error. After deletion, <see cref="GetContextAsync"/>
+    /// keeps returning 200 with empty tiers (not 404) -- only fetching the conversation record itself, or
+    /// adding messages to it (single or bulk), 404s. Deliberately not wired into
+    /// <c>INamsPersistenceService</c>/<c>INamsConversationResolver</c> or any MCP tool -- data-lifecycle
+    /// operations (deletion, export) are explicitly called out in the plan's own Phase 9 text as needing
+    /// live testing and/or an organizational decision before being exposed as a routine capability; this is
+    /// the low-level client operation only, added so a host that has already made that decision doesn't have
+    /// to reach around this package to call the REST endpoint directly.
+    /// </summary>
+    Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken);
 }

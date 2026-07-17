@@ -155,6 +155,32 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task DeleteConversationAsync_Success_SendsDeleteToCorrectPath()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """{"status":"deleted"}"""));
+        var adapter = CreateAdapter(fake);
+
+        await adapter.DeleteConversationAsync("conv-1", CancellationToken.None);
+
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Delete);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/conversations/conv-1"));
+    }
+
+    [Fact]
+    public async Task DeleteConversationAsync_TransientFailureThenSuccess_Retries()
+    {
+        var fake = new FakeHttpMessageHandler(
+            () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            () => Json(HttpStatusCode.OK, """{"status":"deleted"}"""));
+        var adapter = CreateAdapter(fake);
+
+        var act = () => adapter.DeleteConversationAsync("conv-1", CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        fake.Requests.Should().HaveCount(2); // idempotent -- confirmed live that deleting twice still succeeds
+    }
+
+    [Fact]
     public async Task ListEntitiesAsync_Success_DeserializesEntities_NoQueryInRequest()
     {
         var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK,

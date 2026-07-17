@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using FluentAssertions;
+using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Identity;
 using AgentMemory.Nams.Persistence;
 using AgentMemory.Nams.Recall;
@@ -331,6 +332,70 @@ public sealed class NamsLiveConnectivityTests
             timeout: TimeSpan.FromSeconds(30));
 
         found.Should().BeTrue("code-like content with braces/quotes/newlines should round-trip through NAMS");
+    }
+
+    // ── Phase 10b: data lifecycle -- delete conversation ──────────────────────────────────────────
+    // INamsClient is internal (see AgentMemory.Nams.csproj's InternalsVisibleTo grant to this project) --
+    // DeleteConversationAsync is deliberately not exposed via any public service (INamsPersistenceService/
+    // INamsConversationResolver), so these tests reach the low-level client directly.
+
+    [LiveNamsFact]
+    public async Task DeleteConversationAsync_ThenGetContext_ReturnsEmptyTiers_AndFurtherWritesFail()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var namsClient = services.GetRequiredService<INamsClient>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        var marker = $"hello-before-delete-{Guid.NewGuid():N}";
+        await persistence.PersistTurnAsync(
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist(marker)], assistantMessages: [], CancellationToken.None);
+
+        // Confirm the message is genuinely indexed BEFORE deleting -- otherwise the "empty tiers after
+        // delete" assertion below could pass vacuously (nothing was ever there to begin with) instead of
+        // actually proving deletion cleared real content, given NAMS's own asynchronous indexing.
+        var indexed = await PollUntilAsync(
+            async () =>
+            {
+                var ctx = await namsClient.GetContextAsync(conversation.NamsConversationId, CancellationToken.None);
+                return ctx.RecentMessages.Any(m => m.Content.Contains(marker, StringComparison.Ordinal));
+            },
+            timeout: TimeSpan.FromSeconds(30));
+        indexed.Should().BeTrue("the message must be indexed before delete can meaningfully be proven to clear it");
+
+        var deleteAct = () => namsClient.DeleteConversationAsync(conversation.NamsConversationId, CancellationToken.None);
+        await deleteAct.Should().NotThrowAsync();
+
+        // Confirmed live: GetContext keeps returning 200 with empty tiers after delete -- never 404.
+        var context = await namsClient.GetContextAsync(conversation.NamsConversationId, CancellationToken.None);
+        context.RecentMessages.Should().BeEmpty();
+        context.Observations.Should().BeEmpty();
+        context.Reflections.Should().BeEmpty();
+
+        // Confirmed live: adding messages (the only write path PersistTurnAsync uses) 404s after delete --
+        // NamsPersistenceService classifies a 404 as Failed (not UnknownWriteOutcome, which is reserved for
+        // genuinely ambiguous Network/Timeout failures -- a 404 is an unambiguous "this doesn't exist").
+        var writeAfterDelete = await persistence.PersistTurnAsync(
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist("after delete")], assistantMessages: [], CancellationToken.None);
+        writeAfterDelete.Outcome.Should().Be(NamsPersistenceOutcome.Failed, "the conversation no longer exists to write to");
+    }
+
+    [LiveNamsFact]
+    public async Task DeleteConversationAsync_CalledTwice_IsIdempotent()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var namsClient = services.GetRequiredService<INamsClient>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        var act = async () =>
+        {
+            await namsClient.DeleteConversationAsync(conversation.NamsConversationId, CancellationToken.None);
+            await namsClient.DeleteConversationAsync(conversation.NamsConversationId, CancellationToken.None);
+        };
+
+        await act.Should().NotThrowAsync("confirmed live that deleting an already-deleted conversation still succeeds, not 404s");
     }
 
     private static NamsConversationIdentity UniqueIdentity([CallerMemberName] string testName = "") => new()

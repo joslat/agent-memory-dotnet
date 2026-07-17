@@ -16,6 +16,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <!-- Phase 10b: DeleteConversationAsync is deliberately internal-only (INamsClient), not exposed via any
+         public service (see its own doc comment). The live-integration test for it needs direct access,
+         mirroring AgentMemory.AgentFramework's identical grant to both test projects. -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
   </ItemGroup>
 
 </Project>
