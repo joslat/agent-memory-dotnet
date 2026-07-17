@@ -98,8 +98,16 @@ public sealed class NamsLiveConnectivityTests
         found.Should().BeTrue($"an entity named '{entityName}' should eventually be extracted and recallable");
     }
 
+    /// <summary>
+    /// Proves the single-process path only: the shared <c>KeyedAsyncLock</c> serializes the second call
+    /// behind the first, which then takes the already-populated-store fast path -- it never reaches
+    /// <c>CreateConversationAsync</c> itself. This does NOT exercise the cross-process "lost the race,
+    /// reconcile an orphaned conversation" branch (that needs two separate resolver instances/processes
+    /// racing against a genuinely shared store -- out of scope here, see the Phase 10 planning doc's
+    /// "Multi-instance mapping" deferral).
+    /// </summary>
     [LiveNamsFact]
-    public async Task ResolveAsync_SameIdentityResolvedConcurrently_ReconcilesToOneConversation()
+    public async Task ResolveAsync_SameIdentityResolvedConcurrently_SerializesToOneConversation()
     {
         var resolver = _fixture.Services!.GetRequiredService<INamsConversationResolver>();
         var identity = UniqueIdentity(); // one identity, resolved twice concurrently below
@@ -114,8 +122,14 @@ public sealed class NamsLiveConnectivityTests
             "exactly one of the two concurrent resolutions should have actually created the conversation");
     }
 
+    /// <summary>
+    /// Deliberately scoped to the <see cref="NamsRecallCategory.RecentMessage"/> tier only (conversation-
+    /// scoped) -- NAMS entity search is workspace-wide, not conversation-scoped (documented in
+    /// <c>AgentMemory.Sample.NamsAgent</c>'s README), so including entity-tier items here would make this
+    /// test noisy/flaky for a reason unrelated to what it's actually verifying.
+    /// </summary>
     [LiveNamsFact]
-    public async Task PersistTurnAsync_TwoConcurrentUsers_DoNotCrossContaminateChatHistory()
+    public async Task PersistTurnAsync_TwoConcurrentUsers_EventuallyRecallOnlyTheirOwnRecentMessage()
     {
         var services = _fixture.Services!;
         var resolver = services.GetRequiredService<INamsConversationResolver>();
@@ -139,16 +153,18 @@ public sealed class NamsLiveConnectivityTests
             {
                 var recalledA = await recall.RecallAsync(conversationA.NamsConversationId, markerA, CancellationToken.None);
                 var recalledB = await recall.RecallAsync(conversationB.NamsConversationId, markerB, CancellationToken.None);
-                var aHasOwnMarker = recalledA.Items.Any(i => i.Content.Contains(markerA, StringComparison.Ordinal));
-                var bHasOwnMarker = recalledB.Items.Any(i => i.Content.Contains(markerB, StringComparison.Ordinal));
+                var recentA = recalledA.Items.Where(i => i.Category == NamsRecallCategory.RecentMessage).ToList();
+                var recentB = recalledB.Items.Where(i => i.Category == NamsRecallCategory.RecentMessage).ToList();
+                var aHasOwnMarker = recentA.Any(i => i.Content.Contains(markerA, StringComparison.Ordinal));
+                var bHasOwnMarker = recentB.Any(i => i.Content.Contains(markerB, StringComparison.Ordinal));
                 var noCrossContamination =
-                    !recalledA.Items.Any(i => i.Content.Contains(markerB, StringComparison.Ordinal))
-                    && !recalledB.Items.Any(i => i.Content.Contains(markerA, StringComparison.Ordinal));
+                    !recentA.Any(i => i.Content.Contains(markerB, StringComparison.Ordinal))
+                    && !recentB.Any(i => i.Content.Contains(markerA, StringComparison.Ordinal));
                 return aHasOwnMarker && bHasOwnMarker && noCrossContamination;
             },
             timeout: TimeSpan.FromSeconds(30));
 
-        found.Should().BeTrue("each conversation's recall should see only its own persisted message, never the other's");
+        found.Should().BeTrue("each conversation's recent-message tier should show only its own persisted message, never the other's");
     }
 
     [LiveNamsFact]
@@ -160,15 +176,25 @@ public sealed class NamsLiveConnectivityTests
         var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
 
         using var cts = new CancellationTokenSource();
-        cts.CancelAfter(TimeSpan.FromMilliseconds(1)); // a live round trip to NAMS never completes this fast
+        // Environment assumption, not a language/runtime guarantee: this session's observed live NAMS
+        // latency is consistently 400-1000ms, so 1ms reliably cancels first. If NAMS round-trips ever get
+        // fast enough to race this, this test (not the production code) would need a longer delay.
+        cts.CancelAfter(TimeSpan.FromMilliseconds(1));
 
         var act = () => recall.RecallAsync(conversation.NamsConversationId, "test", cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    /// <summary>
+    /// Matches only <see cref="NamsRecallCategory.RecentMessage"/> items -- <see cref="MapMessage"/>-mapped
+    /// (in <c>NamsRecallService</c>) recent messages pass <c>Content</c> through verbatim, so a match there
+    /// genuinely proves a byte-for-byte round trip. Reflections/observations are NAMS-synthesized text, not
+    /// guaranteed to preserve the original bytes -- matching against those tiers too would make "byte for
+    /// byte" a probabilistic claim rather than a proven one.
+    /// </summary>
     [LiveNamsFact]
-    public async Task PersistTurnAsync_UnicodeAndEmojiContent_RoundTripsByteForByte()
+    public async Task PersistTurnAsync_UnicodeAndEmojiContent_EventuallyRoundTripsByteForByteInRecentMessages()
     {
         var services = _fixture.Services!;
         var resolver = services.GetRequiredService<INamsConversationResolver>();
@@ -184,11 +210,12 @@ public sealed class NamsLiveConnectivityTests
             async () =>
             {
                 var recalled = await recall.RecallAsync(conversation.NamsConversationId, marker, CancellationToken.None);
-                return recalled.Items.Any(i => i.Content.Contains(marker, StringComparison.Ordinal));
+                return recalled.Items.Any(i =>
+                    i.Category == NamsRecallCategory.RecentMessage && i.Content.Contains(marker, StringComparison.Ordinal));
             },
             timeout: TimeSpan.FromSeconds(30));
 
-        found.Should().BeTrue("Unicode/emoji content should round-trip through NAMS byte-for-byte");
+        found.Should().BeTrue("Unicode/emoji content should round-trip through NAMS byte-for-byte in the recent-messages tier");
     }
 
     private static NamsConversationIdentity UniqueIdentity([CallerMemberName] string testName = "") => new()

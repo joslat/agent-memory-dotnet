@@ -45,7 +45,36 @@ real NAMS SaaS (`agent-memory-dotnet-dev` workspace):
   MAF-layer mapping/gating logic (`NamsMafTypeMapper`, Phase 6), already unit-tested there; they're not
   live-NAMS-specific behavior to re-verify against the real service.
 
-## 3. Explicitly deferred
+## 3. Self-review findings and fixes
+
+Self-review (2 angles, given the smaller diff: correctness + combined cross-file/conventions) found the
+test *logic*, not just the code, needed tightening -- a live test passing once against an eventually
+consistent external service doesn't by itself prove the logic is sound:
+
+- **`ResolveAsync_SameIdentityResolvedConcurrently_...`**: traced the actual execution and confirmed this
+  single-process test can only ever exercise `KeyedAsyncLock` serialization + the already-populated-store
+  fast path -- it structurally cannot reach the cross-process "lost the race, reconcile an orphaned
+  conversation" branch (that needs two separate resolver instances racing a shared store, already listed
+  under "Multi-instance mapping" in §3). Renamed `...ReconcilesToOneConversation` ->
+  `...SerializesToOneConversation` and added a doc comment stating exactly what this does and doesn't prove.
+- **Cross-contamination test**: `NamsRecallOptions.IncludeEntitySearch` defaults `true` and wasn't
+  overridden, so the original assertion checked ALL recalled items -- including entities, which are
+  workspace-wide, not conversation-scoped (per the `NamsAgent` sample's own README). That made the test's
+  actual scope wider than its documented intent and a source of unrelated flakiness. Fixed to filter to
+  `NamsRecallCategory.RecentMessage` only, matching the documented scope exactly. Renamed to
+  `...EventuallyRecallOnlyTheirOwnRecentMessage` (also fixes a naming-convention gap the other review angle
+  found: new eventually-consistent tests should say "Eventually", matching the file's existing two).
+- **Unicode round-trip test**: "byte-for-byte" was only actually guaranteed for the `RecentMessage` tier
+  (`NamsRecallService.MapMessage` passes `Content` through verbatim); reflections/observations are
+  NAMS-synthesized text with no such guarantee. Fixed the match condition to require
+  `Category == NamsRecallCategory.RecentMessage`, making the claim proven rather than probabilistic.
+  Renamed to `...EventuallyRoundTripsByteForByteInRecentMessages`.
+- **Cancellation test**: added a one-line comment stating the `CancelAfter(1ms)` timing is an environment
+  assumption (this session's observed 400-1000ms live NAMS latency), not a language/runtime guarantee.
+
+Re-ran all 7 live tests after the fixes: still 7/7 green, ~7s.
+
+## 4. Explicitly deferred
 
 - **Multi-instance mapping** (separate resolver processes, crash reconciliation) -- needs actual
   multi-process orchestration, a bigger investment than fits this increment.
@@ -58,7 +87,7 @@ real NAMS SaaS (`agent-memory-dotnet-dev` workspace):
 - **Payload: empty / max size / multi-message / non-text** -- Unicode was judged the highest-value single
   addition for this pass; the rest are reasonable follow-ups, not done here.
 
-## 4. Verification
+## 5. Verification
 
 - `dotnet build AgentMemory.slnx -c Release` -- 0 warnings, 0 errors.
 - `dotnet test tests/AgentMemory.Tests.Integration --filter "FullyQualifiedName~Nams.NamsLiveConnectivityTests"`
@@ -66,8 +95,9 @@ real NAMS SaaS (`agent-memory-dotnet-dev` workspace):
 - `dotnet test tests/AgentMemory.Tests.Unit` -- full suite green, unaffected (no unit-level changes this
   phase).
 
-## 5. Definition of done
+## 6. Definition of done
 
 - [x] 4 new live scenarios added and passing against the real NAMS SaaS.
 - [x] Coverage overlap and deferred scope explicitly documented (no silent gaps).
-- [ ] Self-reviewed, PR opened, CI green (live tests report Skipped there, as established), merged to `main`.
+- [x] Self-reviewed and fixes applied.
+- [ ] PR opened, CI green (live tests report Skipped there, as established), merged to `main`.
