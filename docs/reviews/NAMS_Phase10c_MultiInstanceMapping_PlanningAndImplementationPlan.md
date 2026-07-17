@@ -66,8 +66,25 @@ rely on).
 
 ## 4. Self-review findings and fixes
 
-3 parallel reviewers (correctness/test-soundness, cross-file/regression, altitude/conventions): no findings survived
-verification. Points specifically checked and confirmed non-issues:
+2 parallel reviewers (correctness/test-soundness, cross-file/conventions).
+
+The correctness reviewer found no issues -- confirmed the race design is genuinely deterministic (not a scheduling
+gamble) and every assertion proves what its test name claims.
+
+The conventions reviewer found 3 low-severity/cosmetic items, all fixed:
+
+- **Duplication**: `new NamsConversationResolver(...)` was constructed inline 4 times across the two tests, where
+  `NamsConversationResolverTests.cs`'s own `CreateResolver` helper pattern was available to mirror. Fixed by adding
+  an equivalent local `CreateResolver` helper to this file.
+- **Dropped tracing context**: this file's own `UniqueIdentity()` didn't embed the calling test's name in `UserId`
+  the way `NamsLiveConnectivityTests.UniqueIdentity`'s `[CallerMemberName]` parameter does -- more relevant here
+  than in the sibling file, since these tests deliberately leave orphaned NAMS-side conversations behind. Fixed by
+  matching the sibling's `[CallerMemberName]` convention.
+- **Doc imprecision**: this doc's own cleanup note said the positive test creates "at least one" orphaned
+  conversation, understating what §2's own reasoning already proves (both racing calls always independently reach
+  `CreateConversationAsync`, so it's always exactly two, not "at least one"). Fixed the wording.
+
+Points specifically checked by the correctness reviewer and confirmed non-issues:
 
 - `Task.WhenAll` in the first test surfaces only an aggregate/first exception if either task faults -- reviewed to
   confirm neither racing call in the *positive* test is expected to throw (only the negative test's calls can),
@@ -77,10 +94,11 @@ verification. Points specifically checked and confirmed non-issues:
 - `NamsConversationIdentity` is a positional record (`with` expression used in the negative test to vary only
   `UserId`) -- confirmed this produces a genuinely distinct identity object with an unrelated reference identity,
   not an aliasing hazard given both resolver calls run concurrently against it.
-- Cleanup: neither test deletes the NAMS-side conversations it creates (each race always creates at least one, the
-  second/negative test always creates exactly two). Consistent with every other live test in this suite -- none
-  clean up NAMS-side state (a live-account hygiene concern already accepted plan-wide, not something to solve
-  ad hoc in this one file).
+- Cleanup: neither test deletes the NAMS-side conversations it creates -- per this doc's own §2 reasoning, both
+  racing calls always independently reach `CreateConversationAsync` before either commits, so each test always
+  creates exactly two NAMS-side conversations (one is always orphaned once the shared store picks a winner).
+  Consistent with every other live test in this suite -- none clean up NAMS-side state (a live-account hygiene
+  concern already accepted plan-wide, not something to solve ad hoc in this one file).
 
 ## 5. Verification
 
@@ -97,5 +115,5 @@ verification. Points specifically checked and confirmed non-issues:
 
 - [x] Two new live tests proving the cross-process reconciliation branch (positive + cross-tenant negative case).
 - [x] Full unit + live suites green.
-- [x] Self-reviewed, no findings survived verification.
+- [x] Self-reviewed; 3 low-severity/cosmetic findings from the conventions reviewer, all fixed.
 - [ ] PR opened, CI green, merged to `main`.

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using FluentAssertions;
@@ -37,8 +38,8 @@ public sealed class NamsMultiInstanceMappingTests
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
         var sharedStore = new InMemoryNamsConversationStateStore();
-        var resolverA = new NamsConversationResolver(namsClient, sharedStore, NullLogger<NamsConversationResolver>.Instance);
-        var resolverB = new NamsConversationResolver(namsClient, sharedStore, NullLogger<NamsConversationResolver>.Instance);
+        var resolverA = CreateResolver(namsClient, sharedStore);
+        var resolverB = CreateResolver(namsClient, sharedStore);
         var identity = UniqueIdentity();
 
         // Deliberately NOT awaited individually before starting the second -- both resolvers must reach
@@ -61,8 +62,8 @@ public sealed class NamsMultiInstanceMappingTests
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
         var sharedStore = new InMemoryNamsConversationStateStore();
-        var resolverA = new NamsConversationResolver(namsClient, sharedStore, NullLogger<NamsConversationResolver>.Instance);
-        var resolverB = new NamsConversationResolver(namsClient, sharedStore, NullLogger<NamsConversationResolver>.Instance);
+        var resolverA = CreateResolver(namsClient, sharedStore);
+        var resolverB = CreateResolver(namsClient, sharedStore);
 
         // Same session/local-conversation slot (the store's actual key) but two DIFFERENT users -- a
         // cross-tenant collision on that slot. Per NamsConversationResolver's own doc comment, the
@@ -100,10 +101,16 @@ public sealed class NamsMultiInstanceMappingTests
         successes.Should().ContainSingle("the winning resolution completes normally for its own tenant");
     }
 
-    private static NamsConversationIdentity UniqueIdentity() => new()
+    private static NamsConversationResolver CreateResolver(INamsClient namsClient, InMemoryNamsConversationStateStore store) =>
+        new(namsClient, store, NullLogger<NamsConversationResolver>.Instance);
+
+    // [CallerMemberName] embeds the calling test's name in UserId -- these tests deliberately leave orphaned
+    // NAMS-side conversations behind (see the type doc comment), so this aids tracing them back to the test
+    // that created them, matching NamsLiveConnectivityTests.UniqueIdentity's identical convention.
+    private static NamsConversationIdentity UniqueIdentity([CallerMemberName] string testName = "") => new()
     {
         ApplicationId = "agent-memory-dotnet-live-tests",
-        UserId = $"test-user-{Guid.NewGuid():N}",
+        UserId = $"test-{testName}-{Guid.NewGuid():N}",
         SessionId = Guid.NewGuid().ToString("N"),
         LocalConversationId = Guid.NewGuid().ToString("N")
     };
