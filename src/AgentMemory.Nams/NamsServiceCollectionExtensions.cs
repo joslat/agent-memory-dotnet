@@ -5,6 +5,7 @@ using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Identity;
 using AgentMemory.Nams.Internal;
+using AgentMemory.Nams.Persistence;
 using AgentMemory.Nams.Recall;
 
 namespace AgentMemory.Nams;
@@ -64,6 +65,8 @@ public static class NamsServiceCollectionExtensions
             .Validate(NamsRecallOptionValidator.HasPositiveMaxTotalCharacters, "NamsRecallOptions.MaxTotalCharacters must be positive.")
             .ValidateOnStart();
         services.TryAddSingleton<INamsRecallService, NamsRecallService>();
+
+        services.TryAddSingleton<INamsPersistenceService, NamsPersistenceService>();
 
         return services;
     }

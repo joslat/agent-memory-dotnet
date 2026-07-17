@@ -43,7 +43,7 @@ internal sealed class NamsRecallService : INamsRecallService
         {
             throw; // caller cancellation -- never degrade
         }
-        catch (NamsOperationException ex) when (ex.FailureKind is NamsFailureKind.Authentication or NamsFailureKind.Authorization)
+        catch (NamsOperationException ex) when (NamsFailureClassification.IsIdentitySecurityFailure(ex))
         {
             throw; // identity/security violations propagate -- never silently degrade
         }
@@ -66,7 +66,7 @@ internal sealed class NamsRecallService : INamsRecallService
             {
                 throw;
             }
-            catch (NamsOperationException ex) when (ex.FailureKind is NamsFailureKind.Authentication or NamsFailureKind.Authorization)
+            catch (NamsOperationException ex) when (NamsFailureClassification.IsIdentitySecurityFailure(ex))
             {
                 throw;
             }
