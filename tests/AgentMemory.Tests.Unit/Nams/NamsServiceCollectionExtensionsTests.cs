@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Nams;
+using AgentMemory.Nams.Authentication;
+using AgentMemory.Nams.Client;
 
 namespace AgentMemory.Tests.Unit.Nams;
 
@@ -30,7 +32,11 @@ public sealed class NamsServiceCollectionExtensionsTests
     public void AddNamsAgentMemory_ValidConfig_PassesValidation()
     {
         var services = new ServiceCollection();
-        services.AddNamsAgentMemory(o => o.Endpoint = ValidEndpoint);
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
         using var provider = services.BuildServiceProvider();
 
         var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
@@ -45,6 +51,18 @@ public sealed class NamsServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         services.AddNamsAgentMemory(o => o.ApiKey = "nams_key");
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
+    [Fact]
+    public void AddNamsAgentMemory_MissingApiKey_FailsValidation()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o => o.Endpoint = ValidEndpoint);
         using var provider = services.BuildServiceProvider();
 
         var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
@@ -89,6 +107,7 @@ public sealed class NamsServiceCollectionExtensionsTests
         {
             o.Endpoint = new Uri("http://localhost:8080/v1");
             o.AllowInsecureEndpointForLocalDevelopment = true;
+            o.ApiKey = "nams_key";
         });
         using var provider = services.BuildServiceProvider();
 
@@ -160,6 +179,9 @@ public sealed class NamsServiceCollectionExtensionsTests
         // NamsBackendDescriptor -- both resolutions from the same provider return the one singleton.
         provider.GetRequiredService<NamsBackendDescriptor>()
             .Should().BeSameAs(provider.GetRequiredService<NamsBackendDescriptor>());
+        // Also proves the second AddHttpClient<INamsClient,...> call doesn't leave a conflicting/broken
+        // registration -- not just that BuildServiceProvider() didn't throw.
+        provider.GetRequiredService<INamsClient>().Should().NotBeNull();
     }
 
     [Fact]
@@ -217,5 +239,49 @@ public sealed class NamsServiceCollectionExtensionsTests
             failure.Should().NotContain(secretApiKey);
             failure.Should().NotContain(secretWorkspace);
         }
+    }
+
+    // ── Phase 2: low-level client adapter DI wiring ──────────────────────────
+
+    [Fact]
+    public void AddNamsAgentMemory_ResolvesINamsClient_WiredToConfiguredEndpoint()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var client = provider.GetRequiredService<INamsClient>();
+
+        client.Should().BeOfType<Neo4jNamsClientAdapter>();
+    }
+
+    [Fact]
+    public void AddNamsAgentMemory_ResolvesSingleStaticApiKeyTokenProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var tokenProvider = provider.GetRequiredService<INamsAccessTokenProvider>();
+
+        tokenProvider.Should().BeOfType<StaticApiKeyNamsAccessTokenProvider>();
+        provider.GetRequiredService<INamsAccessTokenProvider>().Should().BeSameAs(tokenProvider);
+    }
+
+    [Fact]
+    public void AddNamsAgentMemory_DoesNotRegisterINamsClient_WithoutOptIn()
+    {
+        var services = new ServiceCollection();
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetService<INamsClient>().Should().BeNull();
     }
 }
