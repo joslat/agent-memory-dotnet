@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Xml.Linq;
 using FluentAssertions;
+using AgentMemory.AgentFramework.Nams;
 using AgentMemory.Core.Services;
 using AgentMemory.Nams;
 using AgentMemory.Neo4j.Repositories;
@@ -8,7 +9,7 @@ using AgentMemory.Neo4j.Repositories;
 namespace AgentMemory.Tests.Unit.Infrastructure;
 
 /// <summary>
-/// CI guard for the package boundary rules in <c>docs/architecture.md §5</c> (B2–B6, B8–B9) for the
+/// CI guard for the package boundary rules in <c>docs/architecture.md §5</c> (B2–B6, B8–B10) for the
 /// lower layers. B1 (Abstractions) is covered by <see cref="AbstractionsContractGuardTests"/>; B7
 /// ("no business logic in adapters") is a non-mechanical review rule.
 ///
@@ -54,6 +55,17 @@ public sealed class PackageBoundaryGuardTests
             typeof(NamsBackendDescriptor).Assembly,
             ForbiddenExternalPrefixes: [.. FrameworkSdkPrefixes, "Neo4j.Driver"],
             AllowedInternalReferences: []),
+
+        // NAMS engineering plan Phase 6 / ADR-9: the Stage-1 MAF/NAMS adapter, isolated in its own package
+        // so neither AgentMemory.Nams (framework-free, B9) nor AgentMemory.AgentFramework (backend-neutral
+        // for the direct provider) takes on a dependency the other doesn't need. Unlike B9, Microsoft.Agents.*
+        // is NOT forbidden here -- this package IS the MAF adapter -- only the OTHER framework SDKs
+        // (SemanticKernel, MCP) and the direct-backend driver are off-limits.
+        new BoundaryRule(
+            "AgentMemory.AgentFramework.Nams",
+            typeof(NamsMemoryContextProvider).Assembly,
+            ForbiddenExternalPrefixes: ["Microsoft.SemanticKernel", "ModelContextProtocol", "Neo4j.Driver"],
+            AllowedInternalReferences: ["AgentMemory.Abstractions", "AgentMemory.Core", "AgentMemory.AgentFramework", "AgentMemory.Nams"]),
     }.ToDictionary(r => r.Project);
 
     public static IEnumerable<object[]> ProjectNames() =>

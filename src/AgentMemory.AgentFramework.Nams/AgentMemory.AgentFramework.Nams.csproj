@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="..\AgentMemory.Core\AgentMemory.Core.csproj" />
+    <ProjectReference Include="..\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\AgentMemory.Nams\AgentMemory.Nams.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.9.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+  </ItemGroup>
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>Stage-1 NAMS (Neo4j Agent Memory as a Service) adapter for the Microsoft Agent Framework (MAF) -- an additive AIContext provider backed by the NAMS backend, kept in its own package (ADR-9) so neither AgentMemory.Nams nor AgentMemory.AgentFramework takes on a dependency the other doesn't need. See docs/reviews/NAMS_Phase6_DedicatedMafProvider_PlanningAndImplementationPlan.md.</Description>
+    <PackageTags>agent-memory;nams;microsoft-agent-framework;maf;ai;memory;neo4j</PackageTags>
+  </PropertyGroup>
+</Project>
