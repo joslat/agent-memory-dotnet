@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Nams.Domain;
+using AgentMemory.Nams.Observability;
 
 namespace AgentMemory.Nams.Client;
 
@@ -27,18 +29,22 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private readonly HttpClient _httpClient;
     private readonly NamsRetryPolicy _retryPolicy;
     private readonly string? _apiKeyForRedaction;
+    private readonly NamsMetrics _metrics;
 
-    public Neo4jNamsClientAdapter(HttpClient httpClient, IOptions<NamsOptions> options, ILogger<Neo4jNamsClientAdapter> logger)
+    public Neo4jNamsClientAdapter(
+        HttpClient httpClient, IOptions<NamsOptions> options, ILogger<Neo4jNamsClientAdapter> logger, NamsMetrics metrics)
     {
         _httpClient = httpClient;
         var namsOptions = options.Value;
         _retryPolicy = new NamsRetryPolicy(namsOptions.MaxRetryAttempts, namsOptions.InitialRetryDelay, logger);
         _apiKeyForRedaction = namsOptions.ApiKey;
+        _metrics = metrics;
     }
 
     public Task<NamsConversation> CreateConversationAsync(
         string? userId, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken) =>
         InvokeAsync(
+            "resolve_conversation",
             () => BuildJsonRequest(HttpMethod.Post, "conversations", new CreateConversationRequestBody(userId, metadata)),
             isIdempotent: false,
             DeserializeAsync<NamsConversation>,
@@ -46,6 +52,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
 
     public Task<NamsContext> GetContextAsync(string conversationId, CancellationToken cancellationToken) =>
         InvokeAsync(
+            "get_context",
             () => new HttpRequestMessage(HttpMethod.Get, $"conversations/{Uri.EscapeDataString(conversationId)}/context"),
             isIdempotent: true,
             DeserializeAsync<NamsContext>,
@@ -56,6 +63,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     {
         var path = $"conversations/{Uri.EscapeDataString(conversationId)}/messages/bulk";
         var response = await InvokeAsync(
+            "store_turn",
             () => BuildJsonRequest(HttpMethod.Post, path, new AddMessagesBulkRequestBody(messages)),
             isIdempotent: false,
             DeserializeAsync<AddMessagesBatchResponseBody>,
@@ -70,6 +78,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         // idempotent for retry purposes (matches the engineering plan's retry matrix, which lists "Search" as
         // always-retryable regardless of the verb it happens to use).
         var response = await InvokeAsync(
+            "search_entities",
             () => BuildJsonRequest(HttpMethod.Post, "entities/search", new SearchEntitiesRequestBody(query, type, limit)),
             isIdempotent: true,
             DeserializeAsync<SearchEntitiesResponseBody>,
@@ -77,28 +86,72 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         return response.Entities;
     }
 
+    public async Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken)
+    {
+        var response = await InvokeAsync(
+            "list_entities",
+            () => new HttpRequestMessage(HttpMethod.Get, $"entities?limit={limit}"),
+            isIdempotent: true,
+            DeserializeAsync<ListEntitiesResponseBody>,
+            cancellationToken).ConfigureAwait(false);
+        return response.Entities;
+    }
+
     private async Task<T> InvokeAsync<T>(
+        string operationName,
         Func<HttpRequestMessage> requestFactory,
         bool isIdempotent,
         Func<Stream, CancellationToken, Task<T>> deserialize,
         CancellationToken cancellationToken)
     {
+        using var activity = NamsActivitySource.Instance.StartActivity($"agentmemory.nams.{operationName}");
+        var stopwatch = Stopwatch.StartNew();
         try
         {
-            using var response = await _retryPolicy.ExecuteAsync(requestFactory, _httpClient, isIdempotent, cancellationToken)
+            using var response = await _retryPolicy.ExecuteAsync(
+                requestFactory, _httpClient, isIdempotent, cancellationToken,
+                onRetry: () => _metrics.BackendRetries.Add(1, NamsMetricTags.Operation(operationName)))
                 .ConfigureAwait(false);
             var result = await NamsClientExceptionMapper.MapResponseAsync(response, deserialize, _apiKeyForRedaction, cancellationToken)
                 .ConfigureAwait(false);
-            return result.IsSuccess ? result.Value! : throw NamsClientExceptionMapper.ToException(result);
+            if (result.IsSuccess)
+            {
+                RecordOutcome(operationName, stopwatch.Elapsed, activity, status: "succeeded");
+                return result.Value!;
+            }
+
+            var failure = NamsClientExceptionMapper.ToException(result);
+            RecordFailure(operationName, stopwatch.Elapsed, activity, failure.FailureKind);
+            throw failure;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            throw; // caller cancellation -- never wrap
+            // Cancellation is not counted as a service failure (Phase 9's own test list).
+            RecordOutcome(operationName, stopwatch.Elapsed, activity, status: "cancelled");
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            throw NamsClientExceptionMapper.FromTransportException(ex, _apiKeyForRedaction);
+            var failure = NamsClientExceptionMapper.FromTransportException(ex, _apiKeyForRedaction);
+            RecordFailure(operationName, stopwatch.Elapsed, activity, failure.FailureKind);
+            throw failure;
         }
+    }
+
+    private void RecordOutcome(string operationName, TimeSpan elapsed, Activity? activity, string status)
+    {
+        _metrics.BackendOperations.Add(1, NamsMetricTags.OperationStatus(operationName, status));
+        _metrics.BackendDurationMs.Record(elapsed.TotalMilliseconds, NamsMetricTags.Operation(operationName));
+        activity?.SetStatus(status == "succeeded" || status == "cancelled" ? ActivityStatusCode.Ok : ActivityStatusCode.Error);
+    }
+
+    private void RecordFailure(string operationName, TimeSpan elapsed, Activity? activity, NamsFailureKind failureKind)
+    {
+        RecordOutcome(operationName, elapsed, activity, status: "failed");
+        _metrics.BackendFailures.Add(1, NamsMetricTags.OperationFailureKind(operationName, failureKind));
+        if (failureKind == NamsFailureKind.RateLimited)
+            _metrics.BackendRateLimited.Add(1, NamsMetricTags.Operation(operationName));
+        activity?.SetStatus(ActivityStatusCode.Error, failureKind.ToString());
     }
 
     private static HttpRequestMessage BuildJsonRequest<TBody>(HttpMethod method, string relativePath, TBody body) =>
@@ -128,4 +181,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private sealed record SearchEntitiesResponseBody(
         [property: JsonPropertyName("entities")] IReadOnlyList<NamsEntity> Entities,
         [property: JsonPropertyName("searchType")] string? SearchType);
+
+    private sealed record ListEntitiesResponseBody(
+        [property: JsonPropertyName("entities")] IReadOnlyList<NamsEntity> Entities);
 }

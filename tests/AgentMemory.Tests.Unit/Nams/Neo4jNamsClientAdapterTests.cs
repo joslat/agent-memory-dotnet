@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using AgentMemory.Nams;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Domain;
+using AgentMemory.Nams.Observability;
 
 namespace AgentMemory.Tests.Unit.Nams;
 
@@ -21,7 +22,7 @@ public sealed class Neo4jNamsClientAdapterTests
             MaxRetryAttempts = 2,
             InitialRetryDelay = TimeSpan.FromMilliseconds(1)
         });
-        return new Neo4jNamsClientAdapter(httpClient, options, NullLogger<Neo4jNamsClientAdapter>.Instance);
+        return new Neo4jNamsClientAdapter(httpClient, options, NullLogger<Neo4jNamsClientAdapter>.Instance, new NamsMetrics());
     }
 
     private static HttpResponseMessage Json(HttpStatusCode statusCode, string json) =>
@@ -132,6 +133,20 @@ public sealed class Neo4jNamsClientAdapterTests
 
         entities.Single().Name.Should().Be("Acme");
         fake.Requests.Should().HaveCount(2); // search is a read despite the POST verb -- retries like other reads
+    }
+
+    [Fact]
+    public async Task ListEntitiesAsync_Success_DeserializesEntities_NoQueryInRequest()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK,
+            """{"entities":[{"id":"e1","name":"Acme"}]}"""));
+        var adapter = CreateAdapter(fake);
+
+        var entities = await adapter.ListEntitiesAsync(1, CancellationToken.None);
+
+        entities.Single().Name.Should().Be("Acme");
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Get);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/entities?limit=1"));
     }
 
     [Fact]

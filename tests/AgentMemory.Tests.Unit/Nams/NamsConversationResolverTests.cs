@@ -43,6 +43,9 @@ public sealed class NamsConversationResolverTests
         public Task<IReadOnlyList<NamsEntity>> SearchEntitiesAsync(
             string query, string? type, int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static NamsConversationIdentity Identity(

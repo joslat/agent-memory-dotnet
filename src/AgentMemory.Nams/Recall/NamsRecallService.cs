@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Domain;
+using AgentMemory.Nams.Observability;
 
 namespace AgentMemory.Nams.Recall;
 
@@ -18,12 +19,15 @@ internal sealed class NamsRecallService : INamsRecallService
     private readonly INamsClient _namsClient;
     private readonly NamsRecallOptions _options;
     private readonly ILogger<NamsRecallService> _logger;
+    private readonly NamsMetrics _metrics;
 
-    public NamsRecallService(INamsClient namsClient, IOptions<NamsRecallOptions> options, ILogger<NamsRecallService> logger)
+    public NamsRecallService(
+        INamsClient namsClient, IOptions<NamsRecallOptions> options, ILogger<NamsRecallService> logger, NamsMetrics metrics)
     {
         _namsClient = namsClient;
         _options = options.Value;
         _logger = logger;
+        _metrics = metrics;
     }
 
     public async Task<NamsRecallResult> RecallAsync(string namsConversationId, string? queryText, CancellationToken cancellationToken)
@@ -80,11 +84,16 @@ internal sealed class NamsRecallService : INamsRecallService
 
         var deduplicated = items.DistinctBy(item => item.SourceId).ToList();
         var (budgeted, truncated) = ApplyCharacterBudget(deduplicated, _options.MaxTotalCharacters);
+        var isPartialOverall = isPartial || truncated;
+
+        _metrics.ContextItems.Record(budgeted.Count, NamsMetricTags.Operation("recall"));
+        if (isPartialOverall)
+            _metrics.ContextTruncated.Add(1, NamsMetricTags.Operation("recall"));
 
         return new NamsRecallResult
         {
             Items = budgeted,
-            IsPartial = isPartial || truncated,
+            IsPartial = isPartialOverall,
             Warnings = warnings
         };
     }

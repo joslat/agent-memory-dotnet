@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using AgentMemory.Nams;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Domain;
+using AgentMemory.Nams.Observability;
 using AgentMemory.Nams.Persistence;
 
 namespace AgentMemory.Tests.Unit.Nams;
@@ -34,6 +35,9 @@ public sealed class NamsPersistenceServiceTests
         public Task<IReadOnlyList<NamsEntity>> SearchEntitiesAsync(
             string query, string? type, int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static NamsPersistenceService CreateService(
@@ -43,7 +47,7 @@ public sealed class NamsPersistenceServiceTests
             Endpoint = new Uri("https://nams.test/v1/"),
             ApiKey = "nams_key",
             PersistenceFailureMode = mode
-        }), NullLogger<NamsPersistenceService>.Instance);
+        }), NullLogger<NamsPersistenceService>.Instance, new NamsMetrics());
 
     [Fact]
     public async Task PersistTurnAsync_BothListsEmpty_ReturnsPersistedWithNoIds_DoesNotCallClient()
@@ -233,7 +237,7 @@ public sealed class NamsPersistenceServiceTests
         {
             Endpoint = new Uri("https://nams.test/v1/"),
             ApiKey = apiKey
-        }), NullLogger<NamsPersistenceService>.Instance);
+        }), NullLogger<NamsPersistenceService>.Instance, new NamsMetrics());
 
         var result = await service.PersistTurnAsync("conv-1", [new NamsMessageToPersist("hi")], [], CancellationToken.None);
 
