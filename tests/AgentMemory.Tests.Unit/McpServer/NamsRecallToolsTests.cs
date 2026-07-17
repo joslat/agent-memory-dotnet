@@ -65,6 +65,19 @@ public sealed class NamsRecallToolsTests
         warning.GetProperty("category").GetString().Should().Be("context");
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task NamsRecall_MissingConversationId_ReturnsErrorWithoutCallingRecallService(string? namsConversationId)
+    {
+        var json = await NamsRecallTools.NamsRecall(_recallService, namsConversationId!, "hi");
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("error").GetString().Should().NotBeNullOrEmpty();
+        await _recallService.DidNotReceiveWithAnyArgs().RecallAsync(default!, default, default);
+    }
+
     [Fact]
     public async Task NamsRecall_NoUserIdOrWorkspaceIdParameterExists()
     {

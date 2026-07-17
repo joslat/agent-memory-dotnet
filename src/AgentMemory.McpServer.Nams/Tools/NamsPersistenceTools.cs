@@ -24,6 +24,16 @@ internal sealed class NamsPersistenceTools
         string role,
         CancellationToken cancellationToken = default)
     {
+        // Defensive: a malformed/adversarial MCP call's argument binding isn't guaranteed to enforce
+        // non-null for a plain `string` parameter -- these must fail as a clean error response, never an
+        // unhandled NullReferenceException out of the tool invocation.
+        if (string.IsNullOrWhiteSpace(namsConversationId))
+            return NamsMcpToolJson.Serialize(new { persisted = false, error = "namsConversationId is required." });
+        if (string.IsNullOrWhiteSpace(content))
+            return NamsMcpToolJson.Serialize(new { persisted = false, error = "content is required." });
+        if (string.IsNullOrWhiteSpace(role))
+            return NamsMcpToolJson.Serialize(new { persisted = false, error = "role is required (\"user\" or \"assistant\")." });
+
         var normalizedRole = role.Trim().ToLowerInvariant();
         if (normalizedRole is not ("user" or "assistant"))
         {

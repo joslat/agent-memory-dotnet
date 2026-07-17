@@ -56,6 +56,24 @@ public sealed class NamsPersistenceToolsTests
             default!, default!, default!, default);
     }
 
+    [Theory]
+    [InlineData(null, "hello", "user")]
+    [InlineData("conv-1", null, "user")]
+    [InlineData("conv-1", "hello", null)]
+    [InlineData("", "hello", "user")]
+    [InlineData("conv-1", "", "user")]
+    [InlineData("conv-1", "hello", "")]
+    public async Task NamsRemember_MissingRequiredArgument_ReturnsErrorWithoutCallingPersistenceService(
+        string? namsConversationId, string? content, string? role)
+    {
+        var json = await NamsPersistenceTools.NamsRemember(_persistenceService, namsConversationId!, content!, role!);
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("persisted").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("error").GetString().Should().NotBeNullOrEmpty();
+        await _persistenceService.DidNotReceiveWithAnyArgs().PersistTurnAsync(default!, default!, default!, default);
+    }
+
     [Fact]
     public async Task NamsRemember_ReturnsOutcomeAndMessageIds()
     {

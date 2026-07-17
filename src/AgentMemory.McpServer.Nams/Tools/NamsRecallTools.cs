@@ -25,6 +25,12 @@ internal sealed class NamsRecallTools
         string? queryText = null,
         CancellationToken cancellationToken = default)
     {
+        // Defensive: a malformed/adversarial MCP call's argument binding isn't guaranteed to enforce
+        // non-null for a plain `string` parameter -- this must fail as a clean error response, never an
+        // unhandled exception out of the tool invocation.
+        if (string.IsNullOrWhiteSpace(namsConversationId))
+            return NamsMcpToolJson.Serialize(new { error = "namsConversationId is required." });
+
         var result = await recallService.RecallAsync(namsConversationId, queryText, cancellationToken).ConfigureAwait(false);
         return NamsMcpToolJson.Serialize(new
         {

@@ -71,17 +71,36 @@ that consolidation belongs with Phase 7 convergence, not bolted on here.
   MCP-specific span around the tool invocation. Not adding NAMS-tool-specific metrics in this pass -- there
   are only 2 tools, and the automatic-path metrics already prove the underlying operations are observable.
 
-## 4. Verification
+## 4. Self-review findings and fixes
+
+3 parallel reviewers (correctness / cross-file impact / cleanup-conventions), matching this session's pattern:
+
+- **Correctness (1 fixed):** neither tool method guarded its `string` parameters against null/empty/
+  whitespace before use -- a malformed or adversarial MCP call (argument binding isn't guaranteed to enforce
+  non-null for a plain `string` parameter) could throw an unhandled exception out of the tool invocation
+  instead of the intended clean `{ error: "..." }` JSON response. Fixed in both `NamsRecallTools.NamsRecall`
+  and `NamsPersistenceTools.NamsRemember` with explicit `string.IsNullOrWhiteSpace` guards returning a clean
+  error response; added 2 new test methods (7 additional test results) covering null/empty/whitespace for
+  every required argument.
+- **Cross-file impact (0 fixed, 1 doc fix):** confirmed the B11 boundary rule, `eng/release-packages.txt`
+  consistency, `AgentMemory.slnx` entry, `ModelContextProtocol` version alignment (all three consuming
+  projects pin `1.2.0`), and zero tool-name collision with the direct backend's 24 existing tools -- all
+  clean. Caught this doc's own test-count claim ("16 new") was wrong; corrected below to the actual count.
+- **Cleanup/conventions (0 fixed):** one purely cosmetic attribute-line-splitting divergence from
+  `EntityTools.cs`'s style noted, not worth changing.
+
+## 5. Verification
 
 - `dotnet build AgentMemory.slnx -c Release` -- 0 warnings, 0 errors.
-- `dotnet test tests/AgentMemory.Tests.Unit` -- full suite green (16 new: 3 registry + tool-method tests
-  including the structural no-userId/no-workspace guards).
-- New B11 package-boundary rule added to `PackageBoundaryGuardTests` and `docs/architecture.md` §5.
+- `dotnet test tests/AgentMemory.Tests.Unit` -- full suite green, **23 new tests** (7 `NamsRecallToolsTests` +
+  13 `NamsPersistenceToolsTests` + 3 `NamsMcpToolRegistryTests`), including the structural no-userId/
+  no-workspace guards and the null/empty/whitespace-argument guards added during self-review.
 
-## 5. Definition of done
+## 6. Definition of done
 
 - [x] `AgentMemory.McpServer.Nams` package built, wired into `AgentMemory.slnx`/`eng/release-packages.txt`.
 - [x] Read tool (`nams_recall`) and write tool (`nams_remember`, separately opt-in) implemented and tested.
 - [x] B11 boundary rule added and enforced.
 - [x] Plan deviation (`IAgentMemoryBackend` substitution) and "ambient identity" design decision documented.
-- [ ] Self-reviewed, PR opened, CI green, merged to `main`.
+- [x] Self-reviewed and fixes applied.
+- [ ] PR opened, CI green, merged to `main`.
