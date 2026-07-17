@@ -75,10 +75,11 @@ public sealed class Neo4jMicrosoftMemoryFacade
             // similarity-ranked, not chronological.)
             // #92 Phase 7: this is a semantic-query recall path (queryText above), the same shape as
             // MafTypeMapper.ToContextMessages' chat-history blending, so a message persisted with a
-            // privileged role ("system"/"tool") via a caller-facing tool must be gated here too -- unlike
-            // the query-less GetMessagesAsync/GetContextForRunAsync-fallback path above, which relies on
-            // Neo4jChatMessageStore for genuine same-session chat-history replay and is intentionally left
-            // ungated.
+            // privileged role ("system"/"tool") via a caller-facing tool must be gated here too. The
+            // query-less GetMessagesAsync/GetContextForRunAsync-fallback path above relies on
+            // Neo4jChatMessageStore for genuine same-session chat-history replay -- a stabilization audit
+            // found that path was ALSO left ungated (an oversight, not a deliberate design choice) and fixed
+            // it directly inside Neo4jChatMessageStore.GetMessagesAsync, so both paths are now gated.
             // #92 Phase 8: message content also goes through the same per-item admission check MafTypeMapper
             // applies (Strict mode excludes instruction-like content; Permissive, the default, still
             // includes it) -- through the same DI-injectable _admissionPolicy, so a host's custom

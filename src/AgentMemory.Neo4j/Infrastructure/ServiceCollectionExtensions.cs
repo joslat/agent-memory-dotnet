@@ -48,7 +48,7 @@ public static class ServiceCollectionExtensions
             .Configure(o => configureStore?.Invoke(o))
             .Validate(
                 o => o.Strategy != MemoryStorageStrategy.DatabasePerApplication || !string.IsNullOrWhiteSpace(o.DatabasePrefix),
-                "MemoryStoreOptions.DatabasePrefix must be non-blank when Strategy is DatabasePerApplication.")
+                "MemoryStore DatabasePrefix must be non-blank when Strategy is DatabasePerApplication.")
             .ValidateOnStart();
         services.TryAddSingleton<DefaultMemoryStoreContext>();
         services.TryAddSingleton<IMemoryStoreContext>(sp => sp.GetRequiredService<DefaultMemoryStoreContext>());

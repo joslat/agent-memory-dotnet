@@ -719,7 +719,7 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|
-| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 33 MCP tools, 12 resources, 6 prompts |
+| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 25 MCP tools, 6 resources, 3 prompts |
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 

@@ -142,10 +142,10 @@ internal static class MafTypeMapper
         // both. DistinctBy preserves insertion order (recent-first) while dropping subsequent duplicates.
         // #92 Phase 7 gated the recalled ROLE: a message persisted with a privileged role ("system"/"tool")
         // via a caller-facing tool (memory_store_message, Neo4jMemoryPlugin.AddMessageAsync) could otherwise
-        // resurface here with full, undiminished ChatRole.System/Tool authority. Ordinary "user"/"assistant"
-        // messages are read via the SAME ToChatMessage this method's sibling Neo4jChatMessageStore/
-        // Neo4jChatHistoryProvider use for genuine chat-history replay -- gating is applied here only, on
-        // the recalled-context path, not on that shared conversion helper itself.
+        // resurface here with full, undiminished ChatRole.System/Tool authority. This method's siblings
+        // Neo4jChatMessageStore/Neo4jChatHistoryProvider, which read the SAME RecentMessages data for
+        // genuine same-session chat-history replay, were found to skip this gating entirely during a
+        // stabilization audit and now apply it too, via the shared ToGatedChatMessages helper below.
         // #92 Phase 8: message CONTENT now also goes through the same per-item admission check as every
         // other category (Strict mode excludes instruction-like content; Permissive, the default, still
         // includes it). Deliberately NOT delimited/wrapped like entities/facts/preferences/GraphRAG --
