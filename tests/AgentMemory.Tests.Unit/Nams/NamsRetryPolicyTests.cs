@@ -123,6 +123,38 @@ public sealed class NamsRetryPolicyTests
     }
 
     [Fact]
+    public async Task Idempotent_TransientServerErrorThenSuccess_InvokesOnRetryOnceForTheOneRetry()
+    {
+        var fake = new FakeHttpMessageHandler(
+            () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            () => new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
+        var retryCount = 0;
+
+        using var response = await CreatePolicy().ExecuteAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None,
+            onRetry: () => retryCount++);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        retryCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PermanentFailure_NeverInvokesOnRetry()
+    {
+        var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
+        var retryCount = 0;
+
+        using var response = await CreatePolicy().ExecuteAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None,
+            onRetry: () => retryCount++);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        retryCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Idempotent_NetworkExceptionExhaustsRetries_Throws()
     {
         var fake = new FakeHttpMessageHandler((_, _) => throw new HttpRequestException("boom"));

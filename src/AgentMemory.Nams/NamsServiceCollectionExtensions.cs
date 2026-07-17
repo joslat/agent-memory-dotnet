@@ -5,6 +5,7 @@ using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Identity;
 using AgentMemory.Nams.Internal;
+using AgentMemory.Nams.Observability;
 using AgentMemory.Nams.Persistence;
 using AgentMemory.Nams.Recall;
 
@@ -46,6 +47,9 @@ public static class NamsServiceCollectionExtensions
         // harmless no-op for this registration (the options registration above is likewise safe to call
         // more than once -- each call just adds another equivalent configure/validate step).
         services.TryAddSingleton<NamsBackendDescriptor>();
+
+        services.TryAddSingleton<NamsMetrics>();
+        services.TryAddSingleton<INamsHealthCheck, NamsHealthCheck>();
 
         services.TryAddSingleton<INamsAccessTokenProvider, StaticApiKeyNamsAccessTokenProvider>();
         services.TryAddTransient<NamsAuthenticationHandler>();

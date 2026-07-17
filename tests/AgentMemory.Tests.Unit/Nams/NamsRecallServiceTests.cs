@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Domain;
+using AgentMemory.Nams.Observability;
 using AgentMemory.Nams.Recall;
 
 namespace AgentMemory.Tests.Unit.Nams;
@@ -36,12 +37,15 @@ public sealed class NamsRecallServiceTests
             SearchEntitiesCallCount++;
             return (OnSearchEntities ?? ((_, _, _) => Task.FromResult<IReadOnlyList<NamsEntity>>([])))(query, limit, cancellationToken);
         }
+
+        public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static readonly NamsContext EmptyContext = new([], [], []);
 
     private static NamsRecallService CreateService(FakeNamsClient client, NamsRecallOptions? options = null) =>
-        new(client, Options.Create(options ?? new NamsRecallOptions()), NullLogger<NamsRecallService>.Instance);
+        new(client, Options.Create(options ?? new NamsRecallOptions()), NullLogger<NamsRecallService>.Instance, new NamsMetrics());
 
     [Fact]
     public async Task RecallAsync_MapsReflectionsObservationsAndRecentMessages()

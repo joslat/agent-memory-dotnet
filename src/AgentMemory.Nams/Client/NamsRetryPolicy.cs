@@ -24,12 +24,16 @@ internal sealed class NamsRetryPolicy
     }
 
     /// <summary><paramref name="requestFactory"/> is invoked once per attempt -- an <see cref="HttpRequestMessage"/>
-    /// can only be sent once, so each retry needs a fresh instance.</summary>
+    /// can only be sent once, so each retry needs a fresh instance. <paramref name="onRetry"/> (Phase 9), if
+    /// supplied, is invoked once per actual retry -- after the transient response/exception is observed, right
+    /// before the retry delay -- so a caller can record a metric without this policy taking a hard dependency
+    /// on any metrics type.</summary>
     public async Task<HttpResponseMessage> ExecuteAsync(
         Func<HttpRequestMessage> requestFactory,
         HttpClient httpClient,
         bool isIdempotent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onRetry = null)
     {
         if (!isIdempotent)
             return await httpClient.SendAsync(requestFactory(), cancellationToken).ConfigureAwait(false);
@@ -47,6 +51,7 @@ internal sealed class NamsRetryPolicy
                     "Transient NAMS response {Status}; retry {Next}/{Max} after {Delay}.",
                     (int)response.StatusCode, attempt + 1, _maxAttempts, delay);
                 response.Dispose();
+                onRetry?.Invoke();
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -58,6 +63,7 @@ internal sealed class NamsRetryPolicy
                 // Network failure, or a per-request timeout (a TaskCanceledException whose token was NOT the
                 // caller's -- caller cancellation is handled by the guarded catch above).
                 _logger?.LogDebug(ex, "Transient NAMS failure; retry {Next}/{Max}.", attempt + 1, _maxAttempts);
+                onRetry?.Invoke();
                 await Task.Delay(BackoffFor(attempt), cancellationToken).ConfigureAwait(false);
             }
         }

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Nams.Client;
 using AgentMemory.Nams.Domain;
+using AgentMemory.Nams.Observability;
 
 namespace AgentMemory.Nams.Persistence;
 
@@ -16,12 +17,15 @@ internal sealed class NamsPersistenceService : INamsPersistenceService
     private readonly INamsClient _namsClient;
     private readonly NamsOptions _options;
     private readonly ILogger<NamsPersistenceService> _logger;
+    private readonly NamsMetrics _metrics;
 
-    public NamsPersistenceService(INamsClient namsClient, IOptions<NamsOptions> options, ILogger<NamsPersistenceService> logger)
+    public NamsPersistenceService(
+        INamsClient namsClient, IOptions<NamsOptions> options, ILogger<NamsPersistenceService> logger, NamsMetrics metrics)
     {
         _namsClient = namsClient;
         _options = options.Value;
         _logger = logger;
+        _metrics = metrics;
     }
 
     public async Task<NamsPersistenceResult> PersistTurnAsync(
@@ -58,6 +62,7 @@ internal sealed class NamsPersistenceService : INamsPersistenceService
         catch (NamsOperationException ex) when (ex.FailureKind is NamsFailureKind.Network or NamsFailureKind.Timeout)
         {
             _logger.LogWarning(ex, "NAMS message persistence for conversation {ConversationId} timed out or lost network connectivity; write outcome is unknown.", namsConversationId);
+            _metrics.UnknownWriteOutcomes.Add(1, NamsMetricTags.Operation("store_turn"));
             result = new NamsPersistenceResult
             {
                 Outcome = NamsPersistenceOutcome.UnknownWriteOutcome,
