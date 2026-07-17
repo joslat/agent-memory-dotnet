@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Nams.Authentication;
 using AgentMemory.Nams.Client;
+using AgentMemory.Nams.Identity;
 using AgentMemory.Nams.Internal;
 
 namespace AgentMemory.Nams;
@@ -51,6 +52,11 @@ public static class NamsServiceCollectionExtensions
                 NamsClientFactory.ConfigureHttpClient(httpClient, options);
             })
             .AddHttpMessageHandler<NamsAuthenticationHandler>();
+
+        // TryAddSingleton: a host that wants a durable, cross-process-safe state store registers its own
+        // INamsConversationStateStore BEFORE calling AddNamsAgentMemory -- this default is single-process only.
+        services.TryAddSingleton<INamsConversationStateStore, InMemoryNamsConversationStateStore>();
+        services.TryAddSingleton<INamsConversationResolver, NamsConversationResolver>();
 
         return services;
     }
