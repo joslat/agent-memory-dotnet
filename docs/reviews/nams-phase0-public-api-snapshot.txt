@@ -1,0 +1,2642 @@
+# Public API Snapshot
+# Generated: 2026-07-17 (NAMS Phase 0 baseline, commit 60eb7c1 / tag baseline/pre-nams-2026-07-17)
+
+## AgentMemory.Abstractions (172 public types)
+
+### class AgentMemory.Abstractions.Domain.CompressedContext
+  .ctor()
+  Int32 CompressedTokenCount { get; set; }
+  IReadOnlyList`1 Observations { get; set; }
+  Int32 OriginalTokenCount { get; set; }
+  IReadOnlyList`1 RecentMessages { get; set; }
+  IReadOnlyList`1 Reflections { get; set; }
+  Boolean WasCompressed { get; set; }
+
+### class AgentMemory.Abstractions.Domain.Conversation
+  .ctor()
+  Conversation <Clone>$()
+  Boolean Archived { get; set; }
+  String ConversationId { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Conversation other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String SessionId { get; set; }
+  String Title { get; set; }
+  String ToString()
+  DateTimeOffset UpdatedAtUtc { get; set; }
+  String UserId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.DeduplicationStats
+  .ctor(Int32 PendingCount, Int32 ConfirmedCount, Int32 RejectedCount, Int32 MergedCount)
+  DeduplicationStats <Clone>$()
+  Int32 ConfirmedCount { get; set; }
+  Void Deconstruct(Int32& PendingCount, Int32& ConfirmedCount, Int32& RejectedCount, Int32& MergedCount)
+  Boolean Equals(Object obj)
+  Boolean Equals(DeduplicationStats other)
+  Int32 GetHashCode()
+  Int32 MergedCount { get; set; }
+  Int32 PendingCount { get; set; }
+  Int32 RejectedCount { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.DuplicatePair
+  .ctor(Entity Source, Entity Target, Double Similarity, DuplicateStatus Status)
+  DuplicatePair <Clone>$()
+  Void Deconstruct(Entity& Source, Entity& Target, Double& Similarity, DuplicateStatus& Status)
+  Boolean Equals(Object obj)
+  Boolean Equals(DuplicatePair other)
+  Int32 GetHashCode()
+  Double Similarity { get; set; }
+  Entity Source { get; set; }
+  DuplicateStatus Status { get; set; }
+  Entity Target { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Domain.DuplicateStatus
+  DuplicateStatus Confirmed
+  DuplicateStatus Merged
+  DuplicateStatus Pending
+  DuplicateStatus Rejected
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.Enrichment.EnrichmentResult
+  .ctor()
+  EnrichmentResult <Clone>$()
+  Nullable`1 Confidence { get; set; }
+  String Description { get; set; }
+  String EntityName { get; set; }
+  String EntityType { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EnrichmentResult other)
+  String ErrorMessage { get; set; }
+  Int32 GetHashCode()
+  String ImageUrl { get; set; }
+  IReadOnlyList`1 Images { get; set; }
+  IReadOnlyDictionary`2 Properties { get; set; }
+  String Provider { get; set; }
+  String ProviderUri { get; set; }
+  IReadOnlyList`1 RelatedEntities { get; set; }
+  DateTimeOffset RetrievedAtUtc { get; set; }
+  String SourceUrl { get; set; }
+  Nullable`1 Status { get; set; }
+  String Summary { get; set; }
+  String ToString()
+  String WikipediaUrl { get; set; }
+
+### enum AgentMemory.Abstractions.Domain.Enrichment.EnrichmentStatus
+  EnrichmentStatus Error
+  EnrichmentStatus NotFound
+  EnrichmentStatus RateLimited
+  EnrichmentStatus Skipped
+  EnrichmentStatus Success
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.Enrichment.GeocodingResult
+  .ctor()
+  GeocodingResult <Clone>$()
+  String City { get; set; }
+  Nullable`1 Confidence { get; set; }
+  String Country { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(GeocodingResult other)
+  String FormattedAddress { get; set; }
+  Int32 GetHashCode()
+  Double Latitude { get; set; }
+  Double Longitude { get; set; }
+  String Provider { get; set; }
+  String Region { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Enrichment.RelatedEntity
+  .ctor()
+  RelatedEntity <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(RelatedEntity other)
+  Int32 GetHashCode()
+  String Name { get; set; }
+  String ProviderUri { get; set; }
+  String Relation { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Entity
+  .ctor()
+  Entity <Clone>$()
+  IReadOnlyList`1 Aliases { get; set; }
+  IReadOnlyDictionary`2 Attributes { get; set; }
+  String CanonicalName { get; set; }
+  Double Confidence { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  String Description { get; set; }
+  Single[] Embedding { get; set; }
+  String EntityId { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Entity other)
+  Int32 GetHashCode()
+  Nullable`1 Latitude { get; set; }
+  Nullable`1 Longitude { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Name { get; set; }
+  String OwnerId { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  String Subtype { get; set; }
+  String ToString()
+  String Type { get; set; }
+  Nullable`1 UpdatedAtUtc { get; set; }
+
+### enum AgentMemory.Abstractions.Domain.EntityMatchType
+  EntityMatchType Exact
+  EntityMatchType Fuzzy
+  EntityMatchType New
+  EntityMatchType Semantic
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.EntityProvenance
+  .ctor(String EntityId, IReadOnlyList`1 Sources, IReadOnlyList`1 Extractors)
+  EntityProvenance <Clone>$()
+  Void Deconstruct(String& EntityId, IReadOnlyList`1& Sources, IReadOnlyList`1& Extractors)
+  String EntityId { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EntityProvenance other)
+  IReadOnlyList`1 Extractors { get; set; }
+  Int32 GetHashCode()
+  IReadOnlyList`1 Sources { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.EntityResolutionResult
+  .ctor()
+  EntityResolutionResult <Clone>$()
+  Double Confidence { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EntityResolutionResult other)
+  Int32 GetHashCode()
+  EntityMatchType MatchType { get; set; }
+  String MergedFromEntityId { get; set; }
+  Entity ResolvedEntity { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.EntityType
+  IReadOnlyList`1 All
+  String Event
+  Boolean IsKnownType(String type)
+  String Location
+  String Normalize(String type)
+  String Object
+  String Organization
+  String Person
+  String Unknown
+
+### class AgentMemory.Abstractions.Domain.ExtractedEntity
+  .ctor()
+  ExtractedEntity <Clone>$()
+  IReadOnlyList`1 Aliases { get; set; }
+  IReadOnlyDictionary`2 Attributes { get; set; }
+  Double Confidence { get; set; }
+  String Description { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractedEntity other)
+  Int32 GetHashCode()
+  String Name { get; set; }
+  String Subtype { get; set; }
+  String ToString()
+  String Type { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ExtractedFact
+  .ctor()
+  ExtractedFact <Clone>$()
+  Double Confidence { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractedFact other)
+  Int32 GetHashCode()
+  String Object { get; set; }
+  String Predicate { get; set; }
+  String Subject { get; set; }
+  String ToString()
+  Nullable`1 ValidFrom { get; set; }
+  Nullable`1 ValidUntil { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ExtractedPreference
+  .ctor()
+  ExtractedPreference <Clone>$()
+  String Category { get; set; }
+  Double Confidence { get; set; }
+  String Context { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractedPreference other)
+  Int32 GetHashCode()
+  String PreferenceText { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.ExtractedRelationship
+  .ctor()
+  ExtractedRelationship <Clone>$()
+  IReadOnlyDictionary`2 Attributes { get; set; }
+  Double Confidence { get; set; }
+  String Description { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractedRelationship other)
+  Int32 GetHashCode()
+  String RelationshipType { get; set; }
+  String SourceEntity { get; set; }
+  String TargetEntity { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Extraction.Streaming.ChunkInfo
+  .ctor()
+  ChunkInfo <Clone>$()
+  Int32 ApproxTokenCount { get; }
+  Int32 CharCount { get; }
+  Int32 EndChar { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ChunkInfo other)
+  Int32 GetHashCode()
+  Int32 Index { get; set; }
+  Boolean IsFirst { get; set; }
+  Boolean IsLast { get; set; }
+  Int32 StartChar { get; set; }
+  String Text { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Extraction.Streaming.StreamingChunkResult
+  .ctor()
+  StreamingChunkResult <Clone>$()
+  ChunkInfo Chunk { get; set; }
+  Double DurationMs { get; set; }
+  Int32 EntityCount { get; }
+  Boolean Equals(Object obj)
+  Boolean Equals(StreamingChunkResult other)
+  String Error { get; set; }
+  Int32 GetHashCode()
+  Int32 RelationCount { get; }
+  ExtractionResult Result { get; set; }
+  Boolean Success { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Extraction.Streaming.StreamingExtractionResult
+  .ctor()
+  StreamingExtractionResult <Clone>$()
+  IReadOnlyList`1 ChunkResults { get; set; }
+  IReadOnlyList`1 Entities { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(StreamingExtractionResult other)
+  Int32 GetHashCode()
+  IReadOnlyList`1 Relationships { get; set; }
+  StreamingExtractionStats Stats { get; set; }
+  ExtractionResult ToExtractionResult()
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Extraction.Streaming.StreamingExtractionStats
+  .ctor()
+  StreamingExtractionStats <Clone>$()
+  Int32 DeduplicatedEntities { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(StreamingExtractionStats other)
+  Int32 FailedChunks { get; set; }
+  Int32 GetHashCode()
+  Int32 SuccessfulChunks { get; set; }
+  String ToString()
+  Int32 TotalCharacters { get; set; }
+  Int32 TotalChunks { get; set; }
+  Double TotalDurationMs { get; set; }
+  Int32 TotalEntities { get; set; }
+  Int32 TotalRelations { get; set; }
+  Int32 TotalTokensApprox { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ExtractionRequest
+  .ctor()
+  ExtractionRequest <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractionRequest other)
+  Int32 GetHashCode()
+  IReadOnlyList`1 Messages { get; set; }
+  IReadOnlyDictionary`2 Options { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+  Nullable`1 TrustLevel { get; set; }
+  ExtractionTypes TypesToExtract { get; set; }
+  String UserId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ExtractionResult
+  .ctor()
+  ExtractionResult <Clone>$()
+  IReadOnlyList`1 Entities { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractionResult other)
+  IReadOnlyList`1 Facts { get; set; }
+  Int32 GetHashCode()
+  Boolean IsPartial { get; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  IReadOnlyList`1 Outcomes { get; set; }
+  IReadOnlyList`1 Preferences { get; set; }
+  IReadOnlyList`1 Relationships { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  IngestionStatus Status { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.ExtractionStats
+  .ctor(Int32 TotalEntities, Int32 TotalMessages, Double AvgEntitiesPerMessage)
+  ExtractionStats <Clone>$()
+  Double AvgEntitiesPerMessage { get; set; }
+  Void Deconstruct(Int32& TotalEntities, Int32& TotalMessages, Double& AvgEntitiesPerMessage)
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractionStats other)
+  Int32 GetHashCode()
+  String ToString()
+  Int32 TotalEntities { get; set; }
+  Int32 TotalMessages { get; set; }
+
+### enum AgentMemory.Abstractions.Domain.ExtractionTypes
+  ExtractionTypes All
+  ExtractionTypes Entities
+  ExtractionTypes Facts
+  ExtractionTypes None
+  ExtractionTypes Preferences
+  ExtractionTypes Relationships
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.Extractor
+  .ctor()
+  Extractor <Clone>$()
+  String ConfigJson { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Extractor other)
+  String ExtractorId { get; set; }
+  Int32 GetHashCode()
+  String Name { get; set; }
+  String ToString()
+  String Version { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ExtractorStats
+  .ctor(String ExtractorName, Int32 EntityCount, Double AvgConfidence, Int32 TotalExtractions)
+  ExtractorStats <Clone>$()
+  Double AvgConfidence { get; set; }
+  Void Deconstruct(String& ExtractorName, Int32& EntityCount, Double& AvgConfidence, Int32& TotalExtractions)
+  Int32 EntityCount { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ExtractorStats other)
+  String ExtractorName { get; set; }
+  Int32 GetHashCode()
+  String ToString()
+  Int32 TotalExtractions { get; set; }
+
+### class AgentMemory.Abstractions.Domain.Fact
+  .ctor()
+  Fact <Clone>$()
+  String Category { get; set; }
+  Double Confidence { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Fact other)
+  String FactId { get; set; }
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Object { get; set; }
+  String OwnerId { get; set; }
+  String Predicate { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  String Subject { get; set; }
+  String ToString()
+  Nullable`1 ValidFrom { get; set; }
+  Nullable`1 ValidUntil { get; set; }
+
+### class AgentMemory.Abstractions.Domain.GraphRagContextItem
+  .ctor()
+  GraphRagContextItem <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(GraphRagContextItem other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  Double Score { get; set; }
+  IReadOnlyList`1 SourceNodeIds { get; set; }
+  String Text { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.GraphRagContextRequest
+  .ctor()
+  GraphRagContextRequest <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(GraphRagContextRequest other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Options { get; set; }
+  String Query { get; set; }
+  GraphRagSearchMode SearchMode { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+  Int32 TopK { get; set; }
+  String UserId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.GraphRagContextResult
+  .ctor()
+  GraphRagContextResult <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(GraphRagContextResult other)
+  Int32 GetHashCode()
+  IReadOnlyList`1 Items { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Domain.GraphRagSearchMode
+  GraphRagSearchMode Fulltext
+  GraphRagSearchMode Graph
+  GraphRagSearchMode Hybrid
+  GraphRagSearchMode Vector
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.IngestionItemOutcome
+  .ctor()
+  IngestionItemOutcome <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(IngestionItemOutcome other)
+  String ErrorCode { get; set; }
+  String ErrorMessage { get; set; }
+  Int32 GetHashCode()
+  MemoryItemKind Kind { get; set; }
+  String PersistedId { get; set; }
+  Boolean Retryable { get; set; }
+  String SourceKey { get; set; }
+  IngestionStage Stage { get; set; }
+  IngestionItemStatus Status { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Domain.IngestionItemStatus
+  IngestionItemStatus Failed
+  IngestionItemStatus Skipped
+  IngestionItemStatus Succeeded
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Domain.IngestionStage
+  IngestionStage Embedding
+  IngestionStage Extraction
+  IngestionStage Persistence
+  IngestionStage Provenance
+  IngestionStage RelationshipPersistence
+  IngestionStage Resolution
+  IngestionStage Validation
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Domain.IngestionStatus
+  IngestionStatus Failed
+  IngestionStatus PartiallySucceeded
+  IngestionStatus Succeeded
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.MemoryContext
+  .ctor()
+  MemoryContext <Clone>$()
+  DateTimeOffset AssembledAtUtc { get; set; }
+  RetrievalBlendMode BlendMode { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryContext other)
+  Int32 GetHashCode()
+  String GraphRagContext { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  MemoryContextSection`1 RecentMessages { get; set; }
+  MemoryContextSection`1 RelevantEntities { get; set; }
+  MemoryContextSection`1 RelevantFacts { get; set; }
+  MemoryContextSection`1 RelevantMessages { get; set; }
+  MemoryContextSection`1 RelevantPreferences { get; set; }
+  String SessionId { get; set; }
+  MemoryContextSection`1 SimilarTraces { get; set; }
+  String ToString()
+  Boolean Truncated { get; set; }
+
+### class AgentMemory.Abstractions.Domain.MemoryContextSection`1
+  .ctor()
+  MemoryContextSection`1 <Clone>$()
+  MemoryContextSection`1 Empty { get; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryContextSection`1 other)
+  Int32 GetHashCode()
+  IReadOnlyList`1 Items { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Domain.MemoryHistoryKind
+  MemoryHistoryKind Entity
+  MemoryHistoryKind Fact
+  MemoryHistoryKind Preference
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.MemoryHistoryQuery
+  .ctor()
+  MemoryHistoryQuery <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryHistoryQuery other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  Boolean IncludeInvalidated { get; set; }
+  Boolean IncludeShared { get; set; }
+  Nullable`1 Kind { get; set; }
+  Int32 Limit { get; set; }
+  String OwnerId { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.MemoryHistoryRecord
+  .ctor()
+  MemoryHistoryRecord <Clone>$()
+  Int32 AccessCount { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryHistoryRecord other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  Nullable`1 InvalidatedAtUtc { get; set; }
+  MemoryHistoryKind Kind { get; set; }
+  Nullable`1 LastAccessedAtUtc { get; set; }
+  Nullable`1 LastReadAuditAtUtc { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String OwnerId { get; set; }
+  Int32 ReadAuditCount { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  MemoryHistoryStatus Status { get; set; }
+  String Summary { get; set; }
+  IReadOnlyList`1 SupersededByIds { get; set; }
+  IReadOnlyList`1 SupersedesIds { get; set; }
+  String ToString()
+  Nullable`1 UpdatedAtUtc { get; set; }
+  Nullable`1 ValidFromUtc { get; set; }
+  Nullable`1 ValidUntilUtc { get; set; }
+
+### enum AgentMemory.Abstractions.Domain.MemoryHistoryStatus
+  MemoryHistoryStatus Invalidated
+  MemoryHistoryStatus Live
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Domain.MemoryItemKind
+  MemoryItemKind Entity
+  MemoryItemKind Fact
+  MemoryItemKind Preference
+  MemoryItemKind Relationship
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Domain.MemoryNodeKind
+  MemoryNodeKind Entity
+  MemoryNodeKind Fact
+  MemoryNodeKind Preference
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Domain.MemoryOperationAccess
+  MemoryOperationAccess Administrative
+  MemoryOperationAccess Tenant
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Domain.MemoryTrustLevel
+  MemoryTrustLevel ApplicationTrusted
+  MemoryTrustLevel ModelGenerated
+  MemoryTrustLevel ToolDerived
+  MemoryTrustLevel Untrusted
+  MemoryTrustLevel UserProvided
+  MemoryTrustLevel VerifiedExternal
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.MemoryTrustMetadataExtensions
+  IReadOnlyDictionary`2 CreateWithTrustLevel(MemoryTrustLevel trustLevel)
+  MemoryTrustLevel GetTrustLevel(IReadOnlyDictionary`2 metadata)
+  IReadOnlyDictionary`2 WithTrustLevel(IReadOnlyDictionary`2 metadata, MemoryTrustLevel trustLevel)
+  IReadOnlyDictionary`2 WithoutCallerSuppliedTrustLevel(IReadOnlyDictionary`2 metadata)
+
+### enum AgentMemory.Abstractions.Domain.MergeStrategyType
+  MergeStrategyType Cascade
+  MergeStrategyType Confidence
+  MergeStrategyType FirstSuccess
+  MergeStrategyType Intersection
+  MergeStrategyType Union
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.Message
+  .ctor()
+  Message <Clone>$()
+  String Content { get; set; }
+  String ConversationId { get; set; }
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Message other)
+  Int32 GetHashCode()
+  String MessageId { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Role { get; set; }
+  String SessionId { get; set; }
+  DateTimeOffset TimestampUtc { get; set; }
+  String ToString()
+  IReadOnlyList`1 ToolCallIds { get; set; }
+
+### class AgentMemory.Abstractions.Domain.PagedResult`1
+  .ctor(IReadOnlyList`1 items, Boolean hasNextPage)
+  PagedResult`1 <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(PagedResult`1 other)
+  Int32 GetHashCode()
+  Boolean HasNextPage { get; set; }
+  IReadOnlyList`1 Items { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Preference
+  .ctor()
+  Preference <Clone>$()
+  String Category { get; set; }
+  Double Confidence { get; set; }
+  String Context { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Preference other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String OwnerId { get; set; }
+  String PreferenceId { get; set; }
+  String PreferenceText { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.ProvenanceExtractor
+  .ctor(String ExtractorName, Double Confidence, Nullable`1 ExtractionTimeMs)
+  ProvenanceExtractor <Clone>$()
+  Double Confidence { get; set; }
+  Void Deconstruct(String& ExtractorName, Double& Confidence, Nullable`1& ExtractionTimeMs)
+  Boolean Equals(Object obj)
+  Boolean Equals(ProvenanceExtractor other)
+  Nullable`1 ExtractionTimeMs { get; set; }
+  String ExtractorName { get; set; }
+  Int32 GetHashCode()
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.ProvenanceSource
+  .ctor(String MessageId, Nullable`1 Confidence, Nullable`1 StartPos, Nullable`1 EndPos)
+  ProvenanceSource <Clone>$()
+  Nullable`1 Confidence { get; set; }
+  Void Deconstruct(String& MessageId, Nullable`1& Confidence, Nullable`1& StartPos, Nullable`1& EndPos)
+  Nullable`1 EndPos { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ProvenanceSource other)
+  Int32 GetHashCode()
+  String MessageId { get; set; }
+  Nullable`1 StartPos { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.ReasoningStep
+  .ctor()
+  ReasoningStep <Clone>$()
+  String Action { get; set; }
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ReasoningStep other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Observation { get; set; }
+  String StepId { get; set; }
+  Int32 StepNumber { get; set; }
+  String Thought { get; set; }
+  Nullable`1 TimestampUtc { get; set; }
+  String ToString()
+  String TraceId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ReasoningTrace
+  .ctor()
+  ReasoningTrace <Clone>$()
+  Nullable`1 CompletedAtUtc { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ReasoningTrace other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Outcome { get; set; }
+  String OwnerId { get; set; }
+  String SessionId { get; set; }
+  DateTimeOffset StartedAtUtc { get; set; }
+  Nullable`1 Success { get; set; }
+  String Task { get; set; }
+  Single[] TaskEmbedding { get; set; }
+  String ToString()
+  String TraceId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.RecallRequest
+  .ctor()
+  RecallRequest <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(RecallRequest other)
+  Int32 GetHashCode()
+  RecallOptions Options { get; set; }
+  String Query { get; set; }
+  Single[] QueryEmbedding { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+  String UserId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.RecallResult
+  .ctor()
+  RecallResult <Clone>$()
+  MemoryContext Context { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(RecallResult other)
+  Nullable`1 EstimatedTokenCount { get; set; }
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String ToString()
+  Int32 TotalItemsRetrieved { get; set; }
+  Boolean Truncated { get; set; }
+
+### class AgentMemory.Abstractions.Domain.Relationship
+  .ctor()
+  Relationship <Clone>$()
+  IReadOnlyDictionary`2 Attributes { get; set; }
+  Double Confidence { get; set; }
+  DateTimeOffset CreatedAtUtc { get; set; }
+  String Description { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(Relationship other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String OwnerId { get; set; }
+  String RelationshipId { get; set; }
+  String RelationshipType { get; set; }
+  String SourceEntityId { get; set; }
+  IReadOnlyList`1 SourceMessageIds { get; set; }
+  String TargetEntityId { get; set; }
+  String ToString()
+  Nullable`1 ValidFrom { get; set; }
+  Nullable`1 ValidUntil { get; set; }
+
+### class AgentMemory.Abstractions.Domain.Schema.DefaultSchemas
+  IReadOnlyList`1 GetLegacyEntityTypes()
+  IReadOnlyList`1 GetPoleoEntityTypes()
+  IReadOnlyList`1 GetPoleoRelationTypes()
+  IReadOnlyDictionary`2 LegacyToPoleoMapping
+
+### class AgentMemory.Abstractions.Domain.Schema.EntitySchemaConfig
+  .ctor()
+  EntitySchemaConfig <Clone>$()
+  String DefaultEntityType { get; set; }
+  String Description { get; set; }
+  Boolean EnableSubtypes { get; set; }
+  IReadOnlyList`1 EntityTypes { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EntitySchemaConfig other)
+  IReadOnlyList`1 GetEntityTypeNames()
+  Int32 GetHashCode()
+  IReadOnlyList`1 GetRelationTypeNames()
+  IReadOnlyList`1 GetSubtypes(String entityType)
+  Boolean IsValidType(String entityType)
+  String Name { get; set; }
+  String NormalizeType(String entityType)
+  IReadOnlyList`1 RelationTypes { get; set; }
+  Boolean StrictTypes { get; set; }
+  String ToString()
+  String Version { get; set; }
+
+### class AgentMemory.Abstractions.Domain.Schema.EntityTypeConfig
+  .ctor()
+  EntityTypeConfig <Clone>$()
+  IReadOnlyList`1 Attributes { get; set; }
+  String Color { get; set; }
+  String Description { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EntityTypeConfig other)
+  Int32 GetHashCode()
+  String Name { get; set; }
+  IReadOnlyList`1 Subtypes { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Schema.RelationTypeConfig
+  .ctor()
+  RelationTypeConfig <Clone>$()
+  String Description { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(RelationTypeConfig other)
+  Int32 GetHashCode()
+  String Name { get; set; }
+  IReadOnlyList`1 Properties { get; set; }
+  IReadOnlyList`1 SourceTypes { get; set; }
+  IReadOnlyList`1 TargetTypes { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.Schema.SchemaListItem
+  .ctor()
+  SchemaListItem <Clone>$()
+  String Description { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(SchemaListItem other)
+  Int32 GetHashCode()
+  Boolean IsActive { get; set; }
+  String LatestVersion { get; set; }
+  String Name { get; set; }
+  String ToString()
+  Int32 VersionCount { get; set; }
+
+### enum AgentMemory.Abstractions.Domain.Schema.SchemaModel
+  SchemaModel Custom
+  SchemaModel Legacy
+  SchemaModel Poleo
+  Int32 value__
+
+### class AgentMemory.Abstractions.Domain.SessionInfo
+  .ctor()
+  SessionInfo <Clone>$()
+  Nullable`1 EndedAtUtc { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(SessionInfo other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String SessionId { get; set; }
+  DateTimeOffset StartedAtUtc { get; set; }
+  String ToString()
+  String UserId { get; set; }
+
+### class AgentMemory.Abstractions.Domain.SessionSummary
+  .ctor(String SessionId, Int32 ConversationCount, Int32 MessageCount, String LastMessagePreview, Nullable`1 LastActivity)
+  SessionSummary <Clone>$()
+  Int32 ConversationCount { get; set; }
+  Void Deconstruct(String& SessionId, Int32& ConversationCount, Int32& MessageCount, String& LastMessagePreview, Nullable`1& LastActivity)
+  Boolean Equals(Object obj)
+  Boolean Equals(SessionSummary other)
+  Int32 GetHashCode()
+  Nullable`1 LastActivity { get; set; }
+  String LastMessagePreview { get; set; }
+  Int32 MessageCount { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Domain.ToolCall
+  .ctor()
+  ToolCall <Clone>$()
+  String ArgumentsJson { get; set; }
+  String Description { get; set; }
+  Nullable`1 DurationMs { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ToolCall other)
+  String Error { get; set; }
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String ResultJson { get; set; }
+  ToolCallStatus Status { get; set; }
+  String StepId { get; set; }
+  Nullable`1 TimestampUtc { get; set; }
+  String ToString()
+  String ToolCallId { get; set; }
+  String ToolName { get; set; }
+
+### class AgentMemory.Abstractions.Domain.ToolCallStats
+  .ctor(String ToolName, Int32 TotalCalls, Int32 SuccessfulCalls, Int32 FailedCalls, Double SuccessRate, Nullable`1 AvgDurationMs)
+  ToolCallStats <Clone>$()
+  Nullable`1 AvgDurationMs { get; set; }
+  Void Deconstruct(String& ToolName, Int32& TotalCalls, Int32& SuccessfulCalls, Int32& FailedCalls, Double& SuccessRate, Nullable`1& AvgDurationMs)
+  Boolean Equals(Object obj)
+  Boolean Equals(ToolCallStats other)
+  Int32 FailedCalls { get; set; }
+  Int32 GetHashCode()
+  Double SuccessRate { get; set; }
+  Int32 SuccessfulCalls { get; set; }
+  String ToString()
+  String ToolName { get; set; }
+  Int32 TotalCalls { get; set; }
+
+### enum AgentMemory.Abstractions.Domain.ToolCallStatus
+  ToolCallStatus Cancelled
+  ToolCallStatus Error
+  ToolCallStatus Failure
+  ToolCallStatus Pending
+  ToolCallStatus Success
+  ToolCallStatus Timeout
+  Int32 value__
+
+### class AgentMemory.Abstractions.Exceptions.EmbeddingDimensionMismatchException
+  .ctor(Int32 expectedDimensions, IReadOnlyList`1 mismatches)
+  Int32 ExpectedDimensions { get; }
+  IReadOnlyList`1 Mismatches { get; }
+
+### class AgentMemory.Abstractions.Exceptions.EmbeddingGenerationException
+  .ctor(String message)
+  .ctor(String message, String inputText)
+  .ctor(String message, Exception innerException)
+  String InputText { get; }
+
+### class AgentMemory.Abstractions.Exceptions.EntityNotFoundException
+  .ctor(String entityId)
+  .ctor(String entityId, Exception innerException)
+  String EntityId { get; }
+
+### class AgentMemory.Abstractions.Exceptions.EntityResolutionException
+  .ctor(String message)
+  .ctor(String message, String entityName)
+  .ctor(String message, Exception innerException)
+  String EntityName { get; }
+
+### class AgentMemory.Abstractions.Exceptions.ExtractionException
+  .ctor(String message)
+  .ctor(String message, String extractionStep)
+  .ctor(String message, Exception innerException)
+  String ExtractionStep { get; }
+
+### class AgentMemory.Abstractions.Exceptions.FactNotFoundException
+  .ctor(String factId)
+  .ctor(String factId, Exception innerException)
+  String FactId { get; }
+
+### class AgentMemory.Abstractions.Exceptions.GraphQueryException
+  .ctor(String message)
+  .ctor(String message, String cypherQuery)
+  .ctor(String message, Exception innerException)
+  String CypherQuery { get; }
+
+### class AgentMemory.Abstractions.Exceptions.MemoryConfigurationException
+  .ctor(String message)
+  .ctor(String message, String optionName)
+  .ctor(String message, Exception innerException)
+  String OptionName { get; }
+
+### class AgentMemory.Abstractions.Exceptions.MemoryError
+  MemoryErrorBuilder Create(String message)
+
+### class AgentMemory.Abstractions.Exceptions.MemoryErrorBuilder
+  MemoryException Build()
+  Void Throw()
+  MemoryErrorBuilder WithCode(String code)
+  MemoryErrorBuilder WithEntityId(String entityId)
+  MemoryErrorBuilder WithInner(Exception inner)
+  MemoryErrorBuilder WithMetadata(String key, Object value)
+  MemoryErrorBuilder WithQuery(String cypherQuery)
+  MemoryErrorBuilder WithSessionId(String sessionId)
+
+### class AgentMemory.Abstractions.Exceptions.MemoryErrorCodes
+  String ConfigurationInvalid
+  String ContextBudgetExceeded
+  String DuplicateEntity
+  String EmbeddingDimensionMismatch
+  String EmbeddingFailed
+  String EmbeddingGenerationFailed
+  String EntityExtractionFailed
+  String EntityNotFound
+  String EntityPersistenceFailed
+  String EntityResolutionFailed
+  String EntityValidationFailed
+  String ExtractionFailed
+  String FactExtractionFailed
+  String FactNotFound
+  String FactPersistenceFailed
+  String PersistenceFailed
+  String PreferenceExtractionFailed
+  String PreferenceNotFound
+  String PreferencePersistenceFailed
+  String ProvenancePersistenceFailed
+  String QueryFailed
+  String RelationshipEndpointNotPersisted
+  String RelationshipEndpointUnresolved
+  String RelationshipExtractionFailed
+  String RelationshipPersistenceFailed
+  String ResolutionFailed
+  String SchemaBootstrapFailed
+  String TraceNotFound
+  String TransactionFailed
+  String ValidationFailed
+
+### class AgentMemory.Abstractions.Exceptions.MemoryException
+  .ctor(String message)
+  .ctor(String message, Exception innerException)
+  String Code { get; }
+  IReadOnlyDictionary`2 Metadata { get; }
+
+### class AgentMemory.Abstractions.Exceptions.MemoryIngestionException
+  .ctor(String message, IReadOnlyList`1 completedOutcomes)
+  .ctor(String message, IReadOnlyList`1 completedOutcomes, Exception innerException)
+  IReadOnlyList`1 CompletedOutcomes { get; }
+
+### class AgentMemory.Abstractions.Exceptions.MemoryOwnerScopeRequiredException
+  .ctor(String operationName)
+  String OperationName { get; }
+
+### class AgentMemory.Abstractions.Exceptions.SchemaInitializationException
+  .ctor(String message)
+  .ctor(String message, String schemaOperation)
+  .ctor(String message, Exception innerException)
+  String SchemaOperation { get; }
+
+### class AgentMemory.Abstractions.Exceptions.VectorIndexDimension
+  .ctor(String IndexName, Int32 ActualDimensions)
+  VectorIndexDimension <Clone>$()
+  Int32 ActualDimensions { get; set; }
+  Void Deconstruct(String& IndexName, Int32& ActualDimensions)
+  Boolean Equals(Object obj)
+  Boolean Equals(VectorIndexDimension other)
+  Int32 GetHashCode()
+  String IndexName { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.ContextBudget
+  .ctor()
+  ContextBudget <Clone>$()
+  ContextBudget Default { get; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ContextBudget other)
+  Int32 GetHashCode()
+  Nullable`1 MaxCharacters { get; set; }
+  Nullable`1 MaxTokens { get; set; }
+  String ToString()
+  TruncationStrategy TruncationStrategy { get; set; }
+
+### class AgentMemory.Abstractions.Options.ContextCompressionOptions
+  .ctor()
+  Boolean EnableReflections { get; set; }
+  Int32 MaxObservations { get; set; }
+  Int32 RecentMessageCount { get; set; }
+  Int32 TokenThreshold { get; set; }
+
+### class AgentMemory.Abstractions.Options.DiffbotEnrichmentOptions
+  .ctor()
+  DiffbotEnrichmentOptions <Clone>$()
+  String ApiKey { get; set; }
+  String BaseUrl { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(DiffbotEnrichmentOptions other)
+  Int32 GetHashCode()
+  Double RateLimitSeconds { get; set; }
+  TimeSpan Timeout { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.EnrichmentQueueOptions
+  .ctor()
+  EnrichmentQueueOptions <Clone>$()
+  Boolean Enabled { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EnrichmentQueueOptions other)
+  Int32 GetHashCode()
+  Int32 MaxConcurrency { get; set; }
+  Int32 MaxQueueCapacity { get; set; }
+  Int32 MaxRetries { get; set; }
+  TimeSpan RetryDelay { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.EntityResolutionOptions
+  .ctor()
+  Boolean EnableExactMatch { get; set; }
+  Boolean EnableFuzzyMatch { get; set; }
+  Boolean EnableSemanticMatch { get; set; }
+  Double FuzzyMatchThreshold { get; set; }
+  Double SemanticMatchThreshold { get; set; }
+  Boolean TypeStrictFiltering { get; set; }
+
+### class AgentMemory.Abstractions.Options.EntityValidationOptions
+  .ctor()
+  Int32 MinNameLength { get; set; }
+  Boolean RejectNumericOnly { get; set; }
+  Boolean RejectPunctuationOnly { get; set; }
+  Boolean UseStopwordFilter { get; set; }
+
+### class AgentMemory.Abstractions.Options.ExtractionOptions
+  .ctor()
+  Double AutoMergeThreshold { get; set; }
+  MemoryTrustLevel DefaultTrustLevel { get; set; }
+  Boolean EnableAutoMerge { get; set; }
+  EntityResolutionOptions EntityResolution { get; set; }
+  IngestionFailureMode FailureMode { get; set; }
+  MergeStrategyType MergeStrategy { get; set; }
+  Double MinConfidenceThreshold { get; set; }
+  Double RegexMatchConfidence { get; set; }
+  Double SameAsThreshold { get; set; }
+  Double StrongPatternConfidence { get; set; }
+  EntityValidationOptions Validation { get; set; }
+
+### enum AgentMemory.Abstractions.Options.IngestionFailureMode
+  IngestionFailureMode BestEffort
+  IngestionFailureMode FailFast
+  Int32 value__
+
+### class AgentMemory.Abstractions.Options.LongTermMemoryOptions
+  .ctor()
+  LongTermMemoryOptions <Clone>$()
+  Boolean DeduplicateOnCreate { get; set; }
+  Double DeduplicationConfidenceBump { get; set; }
+  Double DeduplicationSimilarityThreshold { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(LongTermMemoryOptions other)
+  Double FeedbackConfidenceDelta { get; set; }
+  Boolean GenerateEntityEmbeddings { get; set; }
+  Boolean GenerateFactEmbeddings { get; set; }
+  Boolean GeneratePreferenceEmbeddings { get; set; }
+  Int32 GetHashCode()
+  Double MinConfidenceThreshold { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.MemoryDecayOptions
+  .ctor()
+  MemoryDecayOptions <Clone>$()
+  Double AccessBoostFactor { get; set; }
+  Double DecayHalfLifeDays { get; set; }
+  MemoryDecayOptions Default { get; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryDecayOptions other)
+  Int32 GetHashCode()
+  Double MinRetentionScore { get; set; }
+  Boolean NonDestructive { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Options.MemoryIsolationMode
+  MemoryIsolationMode SingleTenant
+  MemoryIsolationMode StrictMultiTenant
+  MemoryIsolationMode WarnOnUnscoped
+  Int32 value__
+
+### class AgentMemory.Abstractions.Options.MemoryIsolationOptions
+  .ctor()
+  MemoryIsolationMode Mode { get; set; }
+
+### class AgentMemory.Abstractions.Options.MemoryOptions
+  .ctor()
+  MemoryOptions <Clone>$()
+  ContextBudget ContextBudget { get; set; }
+  Boolean EnableGraphRag { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryOptions other)
+  ExtractionOptions Extraction { get; set; }
+  Int32 GetHashCode()
+  MemoryIsolationOptions Isolation { get; set; }
+  LongTermMemoryOptions LongTerm { get; set; }
+  MemoryDecayOptions MemoryDecay { get; set; }
+  MemoryRankingOptions Ranking { get; set; }
+  ReasoningMemoryOptions Reasoning { get; set; }
+  RecallOptions Recall { get; set; }
+  ShortTermMemoryOptions ShortTerm { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Options.MemoryProfile
+  MemoryProfile Bitemporal
+  MemoryProfile Enhanced
+  MemoryProfile Parity
+  Int32 value__
+
+### class AgentMemory.Abstractions.Options.MemoryRankingOptions
+  .ctor()
+  MemoryRankingOptions <Clone>$()
+  MemoryRankingOptions Default { get; }
+  Double EffectiveRecencyWeight { get; }
+  Double EffectiveStructuralDecayGamma { get; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryRankingOptions other)
+  MemoryRankingOptions ForIntent(RankingIntent intent)
+  Int32 GetHashCode()
+  MemoryProfile Profile { get; set; }
+  Boolean RecencyRerankEnabled { get; }
+  Nullable`1 RecencyWeight { get; set; }
+  Boolean StructuralDecayEnabled { get; }
+  Nullable`1 StructuralDecayGamma { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.MemoryScope
+  .ctor()
+  MemoryScope <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryScope other)
+  MemoryScope For(String ownerId, Boolean includeShared)
+  Int32 GetHashCode()
+  MemoryScope Global { get; }
+  Boolean HasOwnerFilter { get; }
+  Boolean IncludeShared { get; set; }
+  String OwnerId { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Options.RankingIntent
+  RankingIntent Analog
+  RankingIntent Default
+  RankingIntent Latest
+  Int32 value__
+
+### class AgentMemory.Abstractions.Options.ReasoningMemoryOptions
+  .ctor()
+  ReasoningMemoryOptions <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(ReasoningMemoryOptions other)
+  Boolean GenerateTaskEmbeddings { get; set; }
+  Int32 GetHashCode()
+  Nullable`1 MaxTracesPerSession { get; set; }
+  Boolean StoreToolCalls { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.RecallOptions
+  .ctor()
+  RecallOptions <Clone>$()
+  RetrievalBlendMode BlendMode { get; set; }
+  RecallOptions Default { get; }
+  Boolean Equals(Object obj)
+  Boolean Equals(RecallOptions other)
+  Int32 GetHashCode()
+  RankingIntent Intent { get; set; }
+  Int32 MaxEntities { get; set; }
+  Int32 MaxFacts { get; set; }
+  Int32 MaxGraphRagItems { get; set; }
+  Int32 MaxPreferences { get; set; }
+  Int32 MaxRecentMessages { get; set; }
+  Int32 MaxRelevantMessages { get; set; }
+  Int32 MaxTraces { get; set; }
+  Double MinSimilarityScore { get; set; }
+  MemoryScope Scope { get; set; }
+  String ToString()
+
+### enum AgentMemory.Abstractions.Options.RetrievalBlendMode
+  RetrievalBlendMode Blended
+  RetrievalBlendMode GraphRagOnly
+  RetrievalBlendMode GraphRagThenMemory
+  RetrievalBlendMode MemoryOnly
+  RetrievalBlendMode MemoryThenGraphRag
+  Int32 value__
+
+### enum AgentMemory.Abstractions.Options.SessionStrategy
+  SessionStrategy PerConversation
+  SessionStrategy PerDay
+  SessionStrategy PersistentPerUser
+  Int32 value__
+
+### class AgentMemory.Abstractions.Options.ShortTermMemoryOptions
+  .ctor()
+  ShortTermMemoryOptions <Clone>$()
+  Int32 DefaultRecentMessageLimit { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ShortTermMemoryOptions other)
+  Boolean GenerateEmbeddings { get; set; }
+  Int32 GetHashCode()
+  Int32 MaxMessagesPerQuery { get; set; }
+  SessionStrategy SessionStrategy { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Options.StreamingExtractionOptions
+  .ctor()
+  Boolean ChunkByTokens { get; set; }
+  Int32 ChunkSize { get; set; }
+  Int32 DefaultChunkSize
+  Int32 DefaultOverlap
+  Int32 DefaultTokenChunkSize
+  Int32 DefaultTokenOverlap
+  StreamingExtractionOptions ForTokens()
+  Int32 Overlap { get; set; }
+  Boolean SplitOnSentences { get; set; }
+  Void Validate()
+
+### enum AgentMemory.Abstractions.Options.TruncationStrategy
+  TruncationStrategy Fail
+  TruncationStrategy LowestScoreFirst
+  TruncationStrategy OldestFirst
+  TruncationStrategy Proportional
+  Int32 value__
+
+### interface AgentMemory.Abstractions.Repositories.IConversationRepository
+  Task DeleteAsync(String conversationId, CancellationToken cancellationToken)
+  Task DeleteBySessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String conversationId, CancellationToken cancellationToken)
+  Task`1 GetBySessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 ListSessionsAsync(Int32 limit, CancellationToken cancellationToken)
+  Task`1 UpsertAsync(Conversation conversation, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IEntityRepository
+  Task`1 ApplyConfidenceDeltaAsync(String entityId, Double delta, MemoryScope scope, CancellationToken cancellationToken)
+  Task CreateExtractedFromRelationshipAsync(String entityId, String messageId, Nullable`1 confidence, Nullable`1 startPos, Nullable`1 endPos, String context, CancellationToken cancellationToken)
+  Task`1 DeleteAsync(String entityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 FindSimilarByEmbeddingAsync(String entityId, Double minSimilarity, Int32 limit, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String entityId, CancellationToken cancellationToken)
+  Task`1 GetByNameAsync(String name, Boolean includeAliases, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetByTypeAsync(String type, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetDeduplicationStatsAsync(CancellationToken cancellationToken)
+  Task`1 GetEntitiesFromMessageAsync(String messageId, CancellationToken cancellationToken)
+  Task`1 GetPageWithoutEmbeddingAsync(Int32 limit, CancellationToken cancellationToken)
+  Task`1 GetPendingDuplicatesAsync(Int32 limit, CancellationToken cancellationToken)
+  Task`1 InvalidateAsync(String entityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 MergeEntitiesAsync(String sourceEntityId, String targetEntityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task RefreshEntitySearchFieldsAsync(String entityId, CancellationToken cancellationToken)
+  Task`1 SearchByLocationAsync(Double latitude, Double longitude, Double radiusKm, Int32 limit, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsOfAsync(Single[] queryEmbedding, DateTimeOffset asOf, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsync(Single[] queryEmbedding, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchInBoundingBoxAsync(Double minLat, Double minLon, Double maxLat, Double maxLon, Int32 limit, MemoryScope scope, CancellationToken cancellationToken)
+  Task UpdateEmbeddingAsync(String entityId, Single[] embedding, CancellationToken cancellationToken)
+  Task`1 UpsertAsync(Entity entity, CancellationToken cancellationToken)
+  Task`1 UpsertBatchAsync(IReadOnlyList`1 entities, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IExtractorRepository
+  Task CreateExtractedByRelationshipAsync(String entityId, String extractorName, Double confidence, Nullable`1 extractionTimeMs, CancellationToken cancellationToken)
+  Task`1 DeleteProvenanceAsync(String entityId, CancellationToken cancellationToken)
+  Task`1 GetByNameAsync(String name, CancellationToken cancellationToken)
+  Task`1 GetEntitiesByExtractorAsync(String extractorName, Int32 limit, CancellationToken cancellationToken)
+  Task`1 GetExtractionStatsAsync(CancellationToken cancellationToken)
+  Task`1 GetExtractorStatsAsync(String extractorName, CancellationToken cancellationToken)
+  Task`1 GetProvenanceAsync(String entityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 ListAsync(CancellationToken cancellationToken)
+  Task`1 UpsertAsync(Extractor extractor, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IFactRepository
+  Task CreateAboutRelationshipAsync(String factId, String entityId, CancellationToken cancellationToken)
+  Task CreateConversationFactRelationshipAsync(String conversationId, String factId, CancellationToken cancellationToken)
+  Task CreateExtractedFromRelationshipAsync(String factId, String messageId, CancellationToken cancellationToken)
+  Task`1 DeleteAsync(String factId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 FindByTripleAsync(String subject, String predicate, String object, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 FindDuplicateAsync(String subject, String predicate, Single[] embedding, String ownerId, Double threshold, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String factId, CancellationToken cancellationToken)
+  Task`1 GetBySubjectAsync(String subject, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetPageWithoutEmbeddingAsync(Int32 limit, CancellationToken cancellationToken)
+  Task`1 InvalidateAsync(String factId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 MarkDeduplicatedAsync(String factId, Double confidence, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsOfAsync(Single[] queryEmbedding, DateTimeOffset asOf, Int32 limit, Double minScore, MemoryScope scope, Nullable`1 systemAsOf, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsync(Single[] queryEmbedding, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SupersedeAsync(String loserFactId, String winnerFactId, MemoryScope scope, CancellationToken cancellationToken)
+  Task UpdateEmbeddingAsync(String factId, Single[] embedding, CancellationToken cancellationToken)
+  Task`1 UpsertAsync(Fact fact, CancellationToken cancellationToken)
+  Task`1 UpsertBatchAsync(IReadOnlyList`1 facts, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IMessageRepository
+  Task`1 AddAsync(Message message, CancellationToken cancellationToken)
+  Task`1 AddBatchAsync(IEnumerable`1 messages, CancellationToken cancellationToken)
+  Task`1 DeleteAsync(String messageId, Boolean cascade, CancellationToken cancellationToken)
+  Task DeleteBySessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 GetAllBySessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 GetByConversationAsync(String conversationId, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String messageId, CancellationToken cancellationToken)
+  Task`1 GetRecentBySessionAsOfAsync(String sessionId, DateTimeOffset asOf, Int32 limit, CancellationToken cancellationToken)
+  Task`1 GetRecentBySessionAsync(String sessionId, Int32 limit, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsync(Single[] queryEmbedding, String sessionId, Int32 limit, Double minScore, IReadOnlyDictionary`2 metadataFilters, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IPreferenceRepository
+  Task CreateAboutRelationshipAsync(String preferenceId, String entityId, CancellationToken cancellationToken)
+  Task CreateConversationPreferenceRelationshipAsync(String conversationId, String preferenceId, CancellationToken cancellationToken)
+  Task CreateExtractedFromRelationshipAsync(String preferenceId, String messageId, CancellationToken cancellationToken)
+  Task DeleteAsync(String preferenceId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 FindDuplicateAsync(String category, Single[] embedding, String ownerId, Double threshold, CancellationToken cancellationToken)
+  Task`1 GetByCategoryAsync(String category, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String preferenceId, CancellationToken cancellationToken)
+  Task`1 GetPageWithoutEmbeddingAsync(Int32 limit, CancellationToken cancellationToken)
+  Task`1 InvalidateAsync(String preferenceId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 MarkDeduplicatedAsync(String preferenceId, Double confidence, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsOfAsync(Single[] queryEmbedding, DateTimeOffset asOf, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchByVectorAsync(Single[] queryEmbedding, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SupersedeAsync(String loserPreferenceId, String winnerPreferenceId, MemoryScope scope, CancellationToken cancellationToken)
+  Task UpdateEmbeddingAsync(String preferenceId, Single[] embedding, CancellationToken cancellationToken)
+  Task`1 UpsertAsync(Preference preference, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IReasoningStepRepository
+  Task`1 AddAsync(ReasoningStep step, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String stepId, CancellationToken cancellationToken)
+  Task`1 GetByTraceAsync(String traceId, CancellationToken cancellationToken)
+  Task`1 GetTouchedEntityIdsAsync(String stepId, CancellationToken cancellationToken)
+  Task`1 LinkTouchedEntitiesAsync(String stepId, IReadOnlyList`1 entityIds, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IReasoningTraceRepository
+  Task`1 AddAsync(ReasoningTrace trace, CancellationToken cancellationToken)
+  Task CreateConversationTraceRelationshipsAsync(String conversationId, String traceId, CancellationToken cancellationToken)
+  Task CreateInitiatedByRelationshipAsync(String traceId, String messageId, CancellationToken cancellationToken)
+  Task DeleteBySessionAsync(String sessionId, String ownerId, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String traceId, CancellationToken cancellationToken)
+  Task`1 ListAllAsync(Int32 limit, Int32 offset, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 ListBySessionAsync(String sessionId, Int32 limit, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 PruneSessionTracesAsync(String sessionId, Int32 maxToKeep, String ownerId, CancellationToken cancellationToken)
+  Task`1 SearchByTaskVectorAsOfAsync(Single[] taskEmbedding, DateTimeOffset asOf, Nullable`1 successFilter, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchByTaskVectorAsync(Single[] taskEmbedding, Nullable`1 successFilter, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 UpdateAsync(ReasoningTrace trace, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IRelationshipRepository
+  Task`1 GetByEntityAsync(String entityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String relationshipId, CancellationToken cancellationToken)
+  Task`1 GetBySourceEntityAsync(String sourceEntityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetByTargetEntityAsync(String targetEntityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 UpsertAsync(Relationship relationship, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.ISchemaRepository
+  Task ApplyMigrationAsync(Int32 targetVersion, CancellationToken cancellationToken)
+  Task`1 GetSchemaVersionAsync(CancellationToken cancellationToken)
+  Task InitializeSchemaAsync(CancellationToken cancellationToken)
+  Task`1 IsSchemaInitializedAsync(CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Repositories.IToolCallRepository
+  Task`1 AddAsync(ToolCall toolCall, CancellationToken cancellationToken)
+  Task CreateTriggeredByRelationshipAsync(String toolCallId, String messageId, CancellationToken cancellationToken)
+  Task`1 GetByIdAsync(String toolCallId, CancellationToken cancellationToken)
+  Task`1 GetByStepAsync(String stepId, CancellationToken cancellationToken)
+  Task`1 GetStatsAsync(String toolName, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 UpdateAsync(ToolCall toolCall, CancellationToken cancellationToken)
+
+### class AgentMemory.Abstractions.Services.ConflictDetectionOptions
+  .ctor()
+  ConflictDetectionOptions <Clone>$()
+  Boolean DetectFactContradictions { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ConflictDetectionOptions other)
+  Int32 GetHashCode()
+  Int32 MaxConflicts { get; set; }
+  Nullable`1 MinConfidence { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.ConflictReport
+  .ctor()
+  ConflictReport <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(ConflictReport other)
+  Int32 FactConflictCount { get; }
+  IReadOnlyList`1 FactConflicts { get; set; }
+  Int32 GetHashCode()
+  DateTimeOffset RanAtUtc { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.ConflictResolutionOptions
+  .ctor()
+  ConflictResolutionOptions <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(ConflictResolutionOptions other)
+  Int32 GetHashCode()
+  Int32 MaxConflicts { get; set; }
+  Nullable`1 MinConfidence { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.ConflictResolutionResult
+  .ctor()
+  ConflictResolutionResult <Clone>$()
+  Int32 ConflictsResolved { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ConflictResolutionResult other)
+  Int32 FactsSuperseded { get; set; }
+  Int32 GetHashCode()
+  DateTimeOffset RanAtUtc { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.ConflictingFactValue
+  .ctor(String FactId, String Object, Double Confidence)
+  ConflictingFactValue <Clone>$()
+  Double Confidence { get; set; }
+  Void Deconstruct(String& FactId, String& Object, Double& Confidence)
+  Boolean Equals(Object obj)
+  Boolean Equals(ConflictingFactValue other)
+  String FactId { get; set; }
+  Int32 GetHashCode()
+  String Object { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.ConsolidationOptions
+  .ctor()
+  ConsolidationOptions <Clone>$()
+  Boolean ArchiveExpiredConversations { get; set; }
+  TimeSpan ConversationExpiry { get; set; }
+  Boolean DetectDuplicateEntities { get; set; }
+  Boolean DetectLongTraces { get; set; }
+  Boolean DryRun { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ConsolidationOptions other)
+  Int32 GetHashCode()
+  Int32 LongTraceStepThreshold { get; set; }
+  Boolean RemoveDuplicatePreferences { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.ConsolidationReport
+  .ctor()
+  ConsolidationReport <Clone>$()
+  Int32 ConversationsArchived { get; set; }
+  Boolean DryRun { get; set; }
+  Int32 DuplicateEntitiesDetected { get; set; }
+  Int32 DuplicatePreferencesRemoved { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(ConsolidationReport other)
+  Int32 GetHashCode()
+  Int32 LongTraceCandidates { get; set; }
+  DateTimeOffset RanAtUtc { get; set; }
+  String RunId { get; set; }
+  String ToString()
+  Int32 TotalChanges { get; }
+
+### class AgentMemory.Abstractions.Services.EmbeddingOrchestratorExtensions
+  Task`1 EmbedEntityAsync(IEmbeddingOrchestrator orchestrator, String entityName, CancellationToken cancellationToken)
+  Task`1 EmbedFactAsync(IEmbeddingOrchestrator orchestrator, String subject, String predicate, String obj, CancellationToken cancellationToken)
+  Task`1 EmbedMessageAsync(IEmbeddingOrchestrator orchestrator, String content, CancellationToken cancellationToken)
+  Task`1 EmbedPreferenceAsync(IEmbeddingOrchestrator orchestrator, String preferenceText, CancellationToken cancellationToken)
+  Task`1 EmbedQueryAsync(IEmbeddingOrchestrator orchestrator, String query, CancellationToken cancellationToken)
+  Task`1 EmbedTextAsync(IEmbeddingOrchestrator orchestrator, String text, CancellationToken cancellationToken)
+
+### class AgentMemory.Abstractions.Services.FactConflict
+  .ctor(String Subject, String Predicate, String OwnerId, IReadOnlyList`1 Values)
+  FactConflict <Clone>$()
+  Void Deconstruct(String& Subject, String& Predicate, String& OwnerId, IReadOnlyList`1& Values)
+  Boolean Equals(Object obj)
+  Boolean Equals(FactConflict other)
+  Int32 GetHashCode()
+  String OwnerId { get; set; }
+  String Predicate { get; set; }
+  String Subject { get; set; }
+  String ToString()
+  IReadOnlyList`1 Values { get; set; }
+
+### interface AgentMemory.Abstractions.Services.IBackgroundEnrichmentQueue
+  Task EnqueueAsync(String entityId, CancellationToken cancellationToken)
+  Task EnqueueBatchAsync(IEnumerable`1 entityIds, CancellationToken cancellationToken)
+  Boolean IsProcessing { get; }
+  Int32 QueueDepth { get; }
+
+### interface AgentMemory.Abstractions.Services.IClock
+  DateTimeOffset UtcNow { get; }
+
+### interface AgentMemory.Abstractions.Services.IConflictDetectionService
+  Task`1 DetectConflictsAsync(ConflictDetectionOptions options, CancellationToken cancellationToken)
+  Task`1 ResolveFactContradictionsAsync(ConflictResolutionOptions options, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IConsolidationService
+  Task`1 ConsolidateAsync(ConsolidationOptions options, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IContextCompressor
+  Task`1 CompressAsync(IReadOnlyList`1 messages, ContextCompressionOptions options, CancellationToken cancellationToken)
+  Int32 EstimateTokenCount(IReadOnlyList`1 messages)
+
+### interface AgentMemory.Abstractions.Services.IEmbeddingOrchestrator
+  Task`1 EmbedAsync(String text, CancellationToken cancellationToken)
+  Task`1 EmbedBatchAsync(IReadOnlyList`1 texts, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IEnrichmentService
+  Task`1 EnrichEntityAsync(String entityName, String entityType, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IEntityExtractor
+  Task`1 ExtractAsync(IReadOnlyList`1 messages, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IEntityResolver
+  Task`1 FindPotentialDuplicatesAsync(String name, String type, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 ResolveEntityAsync(ExtractedEntity extractedEntity, IReadOnlyList`1 sourceMessageIds, MemoryScope scope, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IFactExtractor
+  Task`1 ExtractAsync(IReadOnlyList`1 messages, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IGeocodingService
+  Task`1 GeocodeAsync(String locationText, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IGraphQueryService
+  Task`1 QueryAsync(String cypherQuery, IReadOnlyDictionary`2 parameters, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IGraphRagContextSource
+  Task`1 GetContextAsync(GraphRagContextRequest request, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IIdGenerator
+  String GenerateId()
+
+### interface AgentMemory.Abstractions.Services.ILongTermMemoryService
+  Task`1 AddEntityAsync(Entity entity, CancellationToken cancellationToken)
+  Task`1 AddFactAsync(Fact fact, CancellationToken cancellationToken)
+  Task`1 AddPreferenceAsync(Preference preference, CancellationToken cancellationToken)
+  Task`1 AddRelationshipAsync(Relationship relationship, CancellationToken cancellationToken)
+  Task DeletePreferenceAsync(String preferenceId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetEntitiesByNameAsync(String name, Boolean includeAliases, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetEntityRelationshipsAsync(String entityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetFactsBySubjectAsync(String subject, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 GetPreferencesByCategoryAsync(String category, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 InvalidateEntityAsync(String entityId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 InvalidateFactAsync(String factId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 InvalidatePreferenceAsync(String preferenceId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 RecordEntityFeedbackAsync(String entityId, Boolean positive, Nullable`1 delta, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchEntitiesAsOfAsync(Single[] queryEmbedding, DateTimeOffset asOf, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchEntitiesAsync(Single[] queryEmbedding, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchFactsAsOfAsync(Single[] queryEmbedding, DateTimeOffset asOf, Int32 limit, Double minScore, MemoryScope scope, Nullable`1 systemAsOf, CancellationToken cancellationToken)
+  Task`1 SearchFactsAsync(Single[] queryEmbedding, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchPreferencesAsOfAsync(Single[] queryEmbedding, DateTimeOffset asOf, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchPreferencesAsync(Single[] queryEmbedding, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SupersedeFactAsync(String loserFactId, String winnerFactId, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SupersedePreferenceAsync(String loserPreferenceId, String winnerPreferenceId, MemoryScope scope, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryContextAssembler
+  Task`1 AssembleContextAsOfAsync(RecallRequest request, DateTimeOffset asOf, Nullable`1 systemAsOf, CancellationToken cancellationToken)
+  Task`1 AssembleContextAsync(RecallRequest request, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryDecayService
+  Task`1 CalculateRetentionScoreAsync(String nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken)
+  Task`1 PruneExpiredMemoriesAsync(MemoryScope scope, CancellationToken cancellationToken)
+  Task UpdateAccessTimestampAsync(String nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryExtractionPipeline
+  Task`1 ExtractAsync(ExtractionRequest request, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryHistoryService
+  Task`1 GetHistoryAsync(MemoryHistoryQuery query, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryIngestion
+  Task`1 AddMessageAsync(String sessionId, String conversationId, String role, String content, IReadOnlyDictionary`2 metadata, CancellationToken cancellationToken)
+  Task`1 AddMessageWithIdAsync(String sessionId, String conversationId, String role, String content, String messageId, IReadOnlyDictionary`2 metadata, CancellationToken cancellationToken)
+  Task`1 AddMessagesAsync(IEnumerable`1 messages, CancellationToken cancellationToken)
+  Task`1 ExtractAndPersistAsync(ExtractionRequest request, CancellationToken cancellationToken)
+  Task ExtractFromConversationAsync(String conversationId, String userId, CancellationToken cancellationToken)
+  Task ExtractFromSessionAsync(String sessionId, String userId, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryIsolationPolicy
+  MemoryScope ResolveReadScope(MemoryScope explicitScope, String ownerId, String operationName, MemoryOperationAccess access)
+  String ResolveWriteOwner(String ownerId, String operationName, MemoryOperationAccess access)
+
+### interface AgentMemory.Abstractions.Services.IMemoryMaintenance
+  Task ClearSessionAsync(String sessionId, String ownerId, CancellationToken cancellationToken)
+  Task`1 GenerateEmbeddingsBatchAsync(MemoryNodeKind nodeKind, Int32 batchSize, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryOwnerContext
+  String UserId { get; }
+
+### interface AgentMemory.Abstractions.Services.IMemoryQueryFacade
+  Task`1 FindSimilarTasksAsync(String taskDescription, CancellationToken cancellationToken)
+  Task`1 RecallPreferencesAsync(String category, String query, CancellationToken cancellationToken)
+  Task`1 RememberFactAsync(String subject, String predicate, String object, CancellationToken cancellationToken)
+  Task`1 RememberPreferenceAsync(String preferenceText, String category, CancellationToken cancellationToken)
+  Task`1 SearchKnowledgeAsync(String query, CancellationToken cancellationToken)
+  Task`1 SearchMemoryAsync(String query, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryRankingContext
+  MemoryRankingOptions Current { get; }
+
+### interface AgentMemory.Abstractions.Services.IMemoryRecall
+  Task`1 RecallAsOfAsync(RecallRequest request, DateTimeOffset asOf, Nullable`1 systemAsOf, CancellationToken cancellationToken)
+  Task`1 RecallAsync(RecallRequest request, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IMemoryService
+
+### interface AgentMemory.Abstractions.Services.IMemoryStoreContext
+  String ApplicationId { get; }
+
+### interface AgentMemory.Abstractions.Services.IMergeStrategy`1
+  IReadOnlyList`1 Merge(IReadOnlyList`1 extractorResults)
+  MergeStrategyType StrategyType { get; }
+
+### interface AgentMemory.Abstractions.Services.IPreferenceExtractor
+  Task`1 ExtractAsync(IReadOnlyList`1 messages, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IReasoningMemoryService
+  Task`1 AddStepAsync(String traceId, Int32 stepNumber, String thought, String action, String observation, Single[] embedding, IReadOnlyDictionary`2 metadata, CancellationToken cancellationToken)
+  Task`1 CompleteTraceAsync(String traceId, String outcome, Nullable`1 success, CancellationToken cancellationToken)
+  Task`1 GetTouchedEntitiesAsync(String stepId, CancellationToken cancellationToken)
+  Task`1 GetTraceWithStepsAsync(String traceId, CancellationToken cancellationToken)
+  Task`1 ListAllTracesAsync(Int32 limit, Int32 offset, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 ListTracesAsync(String sessionId, Int32 limit, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 RecordToolCallAsync(String stepId, String toolName, String argumentsJson, String resultJson, ToolCallStatus status, Nullable`1 durationMs, String error, IReadOnlyDictionary`2 metadata, CancellationToken cancellationToken)
+  Task`1 RecordTouchedEntitiesAsync(String stepId, IReadOnlyList`1 entityIds, CancellationToken cancellationToken)
+  Task`1 SearchSimilarTracesAsOfAsync(Single[] taskEmbedding, DateTimeOffset asOf, Nullable`1 successFilter, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 SearchSimilarTracesAsync(Single[] taskEmbedding, Nullable`1 successFilter, Int32 limit, Double minScore, MemoryScope scope, CancellationToken cancellationToken)
+  Task`1 StartTraceAsync(String sessionId, String task, Single[] taskEmbedding, IReadOnlyDictionary`2 metadata, String ownerId, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IRelationshipExtractor
+  Task`1 ExtractAsync(IReadOnlyList`1 messages, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.ISchemaManager
+  Task`1 DeleteSchemaAsync(String schemaId, CancellationToken cancellationToken)
+  Task`1 ListSchemasAsync(String nameFilter, CancellationToken cancellationToken)
+  Task`1 LoadSchemaAsync(String name, CancellationToken cancellationToken)
+  Task`1 LoadSchemaVersionAsync(String name, String version, CancellationToken cancellationToken)
+  Task SaveSchemaAsync(EntitySchemaConfig schema, String createdBy, Boolean setActive, CancellationToken cancellationToken)
+  Task`1 SchemaExistsAsync(String name, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.ISessionIdGenerator
+  String GenerateSessionId(String userId)
+
+### interface AgentMemory.Abstractions.Services.IShortTermMemoryService
+  Task`1 AddConversationAsync(String conversationId, String sessionId, String userId, IReadOnlyDictionary`2 metadata, CancellationToken cancellationToken)
+  Task`1 AddMessageAsync(Message message, CancellationToken cancellationToken)
+  Task`1 AddMessagesAsync(IEnumerable`1 messages, CancellationToken cancellationToken)
+  Task ClearSessionAsync(String sessionId, String ownerId, CancellationToken cancellationToken)
+  Task`1 GetAllSessionMessagesAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 GetConversationMessagesAsync(String conversationId, CancellationToken cancellationToken)
+  Task`1 GetRecentMessagesAsOfAsync(String sessionId, DateTimeOffset asOf, Int32 limit, CancellationToken cancellationToken)
+  Task`1 GetRecentMessagesAsync(String sessionId, Nullable`1 limit, CancellationToken cancellationToken)
+  Task`1 SearchMessagesAsync(String sessionId, Single[] queryEmbedding, Int32 limit, Double minScore, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IStreamingExtractor
+  IReadOnlyList`1 ChunkDocument(String text, StreamingExtractionOptions options)
+  Task`1 ExtractAsync(String text, IEntityExtractor extractor, StreamingExtractionOptions options, Boolean deduplicate, CancellationToken cancellationToken)
+  IAsyncEnumerable`1 ExtractStreamingAsync(String text, IEntityExtractor extractor, StreamingExtractionOptions options, CancellationToken cancellationToken)
+
+### interface AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext
+  String UserId { get; set; }
+
+### interface AgentMemory.Abstractions.Services.IWritableMemoryRankingContext
+  MemoryRankingOptions Current { get; set; }
+
+### interface AgentMemory.Abstractions.Services.IWritableMemoryStoreContext
+  String ApplicationId { get; set; }
+
+### class AgentMemory.Abstractions.Services.MemoryOwnerContextExtensions
+  IDisposable BeginOwnerScope(IWritableMemoryOwnerContext context, String userId)
+
+### struct AgentMemory.Abstractions.Services.MemoryQueryResult
+  .ctor(Boolean Success, String Text, String Error)
+  Void Deconstruct(Boolean& Success, String& Text, String& Error)
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryQueryResult other)
+  String Error { get; set; }
+  MemoryQueryResult Failed(String error)
+  Int32 GetHashCode()
+  MemoryQueryResult Ok(String text)
+  Boolean Success { get; set; }
+  String Text { get; set; }
+  String ToString()
+
+### class AgentMemory.Abstractions.Services.MemoryStoreContextExtensions
+  IDisposable BeginStoreScope(IWritableMemoryStoreContext context, String applicationId)
+
+## AgentMemory.AgentFramework (25 public types)
+
+### class AgentMemory.AgentFramework.AIAgentMemoryScopingExtensions
+  AIAgent WithMemoryOwnerScoping(AIAgent agent, IWritableMemoryOwnerContext ownerContext, IWritableMemoryStoreContext storeContext, AgentFrameworkOptions options, ILogger`1 logger)
+  AIAgent WithMemoryOwnerScoping(AIAgent agent, IServiceProvider serviceProvider)
+
+### class AgentMemory.AgentFramework.AgentFrameworkOptions
+  .ctor()
+  Boolean AutoExtractOnPersist { get; set; }
+  ContextFormatOptions ContextFormat { get; set; }
+  String DefaultApplicationIdKey { get; set; }
+  String DefaultConversationIdKey { get; set; }
+  String DefaultSessionIdKey { get; set; }
+  String DefaultUserIdKey { get; set; }
+  Boolean ExposeMemoryToolsFromContextProvider { get; set; }
+  Boolean PersistReasoningTraces { get; set; }
+
+### class AgentMemory.AgentFramework.AgentSessionMemoryExtensions
+  MemoryIdentity GetMemoryIdentity(AgentSession session, AgentFrameworkOptions options)
+  AgentSession WithMemoryIdentity(AgentSession session, String userId, String sessionId, String conversationId, String applicationId, AgentFrameworkOptions options)
+
+### class AgentMemory.AgentFramework.AgentTraceRecorder
+  .ctor(IReasoningMemoryService reasoningService, IClock clock, IIdGenerator idGenerator, IOptions`1 options, ILogger`1 logger)
+  Task CompleteTraceAsync(String traceId, String outcome, CancellationToken cancellationToken)
+  Task`1 RecordStepAsync(String traceId, String stepType, String content, IReadOnlyDictionary`2 metadata, CancellationToken cancellationToken)
+  Task`1 RecordToolCallAsync(String stepId, String toolName, String input, String output, ToolCallStatus status, CancellationToken cancellationToken)
+  Task`1 StartTraceAsync(String sessionId, String task, String ownerId, CancellationToken cancellationToken)
+
+### class AgentMemory.AgentFramework.ContextFormatOptions
+  .ctor()
+  String ContextPrefix { get; set; }
+  RecalledMemoryMessageRole DefaultMemoryRole { get; set; }
+  Boolean IncludeEntities { get; set; }
+  Boolean IncludeFacts { get; set; }
+  Boolean IncludePreferences { get; set; }
+  Boolean IncludeReasoningTraces { get; set; }
+  Int32 MaxChatHistoryMessages { get; set; }
+  Int32 MaxContextMessages { get; set; }
+  MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; }
+  MemoryTrustLevel MinimumTrustForSystemRole { get; set; }
+  MemoryContextSecurityMode SecurityMode { get; set; }
+
+### struct AgentMemory.AgentFramework.MemoryIdentity
+  .ctor(String UserId, String SessionId, String ConversationId, String ApplicationId)
+  String ApplicationId { get; set; }
+  String ConversationId { get; set; }
+  Void Deconstruct(String& UserId, String& SessionId, String& ConversationId, String& ApplicationId)
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryIdentity other)
+  Int32 GetHashCode()
+  String SessionId { get; set; }
+  String ToString()
+  String UserId { get; set; }
+
+### class AgentMemory.AgentFramework.MemoryOwnerScopingAgent
+  .ctor(AIAgent innerAgent, IWritableMemoryOwnerContext ownerContext, IWritableMemoryStoreContext storeContext, AgentFrameworkOptions options, ILogger`1 logger)
+
+### class AgentMemory.AgentFramework.Neo4jChatHistoryProvider
+  .ctor(IMemoryService memoryService, IClock clock, IIdGenerator idGenerator, AgentFrameworkOptions options, ILogger`1 logger, IMemoryStoreContext storeContext, IWritableMemoryOwnerContext ownerContext, IMemoryContextAdmissionPolicy admissionPolicy)
+  IReadOnlyList`1 StateKeys { get; }
+
+### class AgentMemory.AgentFramework.Neo4jChatMessageStore
+  .ctor(IMemoryService memoryService, IClock clock, IIdGenerator idGenerator, ILogger`1 logger, IOptions`1 formatOptions, IMemoryContextAdmissionPolicy admissionPolicy)
+  Task`1 AddMessageAsync(ChatMessage chatMessage, String sessionId, String conversationId, CancellationToken cancellationToken)
+  Task ClearSessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 GetMessagesAsync(String sessionId, Int32 limit, CancellationToken cancellationToken)
+
+### class AgentMemory.AgentFramework.Neo4jMemoryContextProvider
+  .ctor(IMemoryService memoryService, IEmbeddingOrchestrator embeddingOrchestrator, IClock clock, IIdGenerator idGenerator, IOptions`1 memoryOptions, IOptions`1 formatOptions, IOptions`1 agentOptions, ILogger`1 logger, IMemoryStoreContext storeContext, IWritableMemoryOwnerContext ownerContext, MemoryToolFactory toolFactory, IAutomaticRecallPolicy recallPolicy, IMemoryContextAdmissionPolicy admissionPolicy)
+  String StateKey { get; }
+
+### class AgentMemory.AgentFramework.Neo4jMicrosoftMemoryFacade
+  .ctor(IMemoryService memoryService, Neo4jChatMessageStore messageStore, IOptions`1 options, ILogger`1 logger, IMemoryContextAdmissionPolicy admissionPolicy)
+  Task ClearSessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task`1 GetContextForRunAsync(IReadOnlyList`1 messages, String sessionId, String conversationId, String userId, CancellationToken cancellationToken)
+  Task PersistAfterRunAsync(IReadOnlyList`1 messages, String sessionId, String conversationId, String userId, CancellationToken cancellationToken)
+  Task`1 StoreMessageAsync(ChatMessage msg, String sessionId, String conversationId, CancellationToken cancellationToken)
+
+### enum AgentMemory.AgentFramework.Recall.AutomaticRecallCategories
+  AutomaticRecallCategories All
+  AutomaticRecallCategories Default
+  AutomaticRecallCategories Entities
+  AutomaticRecallCategories Facts
+  AutomaticRecallCategories GraphRag
+  AutomaticRecallCategories None
+  AutomaticRecallCategories Preferences
+  AutomaticRecallCategories ReasoningTraces
+  AutomaticRecallCategories RecentMessages
+  AutomaticRecallCategories RelevantMessages
+  Int32 value__
+
+### class AgentMemory.AgentFramework.Recall.AutomaticRecallContext
+  .ctor()
+  AutomaticRecallContext <Clone>$()
+  String ConversationId { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(AutomaticRecallContext other)
+  Int32 GetHashCode()
+  IReadOnlyList`1 Messages { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+  String UserId { get; set; }
+
+### class AgentMemory.AgentFramework.Recall.AutomaticRecallDecision
+  .ctor()
+  AutomaticRecallDecision <Clone>$()
+  AutomaticRecallCategories Categories { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(AutomaticRecallDecision other)
+  Int32 GetHashCode()
+  Nullable`1 Intent { get; set; }
+  AutomaticRecallDecision Recall { get; }
+  RecallOptions RecallOptions { get; set; }
+  Boolean ShouldRecall { get; set; }
+  AutomaticRecallDecision Skip { get; }
+  String ToString()
+
+### class AgentMemory.AgentFramework.Recall.ConfiguredAutomaticRecallPolicy
+  .ctor()
+  ValueTask`1 DecideAsync(AutomaticRecallContext context, CancellationToken cancellationToken)
+
+### class AgentMemory.AgentFramework.Recall.HeuristicAutomaticRecallPolicy
+  .ctor()
+  ValueTask`1 DecideAsync(AutomaticRecallContext context, CancellationToken cancellationToken)
+
+### interface AgentMemory.AgentFramework.Recall.IAutomaticRecallPolicy
+  ValueTask`1 DecideAsync(AutomaticRecallContext context, CancellationToken cancellationToken)
+
+### enum AgentMemory.AgentFramework.RecalledMemoryMessageRole
+  RecalledMemoryMessageRole System
+  RecalledMemoryMessageRole User
+  Int32 value__
+
+### class AgentMemory.AgentFramework.Security.DefaultMemoryContextAdmissionPolicy
+  .ctor()
+  MemoryAdmissionDecision Evaluate(MemoryAdmissionContext context)
+
+### interface AgentMemory.AgentFramework.Security.IMemoryContextAdmissionPolicy
+  MemoryAdmissionDecision Evaluate(MemoryAdmissionContext context)
+
+### class AgentMemory.AgentFramework.Security.MemoryAdmissionContext
+  .ctor()
+  MemoryAdmissionContext <Clone>$()
+  String Category { get; set; }
+  String Content { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryAdmissionContext other)
+  Int32 GetHashCode()
+  MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; }
+  MemoryContextSecurityMode Mode { get; set; }
+  String ToString()
+  MemoryTrustLevel TrustLevel { get; set; }
+
+### class AgentMemory.AgentFramework.Security.MemoryAdmissionDecision
+  .ctor()
+  MemoryAdmissionDecision <Clone>$()
+  Boolean Equals(Object obj)
+  Boolean Equals(MemoryAdmissionDecision other)
+  String ExclusionReason { get; set; }
+  Int32 GetHashCode()
+  Boolean Include { get; set; }
+  Boolean InstructionLikeContentDetected { get; set; }
+  String ToString()
+
+### enum AgentMemory.AgentFramework.Security.MemoryContextSecurityMode
+  MemoryContextSecurityMode Permissive
+  MemoryContextSecurityMode Strict
+  Int32 value__
+
+### class AgentMemory.AgentFramework.ServiceCollectionExtensions
+  IServiceCollection AddAgentMemoryFramework(IServiceCollection services, Action`1 configure)
+
+### class AgentMemory.AgentFramework.Tools.MemoryToolFactory
+  .ctor(IMemoryQueryFacade facade)
+  IReadOnlyList`1 CreateAIFunctions()
+
+## AgentMemory.Analytics (7 public types)
+
+### class AgentMemory.Analytics.EntityCommunity
+  .ctor(String EntityId, Int64 CommunityId)
+  EntityCommunity <Clone>$()
+  Int64 CommunityId { get; set; }
+  Void Deconstruct(String& EntityId, Int64& CommunityId)
+  String EntityId { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EntityCommunity other)
+  Int32 GetHashCode()
+  String ToString()
+
+### class AgentMemory.Analytics.EntityRank
+  .ctor(String EntityId, Double Score)
+  EntityRank <Clone>$()
+  Void Deconstruct(String& EntityId, Double& Score)
+  String EntityId { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(EntityRank other)
+  Int32 GetHashCode()
+  Double Score { get; set; }
+  String ToString()
+
+### class AgentMemory.Analytics.GdsAnalyticsOptions
+  .ctor()
+  Int32 DefaultTopN { get; set; }
+
+### interface AgentMemory.Analytics.IGdsAvailability
+  Task`1 IsAvailableAsync(CancellationToken cancellationToken)
+
+### interface AgentMemory.Analytics.IMemoryCommunityService
+  Task`1 DetectCommunitiesAsync(MemoryScope scope, CancellationToken cancellationToken)
+
+### interface AgentMemory.Analytics.IMemoryPageRankService
+  Task`1 RankEntitiesAsync(Nullable`1 topN, MemoryScope scope, CancellationToken cancellationToken)
+
+### class AgentMemory.Analytics.ServiceCollectionExtensions
+  IServiceCollection AddGdsMemoryAnalytics(IServiceCollection services, Action`1 configure)
+
+## AgentMemory.Cli (13 public types)
+
+### class AgentMemory.Cli.CliArgs
+  String Command { get; }
+  String Get(String name)
+  Boolean HasFlag(String name)
+  IReadOnlyDictionary`2 Options { get; }
+  CliArgs Parse(String[] args)
+
+### class AgentMemory.Cli.CliHelp
+  Void Print(TextWriter output)
+
+### class AgentMemory.Cli.Commands.BootstrapCommand
+  .ctor(ISchemaBootstrapper bootstrapper, TextWriter output)
+  Task`1 ExecuteAsync(CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.ConflictsCommand
+  .ctor(IConflictDetectionService service, TextWriter output)
+  Task`1 ExecuteAsync(CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.ConsolidateCommand
+  .ctor(IConsolidationService service, TextWriter output)
+  Task`1 ExecuteAsync(Boolean apply, CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.DecayCommand
+  .ctor(IMemoryDecayService service, TextWriter output)
+  Task`1 ExecuteAsync(String ownerId, CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.EvaluationCommand
+  .ctor(ISchemaBootstrapper bootstrapper, INeo4jTransactionRunner txRunner, IOptions`1 neo4jOptions, IShortTermMemoryService shortTerm, ILongTermMemoryService longTerm, IReasoningMemoryService reasoning, IMemoryHistoryService history, IToolCallRepository toolCalls, TextWriter output)
+  Task`1 ExecuteAsync(String outputPath, String iterationsValue, String ownerValue)
+
+### class AgentMemory.Cli.Commands.HistoryCommand
+  .ctor(IMemoryHistoryService service, TextWriter output)
+  Task`1 ExecuteAsync(String type, String id, String owner, Boolean liveOnly, Boolean ownOnly, String limitValue, CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.InvalidateCommand
+  .ctor(IFactRepository facts, IEntityRepository entities, IPreferenceRepository preferences, TextWriter output)
+  Task`1 ExecuteAsync(String type, String id, String owner, CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.MigrateCommand
+  .ctor(IMigrationRunner runner, TextWriter output)
+  Task`1 ExecuteAsync(CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.SchemaCheckCommand
+  .ctor(INeo4jTransactionRunner txRunner, IOptions`1 options, TextWriter output)
+  Task`1 ExecuteAsync(CancellationToken cancellationToken)
+
+### class AgentMemory.Cli.Commands.SchemaParityCommand
+  .ctor(TextWriter output)
+  Int32 Execute(String upstreamVersion)
+
+### class AgentMemory.Cli.Commands.SupersedeCommand
+  .ctor(IFactRepository facts, IPreferenceRepository preferences, TextWriter output)
+  Task`1 ExecuteAsync(String type, String loser, String winner, String owner, CancellationToken cancellationToken)
+
+## AgentMemory.Core (6 public types)
+
+### class AgentMemory.Core.Extraction.ExtractorBase`1
+  Task`1 ExtractAsync(IReadOnlyList`1 messages, CancellationToken cancellationToken)
+
+### class AgentMemory.Core.Extraction.PatternBasedPreferenceDetector
+  .ctor()
+  .ctor(IOptions`1 options)
+  Task`1 ExtractAsync(IReadOnlyList`1 messages, CancellationToken cancellationToken)
+
+### class AgentMemory.Core.ServiceCollectionExtensions
+  IServiceCollection AddAgentMemoryCore(IServiceCollection services, Action`1 configure)
+
+### class AgentMemory.Core.Stubs.GuidIdGenerator
+  .ctor()
+  String GenerateId()
+
+### class AgentMemory.Core.Stubs.StubEmbeddingGenerator
+  .ctor(ILogger`1 logger, Int32 dimensions)
+  Void Dispose()
+  Task`1 GenerateAsync(IEnumerable`1 values, EmbeddingGenerationOptions options, CancellationToken cancellationToken)
+  Object GetService(Type serviceType, Object serviceKey)
+  EmbeddingGeneratorMetadata Metadata { get; }
+
+### class AgentMemory.Core.Stubs.SystemClock
+  .ctor()
+  DateTimeOffset UtcNow { get; }
+
+## AgentMemory (1 public types)
+
+### class AgentMemory.ServiceCollectionExtensions
+  IServiceCollection AddNeo4jAgentMemory(IServiceCollection services, Action`1 configureMemory, Action`1 configureNeo4j, Action`1 configureLlm, Action`1 configureStore)
+  IServiceCollection WithAzureLanguageExtraction(IServiceCollection services, Action`1 configure)
+  IServiceCollection WithEnrichment(IServiceCollection services, Action`1 configureGeocoding, Action`1 configureEnrichment, Action`1 configureCaching)
+  IServiceCollection WithObservability(IServiceCollection services)
+
+## AgentMemory.Enrichment (5 public types)
+
+### class AgentMemory.Enrichment.EnrichmentCacheOptions
+  .ctor()
+  TimeSpan EnrichmentCacheDuration { get; set; }
+  TimeSpan GeocodingCacheDuration { get; set; }
+
+### class AgentMemory.Enrichment.EnrichmentServiceKeys
+  String Diffbot
+
+### class AgentMemory.Enrichment.GeocodingOptions
+  .ctor()
+  String BaseUrl { get; set; }
+  Int32 MaxRetries { get; set; }
+  Int32 RateLimitPerSecond { get; set; }
+  Int32 TimeoutSeconds { get; set; }
+  String UserAgent { get; set; }
+
+### class AgentMemory.Enrichment.ServiceCollectionExtensions
+  IServiceCollection AddDiffbotEnrichment(IServiceCollection services, Action`1 configure)
+  IServiceCollection AddEnrichmentServices(IServiceCollection services, Action`1 configureGeocoding, Action`1 configureEnrichment, Action`1 configureCaching)
+
+### class AgentMemory.Enrichment.WikimediaEnrichmentOptions
+  .ctor()
+  Int32 MaxRetries { get; set; }
+  Int32 TimeoutSeconds { get; set; }
+  String WikipediaBaseUrl { get; set; }
+  String WikipediaLanguage { get; set; }
+
+## AgentMemory.Extraction.AzureLanguage (2 public types)
+
+### class AgentMemory.Extraction.AzureLanguage.AzureLanguageOptions
+  .ctor()
+  String ApiKey { get; set; }
+  String DefaultLanguage { get; set; }
+  String Endpoint { get; set; }
+  Double KeyPhraseFactConfidence { get; set; }
+  Double LinkedEntityFactConfidence { get; set; }
+  Int32 MaxDocumentBatchSize { get; set; }
+  Double PreferenceSentimentThreshold { get; set; }
+
+### class AgentMemory.Extraction.AzureLanguage.ServiceCollectionExtensions
+  IServiceCollection AddAzureLanguageExtraction(IServiceCollection services, Action`1 configure)
+
+## AgentMemory.Extraction.Llm (2 public types)
+
+### class AgentMemory.Extraction.Llm.LlmExtractionOptions
+  .ctor()
+  String EntityExtractionPrompt { get; set; }
+  IReadOnlyList`1 EntityTypes { get; set; }
+  String FactExtractionPrompt { get; set; }
+  Int32 MaxRetries { get; set; }
+  String ModelId { get; set; }
+  String PreferenceExtractionPrompt { get; set; }
+  String RelationshipExtractionPrompt { get; set; }
+  Single Temperature { get; set; }
+
+### class AgentMemory.Extraction.Llm.ServiceCollectionExtensions
+  IServiceCollection AddLlmExtraction(IServiceCollection services, Action`1 configure)
+
+## AgentMemory.McpServer (2 public types)
+
+### class AgentMemory.McpServer.AgentMemoryMcpOptions
+  .ctor()
+  Double DefaultConfidence { get; set; }
+  String DefaultSessionId { get; set; }
+  Boolean EnableGraphQuery { get; set; }
+  String ServerName { get; set; }
+  String ServerVersion { get; set; }
+
+### class AgentMemory.McpServer.ServiceCollectionExtensions
+  IMcpServerBuilder AddAgentMemoryMcpPrompts(IMcpServerBuilder builder)
+  IMcpServerBuilder AddAgentMemoryMcpResources(IMcpServerBuilder builder)
+  IMcpServerBuilder AddAgentMemoryMcpTools(IMcpServerBuilder builder)
+  IMcpServerBuilder AddAgentMemoryMcpTools(IMcpServerBuilder builder, Action`1 configure)
+
+## AgentMemory.Neo4j (8 public types)
+
+### class AgentMemory.Neo4j.Infrastructure.GraphRagOptions
+  .ctor()
+  Boolean FilterStopWords { get; set; }
+  String FulltextIndexName { get; set; }
+  String IndexName { get; set; }
+  Int32 MaxTraversalHops { get; set; }
+  String RetrievalQuery { get; set; }
+  GraphRagSearchMode SearchMode { get; set; }
+  Int32 TopK { get; set; }
+
+### interface AgentMemory.Neo4j.Infrastructure.IMigrationRunner
+  Task RunMigrationsAsync(CancellationToken cancellationToken)
+
+### interface AgentMemory.Neo4j.Infrastructure.INeo4jTransactionRunner
+  Task`1 ReadAsync(Func`2 work, CancellationToken cancellationToken)
+  Task ReadAsync(Func`2 work, CancellationToken cancellationToken)
+  Task`1 WriteAsync(Func`2 work, CancellationToken cancellationToken)
+  Task WriteAsync(Func`2 work, CancellationToken cancellationToken)
+
+### interface AgentMemory.Neo4j.Infrastructure.ISchemaBootstrapper
+  Task BootstrapAsync(CancellationToken cancellationToken)
+
+### enum AgentMemory.Neo4j.Infrastructure.MemoryStorageStrategy
+  MemoryStorageStrategy DatabasePerApplication
+  MemoryStorageStrategy SharedDatabase
+  Int32 value__
+
+### class AgentMemory.Neo4j.Infrastructure.MemoryStoreOptions
+  .ctor()
+  Boolean AutoProvision { get; set; }
+  String DatabasePrefix { get; set; }
+  String DefaultDatabase { get; set; }
+  MemoryStorageStrategy Strategy { get; set; }
+
+### class AgentMemory.Neo4j.Infrastructure.Neo4jOptions
+  .ctor()
+  TimeSpan ConnectionAcquisitionTimeout { get; set; }
+  String Database { get; set; }
+  Int32 EmbeddingDimensions { get; set; }
+  Boolean EncryptionEnabled { get; set; }
+  Int32 MaxConnectionPoolSize { get; set; }
+  String Password { get; set; }
+  String Uri { get; set; }
+  String Username { get; set; }
+  Boolean ValidateVectorIndexDimensions { get; set; }
+
+### class AgentMemory.Neo4j.Infrastructure.ServiceCollectionExtensions
+  IServiceCollection AddGraphRagAdapter(IServiceCollection services, Action`1 configure)
+  IServiceCollection AddNeo4jAgentMemory(IServiceCollection services, Action`1 configure, Action`1 configureStore)
+
+## AgentMemory.Observability (3 public types)
+
+### class AgentMemory.Observability.MemoryActivitySource
+  ActivitySource Instance
+  String Name
+
+### class AgentMemory.Observability.MemoryMetrics
+  .ctor()
+  Void Dispose()
+  String MeterName
+
+### class AgentMemory.Observability.ServiceCollectionExtensions
+  IServiceCollection AddAgentMemoryObservability(IServiceCollection services)
+
+## AgentMemory.TckBridge (35 public types)
+
+### class AgentMemory.TckBridge.AddEntityRequest
+  .ctor(String Name, String EntityType, String Description)
+  AddEntityRequest <Clone>$()
+  Void Deconstruct(String& Name, String& EntityType, String& Description)
+  String Description { get; set; }
+  String EntityType { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(AddEntityRequest other)
+  Int32 GetHashCode()
+  String Name { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.AddFactRequest
+  .ctor(String Subject, String Predicate, String Obj)
+  AddFactRequest <Clone>$()
+  Void Deconstruct(String& Subject, String& Predicate, String& Obj)
+  Boolean Equals(Object obj)
+  Boolean Equals(AddFactRequest other)
+  Int32 GetHashCode()
+  String Obj { get; set; }
+  String Predicate { get; set; }
+  String Subject { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.AddMessageRequest
+  .ctor(String SessionId, String Role, String Content, IReadOnlyDictionary`2 Metadata)
+  AddMessageRequest <Clone>$()
+  String Content { get; set; }
+  Void Deconstruct(String& SessionId, String& Role, String& Content, IReadOnlyDictionary`2& Metadata)
+  Boolean Equals(Object obj)
+  Boolean Equals(AddMessageRequest other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Role { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.AddPreferenceRequest
+  .ctor(String Category, String Preference, String Context)
+  AddPreferenceRequest <Clone>$()
+  String Category { get; set; }
+  String Context { get; set; }
+  Void Deconstruct(String& Category, String& Preference, String& Context)
+  Boolean Equals(Object obj)
+  Boolean Equals(AddPreferenceRequest other)
+  Int32 GetHashCode()
+  String Preference { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.AddRelationshipRequest
+  .ctor(String SourceId, String TargetId, String RelationshipType, IReadOnlyDictionary`2 Properties)
+  AddRelationshipRequest <Clone>$()
+  Void Deconstruct(String& SourceId, String& TargetId, String& RelationshipType, IReadOnlyDictionary`2& Properties)
+  Boolean Equals(Object obj)
+  Boolean Equals(AddRelationshipRequest other)
+  Int32 GetHashCode()
+  IReadOnlyDictionary`2 Properties { get; set; }
+  String RelationshipType { get; set; }
+  String SourceId { get; set; }
+  String TargetId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.AddStepRequest
+  .ctor(String TraceId, String Thought, String Action, String Observation)
+  AddStepRequest <Clone>$()
+  String Action { get; set; }
+  Void Deconstruct(String& TraceId, String& Thought, String& Action, String& Observation)
+  Boolean Equals(Object obj)
+  Boolean Equals(AddStepRequest other)
+  Int32 GetHashCode()
+  String Observation { get; set; }
+  String Thought { get; set; }
+  String ToString()
+  String TraceId { get; set; }
+
+### class AgentMemory.TckBridge.ClearSessionRequest
+  .ctor(String SessionId)
+  ClearSessionRequest <Clone>$()
+  Void Deconstruct(String& SessionId)
+  Boolean Equals(Object obj)
+  Boolean Equals(ClearSessionRequest other)
+  Int32 GetHashCode()
+  String SessionId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.CompleteTraceRequest
+  .ctor(String TraceId, String Outcome, Nullable`1 Success)
+  CompleteTraceRequest <Clone>$()
+  Void Deconstruct(String& TraceId, String& Outcome, Nullable`1& Success)
+  Boolean Equals(Object obj)
+  Boolean Equals(CompleteTraceRequest other)
+  Int32 GetHashCode()
+  String Outcome { get; set; }
+  Nullable`1 Success { get; set; }
+  String ToString()
+  String TraceId { get; set; }
+
+### class AgentMemory.TckBridge.DeleteMessageRequest
+  .ctor(String MessageId)
+  DeleteMessageRequest <Clone>$()
+  Void Deconstruct(String& MessageId)
+  Boolean Equals(Object obj)
+  Boolean Equals(DeleteMessageRequest other)
+  Int32 GetHashCode()
+  String MessageId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.GetConversationRequest
+  .ctor(String SessionId, Nullable`1 Limit)
+  GetConversationRequest <Clone>$()
+  Void Deconstruct(String& SessionId, Nullable`1& Limit)
+  Boolean Equals(Object obj)
+  Boolean Equals(GetConversationRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.GetEntityByNameRequest
+  .ctor(String Name)
+  GetEntityByNameRequest <Clone>$()
+  Void Deconstruct(String& Name)
+  Boolean Equals(Object obj)
+  Boolean Equals(GetEntityByNameRequest other)
+  Int32 GetHashCode()
+  String Name { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.GetRelatedEntitiesRequest
+  .ctor(String EntityId, String RelationshipType, Nullable`1 Depth)
+  GetRelatedEntitiesRequest <Clone>$()
+  Void Deconstruct(String& EntityId, String& RelationshipType, Nullable`1& Depth)
+  Nullable`1 Depth { get; set; }
+  String EntityId { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(GetRelatedEntitiesRequest other)
+  Int32 GetHashCode()
+  String RelationshipType { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.GetSimilarTracesRequest
+  .ctor(String Task, Nullable`1 Limit, Nullable`1 SuccessOnly)
+  GetSimilarTracesRequest <Clone>$()
+  Void Deconstruct(String& Task, Nullable`1& Limit, Nullable`1& SuccessOnly)
+  Boolean Equals(Object obj)
+  Boolean Equals(GetSimilarTracesRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  Nullable`1 SuccessOnly { get; set; }
+  String Task { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.GetToolStatsRequest
+  .ctor(String ToolName)
+  GetToolStatsRequest <Clone>$()
+  Void Deconstruct(String& ToolName)
+  Boolean Equals(Object obj)
+  Boolean Equals(GetToolStatsRequest other)
+  Int32 GetHashCode()
+  String ToString()
+  String ToolName { get; set; }
+
+### class AgentMemory.TckBridge.GetTraceWithStepsRequest
+  .ctor(String TraceId)
+  GetTraceWithStepsRequest <Clone>$()
+  Void Deconstruct(String& TraceId)
+  Boolean Equals(Object obj)
+  Boolean Equals(GetTraceWithStepsRequest other)
+  Int32 GetHashCode()
+  String ToString()
+  String TraceId { get; set; }
+
+### class AgentMemory.TckBridge.ListSessionsRequest
+  .ctor(Nullable`1 Limit)
+  ListSessionsRequest <Clone>$()
+  Void Deconstruct(Nullable`1& Limit)
+  Boolean Equals(Object obj)
+  Boolean Equals(ListSessionsRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.ListTracesRequest
+  .ctor(String SessionId, Nullable`1 Limit)
+  ListTracesRequest <Clone>$()
+  Void Deconstruct(String& SessionId, Nullable`1& Limit)
+  Boolean Equals(Object obj)
+  Boolean Equals(ListTracesRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.MergeDuplicateEntitiesRequest
+  .ctor(String SourceId, String TargetId, String CanonicalName)
+  MergeDuplicateEntitiesRequest <Clone>$()
+  String CanonicalName { get; set; }
+  Void Deconstruct(String& SourceId, String& TargetId, String& CanonicalName)
+  Boolean Equals(Object obj)
+  Boolean Equals(MergeDuplicateEntitiesRequest other)
+  Int32 GetHashCode()
+  String SourceId { get; set; }
+  String TargetId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.RecordToolCallRequest
+  .ctor(String StepId, String ToolName, JsonElement Arguments, Nullable`1 Result, String Status, Nullable`1 DurationMs, String Error)
+  RecordToolCallRequest <Clone>$()
+  JsonElement Arguments { get; set; }
+  Void Deconstruct(String& StepId, String& ToolName, JsonElement& Arguments, Nullable`1& Result, String& Status, Nullable`1& DurationMs, String& Error)
+  Nullable`1 DurationMs { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(RecordToolCallRequest other)
+  String Error { get; set; }
+  Int32 GetHashCode()
+  Nullable`1 Result { get; set; }
+  String Status { get; set; }
+  String StepId { get; set; }
+  String ToString()
+  String ToolName { get; set; }
+
+### class AgentMemory.TckBridge.SearchEntitiesRequest
+  .ctor(String Query, Nullable`1 Limit)
+  SearchEntitiesRequest <Clone>$()
+  Void Deconstruct(String& Query, Nullable`1& Limit)
+  Boolean Equals(Object obj)
+  Boolean Equals(SearchEntitiesRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  String Query { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.SearchMessagesRequest
+  .ctor(String Query, String SessionId, Nullable`1 Limit, Nullable`1 Threshold)
+  SearchMessagesRequest <Clone>$()
+  Void Deconstruct(String& Query, String& SessionId, Nullable`1& Limit, Nullable`1& Threshold)
+  Boolean Equals(Object obj)
+  Boolean Equals(SearchMessagesRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  String Query { get; set; }
+  String SessionId { get; set; }
+  Nullable`1 Threshold { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.SearchPreferencesRequest
+  .ctor(String Query, String Category, Nullable`1 Limit)
+  SearchPreferencesRequest <Clone>$()
+  String Category { get; set; }
+  Void Deconstruct(String& Query, String& Category, Nullable`1& Limit)
+  Boolean Equals(Object obj)
+  Boolean Equals(SearchPreferencesRequest other)
+  Int32 GetHashCode()
+  Nullable`1 Limit { get; set; }
+  String Query { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.StartTraceRequest
+  .ctor(String SessionId, String Task)
+  StartTraceRequest <Clone>$()
+  Void Deconstruct(String& SessionId, String& Task)
+  Boolean Equals(Object obj)
+  Boolean Equals(StartTraceRequest other)
+  Int32 GetHashCode()
+  String SessionId { get; set; }
+  String Task { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.TckConversation
+  .ctor(String Id, String SessionId, IReadOnlyList`1 Messages, String Title, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
+  TckConversation <Clone>$()
+  DateTimeOffset CreatedAt { get; set; }
+  Void Deconstruct(String& Id, String& SessionId, IReadOnlyList`1& Messages, String& Title, DateTimeOffset& CreatedAt, DateTimeOffset& UpdatedAt)
+  Boolean Equals(Object obj)
+  Boolean Equals(TckConversation other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  IReadOnlyList`1 Messages { get; set; }
+  String SessionId { get; set; }
+  String Title { get; set; }
+  String ToString()
+  DateTimeOffset UpdatedAt { get; set; }
+
+### class AgentMemory.TckBridge.TckEntity
+  .ctor(String Id, String Name, String Type, String Subtype, String Description, Single[] Embedding, String CanonicalName, DateTimeOffset CreatedAt)
+  TckEntity <Clone>$()
+  String CanonicalName { get; set; }
+  DateTimeOffset CreatedAt { get; set; }
+  Void Deconstruct(String& Id, String& Name, String& Type, String& Subtype, String& Description, Single[]& Embedding, String& CanonicalName, DateTimeOffset& CreatedAt)
+  String Description { get; set; }
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(TckEntity other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  String Name { get; set; }
+  String Subtype { get; set; }
+  String ToString()
+  String Type { get; set; }
+
+### class AgentMemory.TckBridge.TckFact
+  .ctor(String Id, String Subject, String Predicate, String Object, Single[] Embedding)
+  TckFact <Clone>$()
+  Void Deconstruct(String& Id, String& Subject, String& Predicate, String& Object, Single[]& Embedding)
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(TckFact other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  String Object { get; set; }
+  String Predicate { get; set; }
+  String Subject { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.TckMessage
+  .ctor(String Id, String Role, String Content, DateTimeOffset Timestamp, Single[] Embedding, IReadOnlyDictionary`2 Metadata)
+  TckMessage <Clone>$()
+  String Content { get; set; }
+  Void Deconstruct(String& Id, String& Role, String& Content, DateTimeOffset& Timestamp, Single[]& Embedding, IReadOnlyDictionary`2& Metadata)
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(TckMessage other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  IReadOnlyDictionary`2 Metadata { get; set; }
+  String Role { get; set; }
+  DateTimeOffset Timestamp { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.TckPreference
+  .ctor(String Id, String Category, String Preference, String Context, Single[] Embedding)
+  TckPreference <Clone>$()
+  String Category { get; set; }
+  String Context { get; set; }
+  Void Deconstruct(String& Id, String& Category, String& Preference, String& Context, Single[]& Embedding)
+  Single[] Embedding { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(TckPreference other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  String Preference { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.TckReasoningStep
+  .ctor(String Id, String TraceId, Int32 StepNumber, String Thought, String Action, String Observation, IReadOnlyList`1 ToolCalls)
+  TckReasoningStep <Clone>$()
+  String Action { get; set; }
+  Void Deconstruct(String& Id, String& TraceId, Int32& StepNumber, String& Thought, String& Action, String& Observation, IReadOnlyList`1& ToolCalls)
+  Boolean Equals(Object obj)
+  Boolean Equals(TckReasoningStep other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  String Observation { get; set; }
+  Int32 StepNumber { get; set; }
+  String Thought { get; set; }
+  String ToString()
+  IReadOnlyList`1 ToolCalls { get; set; }
+  String TraceId { get; set; }
+
+### class AgentMemory.TckBridge.TckReasoningTrace
+  .ctor(String Id, String SessionId, String Task, IReadOnlyList`1 Steps, String Outcome, Nullable`1 Success, DateTimeOffset StartedAt, Nullable`1 CompletedAt)
+  TckReasoningTrace <Clone>$()
+  Nullable`1 CompletedAt { get; set; }
+  Void Deconstruct(String& Id, String& SessionId, String& Task, IReadOnlyList`1& Steps, String& Outcome, Nullable`1& Success, DateTimeOffset& StartedAt, Nullable`1& CompletedAt)
+  Boolean Equals(Object obj)
+  Boolean Equals(TckReasoningTrace other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  String Outcome { get; set; }
+  String SessionId { get; set; }
+  DateTimeOffset StartedAt { get; set; }
+  IReadOnlyList`1 Steps { get; set; }
+  Nullable`1 Success { get; set; }
+  String Task { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.TckRelationship
+  .ctor(String Id, String SourceId, String TargetId, String RelationshipType, IReadOnlyDictionary`2 Properties)
+  TckRelationship <Clone>$()
+  Void Deconstruct(String& Id, String& SourceId, String& TargetId, String& RelationshipType, IReadOnlyDictionary`2& Properties)
+  Boolean Equals(Object obj)
+  Boolean Equals(TckRelationship other)
+  Int32 GetHashCode()
+  String Id { get; set; }
+  IReadOnlyDictionary`2 Properties { get; set; }
+  String RelationshipType { get; set; }
+  String SourceId { get; set; }
+  String TargetId { get; set; }
+  String ToString()
+
+### class AgentMemory.TckBridge.TckSessionInfo
+  .ctor(String SessionId, Int32 MessageCount, Nullable`1 CreatedAt, Nullable`1 UpdatedAt)
+  TckSessionInfo <Clone>$()
+  Nullable`1 CreatedAt { get; set; }
+  Void Deconstruct(String& SessionId, Int32& MessageCount, Nullable`1& CreatedAt, Nullable`1& UpdatedAt)
+  Boolean Equals(Object obj)
+  Boolean Equals(TckSessionInfo other)
+  Int32 GetHashCode()
+  Int32 MessageCount { get; set; }
+  String SessionId { get; set; }
+  String ToString()
+  Nullable`1 UpdatedAt { get; set; }
+
+### class AgentMemory.TckBridge.TckToolCall
+  .ctor(String Id, String ToolName, JsonElement Arguments, Nullable`1 Result, String Status, Nullable`1 DurationMs, String Error)
+  TckToolCall <Clone>$()
+  JsonElement Arguments { get; set; }
+  Void Deconstruct(String& Id, String& ToolName, JsonElement& Arguments, Nullable`1& Result, String& Status, Nullable`1& DurationMs, String& Error)
+  Nullable`1 DurationMs { get; set; }
+  Boolean Equals(Object obj)
+  Boolean Equals(TckToolCall other)
+  String Error { get; set; }
+  Int32 GetHashCode()
+  String Id { get; set; }
+  Nullable`1 Result { get; set; }
+  String Status { get; set; }
+  String ToString()
+  String ToolName { get; set; }
+
+### class AgentMemory.TckBridge.TckToolStats
+  .ctor(String Name, Int32 TotalCalls, Int32 SuccessfulCalls, Int32 FailedCalls, Double SuccessRate, Nullable`1 AvgDurationMs)
+  TckToolStats <Clone>$()
+  Nullable`1 AvgDurationMs { get; set; }
+  Void Deconstruct(String& Name, Int32& TotalCalls, Int32& SuccessfulCalls, Int32& FailedCalls, Double& SuccessRate, Nullable`1& AvgDurationMs)
+  Boolean Equals(Object obj)
+  Boolean Equals(TckToolStats other)
+  Int32 FailedCalls { get; set; }
+  Int32 GetHashCode()
+  String Name { get; set; }
+  Double SuccessRate { get; set; }
+  Int32 SuccessfulCalls { get; set; }
+  String ToString()
+  Int32 TotalCalls { get; set; }
+
+### class Program
+  .ctor()
+
+## AgentMemory.SemanticKernel (5 public types)
+
+### class AgentMemory.SemanticKernel.KernelMemoryExtensions
+  IKernelBuilder AddNeo4jMemoryPlugin(IKernelBuilder builder, Action`1 configureSecurity)
+  Kernel AddNeo4jMemoryPlugin(Kernel kernel, IMemoryService memoryService, MemoryRecallSecurityOptions securityOptions)
+  IKernelBuilder AddNeo4jTextSearch(IKernelBuilder builder, String sessionId, String userId, MemoryRecallSecurityOptions securityOptions)
+
+### enum AgentMemory.SemanticKernel.MemoryContextSecurityMode
+  MemoryContextSecurityMode Permissive
+  MemoryContextSecurityMode Strict
+  Int32 value__
+
+### class AgentMemory.SemanticKernel.MemoryRecallSecurityOptions
+  .ctor()
+  MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; }
+  MemoryTrustLevel MinimumTrustForSystemRole { get; set; }
+  MemoryContextSecurityMode SecurityMode { get; set; }
+
+### class AgentMemory.SemanticKernel.Neo4jMemoryPlugin
+  .ctor(IMemoryService memoryService, ILogger`1 logger, IOptions`1 securityOptions)
+  Task AddMessageAsync(String sessionId, String conversationId, String role, String content, CancellationToken cancellationToken)
+  Task ClearSessionAsync(String sessionId, CancellationToken cancellationToken)
+  Task ExtractFromConversationAsync(String conversationId, String userId, CancellationToken cancellationToken)
+  Task ExtractFromSessionAsync(String sessionId, String userId, CancellationToken cancellationToken)
+  Task`1 RecallAsync(String query, String sessionId, String userId, CancellationToken cancellationToken)
+
+### class AgentMemory.SemanticKernel.Neo4jTextSearch
+  .ctor(IMemoryService memoryService, String sessionId, String userId, MemoryRecallSecurityOptions securityOptions)
+  Task`1 GetSearchResultsAsync(String query, TextSearchOptions`1 searchOptions, CancellationToken cancellationToken)
+  Task`1 GetTextSearchResultsAsync(String query, TextSearchOptions`1 searchOptions, CancellationToken cancellationToken)
+  Task`1 SearchAsync(String query, TextSearchOptions`1 searchOptions, CancellationToken cancellationToken)
