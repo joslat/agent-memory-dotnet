@@ -39,6 +39,7 @@ public static class NamsServiceCollectionExtensions
             .Validate(NamsOptionValidator.HasNonNegativeMaxRetryAttempts, "NamsOptions.MaxRetryAttempts must be non-negative.")
             .Validate(NamsOptionValidator.HasNonNegativeInitialRetryDelay, "NamsOptions.InitialRetryDelay must be non-negative.")
             .Validate(NamsOptionValidator.HasApiKey, "NamsOptions.ApiKey must be provided (JWT/Auth0 authentication is not yet supported).")
+            .Validate(NamsOptionValidator.HasValidWorkspaceId, "NamsOptions.WorkspaceId must not contain control characters.")
             .ValidateOnStart();
 
         // Idempotent by construction: TryAddSingleton means a second AddNamsAgentMemory call is a

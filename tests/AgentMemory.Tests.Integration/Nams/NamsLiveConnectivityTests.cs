@@ -14,11 +14,12 @@ namespace AgentMemory.Tests.Integration.Nams;
 /// internally. Every identity is a fresh GUID (engineering plan Phase 10: "unique test user prefix"), and
 /// these only ever run against the isolated <c>agent-memory-dotnet-dev</c> workspace -- never a production
 /// customer workspace. <see cref="LiveNamsFactAttribute"/> skips cleanly when
-/// NAMS_API_KEY/NAMS_DEV_WORKSPACE_ID aren't configured, so this never runs in CI.
+/// NAMS_API_KEY/NAMS_DEV_WORKSPACE_ID aren't configured -- CI still discovers these tests (they carry the
+/// same <c>Category=Integration</c> trait as every other integration test), but they report as Skipped
+/// there and never fail the build.
 /// </summary>
 [Collection("NAMS Live")]
 [Trait("Category", "Integration")]
-[Trait("Category", "LiveNams")]
 public sealed class NamsLiveConnectivityTests
 {
     private readonly NamsLiveFixture _fixture;
@@ -105,17 +106,27 @@ public sealed class NamsLiveConnectivityTests
         LocalConversationId = Guid.NewGuid().ToString("N")
     };
 
-    /// <summary>Bounded poll helper -- never waits longer than <paramref name="timeout"/>.</summary>
+    /// <summary>
+    /// Bounded poll helper -- never waits longer than <paramref name="timeout"/>. Swallows exceptions from
+    /// <paramref name="condition"/> itself (a live HTTP call can hit a transient blip mid-poll) and keeps
+    /// retrying within the remaining budget, matching <c>Neo4jIntegrationFixture.WaitForVectorIndexesAsync</c>'s
+    /// established pattern for this repo's other eventual-consistency polls.
+    /// </summary>
     private static async Task<bool> PollUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
         while (!cts.IsCancellationRequested)
         {
-            if (await condition().ConfigureAwait(false))
-                return true;
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(2), cts.Token).ConfigureAwait(false);
+                if (await condition())
+                    return true;
+            }
+            catch { /* transient failure against a live external service -- ignore and keep polling */ }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
             }
             catch (OperationCanceledException)
             {

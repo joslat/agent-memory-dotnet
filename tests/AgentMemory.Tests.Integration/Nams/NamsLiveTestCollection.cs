@@ -1,4 +1,6 @@
 namespace AgentMemory.Tests.Integration.Nams;
 
 [CollectionDefinition("NAMS Live")]
-public sealed class NamsLiveTestCollection : ICollectionFixture<NamsLiveFixture>;
+public class NamsLiveTestCollection : ICollectionFixture<NamsLiveFixture>
+{
+}

@@ -53,8 +53,8 @@ API docs against the existing `AgentMemory.Nams` client surfaced two small, conc
     Windows `EnvironmentVariableTarget.User` registry fallback so a credential set mid-session doesn't
     require restarting the IDE/terminal to become visible.
   - `LiveNamsFactAttribute.cs` -- a `[Fact]` variant that sets `Skip` at discovery time when credentials
-    aren't available, so these tests never fail (or run) in CI or on a machine without the isolated dev
-    workspace configured.
+    aren't available. CI still discovers these tests (same `Category=Integration` trait as every other
+    integration test) but they report as Skipped there and never fail the build.
   - `NamsLiveFixture.cs` + `NamsLiveTestCollection.cs` -- a real DI container wired via
     `AddNamsAgentMemory`, exactly as a consuming application would.
   - `NamsLiveConnectivityTests.cs` -- 3 tests: conversation creation, persist-then-recall round trip, and a
@@ -72,11 +72,37 @@ API docs against the existing `AgentMemory.Nams` client surfaced two small, conc
   -- **all 3 live tests passed against the real NAMS SaaS**, ~10s total. First-ever live validation of the
   Phase 4-6 pipeline end to end.
 
-## 4. Definition of done
+## 4. Self-review findings and fixes
+
+3 parallel reviewers (correctness / cross-file impact / cleanup-conventions), matching the Phase 4-6 pattern:
+
+- **Correctness (2 fixed):** `PollUntilAsync` didn't catch exceptions from the polled condition itself (only
+  from the delay) -- a single transient blip against the live service during the 30-60s window would abort
+  the whole poll instead of retrying through the remaining budget. Fixed to swallow and keep polling, matching
+  `Neo4jIntegrationFixture.WaitForVectorIndexesAsync`'s established pattern. Separately, `NamsOptions.WorkspaceId`
+  had no fail-fast validation like every other option -- a stray control character (e.g. a pasted trailing
+  newline) would throw lazily on the first HTTP request instead of a clear `OptionsValidationException` at
+  startup. Added `NamsOptionValidator.HasValidWorkspaceId` + 2 tests.
+- **Cross-file impact (0 fixed, 1 clarified):** confirmed no existing `AddNamsAgentMemory` caller sets
+  `WorkspaceId`, so the new header is a no-op for every pre-existing path; confirmed the manifest/CI
+  consistency check is directory-driven (no update needed for a file added inside an existing package);
+  re-ran and confirmed the doc's own test-count claims. Flagged (not a bug) that the new tests' trait would
+  make CI *discover* them, not silently exclude them -- addressed by removing the redundant second trait (see
+  below) and correcting this doc's wording.
+- **Cleanup/conventions (3 fixed):** dropped the redundant `[Trait("Category","LiveNams")]` (every other test
+  class in the project uses exactly one Category trait); removed `ConfigureAwait(false)` from the new test
+  code (CA2007 is `src/`-only, no sibling integration test uses it); changed `NamsLiveTestCollection` to the
+  brace-bodied non-sealed form matching its one direct precedent, `Neo4jIntegrationCollection`.
+
+Re-verified after fixes: 164/164 Nams unit tests green (162 + 2 new `WorkspaceId` validation tests), live
+suite still 3/3 green.
+
+## 5. Definition of done
 
 - [x] Live connectivity confirmed.
 - [x] `X-Workspace-Id` gap fixed and covered.
 - [x] `NamsWellKnown` added and covered.
 - [x] Live-integration test scaffold built and passing against the real service.
-- [ ] Self-reviewed, PR opened, CI green (live tests skip cleanly there -- no credentials in CI), merged to
-      `main`.
+- [x] Self-reviewed and fixes applied.
+- [ ] PR opened, CI green (live tests are discovered but report Skipped there -- no credentials in CI),
+      merged to `main`.

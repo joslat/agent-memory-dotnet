@@ -169,6 +169,40 @@ public sealed class NamsServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddNamsAgentMemory_WorkspaceIdWithControlCharacter_FailsValidation()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+            o.WorkspaceId = "workspace\r\nid";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
+    [Fact]
+    public void AddNamsAgentMemory_ValidWorkspaceId_PassesValidation()
+    {
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+            o.WorkspaceId = "a3c6679c-31a9-4035-95d9-7dfae2349cb5";
+        });
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void AddNamsAgentMemory_CalledTwice_DoesNotThrow()
     {
         var services = new ServiceCollection();
