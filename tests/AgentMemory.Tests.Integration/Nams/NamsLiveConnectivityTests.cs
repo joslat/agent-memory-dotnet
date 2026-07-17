@@ -98,6 +98,99 @@ public sealed class NamsLiveConnectivityTests
         found.Should().BeTrue($"an entity named '{entityName}' should eventually be extracted and recallable");
     }
 
+    [LiveNamsFact]
+    public async Task ResolveAsync_SameIdentityResolvedConcurrently_ReconcilesToOneConversation()
+    {
+        var resolver = _fixture.Services!.GetRequiredService<INamsConversationResolver>();
+        var identity = UniqueIdentity(); // one identity, resolved twice concurrently below
+
+        var task1 = resolver.ResolveAsync(identity, CancellationToken.None);
+        var task2 = resolver.ResolveAsync(identity, CancellationToken.None);
+        var results = await Task.WhenAll(task1, task2);
+
+        results[0].NamsConversationId.Should().Be(results[1].NamsConversationId,
+            "both resolutions are for the same identity -- they must agree on one conversation");
+        results.Count(r => r.WasCreated).Should().Be(1,
+            "exactly one of the two concurrent resolutions should have actually created the conversation");
+    }
+
+    [LiveNamsFact]
+    public async Task PersistTurnAsync_TwoConcurrentUsers_DoNotCrossContaminateChatHistory()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var recall = services.GetRequiredService<INamsRecallService>();
+
+        var resolveTaskA = resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+        var resolveTaskB = resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+        await Task.WhenAll(resolveTaskA, resolveTaskB);
+        var conversationA = await resolveTaskA;
+        var conversationB = await resolveTaskB;
+
+        var markerA = $"Concurrency test A {Guid.NewGuid():N}";
+        var markerB = $"Concurrency test B {Guid.NewGuid():N}";
+        await Task.WhenAll(
+            persistence.PersistTurnAsync(conversationA.NamsConversationId, [new NamsMessageToPersist(markerA)], [], CancellationToken.None),
+            persistence.PersistTurnAsync(conversationB.NamsConversationId, [new NamsMessageToPersist(markerB)], [], CancellationToken.None));
+
+        var found = await PollUntilAsync(
+            async () =>
+            {
+                var recalledA = await recall.RecallAsync(conversationA.NamsConversationId, markerA, CancellationToken.None);
+                var recalledB = await recall.RecallAsync(conversationB.NamsConversationId, markerB, CancellationToken.None);
+                var aHasOwnMarker = recalledA.Items.Any(i => i.Content.Contains(markerA, StringComparison.Ordinal));
+                var bHasOwnMarker = recalledB.Items.Any(i => i.Content.Contains(markerB, StringComparison.Ordinal));
+                var noCrossContamination =
+                    !recalledA.Items.Any(i => i.Content.Contains(markerB, StringComparison.Ordinal))
+                    && !recalledB.Items.Any(i => i.Content.Contains(markerA, StringComparison.Ordinal));
+                return aHasOwnMarker && bHasOwnMarker && noCrossContamination;
+            },
+            timeout: TimeSpan.FromSeconds(30));
+
+        found.Should().BeTrue("each conversation's recall should see only its own persisted message, never the other's");
+    }
+
+    [LiveNamsFact]
+    public async Task RecallAsync_CancelledBeforeTheHttpRoundTripCompletes_PropagatesOperationCanceledException()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var recall = services.GetRequiredService<INamsRecallService>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(1)); // a live round trip to NAMS never completes this fast
+
+        var act = () => recall.RecallAsync(conversation.NamsConversationId, "test", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [LiveNamsFact]
+    public async Task PersistTurnAsync_UnicodeAndEmojiContent_RoundTripsByteForByte()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var recall = services.GetRequiredService<INamsRecallService>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        var marker = $"Unicode test {Guid.NewGuid():N}: 日本語のテスト 🎉 émoji café";
+        await persistence.PersistTurnAsync(
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist(marker)], assistantMessages: [], CancellationToken.None);
+
+        var found = await PollUntilAsync(
+            async () =>
+            {
+                var recalled = await recall.RecallAsync(conversation.NamsConversationId, marker, CancellationToken.None);
+                return recalled.Items.Any(i => i.Content.Contains(marker, StringComparison.Ordinal));
+            },
+            timeout: TimeSpan.FromSeconds(30));
+
+        found.Should().BeTrue("Unicode/emoji content should round-trip through NAMS byte-for-byte");
+    }
+
     private static NamsConversationIdentity UniqueIdentity([CallerMemberName] string testName = "") => new()
     {
         ApplicationId = "agent-memory-dotnet-live-tests",
