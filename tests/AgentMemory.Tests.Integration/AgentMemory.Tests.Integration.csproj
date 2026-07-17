@@ -11,6 +11,7 @@
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="FluentAssertions" Version="8.9.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.9.0" />
     <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.9.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
@@ -34,6 +35,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.AgentFramework.Nams\AgentMemory.AgentFramework.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
   </ItemGroup>
