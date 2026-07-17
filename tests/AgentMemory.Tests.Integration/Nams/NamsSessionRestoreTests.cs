@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -58,20 +59,17 @@ public sealed class NamsSessionRestoreTests
         var resolver = sp.GetRequiredService<INamsConversationResolver>();
         var recall = sp.GetRequiredService<INamsRecallService>();
 
-        var (applicationId, userId, sessionId, conversationId) = UniqueIds();
+        var identity = UniqueIdentity();
         var agent = CreateStubbedAgent(memoryProvider);
 
-        var session = (await agent.CreateSessionAsync()).WithMemoryIdentity(userId, sessionId, conversationId, applicationId);
+        var session = (await agent.CreateSessionAsync()).WithMemoryIdentity(
+            identity.UserId, identity.SessionId, identity.LocalConversationId, identity.ApplicationId);
         var markerBeforeRestore = $"before-restore-{Guid.NewGuid():N}";
         await agent.RunAsync(markerBeforeRestore, session);
 
-        var identity = new NamsConversationIdentity
-        {
-            ApplicationId = applicationId, UserId = userId, SessionId = sessionId, LocalConversationId = conversationId
-        };
         var namsConversationId = (await resolver.ResolveAsync(identity, CancellationToken.None)).NamsConversationId;
 
-        var indexedBeforeRestore = await PollUntilAsync(
+        var indexedBeforeRestore = await NamsLiveTestHelpers.PollUntilAsync(
             async () =>
             {
                 var recalled = await recall.RecallAsync(namsConversationId, markerBeforeRestore, CancellationToken.None);
@@ -81,13 +79,30 @@ public sealed class NamsSessionRestoreTests
         indexedBeforeRestore.Should().BeTrue("the pre-restore turn must actually be indexed before restore can meaningfully be proven to continue it");
 
         var serialized = await agent.SerializeSessionAsync(session);
-        var restored = (await agent.DeserializeSessionAsync(serialized)).WithMemoryIdentity(userId, sessionId, conversationId, applicationId);
+        var restored = await agent.DeserializeSessionAsync(serialized);
         restored.Should().NotBeSameAs(session, "this must be a genuine restore from serialized JSON, not the original in-memory session object");
+
+        // Prove the state bag itself survived BEFORE re-applying WithMemoryIdentity below -- re-stamping the
+        // exact values already used before serialization would trivially reproduce the same conversation
+        // regardless of whether restore preserved anything at all, which is exactly the triviality this
+        // type's own doc comment says the design avoids. Reading the identity back via the same public
+        // GetMemoryIdentity() the production code itself uses (AgentSessionMemoryExtensions) -- independent
+        // of the known values below -- is what makes this assertion non-vacuous.
+        var restoredIdentity = restored.GetMemoryIdentity();
+        restoredIdentity.UserId.Should().Be(identity.UserId);
+        restoredIdentity.SessionId.Should().Be(identity.SessionId);
+        restoredIdentity.ConversationId.Should().Be(identity.LocalConversationId);
+        restoredIdentity.ApplicationId.Should().Be(identity.ApplicationId);
+
+        // Now follow the NamsAgent sample's own documented recipe: re-apply WithMemoryIdentity after restore
+        // anyway (defensive, matches published guidance) and continue the conversation.
+        restored = restored.WithMemoryIdentity(
+            identity.UserId, identity.SessionId, identity.LocalConversationId, identity.ApplicationId);
 
         var markerAfterRestore = $"after-restore-{Guid.NewGuid():N}";
         await agent.RunAsync(markerAfterRestore, restored);
 
-        var indexedAfterRestore = await PollUntilAsync(
+        var indexedAfterRestore = await NamsLiveTestHelpers.PollUntilAsync(
             async () =>
             {
                 var recalled = await recall.RecallAsync(namsConversationId, markerAfterRestore, CancellationToken.None);
@@ -108,20 +123,17 @@ public sealed class NamsSessionRestoreTests
         var resolver = sp.GetRequiredService<INamsConversationResolver>();
         var recall = sp.GetRequiredService<INamsRecallService>();
 
-        var (applicationId, userId, sessionId, conversationId) = UniqueIds();
+        var identity = UniqueIdentity();
         var agent = CreateStubbedAgent(memoryProvider);
 
-        var session = (await agent.CreateSessionAsync()).WithMemoryIdentity(userId, sessionId, conversationId, applicationId);
+        var session = (await agent.CreateSessionAsync()).WithMemoryIdentity(
+            identity.UserId, identity.SessionId, identity.LocalConversationId, identity.ApplicationId);
         var markerBeforeRestore = $"before-restore-noreapply-{Guid.NewGuid():N}";
         await agent.RunAsync(markerBeforeRestore, session);
 
-        var identity = new NamsConversationIdentity
-        {
-            ApplicationId = applicationId, UserId = userId, SessionId = sessionId, LocalConversationId = conversationId
-        };
         var namsConversationId = (await resolver.ResolveAsync(identity, CancellationToken.None)).NamsConversationId;
 
-        var indexedBeforeRestore = await PollUntilAsync(
+        var indexedBeforeRestore = await NamsLiveTestHelpers.PollUntilAsync(
             async () =>
             {
                 var recalled = await recall.RecallAsync(namsConversationId, markerBeforeRestore, CancellationToken.None);
@@ -142,7 +154,7 @@ public sealed class NamsSessionRestoreTests
         var markerAfterRestore = $"after-restore-noreapply-{Guid.NewGuid():N}";
         await agent.RunAsync(markerAfterRestore, restored);
 
-        var indexedAfterRestore = await PollUntilAsync(
+        var indexedAfterRestore = await NamsLiveTestHelpers.PollUntilAsync(
             async () =>
             {
                 var recalled = await recall.RecallAsync(namsConversationId, markerAfterRestore, CancellationToken.None);
@@ -168,35 +180,14 @@ public sealed class NamsSessionRestoreTests
         });
     }
 
-    private static (string ApplicationId, string UserId, string SessionId, string ConversationId) UniqueIds() =>
-    (
-        "agent-memory-dotnet-live-tests",
-        $"test-user-{Guid.NewGuid():N}",
-        Guid.NewGuid().ToString("N"),
-        Guid.NewGuid().ToString("N")
-    );
-
-    private static async Task<bool> PollUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
+    // [CallerMemberName] embeds the calling test's name in UserId -- these tests deliberately leave orphaned
+    // NAMS-side conversations behind (never delete what they create), so this aids tracing them back to the
+    // test that created them, matching NamsLiveConnectivityTests.UniqueIdentity's identical convention.
+    private static NamsConversationIdentity UniqueIdentity([CallerMemberName] string testName = "") => new()
     {
-        using var cts = new CancellationTokenSource(timeout);
-        while (!cts.IsCancellationRequested)
-        {
-            try
-            {
-                if (await condition())
-                    return true;
-            }
-            catch { /* transient failure against a live external service -- ignore and keep polling */ }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
-        }
-        return false;
-    }
+        ApplicationId = "agent-memory-dotnet-live-tests",
+        UserId = $"test-{testName}-{Guid.NewGuid():N}",
+        SessionId = Guid.NewGuid().ToString("N"),
+        LocalConversationId = Guid.NewGuid().ToString("N")
+    };
 }
