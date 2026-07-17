@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
   </ItemGroup>
 
