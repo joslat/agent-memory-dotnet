@@ -1,0 +1,6626 @@
+{
+  "basePath": "/",
+  "definitions": {
+    "gin.H": {
+      "additionalProperties": {},
+      "type": "object"
+    },
+    "handlers.APIKey": {
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "description": "ExpiresAt is the 90-day rotation deadline. Empty for legacy keys; the\nUI treats absent values as \"no expiry\" so legacy keys keep working\nuntil rotated.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "revokedAt": {
+          "type": "string"
+        },
+        "scopes": {
+          "description": "Scopes is the comma-separated scope string stored on the key. Empty for\nlegacy keys (which default to all scopes at validation).",
+          "type": "string"
+        },
+        "workspaceId": {
+          "description": "WorkspaceID is set for a Workspace key (data-plane, bound) and empty for\nan account-wide Admin key. The dashboard derives the type badge from it.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ActivateOntologyRequest": {
+      "properties": {
+        "version_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_id"
+      ],
+      "type": "object"
+    },
+    "handlers.ActiveOntologyResponse": {
+      "properties": {
+        "ontology": {
+          "$ref": "#/definitions/ontology.Ontology"
+        },
+        "version": {
+          "$ref": "#/definitions/ontology.OntologyVersionRecord"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.AddMessageResponse": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.AddMessagesBatchResponse": {
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/definitions/handlers.AddMessageResponse"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ContextResponse": {
+      "properties": {
+        "observations": {
+          "items": {
+            "$ref": "#/definitions/handlers.Observation"
+          },
+          "type": "array"
+        },
+        "recentMessages": {
+          "items": {
+            "$ref": "#/definitions/handlers.Message"
+          },
+          "type": "array"
+        },
+        "reflections": {
+          "items": {
+            "$ref": "#/definitions/handlers.Reflection"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.Conversation": {
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "firstMessageSnippet": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "messageCount": {
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ConversationReasoningResponse": {
+      "properties": {
+        "conversationId": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/handlers.ReasoningStep"
+          },
+          "type": "array"
+        },
+        "toolCalls": {
+          "items": {
+            "$ref": "#/definitions/handlers.ToolCall"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ConversationResponse": {
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ConversationsResponse": {
+      "properties": {
+        "conversations": {
+          "items": {
+            "$ref": "#/definitions/handlers.Conversation"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.CreateConversationResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.CreateOntologyRequest": {
+      "properties": {
+        "message": {
+          "description": "Message is an optional commit-style note describing the change.",
+          "type": "string"
+        },
+        "ontology": {
+          "$ref": "#/definitions/ontology.Ontology"
+        },
+        "validation_mode": {
+          "$ref": "#/definitions/ontology.Mode"
+        }
+      },
+      "required": [
+        "ontology"
+      ],
+      "type": "object"
+    },
+    "handlers.EntitiesResponse": {
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/definitions/handlers.Entity"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.Entity": {
+      "properties": {
+        "confidence": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        },
+        "sourceStage": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.EntityDetailsResponse": {
+      "properties": {
+        "confidence": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "relationships": {
+          "items": {
+            "$ref": "#/definitions/handlers.EntityRelationship"
+          },
+          "type": "array"
+        },
+        "sourceStage": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.EntityGraphResponse": {
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/definitions/handlers.graphEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.EntityProvenanceResponse": {
+      "properties": {
+        "entityId": {
+          "type": "string"
+        },
+        "mentions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.EntityReasoningProvenanceResponse": {
+      "properties": {
+        "entityId": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.EntityRelationship": {
+      "properties": {
+        "relType": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "targetName": {
+          "type": "string"
+        },
+        "targetType": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.EntityResponse": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ErrorResponse": {
+      "properties": {
+        "error": {
+          "example": "internal error",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ExchangeAuth0Response": {
+      "properties": {
+        "workspaces": {
+          "items": {
+            "$ref": "#/definitions/handlers.WorkspaceAuthInfo"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ExpandNode": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "properties": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ExpandRequest": {
+      "properties": {
+        "loadedIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nodeId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ExpandResponse": {
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/definitions/handlers.graphEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/definitions/handlers.ExpandNode"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "$ref": "#/definitions/handlers.ExpandTruncation"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ExpandTruncation": {
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "shown": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ImportOntologyRequest": {
+      "properties": {
+        "content": {
+          "description": "Content is the raw source document (JSON, YAML, RDF, etc.). Mutually\nexclusive with URL: supply one or the other.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Format is an explicit converter id (e.g. \"arrows\") or \"auto\"/\"\" to\ndetect from the content.",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL, when set and Content is empty, is fetched server-side (https only,\nSSRF-guarded, size-capped) and its body used as the content.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ImportOntologyResponse": {
+      "properties": {
+        "detected_format": {
+          "type": "string"
+        },
+        "ontology": {
+          "$ref": "#/definitions/ontology.Ontology"
+        },
+        "suggested_name": {
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/definitions/importers.Warning"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.InfluencedEntity": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ListAPIKeysResponse": {
+      "properties": {
+        "keys": {
+          "items": {
+            "$ref": "#/definitions/handlers.APIKey"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ListOntologiesResponse": {
+      "properties": {
+        "ontologies": {
+          "items": {
+            "$ref": "#/definitions/ontology.OntologySummary"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.MapPendingTypeRequest": {
+      "properties": {
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "handlers.MergeEntitiesResponse": {
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "status": {
+          "example": "merged",
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.Message": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        },
+        "tokenCount": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.MessagesResponse": {
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/definitions/handlers.Message"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.MigrateRequest": {
+      "properties": {
+        "spec": {
+          "$ref": "#/definitions/ontology.MigrationSpec"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "type": "object"
+    },
+    "handlers.Observation": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sourceMsgIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ObservationsResponse": {
+      "properties": {
+        "observations": {
+          "items": {
+            "$ref": "#/definitions/handlers.Observation"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.PreviewEntity": {
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "existing_id": {
+          "type": "string"
+        },
+        "existing_name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "resolution_confidence": {
+          "type": "number"
+        },
+        "source_stage": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.PreviewRelationship": {
+      "properties": {
+        "confidence": {
+          "type": "number"
+        },
+        "method": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.PreviewRequest": {
+      "properties": {
+        "ontology": {
+          "$ref": "#/definitions/ontology.Ontology"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "handlers.PreviewResolutionSummary": {
+      "properties": {
+        "auto_merge": {
+          "type": "integer"
+        },
+        "new": {
+          "type": "integer"
+        },
+        "review": {
+          "type": "integer"
+        },
+        "total_candidates": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.PreviewResponse": {
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/definitions/handlers.PreviewEntity"
+          },
+          "type": "array"
+        },
+        "relationships": {
+          "items": {
+            "$ref": "#/definitions/handlers.PreviewRelationship"
+          },
+          "type": "array"
+        },
+        "resolution_summary": {
+          "$ref": "#/definitions/handlers.PreviewResolutionSummary"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.QueryResponse": {
+      "properties": {
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "stats": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ReasoningStep": {
+      "properties": {
+        "actionTaken": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "reasoning": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ReasoningStepDetailsResponse": {
+      "properties": {
+        "actionTaken": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "influencedEntities": {
+          "items": {
+            "$ref": "#/definitions/handlers.InfluencedEntity"
+          },
+          "type": "array"
+        },
+        "reasoning": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        },
+        "toolCalls": {
+          "items": {
+            "$ref": "#/definitions/handlers.ToolCall"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ReasoningStepsResponse": {
+      "properties": {
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/handlers.ReasoningStep"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.RecordReasoningStepResponse": {
+      "properties": {
+        "actionTaken": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "reasoning": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.RecordToolCallResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "stepId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.Reflection": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sourceObsIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "supersededById": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ReflectionsResponse": {
+      "properties": {
+        "reflections": {
+          "items": {
+            "$ref": "#/definitions/handlers.Reflection"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.SearchEntitiesResponse": {
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/definitions/handlers.Entity"
+          },
+          "type": "array"
+        },
+        "searchType": {
+          "example": "vector",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.SearchMessagesResponse": {
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/definitions/handlers.Message"
+          },
+          "type": "array"
+        },
+        "searchType": {
+          "example": "vector",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.StatusResponse": {
+      "properties": {
+        "status": {
+          "example": "success",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.TenantQueryErrorResponse": {
+      "properties": {
+        "error": {
+          "enum": [
+            "database_unavailable",
+            "db_unreachable",
+            "cypher_error",
+            "internal"
+          ],
+          "example": "database_unavailable",
+          "type": "string"
+        },
+        "message": {
+          "example": "the workspace database is unreachable or has been removed; reprovision it or update the external connection",
+          "type": "string"
+        },
+        "workspaceId": {
+          "example": "b3f1c2d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.ToolCall": {
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "stepId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.UpdateOntologyRequest": {
+      "properties": {
+        "message": {
+          "description": "Message is an optional commit-style note describing the change.",
+          "type": "string"
+        },
+        "ontology": {
+          "$ref": "#/definitions/ontology.Ontology"
+        },
+        "validation_mode": {
+          "$ref": "#/definitions/ontology.Mode"
+        }
+      },
+      "required": [
+        "ontology"
+      ],
+      "type": "object"
+    },
+    "handlers.UpdateSchemaResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "updated": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceAuthInfo": {
+      "properties": {
+        "token": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceConnectionInfo": {
+      "properties": {
+        "database": {
+          "example": "neo4j",
+          "type": "string"
+        },
+        "expiresAt": {
+          "example": "2026-06-10T12:00:00Z",
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "uri": {
+          "example": "neo4j+s://abc123.databases.neo4j.io",
+          "type": "string"
+        },
+        "username": {
+          "example": "neo4j",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceCreateRequest": {
+      "properties": {
+        "name": {
+          "example": "my-workspace",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceCreateResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "example": "pending",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceDatabaseConfigResponse": {
+      "properties": {
+        "connection": {
+          "$ref": "#/definitions/handlers.WorkspaceConnectionInfo"
+        },
+        "connections": {
+          "$ref": "#/definitions/handlers.WorkspaceManagedConnections"
+        },
+        "mode": {
+          "example": "managed",
+          "type": "string"
+        },
+        "sandboxActive": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceDetailsResponse": {
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "managedDbInactivityDays": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        },
+        "provisioningStage": {
+          "type": "string"
+        },
+        "status": {
+          "example": "active",
+          "type": "string"
+        },
+        "statusMessage": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceListResponse": {
+      "properties": {
+        "workspaces": {
+          "items": {
+            "$ref": "#/definitions/handlers.WorkspaceSummary"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceManagedConnections": {
+      "properties": {
+        "ro": {
+          "$ref": "#/definitions/handlers.WorkspaceConnectionInfo"
+        },
+        "rw": {
+          "$ref": "#/definitions/handlers.WorkspaceConnectionInfo"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceMember": {
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "joinedAt": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "example": "developer",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceMembersResponse": {
+      "properties": {
+        "members": {
+          "items": {
+            "$ref": "#/definitions/handlers.WorkspaceMember"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceRelationsConfig": {
+      "properties": {
+        "allowed_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "custom_descriptions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "enabled": {
+          "example": true,
+          "type": "boolean"
+        },
+        "fallback_type": {
+          "example": "RELATED_TO",
+          "type": "string"
+        },
+        "min_confidence": {
+          "example": 0.5,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceResolutionConfig": {
+      "properties": {
+        "auto_merge_threshold": {
+          "example": 0.92,
+          "type": "number"
+        },
+        "embedding_weight": {
+          "example": 0.6,
+          "type": "number"
+        },
+        "enabled": {
+          "example": true,
+          "type": "boolean"
+        },
+        "fuzzy_min_score": {
+          "example": 0.5,
+          "type": "number"
+        },
+        "fuzzy_weight": {
+          "example": 0.4,
+          "type": "number"
+        },
+        "review_threshold": {
+          "example": 0.78,
+          "type": "number"
+        },
+        "semantic_min_score": {
+          "example": 0.55,
+          "type": "number"
+        },
+        "top_k": {
+          "example": 25,
+          "type": "integer"
+        },
+        "type_strict": {
+          "example": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceSummary": {
+      "properties": {
+        "dbMode": {
+          "example": "managed",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "example": "owner",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceTestConnectionRequest": {
+      "properties": {
+        "database": {
+          "example": "neo4j",
+          "type": "string"
+        },
+        "password": {
+          "example": "secret",
+          "type": "string"
+        },
+        "uri": {
+          "example": "neo4j+s://abc123.databases.neo4j.io",
+          "type": "string"
+        },
+        "username": {
+          "example": "neo4j",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.WorkspaceTestConnectionResponse": {
+      "properties": {
+        "error": {
+          "example": "connection failed",
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.addMessageRequest": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "role"
+      ],
+      "type": "object"
+    },
+    "handlers.addMessagesBulkRequest": {
+      "properties": {
+        "messages": {
+          "items": {
+            "$ref": "#/definitions/handlers.addMessageRequest"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "messages"
+      ],
+      "type": "object"
+    },
+    "handlers.bulkReviewRequest": {
+      "properties": {
+        "action": {
+          "description": "Action is currently only \"confirm\" - auto-applies merges to every\npending pair whose confidence is at least MinConfidence. PRD §6\n\"bulk-confirm all ≥ 0.95 confidence\" workflow.",
+          "type": "string"
+        },
+        "minConfidence": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "handlers.bulkReviewSkillsRequest": {
+      "properties": {
+        "decision": {
+          "description": "approve | reject",
+          "type": "string"
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "skillIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.createAPIKeyRequest": {
+      "properties": {
+        "category": {
+          "description": "Category is \"workspace\" or \"admin\". Empty defaults to \"admin\" so the\nlegacy {label}-only body keeps minting account-wide keys.",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "description": "WorkspaceID is required for a workspace key and forbidden for an admin\nkey. Scopes are NOT accepted from the client: they are derived from the\ncategory to keep the data/control-plane boundary unforgeable.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "handlers.createAPIKeyResponse": {
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.createConversationRequest": {
+      "properties": {
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.createEntityRequest": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Properties carries typed property values for the entity. On an explicit\nAPI write the ontology's `required` properties are enforced here (hard\n422); the extraction path flags-not-drops instead (E2/Q13 asymmetry).",
+          "type": "object"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "type": "object"
+    },
+    "handlers.createFeedbackRequest": {
+      "properties": {
+        "clientErrors": {
+          "items": {
+            "$ref": "#/definitions/handlers.feedbackClientError"
+          },
+          "type": "array"
+        },
+        "clientMeta": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "contactEmail": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/definitions/handlers.feedbackContext"
+        },
+        "message": {
+          "type": "string"
+        },
+        "rating": {
+          "type": "integer"
+        },
+        "sentiment": {
+          "type": "string"
+        },
+        "type": {
+          "description": "binding tags are for OpenAPI required-field generation; runtime validation\nis enforced manually below because decoding is done with json.Decoder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "type"
+      ],
+      "type": "object"
+    },
+    "handlers.entityFeedbackRequest": {
+      "properties": {
+        "confirmed": {
+          "type": "boolean"
+        },
+        "userScore": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackClientError": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ts": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackConnection": {
+      "properties": {
+        "downlink": {
+          "type": "number"
+        },
+        "effectiveType": {
+          "type": "string"
+        },
+        "rtt": {
+          "type": "integer"
+        },
+        "saveData": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackContext": {
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "capturedAt": {
+          "type": "string"
+        },
+        "connection": {
+          "$ref": "#/definitions/handlers.feedbackConnection"
+        },
+        "deviceMemory": {
+          "type": "number"
+        },
+        "devicePixelRatio": {
+          "type": "number"
+        },
+        "hardwareConcurrency": {
+          "type": "integer"
+        },
+        "languages": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string"
+        },
+        "online": {
+          "type": "boolean"
+        },
+        "pageUrl": {
+          "type": "string"
+        },
+        "perf": {
+          "$ref": "#/definitions/handlers.feedbackPerf"
+        },
+        "provisioningStage": {
+          "type": "string"
+        },
+        "referrer": {
+          "description": "Browser / device",
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "sandboxActive": {
+          "type": "boolean"
+        },
+        "screen": {
+          "$ref": "#/definitions/handlers.feedbackScreen"
+        },
+        "theme": {
+          "description": "App runtime (from React hooks at submit time)",
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "userAgent": {
+          "type": "string"
+        },
+        "userAgentData": {
+          "$ref": "#/definitions/handlers.feedbackUserAgentData"
+        },
+        "viewport": {
+          "$ref": "#/definitions/handlers.feedbackViewport"
+        },
+        "workspaceDbMode": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "workspaceRole": {
+          "type": "string"
+        },
+        "workspaceStatus": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackPerf": {
+      "properties": {
+        "domInteractiveMs": {
+          "type": "number"
+        },
+        "loadCompleteMs": {
+          "type": "number"
+        },
+        "navigationType": {
+          "type": "string"
+        },
+        "ttfbMs": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackScreen": {
+      "properties": {
+        "colorDepth": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackUserAgentData": {
+      "properties": {
+        "brands": {
+          "type": "string"
+        },
+        "mobile": {
+          "type": "boolean"
+        },
+        "platform": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.feedbackViewport": {
+      "properties": {
+        "height": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.generateSkillRequest": {
+      "properties": {
+        "nameHint": {
+          "type": "string"
+        },
+        "procedureFormat": {
+          "description": "Optional per-run override for the graph-vs-prose eval A/B: \"graph\"|\"prose\".",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/handlers.skillScope"
+        },
+        "skillId": {
+          "description": "re-distill target (new version)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.graphEdge": {
+      "properties": {
+        "confidence": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "legacyType": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceMessageCount": {
+          "type": "integer"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.mergeEntitiesRequest": {
+      "properties": {
+        "targetId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "targetId"
+      ],
+      "type": "object"
+    },
+    "handlers.oauthCallbackRequest": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "provider": {
+          "description": "\"github\" or \"google\"",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "handlers.queryRequest": {
+      "properties": {
+        "cypher": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "cypher"
+      ],
+      "type": "object"
+    },
+    "handlers.recordStepRequest": {
+      "properties": {
+        "actionTaken": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "reasoning": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "actionTaken",
+        "conversationId",
+        "reasoning"
+      ],
+      "type": "object"
+    },
+    "handlers.recordToolCallRequest": {
+      "properties": {
+        "durationMs": {
+          "example": 150,
+          "type": "integer"
+        },
+        "input": {
+          "example": "{\"query\":\"project status\"}",
+          "type": "string"
+        },
+        "output": {
+          "example": "{\"results\":[\"r1\",\"r2\"]}",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "success",
+            "failure",
+            "error",
+            "timeout",
+            "cancelled"
+          ],
+          "example": "success",
+          "type": "string"
+        },
+        "stepId": {
+          "type": "string"
+        },
+        "toolName": {
+          "example": "web_search",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "toolName"
+      ],
+      "type": "object"
+    },
+    "handlers.refreshRequest": {
+      "properties": {
+        "client_id": {
+          "description": "ClientID binds the rotation to the originating client (RFC 9700 §4.14).\nRequired when the stored token has a ClientID; optional otherwise so\nfirst-party (non-OAuth) refresh callers continue to work.",
+          "type": "string"
+        },
+        "refresh_token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "refresh_token"
+      ],
+      "type": "object"
+    },
+    "handlers.refreshResponse": {
+      "properties": {
+        "refresh_token": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.revealAPIKeyResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.reviewDecisionRequest": {
+      "properties": {
+        "action": {
+          "description": "Action must be one of confirm | reject | merge_into.",
+          "type": "string"
+        },
+        "mergeInto": {
+          "description": "MergeIntoTarget overrides the merge target when Action == merge_into.\nDefaults to TargetID. Useful when the reviewer prefers a third entity\nover the resolver's pick.",
+          "type": "string"
+        },
+        "sourceId": {
+          "description": "SourceID + TargetID are required because pairId is a one-way hash -\nwe need the underlying IDs to MATCH the SAME_AS edge.",
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "sourceId",
+        "targetId"
+      ],
+      "type": "object"
+    },
+    "handlers.reviewSkillRequest": {
+      "properties": {
+        "decision": {
+          "description": "approve | reject",
+          "type": "string"
+        },
+        "feedback": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.rotateAPIKeyResponse": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.searchEntitiesRequest": {
+      "properties": {
+        "limit": {
+          "type": "integer"
+        },
+        "query": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "handlers.searchMessagesRequest": {
+      "properties": {
+        "limit": {
+          "type": "integer"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "handlers.skillScope": {
+      "properties": {
+        "conversationIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "entityId": {
+          "type": "string"
+        },
+        "focusEntityIds": {
+          "description": "narrows a re-distill to one community (F1/F2)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "from": {
+          "type": "string"
+        },
+        "nameHint": {
+          "type": "string"
+        },
+        "ontologyClass": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "handlers.updateEntityRequest": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "importers.Warning": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.Domain": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tagline": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.EntityChange": {
+      "properties": {
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.EntityType": {
+      "properties": {
+        "color": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "pii_sensitive": {
+          "description": "PIISensitive marks a type whose entities are subject to redaction\npolicies. Surfaced to the extraction worker; consumed by retrieval.",
+          "type": "boolean"
+        },
+        "pole_type": {
+          "$ref": "#/definitions/ontology.PoleType"
+        },
+        "properties": {
+          "items": {
+            "$ref": "#/definitions/ontology.Property"
+          },
+          "type": "array"
+        },
+        "subtype": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.EntityTypeDiff": {
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/definitions/ontology.EntityType"
+          },
+          "type": "array"
+        },
+        "modified": {
+          "items": {
+            "$ref": "#/definitions/ontology.EntityChange"
+          },
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "$ref": "#/definitions/ontology.EntityType"
+          },
+          "type": "array"
+        },
+        "renamed": {
+          "items": {
+            "$ref": "#/definitions/ontology.TypeRename"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.MigrationJob": {
+      "properties": {
+        "completed_at": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "error_message": {
+          "type": "string"
+        },
+        "errored": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ontology_id": {
+          "type": "string"
+        },
+        "processed": {
+          "type": "integer"
+        },
+        "spec": {
+          "$ref": "#/definitions/ontology.MigrationSpec"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ontology.MigrationStatus"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.MigrationSpec": {
+      "properties": {
+        "batch_size": {
+          "description": "BatchSize caps the per-transaction node count. 0 → default (1000).",
+          "type": "integer"
+        },
+        "dedup_by_name": {
+          "description": "DedupByName runs a tiered duplicate-entity pass after the type mappings:\nsame-name + same-(canonical)-type entities are auto-merged; same-name +\ndifferent-type collisions are routed to HITL as pending SAME_AS pairs.\nTypically paired with property-keyed type-canonicalization mappings so the\ncasing-split duplicates collapse once their types agree.",
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "from_version_id": {
+          "type": "string"
+        },
+        "to_version_id": {
+          "type": "string"
+        },
+        "type_mappings": {
+          "items": {
+            "$ref": "#/definitions/ontology.TypeMapping"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.MigrationStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "paused",
+        "completed",
+        "failed"
+      ],
+      "type": "string",
+      "x-enum-varnames": [
+        "MigrationPending",
+        "MigrationRunning",
+        "MigrationPaused",
+        "MigrationCompleted",
+        "MigrationFailed"
+      ]
+    },
+    "ontology.Mode": {
+      "enum": [
+        "strict",
+        "permissive",
+        "review"
+      ],
+      "type": "string",
+      "x-enum-varnames": [
+        "ModeStrict",
+        "ModePermissive",
+        "ModeReview"
+      ]
+    },
+    "ontology.ModeChange": {
+      "properties": {
+        "from": {
+          "$ref": "#/definitions/ontology.Mode"
+        },
+        "to": {
+          "$ref": "#/definitions/ontology.Mode"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.Ontology": {
+      "properties": {
+        "domain": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ontology.Domain"
+            }
+          ],
+          "description": "Domain is the create-context-graph metadata block (may be empty for\nthe _base template itself)."
+        },
+        "entity_types": {
+          "description": "EntityTypes is the fully merged list (base + domain).",
+          "items": {
+            "$ref": "#/definitions/ontology.EntityType"
+          },
+          "type": "array"
+        },
+        "extraction_aliases": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "ExtractionAliases maps an extraction SURFACE form to a declared\nentity-type label (surface → type, N:1) — e.g. \"doctor\" → \"Provider\",\n\"physician\" → \"Provider\". The deterministic alias pass and GLiNER label\nderivation consume this direction. Legacy type → surface rows are flipped\non read by NormalizeExtractionAliases. See extraction_aliases.go.",
+          "type": "object"
+        },
+        "relationships": {
+          "description": "Relationships is the fully merged list.",
+          "items": {
+            "$ref": "#/definitions/ontology.RelationshipType"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.OntologyDetail": {
+      "properties": {
+        "record": {
+          "$ref": "#/definitions/ontology.OntologyRecord"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/definitions/ontology.OntologyVersionRecord"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.OntologyDiff": {
+      "properties": {
+        "entity_types": {
+          "$ref": "#/definitions/ontology.EntityTypeDiff"
+        },
+        "from_revision": {
+          "type": "integer"
+        },
+        "mode_change": {
+          "$ref": "#/definitions/ontology.ModeChange"
+        },
+        "relationships": {
+          "$ref": "#/definitions/ontology.RelationshipDiff"
+        },
+        "to_revision": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.OntologyRecord": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "deleted_at": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_system": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "source_sha": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.OntologySummary": {
+      "properties": {
+        "current_revision": {
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_active": {
+          "type": "boolean"
+        },
+        "is_system": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tagline": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.OntologyVersionRecord": {
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "description": "Message is an optional commit-style note explaining what changed in\nthis revision. Surfaced in the Version History UI + diff header.",
+          "type": "string"
+        },
+        "ontology_id": {
+          "type": "string"
+        },
+        "parent_version_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "schema_hash": {
+          "type": "string"
+        },
+        "schema_json": {
+          "type": "string"
+        },
+        "semver_tag": {
+          "type": "string"
+        },
+        "validation_mode": {
+          "$ref": "#/definitions/ontology.Mode"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.PoleType": {
+      "enum": [
+        "PERSON",
+        "OBJECT",
+        "LOCATION",
+        "EVENT",
+        "ORGANIZATION"
+      ],
+      "type": "string",
+      "x-enum-varnames": [
+        "PolePerson",
+        "PoleObject",
+        "PoleLocation",
+        "PoleEvent",
+        "PoleOrganization"
+      ]
+    },
+    "ontology.Property": {
+      "properties": {
+        "default": {},
+        "enum": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pii": {
+          "description": "PII marks this property's values as personally-identifiable. Values are\ntransformed per the workspace's PII action (hash/redact/store-as-is) at\nevery choke point they flow through — property-write, embedding, and\nobservation/reflection (Q9). The default hash is deterministic so a\nhashed Unique property still dedups via the unique-key resolver.",
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        },
+        "unique": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.RelationshipDiff": {
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/definitions/ontology.RelationshipType"
+          },
+          "type": "array"
+        },
+        "removed": {
+          "items": {
+            "$ref": "#/definitions/ontology.RelationshipType"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.RelationshipType": {
+      "properties": {
+        "cardinality": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "items": {
+            "$ref": "#/definitions/ontology.Property"
+          },
+          "type": "array"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.TypeMapping": {
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "match_by": {
+          "description": "MatchBy selects how nodes are matched for this mapping:\n  \"label\" (default) — MATCH (n:\u003cFrom\u003e); for renaming an existing type LABEL.\n  \"property\"        — MATCH (e:Entity) WHERE e.type = \u003cFrom\u003e; for backfilling\n                      legacy entities that carry only the :Entity label and a\n                      `type` property (no type label), e.g. canonicalizing\n                      \"tool\" → \"SoftwareTool\".",
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "to_pole": {
+          "description": "ToPole is the canonical POLE base label (e.g. \"Object\") to also stamp on the\nnode in property mode, materializing the (:Entity:\u003cPole\u003e:\u003cTo\u003e) label scheme.\nOptional; ignored in label mode.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ontology.TypeRename": {
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "host": "memory.neo4jlabs.com",
+  "info": {
+    "contact": {
+      "name": "Neo4j DevRel",
+      "url": "https://github.com/neo4j-labs/project-gaylord"
+    },
+    "description": "API key (nams_...) used directly as Bearer token, or JWT from Auth0 exchange",
+    "license": {
+      "name": "Apache 2.0"
+    },
+    "title": "NAMS Memory API",
+    "version": "1.0"
+  },
+  "paths": {
+    "/.well-known/jwks.json": {
+      "get": {
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nReturns the public RSA key(s) used to verify NAMS JWTs. Used by other services for token validation.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "JWKS format public key set",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "summary": "Get public keys (JWKS)",
+        "tags": [
+          "JWKS"
+        ]
+      }
+    },
+    "/v1/auth/api-keys": {
+      "get": {
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nList API keys owned by the authenticated user. Raw key values are never returned - only metadata (ID, label, created/revoked/expiry timestamps). Auth: requires a user token or an Admin API key (workspace:admin); workspace-bound data keys are rejected with 403.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns keys array with id, label, createdAt, revokedAt, expiresAt",
+            "schema": {
+              "$ref": "#/definitions/handlers.ListAPIKeysResponse"
+            }
+          },
+          "401": {
+            "description": "No user in token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Requires a user token or an Admin API key",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List API keys",
+        "tags": [
+          "Auth"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nGenerate a new API key owned by the authenticated user. The category selects the key's privilege and binding: \"workspace\" requires a workspaceId and produces a data-plane key bound to that workspace (scopes derived server-side, never workspace:admin); \"admin\" forbids workspaceId and produces an account-wide key with full scopes. Category defaults to \"admin\" when omitted. The raw key is returned once and also stored encrypted-at-rest for later reveal; it is bcrypt-validated on every request. Auth: requires a user token or an Admin API key (workspace:admin); workspace-bound data keys are rejected with 403.",
+        "parameters": [
+          {
+            "description": "Label, category, and optional workspaceId",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.createAPIKeyRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Key ID, raw key (save this), and label",
+            "schema": {
+              "$ref": "#/definitions/handlers.createAPIKeyResponse"
+            }
+          },
+          "400": {
+            "description": "Missing required fields",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "No user in token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Requires a user token or an Admin API key",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create an API key",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/api-keys/{id}": {
+      "delete": {
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nRevoke an API key by ID. The key is immediately invalidated - any active JWTs issued from it are blocklisted. This action is irreversible. Owner-only: only the user who owns the key can revoke it. Non-owners receive 404 (indistinguishable from a missing key) to prevent key-id enumeration. Auth: requires a user token or an Admin API key (workspace:admin); workspace-bound data keys are rejected with 403.",
+        "parameters": [
+          {
+            "description": "API key ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns status: revoked",
+            "schema": {
+              "$ref": "#/definitions/handlers.StatusResponse"
+            }
+          },
+          "401": {
+            "description": "No user in token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Requires a user token or an Admin API key",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Key not found or not owned by caller",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Revoke an API key",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/api-keys/{id}/reveal": {
+      "get": {
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nReturns the decrypted raw API key value for keys created with encrypted storage. Owner-only: only the user who owns the key can reveal it. Non-owners receive 404 (indistinguishable from a missing key) to prevent credential disclosure and key-id enumeration. Returns 410 if the key was revoked or predates encrypted storage. Auth: requires a user token or an Admin API key (workspace:admin); workspace-bound data keys are rejected with 403.",
+        "parameters": [
+          {
+            "description": "API key ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Key ID and decrypted raw key",
+            "schema": {
+              "$ref": "#/definitions/handlers.revealAPIKeyResponse"
+            }
+          },
+          "401": {
+            "description": "No user in token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Requires a user token or an Admin API key",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Key not found or not owned by caller",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Key revoked or not revealable",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Reveal a stored API key",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/api-keys/{id}/rotate": {
+      "post": {
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nMint a new API key inheriting the old key's label and scopes, and atomically revoke the old one. The new raw key is returned exactly once in the response (and is also persisted encrypted-at-rest so it can be revealed again later). Owner-only: only the user who owns the key can rotate it. Non-owners receive 404 (indistinguishable from a missing key) to prevent key-id enumeration. Auth: requires a user token or an Admin API key (workspace:admin); workspace-bound data keys are rejected with 403.",
+        "parameters": [
+          {
+            "description": "API key ID to rotate",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "New key ID, new raw key (save this), and inherited label",
+            "schema": {
+              "$ref": "#/definitions/handlers.rotateAPIKeyResponse"
+            }
+          },
+          "401": {
+            "description": "No user in token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Requires a user token or an Admin API key",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Key not found or not owned by caller",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Key is already revoked",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Rotate an API key",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/exchange": {
+      "post": {
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nValidate an Auth0 Bearer token via JWKS and return per-workspace NAMS JWTs. Automatically provisions a default workspace for first-time users. Returns an array of {workspace_id, token} pairs - one per workspace the user belongs to.",
+        "parameters": [
+          {
+            "description": "Auth0 Bearer token",
+            "in": "header",
+            "name": "Authorization",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns workspaces array with workspace_id and token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ExchangeAuth0Response"
+            }
+          },
+          "401": {
+            "description": "Invalid or missing token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Auth0 exchange not configured",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "summary": "Exchange Auth0 token for NAMS JWTs",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/oauth/callback": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nHandles OAuth2 authorization code flow. Exchanges the provider code for user info and returns a NAMS JWT. Currently returns 501 - implementation pending.",
+        "parameters": [
+          {
+            "description": "OAuth provider and authorization code",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.oauthCallbackRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "JWT token (when implemented)",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "501": {
+            "description": "Not implemented",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "summary": "OAuth2 callback (not yet implemented)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "**Auth service base URL:** `https://memory.neo4jlabs.com`\n\nExchange a refresh token for a new access token and rotated refresh token.",
+        "parameters": [
+          {
+            "description": "Refresh token",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.refreshRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "New access and refresh tokens",
+            "schema": {
+              "$ref": "#/definitions/handlers.refreshResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Invalid or expired refresh token",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "summary": "Refresh an access token",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/v1/conversations": {
+      "get": {
+        "description": "List conversations for the workspace, newest first. Returns metadata only (no message bodies), plus a display title and firstMessageSnippet per conversation. The title is read from the conversation's metadata \"title\" key (set metadata.title at creation to give a conversation a display name); firstMessageSnippet is the first message's content truncated to 120 characters. Both are empty strings when unset.",
+        "parameters": [
+          {
+            "description": "Max conversations to return (1-200, default 50)",
+            "in": "query",
+            "name": "limit",
+            "type": "integer"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns conversations array",
+            "schema": {
+              "$ref": "#/definitions/handlers.ConversationsResponse"
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Workspace database removed (database_unavailable) - reprovision or update the external connection",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error (cypher_error or internal)",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Workspace database unreachable (db_unreachable); also returned as {error: workspace_not_provisioned, status, statusMessage} while the workspace is provisioning",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List conversations",
+        "tags": [
+          "Conversations"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Create a new conversation session. Returns the conversation ID used for all subsequent message, context, and search calls. Entity extraction runs asynchronously after messages are added.",
+        "parameters": [
+          {
+            "description": "Optional user ID and metadata",
+            "in": "body",
+            "name": "body",
+            "schema": {
+              "$ref": "#/definitions/handlers.createConversationRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns id, workspaceId, userId, metadata",
+            "schema": {
+              "$ref": "#/definitions/handlers.CreateConversationResponse"
+            }
+          },
+          "400": {
+            "description": "workspace_id required",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a conversation",
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{id}": {
+      "delete": {
+        "description": "Delete a conversation and all its messages.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns status: deleted",
+            "schema": {
+              "$ref": "#/definitions/handlers.StatusResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete a conversation",
+        "tags": [
+          "Conversations"
+        ]
+      },
+      "get": {
+        "description": "Get conversation metadata by ID.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns id, workspaceId, userId, metadata, createdAt, updatedAt",
+            "schema": {
+              "$ref": "#/definitions/handlers.ConversationResponse"
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get a conversation",
+        "tags": [
+          "Conversations"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/context": {
+      "get": {
+        "description": "Get the structured context for an agent to build its prompt from. Returns three tiers: (1) reflections - highest-level compressed insights, (2) observations - mid-level summaries, (3) recentMessages - raw recent messages. Call this before constructing an agent's system prompt.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns reflections, observations, recentMessages arrays",
+            "schema": {
+              "$ref": "#/definitions/handlers.ContextResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get three-tier context",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/extraction-status": {
+      "get": {
+        "description": "Per-unit extraction status for a conversation's messages (E6): status, last run, attempts, error.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get extraction status",
+        "tags": [
+          "Short-Term Memory"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/messages": {
+      "get": {
+        "description": "List messages in a conversation, newest first. Use the limit parameter to control page size (default 50, max 200).",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Max messages to return (1-200, default 50)",
+            "in": "query",
+            "name": "limit",
+            "type": "integer"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns messages array",
+            "schema": {
+              "$ref": "#/definitions/handlers.MessagesResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List messages",
+        "tags": [
+          "Messages"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Add a message to a conversation. Triggers asynchronous entity extraction via the memory worker. Role must be \"user\", \"assistant\", or \"system\".",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Message role and content",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.addMessageRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns id, conversationId, role, content",
+            "schema": {
+              "$ref": "#/definitions/handlers.AddMessageResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid role or missing fields",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Add a message",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/messages/bulk": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Add multiple messages to a conversation in a single request. Each message triggers async entity extraction independently. Maximum 100 messages per request.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Array of messages",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.addMessagesBulkRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns messages array with IDs",
+            "schema": {
+              "$ref": "#/definitions/handlers.AddMessagesBatchResponse"
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Add messages in bulk",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/observations": {
+      "get": {
+        "description": "List compressed observations for a conversation. Observations are auto-generated summaries of message windows, created by the memory worker after sufficient messages accumulate.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Max observations to return (1-200, default 50)",
+            "in": "query",
+            "name": "limit",
+            "type": "integer"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns observations array",
+            "schema": {
+              "$ref": "#/definitions/handlers.ObservationsResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List observations",
+        "tags": [
+          "Observations"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/reflections": {
+      "get": {
+        "description": "List reflections for a conversation. Reflections are higher-level insights synthesized from multiple observations. Each new reflection supersedes the previous.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns reflections array",
+            "schema": {
+              "$ref": "#/definitions/handlers.ReflectionsResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List reflections",
+        "tags": [
+          "Observations"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/search": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Search messages within a conversation by content. Uses vector similarity search when embeddings are available, falling back to text CONTAINS. Returns searchType field indicating which method was used.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Search query and optional limit",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.searchMessagesRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns messages array and searchType",
+            "schema": {
+              "$ref": "#/definitions/handlers.SearchMessagesResponse"
+            }
+          },
+          "400": {
+            "description": "Missing query",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Search messages",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/v1/entities": {
+      "get": {
+        "description": "List all entities in the knowledge graph. Filter by type using the optional query parameter.",
+        "parameters": [
+          {
+            "description": "Filter by type: person, organization, location, concept, tool, custom",
+            "in": "query",
+            "name": "type",
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns entities array",
+            "schema": {
+              "$ref": "#/definitions/handlers.EntitiesResponse"
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Workspace database removed (database_unavailable) - reprovision or update the external connection",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error (cypher_error or internal)",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Workspace database unreachable (db_unreachable); also returned as {error: workspace_not_provisioned, status, statusMessage} while the workspace is provisioning",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List entities",
+        "tags": [
+          "Entities"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Create a new entity in the knowledge graph. Entities are automatically created during entity extraction, but can also be created manually.",
+        "parameters": [
+          {
+            "description": "Entity name, type, and optional description",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.createEntityRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns id, name, type, description",
+            "schema": {
+              "$ref": "#/definitions/handlers.EntityResponse"
+            }
+          },
+          "400": {
+            "description": "Missing required fields",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create an entity",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/count": {
+      "get": {
+        "description": "Returns the count of canonical (non-merged) entities in the workspace. A cheap signal the Memory Browser polls to surface a \"new entities available\" refresh affordance without re-fetching the full graph.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns count",
+            "schema": {
+              "type": "object"
+            }
+          },
+          "400": {
+            "description": "Missing workspace_id",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Workspace database removed (database_unavailable) - reprovision or update the external connection",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error (cypher_error or internal)",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Workspace database unreachable (db_unreachable); also returned as {error: workspace_not_provisioned, status, statusMessage} while the workspace is provisioning",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Count entities",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/graph": {
+      "get": {
+        "description": "Get the full entity graph with nodes and edges for visualization. Used by the Memory Browser in the dashboard.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns nodes and edges arrays",
+            "schema": {
+              "$ref": "#/definitions/handlers.EntityGraphResponse"
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Workspace database removed (database_unavailable) - reprovision or update the external connection",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error (cypher_error or internal)",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Workspace database unreachable (db_unreachable); also returned as {error: workspace_not_provisioned, status, statusMessage} while the workspace is provisioning",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get entity graph",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/search": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Search entities by name or description. Uses vector similarity search when embeddings are available, falling back to text CONTAINS. Returns searchType field indicating which method was used.",
+        "parameters": [
+          {
+            "description": "Search query with optional type filter and limit",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.searchEntitiesRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns entities array and searchType",
+            "schema": {
+              "$ref": "#/definitions/handlers.SearchEntitiesResponse"
+            }
+          },
+          "400": {
+            "description": "Missing query",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Search entities",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}": {
+      "delete": {
+        "description": "Delete an entity and all its relationships from the knowledge graph.",
+        "parameters": [
+          {
+            "description": "Entity ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns status: deleted",
+            "schema": {
+              "$ref": "#/definitions/handlers.StatusResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete an entity",
+        "tags": [
+          "Entities"
+        ]
+      },
+      "get": {
+        "description": "Get entity details including all relationships (incoming and outgoing edges in the knowledge graph).",
+        "parameters": [
+          {
+            "description": "Entity ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns entity fields and relationships array",
+            "schema": {
+              "$ref": "#/definitions/handlers.EntityDetailsResponse"
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get an entity",
+        "tags": [
+          "Entities"
+        ]
+      },
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Update an entity's name or description.",
+        "parameters": [
+          {
+            "description": "Entity ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Fields to update",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.updateEntityRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns status: updated",
+            "schema": {
+              "$ref": "#/definitions/handlers.StatusResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update an entity",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}/feedback": {
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Provide feedback on entity quality. userScore is a float 0-1 representing confidence. confirmed=true marks the entity as human-verified.",
+        "parameters": [
+          {
+            "description": "Entity ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Score and/or confirmation",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.entityFeedbackRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns id, updated: true",
+            "schema": {
+              "$ref": "#/definitions/handlers.UpdateSchemaResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Score an entity",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}/history": {
+      "get": {
+        "description": "Get cross-conversation history - all messages that mention this entity, across all conversations in the workspace.",
+        "parameters": [
+          {
+            "description": "Entity ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns entityId and mentions array",
+            "schema": {
+              "$ref": "#/definitions/handlers.EntityProvenanceResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get entity history",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/entities/{id}/merge": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Merge the source entity into a target entity. All relationships are transferred to the target. A SAME_AS relationship is created for provenance. The source entity is not deleted but becomes inert.",
+        "parameters": [
+          {
+            "description": "Source entity ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Target entity ID to merge into",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.mergeEntitiesRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns status: merged, sourceId, targetId",
+            "schema": {
+              "$ref": "#/definitions/handlers.MergeEntitiesResponse"
+            }
+          },
+          "400": {
+            "description": "Missing targetId or attempted self-merge",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Target entity not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Merge entities",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/feedback": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Persists a feedback submission (bug, feature request, question, or general) to the operational database with auto-captured context.",
+        "parameters": [
+          {
+            "description": "Feedback payload",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.createFeedbackRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "400": {
+            "description": "validation error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "payload too large",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "rate limited",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "feature disabled",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Submit user feedback",
+        "tags": [
+          "Feedback"
+        ]
+      }
+    },
+    "/v1/feedback/config": {
+      "get": {
+        "description": "Returns whether in-app feedback submission is enabled for this deployment.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "{\\\"enabled\\\": true}",
+            "schema": {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Feedback feature flag",
+        "tags": [
+          "Feedback"
+        ]
+      }
+    },
+    "/v1/graph/expand": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Returns the 1-hop neighborhood of a node plus the complete, canonical-resolved set of relationships among the resulting node set, for the Memory Browser. Provenance edges (MENTIONS/INFLUENCED) are included; merge plumbing (MERGED_REL/SAME_AS) is excluded. New neighbors are capped with loud truncation metadata.",
+        "parameters": [
+          {
+            "description": "nodeId to expand and the currently-loaded node ids",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.ExpandRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns nodes, edges and truncated metadata",
+            "schema": {
+              "$ref": "#/definitions/handlers.ExpandResponse"
+            }
+          },
+          "400": {
+            "description": "Missing workspace_id or nodeId, or loadedIds exceeds cap",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Expand a graph node",
+        "tags": [
+          "Entities"
+        ]
+      }
+    },
+    "/v1/ontologies": {
+      "get": {
+        "description": "List system templates and workspace-owned ontologies. The active ontology is flagged.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.ListOntologiesResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List ontologies",
+        "tags": [
+          "Ontology"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Ontology body",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.CreateOntologyRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyVersionRecord"
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create ontology",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/active": {
+      "get": {
+        "description": "Get the workspace's currently active ontology version and its parsed body.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.ActiveOntologyResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get active ontology",
+        "tags": [
+          "Ontology"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Version to activate",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.ActivateOntologyRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyVersionRecord"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Activate an ontology version",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/import": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Convert an Arrows / Neo4j Data Importer / RDF / GraphQL / Cypher / LinkML / native document into a native ontology draft. Supply either `content` (inline) or `url` (fetched server-side, SSRF-guarded, https only). Returns the draft and conversion warnings; does not persist.",
+        "parameters": [
+          {
+            "description": "Source document/url and format",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.ImportOntologyRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.ImportOntologyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "413": {
+            "description": "Request Entity Too Large",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Import an ontology from an external format",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/migrations/{job_id}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Migration job ID",
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.MigrationJob"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get migration status",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/migrations/{job_id}/pause": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Migration job ID",
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Pause a running migration",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/migrations/{job_id}/resume": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Migration job ID",
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Resume a paused migration",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/pending-types": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List pending types for the workspace's active ontology",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/preview": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Sample text + draft ontology",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.PreviewRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.PreviewResponse"
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Live-preview entity extraction",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete ontology (soft delete)",
+        "tags": [
+          "Ontology"
+        ]
+      },
+      "get": {
+        "description": "Get one ontology (system or workspace-owned) and its version history.",
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyDetail"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get ontology",
+        "tags": [
+          "Ontology"
+        ]
+      },
+      "put": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "New body",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.UpdateOntologyRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyVersionRecord"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Update ontology (creates new revision)",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}/clone": {
+      "post": {
+        "parameters": [
+          {
+            "description": "System template name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyVersionRecord"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Clone a system template",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}/diff": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "From revision",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "description": "To revision",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "type": "integer"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyDiff"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Diff two ontology revisions",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}/migrate": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Migration spec",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.MigrateRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "schema": {
+              "$ref": "#/definitions/ontology.MigrationJob"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Enqueue an ontology migration",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}/pending-types": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List pending types for a specific ontology",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}/pending-types/{ptId}/map": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Pending Type ID",
+            "in": "path",
+            "name": "ptId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Target entity type label",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.MapPendingTypeRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyVersionRecord"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Map a pending type to an existing entity type (adds alias)",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/ontologies/{id}/versions/{revision}": {
+      "get": {
+        "description": "Get one specific revision of an ontology.",
+        "parameters": [
+          {
+            "description": "Ontology ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Revision number",
+            "in": "path",
+            "name": "revision",
+            "required": true,
+            "type": "integer"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/ontology.OntologyVersionRecord"
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/gin.H"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get ontology version",
+        "tags": [
+          "Ontology"
+        ]
+      }
+    },
+    "/v1/query": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Runs caller-supplied Cypher against the tenant's graph database with Neo4j's READ access mode. Writes are rejected server-side. Returns columns, rows, and stats.",
+        "parameters": [
+          {
+            "description": "Cypher query string and optional params map",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.queryRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns columns, rows, stats",
+            "schema": {
+              "$ref": "#/definitions/handlers.QueryResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid query, write operation attempted, or Cypher error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "Query backend unavailable",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Execute a read-only Cypher query",
+        "tags": [
+          "Query"
+        ]
+      }
+    },
+    "/v1/reasoning/explain/{stepId}": {
+      "get": {
+        "description": "Get a detailed explanation of a reasoning step including its tool calls and the entities it influenced.",
+        "parameters": [
+          {
+            "description": "Step ID",
+            "in": "path",
+            "name": "stepId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns step details, toolCalls, and influencedEntities",
+            "schema": {
+              "$ref": "#/definitions/handlers.ReasoningStepDetailsResponse"
+            }
+          },
+          "404": {
+            "description": "Step not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Explain a reasoning step",
+        "tags": [
+          "Reasoning"
+        ]
+      }
+    },
+    "/v1/reasoning/provenance/{entityId}": {
+      "get": {
+        "description": "Get the reasoning chain that influenced the creation of an entity - which steps and tool calls contributed to it.",
+        "parameters": [
+          {
+            "description": "Entity ID",
+            "in": "path",
+            "name": "entityId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns entityId and provenance chain",
+            "schema": {
+              "$ref": "#/definitions/handlers.EntityReasoningProvenanceResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get entity provenance",
+        "tags": [
+          "Reasoning"
+        ]
+      }
+    },
+    "/v1/reasoning/steps": {
+      "get": {
+        "description": "List reasoning steps for a conversation. The conversation_id query parameter is required.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "query",
+            "name": "conversation_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns steps array",
+            "schema": {
+              "$ref": "#/definitions/handlers.ReasoningStepsResponse"
+            }
+          },
+          "400": {
+            "description": "Missing conversation_id",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List reasoning steps",
+        "tags": [
+          "Reasoning"
+        ]
+      },
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Record a reasoning step taken by an agent. Captures the agent's thought process (reasoning), the action it decided to take (actionTaken), and optionally the result.",
+        "parameters": [
+          {
+            "description": "Step details",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.recordStepRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns id, conversationId, reasoning, actionTaken, result",
+            "schema": {
+              "$ref": "#/definitions/handlers.RecordReasoningStepResponse"
+            }
+          },
+          "400": {
+            "description": "Missing required fields",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Record a reasoning step",
+        "tags": [
+          "Reasoning"
+        ]
+      }
+    },
+    "/v1/reasoning/tool-calls": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Record a tool invocation made by an agent during a reasoning step. Optionally link to a step via stepId.\n\n`input` and `output` must be JSON-encoded strings, not objects. Pre-serialize structured payloads before sending (e.g. `\"input\": \"{\\\"query\\\":\\\"foo\\\"}\"`, not `\"input\": {\"query\":\"foo\"}`). The graph stores them as scalar string properties on the :ToolCall node.\n\nStatus values: `pending`, `success` (default), `failure`, `error`, `timeout`, `cancelled`. Legacy `completed`/`failed` are accepted and rewritten to `success`/`failure`.",
+        "parameters": [
+          {
+            "description": "Tool call details",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.recordToolCallRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns id, stepId, toolName, status",
+            "schema": {
+              "$ref": "#/definitions/handlers.RecordToolCallResponse"
+            }
+          },
+          "400": {
+            "description": "Missing required fields",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Record a tool call",
+        "tags": [
+          "Reasoning"
+        ]
+      }
+    },
+    "/v1/reasoning/trace/{conversationId}": {
+      "get": {
+        "description": "Get the full reasoning trace for a conversation - all steps and their tool calls, in order.",
+        "parameters": [
+          {
+            "description": "Conversation ID",
+            "in": "path",
+            "name": "conversationId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns conversationId, steps with nested toolCalls",
+            "schema": {
+              "$ref": "#/definitions/handlers.ConversationReasoningResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get reasoning trace",
+        "tags": [
+          "Reasoning"
+        ]
+      }
+    },
+    "/v1/reviews": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Page size (1..200, default 50)",
+            "in": "query",
+            "name": "limit",
+            "type": "integer"
+          },
+          {
+            "description": "Pagination offset (default 0)",
+            "in": "query",
+            "name": "offset",
+            "type": "integer"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List pending entity-resolution review pairs",
+        "tags": [
+          "Reviews"
+        ]
+      }
+    },
+    "/v1/reviews/bulk": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Bulk decision payload",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.bulkReviewRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Bulk-apply a decision to high-confidence pending pairs",
+        "tags": [
+          "Reviews"
+        ]
+      }
+    },
+    "/v1/reviews/stats": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Workspace database removed (database_unavailable) - reprovision or update the external connection",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error (cypher_error or internal)",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Workspace database unreachable (db_unreachable); also returned as {error: workspace_not_provisioned, status, statusMessage} while the workspace is provisioning",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Pending review queue stats",
+        "tags": [
+          "Reviews"
+        ]
+      }
+    },
+    "/v1/reviews/stats/pending": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Workspace database removed (database_unavailable) - reprovision or update the external connection",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal error (cypher_error or internal)",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Workspace database unreachable (db_unreachable); also returned as {error: workspace_not_provisioned, status, statusMessage} while the workspace is provisioning",
+            "schema": {
+              "$ref": "#/definitions/handlers.TenantQueryErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Pending review queue count (badge-only)",
+        "tags": [
+          "Reviews"
+        ]
+      }
+    },
+    "/v1/reviews/{pairId}/decision": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Pair ID (hash of sourceId→targetId)",
+            "in": "path",
+            "name": "pairId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Decision payload",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.reviewDecisionRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Confirm, reject, or redirect a SAME_AS pending pair",
+        "tags": [
+          "Reviews"
+        ]
+      }
+    },
+    "/v1/skills": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List skills",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/capabilities": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Report enabled skill features and gate thresholds",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/generate": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Scope to distill",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.generateSkillRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "202": {
+            "description": "Run enqueued; returns runId",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Generate a skill from workspace memory",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/governance": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Audit the skill corpus (governance)",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/published": {
+      "get": {
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Discover published skills (workspace-scoped)",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/review/bulk": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Skill IDs plus one shared decision",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.bulkReviewSkillsRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Bulk-review skills (approve/reject up to 100 in one call)",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/runs/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Run ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get distillation run status",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get a skill and its versions",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/download": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/zip"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "file"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Download a skill package (zip)",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/drift": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Detect skill provenance drift",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/edit": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Validate a proposed skill edit (dry run)",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/edit/commit": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "202": {
+            "description": "Edit enqueued; returns runId",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "400": {
+            "description": "invalid edit",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Commit a validated skill edit as a new in_review version",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/explain-provenance": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Explain a skill's provenance",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/extract-subprocedure": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "202": {
+            "description": "Extraction enqueued; returns runId",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Extract steps into a reusable sub-procedure skill",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/publish": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "409": {
+            "description": "not approved",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Publish a skill",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/review": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Review decision",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.reviewSkillRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Review a skill (approve/reject)",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/steps/{stepId}/repair": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Step ID",
+            "in": "path",
+            "name": "stepId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "202": {
+            "description": "Repair enqueued; returns runId",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Repair one drifted step of a skill",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/skills/{id}/verify": {
+      "get": {
+        "parameters": [
+          {
+            "description": "Skill ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Verify a skill version's attestation",
+        "tags": [
+          "Skills"
+        ]
+      }
+    },
+    "/v1/users/me/workspaces": {
+      "get": {
+        "description": "List the workspaces the authenticated user is a member of. A workspace-bound API key returns only its bound workspace; an admin key or user token returns all. Requires no workspace:admin scope.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceListResponse"
+            }
+          },
+          "401": {
+            "description": "no user identity",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List my workspaces",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspace": {
+      "get": {
+        "description": "Return details for the workspace identified by the X-Workspace-Id header.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceDetailsResponse"
+            }
+          },
+          "401": {
+            "description": "no workspace identity",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get the current workspace",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspace/database": {
+      "get": {
+        "description": "Return the workspace's database mode and connection info. The password is never included.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceDatabaseConfigResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "workspace not found",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get database configuration",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspace/database/test": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Test reachability of an external Neo4j connection without storing anything. The URI is SSRF-validated.",
+        "parameters": [
+          {
+            "description": "External connection to test",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceTestConnectionRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceTestConnectionResponse"
+            }
+          },
+          "400": {
+            "description": "invalid uri",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceTestConnectionResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Test an external database connection",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspace/members": {
+      "get": {
+        "description": "Return all members of the workspace.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceMembersResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List workspace members",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspace/relations": {
+      "get": {
+        "description": "Return the workspace's typed-relation allowlist configuration, falling back to system defaults when unset.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceRelationsConfig"
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get typed-relation config",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspace/resolution": {
+      "get": {
+        "description": "Return the workspace's entity-resolution configuration, falling back to system defaults when unset.",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceResolutionConfig"
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get entity-resolution config",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    },
+    "/v1/workspaces": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "description": "Create a new workspace with status \"pending\". A database is not provisioned automatically — provisioning is a separate step that requires a user-token session (performed from the dashboard). Workspace names are unique per owner.",
+        "parameters": [
+          {
+            "description": "Workspace name",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceCreateRequest"
+            }
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/handlers.WorkspaceCreateResponse"
+            }
+          },
+          "400": {
+            "description": "name is required",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "workspace_limit_reached",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "name_taken (includes existing_workspace_id)",
+            "schema": {
+              "$ref": "#/definitions/handlers.ErrorResponse"
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a workspace",
+        "tags": [
+          "Workspace"
+        ]
+      }
+    }
+  },
+  "securityDefinitions": {
+    "BearerAuth": {
+      "description": "API key (nams_...) used directly as Bearer token, or JWT from Auth0 exchange",
+      "in": "header",
+      "name": "Authorization",
+      "type": "apiKey"
+    }
+  },
+  "swagger": "2.0",
+  "tags": [
+    {
+      "description": "Short-term memory: create conversation sessions and add messages. Entity extraction runs automatically after each message.",
+      "name": "Conversations"
+    },
+    {
+      "description": "Read and search messages within a conversation.",
+      "name": "Messages"
+    },
+    {
+      "description": "Auto-generated compressed summaries of conversation message windows.",
+      "name": "Observations"
+    },
+    {
+      "description": "Long-term memory: knowledge graph entities (people, orgs, locations, concepts, tools).",
+      "name": "Entities"
+    },
+    {
+      "description": "Reasoning memory: record and retrieve agent steps, tool calls, and decision traces.",
+      "name": "Reasoning"
+    },
+    {
+      "description": "Execute read-only Cypher queries directly against the tenant graph.",
+      "name": "Query"
+    },
+    {
+      "description": "Workspace management: CRUD, membership, database provisioning (managed sandbox or external Neo4j), backups, and feature configuration. Served by the nams-tenants service via reverse proxy.",
+      "name": "Workspace"
+    },
+    {
+      "description": "Health and status endpoints.",
+      "name": "System"
+    },
+    {
+      "description": "Authentication - token exchange and API key management.",
+      "name": "Auth"
+    }
+  ]
+}
