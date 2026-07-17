@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Xml.Linq;
 using FluentAssertions;
 using AgentMemory.Core.Services;
+using AgentMemory.Nams;
 using AgentMemory.Neo4j.Repositories;
 
 namespace AgentMemory.Tests.Unit.Infrastructure;
@@ -42,6 +43,17 @@ public sealed class PackageBoundaryGuardTests
             typeof(Neo4jFactRepository).Assembly,
             ForbiddenExternalPrefixes: FrameworkSdkPrefixes,
             AllowedInternalReferences: ["AgentMemory.Abstractions", "AgentMemory.Core"]),
+
+        // NAMS engineering plan Phase 1: an additive, self-contained backend skeleton -- no framework
+        // SDKs, no Neo4j.Driver, and (deliberately, for this phase) no sibling project references at all,
+        // so it stays fully independent of Core/Neo4j internals. This tripwire exists so a later phase
+        // (the real client adapter) can't casually reach into Core/Neo4j instead of going through whatever
+        // narrow, backend-neutral contract eventually gets designed (ADR-3 in the engineering plan).
+        new BoundaryRule(
+            "AgentMemory.Nams",
+            typeof(NamsBackendDescriptor).Assembly,
+            ForbiddenExternalPrefixes: [.. FrameworkSdkPrefixes, "Neo4j.Driver"],
+            AllowedInternalReferences: []),
     }.ToDictionary(r => r.Project);
 
     public static IEnumerable<object[]> ProjectNames() =>

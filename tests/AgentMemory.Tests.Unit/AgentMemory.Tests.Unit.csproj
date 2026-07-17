@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.AzureLanguage\AgentMemory.Extraction.AzureLanguage.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Enrichment\AgentMemory.Enrichment.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.Cli\AgentMemory.Cli.csproj" />
     <ProjectReference Include="..\..\tools\AgentMemory.TckBridge\AgentMemory.TckBridge.csproj" />
