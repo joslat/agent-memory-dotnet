@@ -7,11 +7,11 @@ namespace AgentMemory.Nams.Client;
 /// NAMS SDK type directly -- everything crossing that boundary is contained inside <c>AgentMemory.Nams</c> behind
 /// this interface (engineering plan §7 Phase 2, "Rule").
 ///
-/// Deliberately covers only the 4 operations confirmed against the pinned OpenAPI snapshot
-/// (<c>docs/reviews/nams-openapi-snapshot-2026-07-17.json</c>). A 5th method the engineering plan's own example
-/// included -- <c>SearchMessagesAsync</c> -- is dropped: the plan's own text already flags it as unconfirmed (no
-/// distinct search/query REST operation is documented), and building against a guessed endpoint shape would be
-/// worse than not building it. Add it once verified against a live sandbox (<c>strategy/NAMS/Neo4j_Questions.md</c>).
+/// Started (Phase 2) with only the 4 operations confirmed against the pinned OpenAPI snapshot
+/// (<c>docs/reviews/nams-openapi-snapshot-2026-07-17.json</c>); a 5th method the plan's own example included --
+/// <c>SearchMessagesAsync</c> -- was deliberately dropped at the time as unconfirmed. Both that method and
+/// <see cref="ListEntitiesAsync"/> (Phase 9) have since been confirmed against the live NAMS SaaS and added --
+/// see each method's own doc comment for when/why.
 /// </summary>
 internal interface INamsClient
 {
@@ -43,4 +43,15 @@ internal interface INamsClient
     /// health probe.
     /// </summary>
     Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Searches a conversation's own message history (<c>POST /v1/conversations/{id}/search</c>) --
+    /// confirmed live as part of the Phase 10 scenario-matrix expansion. Phase 2's original design dropped
+    /// this (as <c>SearchMessagesAsync</c>) for lack of confirmation at the time; it's added now, standalone,
+    /// deliberately NOT wired into <c>INamsRecallService.RecallAsync</c>'s already-shipped, tested Phase 4-6
+    /// behavior -- that would be a real behavior change to the automatic recall pipeline, a separate decision
+    /// from adding the client capability itself.
+    /// </summary>
+    Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
+        string conversationId, string query, int limit, CancellationToken cancellationToken);
 }

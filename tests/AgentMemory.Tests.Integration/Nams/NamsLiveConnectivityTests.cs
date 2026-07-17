@@ -218,6 +218,121 @@ public sealed class NamsLiveConnectivityTests
         found.Should().BeTrue("Unicode/emoji content should round-trip through NAMS byte-for-byte in the recent-messages tier");
     }
 
+    // ── Phase 10: payload edge cases (empty / max size / multi-message / non-text-like) ─────────────
+
+    [LiveNamsFact]
+    public async Task PersistTurnAsync_EmptyContent_BulkEndpointAcceptsIt()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        // Genuine NAMS API inconsistency, confirmed live: the single-message endpoint
+        // (POST /v1/conversations/{id}/messages) rejects empty content with 400, but the bulk endpoint
+        // (POST /v1/conversations/{id}/messages/bulk) -- the ONLY one PersistTurnAsync ever calls --
+        // accepts it and returns a real message ID. Documenting actual behavior, not the (wrong) assumption
+        // that empty content fails uniformly across both NAMS endpoints.
+        var result = await persistence.PersistTurnAsync(
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist("")], assistantMessages: [], CancellationToken.None);
+
+        result.Outcome.Should().Be(NamsPersistenceOutcome.Persisted);
+        result.PersistedMessageIds.Should().ContainSingle();
+    }
+
+    [LiveNamsFact]
+    public async Task PersistTurnAsync_LargeMessage_PersistsSuccessfully_AndEventuallyRoundTripsWithinTheDefaultRecallBudget()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var recall = services.GetRequiredService<INamsRecallService>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        // Confirmed live: NAMS's write path accepts at least 50,000 characters in one message (separately
+        // verified, not asserted here to keep this test's own runtime reasonable). For the round-trip half
+        // of this test, deliberately use a size comfortably under NamsRecallOptions.MaxTotalCharacters'
+        // default (8,000) -- a single item larger than the whole budget is silently excluded by
+        // NamsRecallService's own ApplyCharacterBudget (correct, existing, separately-tested behavior), which
+        // would make this test measure our own truncation logic instead of NAMS's payload handling.
+        var marker = $"large-payload-{Guid.NewGuid():N} ";
+        var largeContent = marker + new string('x', 5_000);
+        var persistResult = await persistence.PersistTurnAsync(
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist(largeContent)], assistantMessages: [], CancellationToken.None);
+
+        persistResult.Outcome.Should().Be(NamsPersistenceOutcome.Persisted);
+
+        var found = await PollUntilAsync(
+            async () =>
+            {
+                var recalled = await recall.RecallAsync(conversation.NamsConversationId, marker, CancellationToken.None);
+                return recalled.Items.Any(i =>
+                    i.Category == NamsRecallCategory.RecentMessage && i.Content.Contains(marker, StringComparison.Ordinal));
+            },
+            timeout: TimeSpan.FromSeconds(30));
+
+        found.Should().BeTrue("a 5,000-character message (within the default recall budget) should round-trip through NAMS");
+    }
+
+    /// <summary>
+    /// Deliberately does NOT assert message ordering -- <see cref="NamsPersistenceResult.PersistedMessageIds"/>
+    /// is a bare <c>IReadOnlyList&lt;string&gt;</c> with no content/role correlation, and NAMS's own bulk-add
+    /// response ordering guarantee (if any) isn't independently confirmed, so this can only prove all 4
+    /// messages in one turn reach NAMS via the one bulk call, not that they arrive in submission order.
+    /// </summary>
+    [LiveNamsFact]
+    public async Task PersistTurnAsync_MultipleMessagesInOneTurn_PersistsAllFour()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        var id = Guid.NewGuid().ToString("N");
+        var result = await persistence.PersistTurnAsync(
+            conversation.NamsConversationId,
+            userMessages: [new NamsMessageToPersist($"user-1-{id}"), new NamsMessageToPersist($"user-2-{id}")],
+            assistantMessages: [new NamsMessageToPersist($"assistant-1-{id}"), new NamsMessageToPersist($"assistant-2-{id}")],
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(NamsPersistenceOutcome.Persisted);
+        result.PersistedMessageIds.Should().HaveCount(4, "all 4 messages in the turn should be persisted in one bulk call");
+    }
+
+    [LiveNamsFact]
+    public async Task PersistTurnAsync_CodeLikeContentWithSpecialCharacters_EventuallyRoundTrips()
+    {
+        var services = _fixture.Services!;
+        var resolver = services.GetRequiredService<INamsConversationResolver>();
+        var persistence = services.GetRequiredService<INamsPersistenceService>();
+        var recall = services.GetRequiredService<INamsRecallService>();
+        var conversation = await resolver.ResolveAsync(UniqueIdentity(), CancellationToken.None);
+
+        // "Non-text" per the plan's payload matrix, interpreted as structured/code-like text content --
+        // NamsMessageToPersist.Content is a string; NAMS has no binary/attachment concept to test against.
+        var marker = Guid.NewGuid().ToString("N");
+        var codeContent = $$"""
+            marker: {{marker}}
+            ```csharp
+            var x = new Dictionary<string, string> { ["a"] = "b\n\tc" };
+            Console.WriteLine($"{x["a"]}");
+            ```
+            """;
+        await persistence.PersistTurnAsync(
+            conversation.NamsConversationId, userMessages: [new NamsMessageToPersist(codeContent)], assistantMessages: [], CancellationToken.None);
+
+        var found = await PollUntilAsync(
+            async () =>
+            {
+                var recalled = await recall.RecallAsync(conversation.NamsConversationId, marker, CancellationToken.None);
+                return recalled.Items.Any(i =>
+                    i.Category == NamsRecallCategory.RecentMessage && i.Content.Contains(marker, StringComparison.Ordinal));
+            },
+            timeout: TimeSpan.FromSeconds(30));
+
+        found.Should().BeTrue("code-like content with braces/quotes/newlines should round-trip through NAMS");
+    }
+
     private static NamsConversationIdentity UniqueIdentity([CallerMemberName] string testName = "") => new()
     {
         ApplicationId = "agent-memory-dotnet-live-tests",

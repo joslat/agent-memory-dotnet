@@ -136,6 +136,25 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task SearchMessagesAsync_Success_UsesRetryDespitePostVerb()
+    {
+        var fake = new FakeHttpMessageHandler(
+            () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            () => Json(HttpStatusCode.OK, """
+                {"messages":[{"id":"m1","content":"the quick brown fox","role":"user","score":0.8,"tokenCount":4}],"searchType":"vector"}
+                """));
+        var adapter = CreateAdapter(fake);
+
+        var messages = await adapter.SearchMessagesAsync("conv-1", "quick brown fox", 5, CancellationToken.None);
+
+        messages.Single().Content.Should().Be("the quick brown fox");
+        messages.Single().Score.Should().Be(0.8);
+        fake.Requests.Should().HaveCount(2); // search is a read despite the POST verb -- retries like other reads
+        var requestBody = await fake.Requests[1].Content!.ReadAsStringAsync();
+        requestBody.Should().Contain("\"query\":\"quick brown fox\"").And.Contain("\"limit\":5");
+    }
+
+    [Fact]
     public async Task ListEntitiesAsync_Success_DeserializesEntities_NoQueryInRequest()
     {
         var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK,
