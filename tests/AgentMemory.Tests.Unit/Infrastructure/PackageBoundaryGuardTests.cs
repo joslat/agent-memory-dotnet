@@ -8,7 +8,7 @@ using AgentMemory.Neo4j.Repositories;
 namespace AgentMemory.Tests.Unit.Infrastructure;
 
 /// <summary>
-/// CI guard for the package boundary rules in <c>docs/architecture.md §5</c> (B2–B6, B8) for the
+/// CI guard for the package boundary rules in <c>docs/architecture.md §5</c> (B2–B6, B8–B9) for the
 /// lower layers. B1 (Abstractions) is covered by <see cref="AbstractionsContractGuardTests"/>; B7
 /// ("no business logic in adapters") is a non-mechanical review rule.
 ///

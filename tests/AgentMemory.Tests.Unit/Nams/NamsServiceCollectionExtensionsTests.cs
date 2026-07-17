@@ -53,6 +53,23 @@ public sealed class NamsServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddNamsAgentMemory_RelativeEndpoint_FailsValidation_DoesNotThrowUnrelatedException()
+    {
+        // Regression: a scheme-less Uri (e.g. "memory.neo4jlabs.com/v1" with no "https://" prefix -- a
+        // plausible copy-paste typo) parses as a *relative* Uri. Accessing .Scheme on a relative Uri throws
+        // InvalidOperationException; the validator must catch this via IsAbsoluteUri before touching
+        // .Scheme, so misconfiguration surfaces as a clean OptionsValidationException, not a crash.
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o => o.Endpoint = new Uri("memory.neo4jlabs.com/v1", UriKind.RelativeOrAbsolute));
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>()
+            .Which.Should().NotBeOfType<InvalidOperationException>();
+    }
+
+    [Fact]
     public void AddNamsAgentMemory_HttpEndpoint_FailsValidation()
     {
         var services = new ServiceCollection();
@@ -139,7 +156,10 @@ public sealed class NamsServiceCollectionExtensionsTests
         var act = () => _ = provider.GetRequiredService<IOptions<NamsOptions>>().Value;
 
         act.Should().NotThrow();
-        provider.GetRequiredService<NamsBackendDescriptor>().Should().BeSameAs(NamsBackendDescriptor.Instance);
+        // TryAddSingleton means the second AddNamsAgentMemory call didn't register a second, competing
+        // NamsBackendDescriptor -- both resolutions from the same provider return the one singleton.
+        provider.GetRequiredService<NamsBackendDescriptor>()
+            .Should().BeSameAs(provider.GetRequiredService<NamsBackendDescriptor>());
     }
 
     [Fact]

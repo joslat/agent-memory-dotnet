@@ -23,6 +23,7 @@ public static class NamsServiceCollectionExtensions
         services.AddOptions<NamsOptions>()
             .Configure(configure)
             .Validate(NamsOptionValidator.HasEndpoint, "NamsOptions.Endpoint must be provided.")
+            .Validate(NamsOptionValidator.HasAbsoluteEndpoint, "NamsOptions.Endpoint must be an absolute URI.")
             .Validate(
                 NamsOptionValidator.HasSecureOrExplicitlyAllowedEndpoint,
                 "NamsOptions.Endpoint must use HTTPS unless AllowInsecureEndpointForLocalDevelopment is set to true.")
@@ -31,11 +32,10 @@ public static class NamsServiceCollectionExtensions
             .Validate(NamsOptionValidator.HasNonNegativeInitialRetryDelay, "NamsOptions.InitialRetryDelay must be non-negative.")
             .ValidateOnStart();
 
-        // Idempotent by construction: TryAddSingleton with a fixed instance means a second
-        // AddNamsAgentMemory call is a harmless no-op for this registration (the options registration
-        // above is likewise safe to call more than once -- each call just adds another equivalent
-        // configure/validate step).
-        services.TryAddSingleton(NamsBackendDescriptor.Instance);
+        // Idempotent by construction: TryAddSingleton means a second AddNamsAgentMemory call is a
+        // harmless no-op for this registration (the options registration above is likewise safe to call
+        // more than once -- each call just adds another equivalent configure/validate step).
+        services.TryAddSingleton<NamsBackendDescriptor>();
 
         return services;
     }

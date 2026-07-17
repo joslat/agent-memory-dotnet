@@ -10,18 +10,18 @@ namespace AgentMemory.Nams;
 /// plan's own ADR-4 warns against one level up (don't refactor toward a shared abstraction before the
 /// concrete thing being generalized has been built and proven).
 /// </summary>
+/// <remarks>
+/// Registered via plain <c>services.TryAddSingleton&lt;NamsBackendDescriptor&gt;()</c> (self-review fix: an
+/// earlier version used a hand-rolled private-constructor-plus-static-<c>Instance</c> singleton, the only
+/// such pattern anywhere in this repository -- every other ambient/identity singleton, e.g.
+/// <c>DefaultMemoryOwnerContext</c>/<c>DefaultMemoryStoreContext</c>, uses a public constructor and lets DI
+/// own the single instance instead).
+/// </remarks>
 public sealed class NamsBackendDescriptor
 {
-    /// <summary>The single shared instance -- this descriptor carries no per-registration state.</summary>
-    public static readonly NamsBackendDescriptor Instance = new();
-
     /// <summary>Stable, lowercase backend identifier suitable for low-cardinality telemetry tags.</summary>
     public string Name => "nams";
 
     /// <summary>Human-readable name for diagnostics/UI surfaces.</summary>
     public string DisplayName => "Neo4j Agent Memory as a Service (NAMS)";
-
-    private NamsBackendDescriptor()
-    {
-    }
 }

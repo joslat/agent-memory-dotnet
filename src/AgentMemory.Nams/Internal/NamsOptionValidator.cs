@@ -16,11 +16,25 @@ internal static class NamsOptionValidator
 
     /// <summary>
     /// True when <see cref="NamsOptions.Endpoint"/> is missing (deferred to <see cref="HasEndpoint"/>'s own
-    /// rule to report), uses HTTPS, or the host has explicitly opted into a non-HTTPS endpoint via
+    /// rule to report) or is an absolute URI. A scheme-less <see cref="Uri"/> (e.g. constructed from
+    /// <c>"memory.neo4jlabs.com/v1"</c> with no <c>https://</c> prefix -- a plausible copy-paste typo, not
+    /// a contrived edge case) parses successfully as a *relative* URI, whose <see cref="Uri.Scheme"/>
+    /// throws <see cref="InvalidOperationException"/> if accessed. This rule exists so that throw happens
+    /// nowhere in this validator -- every other rule below that reads <c>Endpoint.Scheme</c> can assume
+    /// this one already gated it.
+    /// </summary>
+    public static bool HasAbsoluteEndpoint(NamsOptions options) =>
+        options.Endpoint is null || options.Endpoint.IsAbsoluteUri;
+
+    /// <summary>
+    /// True when <see cref="NamsOptions.Endpoint"/> is missing or relative (deferred to
+    /// <see cref="HasEndpoint"/>/<see cref="HasAbsoluteEndpoint"/>'s own rules to report), uses HTTPS, or
+    /// the host has explicitly opted into a non-HTTPS endpoint via
     /// <see cref="NamsOptions.AllowInsecureEndpointForLocalDevelopment"/>.
     /// </summary>
     public static bool HasSecureOrExplicitlyAllowedEndpoint(NamsOptions options) =>
         options.Endpoint is null
+        || !options.Endpoint.IsAbsoluteUri
         || options.Endpoint.Scheme == Uri.UriSchemeHttps
         || options.AllowInsecureEndpointForLocalDevelopment;
 
