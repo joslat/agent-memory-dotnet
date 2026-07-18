@@ -67,6 +67,13 @@ app.MapPost("/clear_all_data", async (INamsClient client, CancellationToken ct) 
 
 static async Task ClearAllConversationsAsync(INamsClient client, CancellationToken ct)
 {
+    // 200 is NAMS's own documented hard maximum for this endpoint's limit param (pinned OpenAPI snapshot:
+    // "Max conversations to return (1-200, default 50)") -- there is no offset/cursor param to page beyond
+    // it. A disclosed, known limitation (like the entities/reasoning-traces-not-wiped gap in the planning
+    // doc): if the shared dev workspace ever exceeds 200 conversations, this cleanup only reaches the
+    // newest 200 (confirmed live: list_conversations returns newest-first), leaving an undeleted tail.
+    // Acceptable for the same reason as that other gap -- every Platinum assertion is permissive enough
+    // that accumulated data doesn't affect the outcome.
     var conversations = await client.ListConversationsAsync(200, ct).ConfigureAwait(false);
     foreach (var conversation in conversations)
         await client.DeleteConversationAsync(conversation.Id, ct).ConfigureAwait(false);
@@ -78,8 +85,11 @@ app.MapPost("/create_conversation", async (CreateConversationRequest req, INamsC
 {
     var conversation = await client.CreateConversationAsync(req.UserId, req.Metadata, ct).ConfigureAwait(false);
     // NAMS's create-response has no session_id (a conversation IS the session) or created_at at all --
-    // synthesize both (confirmed live, Phase 10e/TCK bridge research).
-    return Results.Ok(new TckConversation(conversation.Id, conversation.Id, null, DateTimeOffset.UtcNow, null));
+    // synthesize both (confirmed live, Phase 10e/TCK bridge research). Title isn't a first-class field on
+    // the create-response either -- NAMS reads it from metadata["title"] (confirmed, Phase 10f), same as
+    // list_conversations echoes it back -- so echo the submitted metadata here too, for consistency.
+    var title = conversation.Metadata is not null && conversation.Metadata.TryGetValue("title", out var t) ? t : null;
+    return Results.Ok(new TckConversation(conversation.Id, conversation.Id, title, DateTimeOffset.UtcNow, null));
 });
 
 app.MapPost("/list_conversations", async (ListConversationsRequest req, INamsClient client, CancellationToken ct) =>
@@ -236,32 +246,3 @@ static TckMessage ToTckMessage(NamsMessage m) =>
 
 static DateTimeOffset ParseOrUtcNow(string? value) =>
     string.IsNullOrEmpty(value) ? DateTimeOffset.UtcNow : DateTimeOffset.Parse(value);
-
-// ---- Request DTOs (snake_case on the wire via the same naming policy) ----
-
-internal sealed record CreateConversationRequest(string? UserId, IReadOnlyDictionary<string, string>? Metadata);
-
-internal sealed record ListConversationsRequest(int? Limit);
-
-internal sealed record DeleteConversationRequest(string ConversationId);
-
-internal sealed record BulkMessageInput(string Role, string Content);
-
-internal sealed record BulkAddMessagesRequest(string ConversationId, IReadOnlyList<BulkMessageInput> Messages);
-
-internal sealed record AddMessageRequest(string SessionId, string Role, string Content);
-
-internal sealed record GetContextRequest(string ConversationId);
-
-internal sealed record GetObservationsRequest(string ConversationId, int? Limit);
-
-// Wire key is "entity_type" (matching the TCK client's own add_entity call), not "type".
-internal sealed record AddEntityRequest(string Name, string EntityType, string? Description);
-
-internal sealed record SetEntityFeedbackRequest(string EntityId, double? UserScore, bool? Confirmed);
-
-internal sealed record RecordStepRequest(string ConversationId, string Reasoning, string ActionTaken, string? Result);
-
-internal sealed record GetTraceRequest(string ConversationId);
-
-internal sealed record CypherQueryRequest(string Cypher, IReadOnlyDictionary<string, object?>? Params);

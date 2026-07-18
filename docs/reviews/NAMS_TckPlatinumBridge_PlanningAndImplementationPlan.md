@@ -131,3 +131,13 @@ bridge or NAMS integration:** `test_create_conversation_returns_uuid` asserts
 kwarg either. No bridge response could make this attribute exist; this would fail identically against any
 correctly-implemented Platinum adapter. **Final result: 10/11 official Platinum scenarios passing, with the
 1 failure independently attributable to the upstream test suite.**
+
+### Deliberate scope gap: no C# test project for this bridge
+
+Unlike the direct-backend `AgentMemory.TckBridge` (which has both a unit-level wire-contract test and a
+`WebApplicationFactory`-hosted round-trip integration test), this project has no equivalent C# tests and no
+`public partial class Program { }` hosting hook. The real upstream `pytest -m platinum` run against the live
+NAMS SaaS dev workspace already *is* the verification — a parallel in-process C# suite would either mock NAMS
+(defeating the point: catching real wire-shape mismatches, as the JsonPropertyName-bypass bug above shows) or
+need live NAMS credentials in CI, which the direct bridge's local-Neo4j-backed tests don't require. Left as a
+disclosed gap rather than added speculatively.

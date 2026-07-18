@@ -89,3 +89,34 @@ internal sealed record TckEntityFeedbackResult(string Id, bool Updated);
 
 internal sealed record TckCypherResult(
     IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<object?>> Rows, IReadOnlyDictionary<string, object?>? Stats);
+
+// ---- Requests (snake_case on the wire via the same naming policy; matches the direct-backend
+// AgentMemory.TckBridge's convention of keeping all wire DTOs, both response and request, in this file
+// rather than split across Program.cs). ----
+
+internal sealed record CreateConversationRequest(string? UserId, IReadOnlyDictionary<string, string>? Metadata);
+
+internal sealed record ListConversationsRequest(int? Limit);
+
+internal sealed record DeleteConversationRequest(string ConversationId);
+
+internal sealed record BulkMessageInput(string Role, string Content);
+
+internal sealed record BulkAddMessagesRequest(string ConversationId, IReadOnlyList<BulkMessageInput> Messages);
+
+internal sealed record AddMessageRequest(string SessionId, string Role, string Content);
+
+internal sealed record GetContextRequest(string ConversationId);
+
+internal sealed record GetObservationsRequest(string ConversationId, int? Limit);
+
+// Wire key is "entity_type" (matching the TCK client's own add_entity call), not "type".
+internal sealed record AddEntityRequest(string Name, string EntityType, string? Description);
+
+internal sealed record SetEntityFeedbackRequest(string EntityId, double? UserScore, bool? Confirmed);
+
+internal sealed record RecordStepRequest(string ConversationId, string Reasoning, string ActionTaken, string? Result);
+
+internal sealed record GetTraceRequest(string ConversationId);
+
+internal sealed record CypherQueryRequest(string Cypher, IReadOnlyDictionary<string, object?>? Params);
