@@ -118,4 +118,51 @@ internal interface INamsClient
     /// </summary>
     Task<NamsGraphExpansion> ExpandGraphAsync(
         string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a reasoning step (<c>POST /v1/reasoning/steps</c>) -- confirmed live as part of the Phase 10e TCK
+    /// Platinum probe. Unlike every other addition in Phase 10e-10g, this is the first method touching an
+    /// entirely new domain -- reasoning/provenance -- this client has never exposed before. A genuine write
+    /// (resending would create a duplicate step), not idempotent-for-retry. Deliberately not wired into any
+    /// higher-level service or MCP tool yet -- low-level client capability only.
+    /// </summary>
+    Task<NamsReasoningStep> RecordReasoningStepAsync(
+        string conversationId, string reasoning, string actionTaken, string? result, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists reasoning steps for a conversation (<c>GET /v1/reasoning/steps?conversation_id=</c>) -- confirmed
+    /// live as part of the Phase 10e TCK Platinum probe. Unlike Phase 10f's observations, recording and
+    /// immediately listing a step is NOT subject to any async worker delay -- confirmed live to be immediately
+    /// visible. Deliberately not wired into any higher-level service or MCP tool yet.
+    /// </summary>
+    Task<IReadOnlyList<NamsReasoningStep>> ListReasoningStepsAsync(string conversationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a tool call, optionally linked to a step (<c>POST /v1/reasoning/tool-calls</c>) -- confirmed
+    /// live as part of the Phase 10e TCK Platinum probe. <paramref name="input"/>/<paramref name="output"/>
+    /// must be pre-serialized JSON strings, not objects -- NAMS stores them as scalar string properties. A
+    /// genuine write, not idempotent-for-retry. Deliberately not wired into any higher-level service or MCP
+    /// tool yet.
+    /// </summary>
+    Task<NamsToolCall> RecordToolCallAsync(
+        string? stepId, string toolName, string input, string? output, string? status, int? durationMs,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the full reasoning trace for a conversation -- all steps and tool calls, in order
+    /// (<c>GET /v1/reasoning/trace/{conversationId}</c>) -- confirmed live as part of the Phase 10e TCK
+    /// Platinum probe. Flat shape (steps and toolCalls as parallel arrays), not steps-with-nested-toolCalls
+    /// despite the endpoint's own prose description implying nesting. Deliberately not wired into any
+    /// higher-level service or MCP tool yet.
+    /// </summary>
+    Task<NamsReasoningTrace> GetReasoningTraceAsync(string conversationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the reasoning chain that influenced an entity's creation (<c>GET /v1/reasoning/provenance/{entityId}</c>)
+    /// -- confirmed live as part of the Phase 10e TCK Platinum probe. Like Phase 10f's observations, this links
+    /// to async entity-extraction machinery -- callers should not assume a call shortly after recording
+    /// reasoning steps will see a populated provenance chain for any particular entity. Deliberately not wired
+    /// into any higher-level service or MCP tool yet.
+    /// </summary>
+    Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken);
 }

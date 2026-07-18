@@ -65,6 +65,24 @@ public sealed class NamsRecallServiceTests
         public Task<NamsGraphExpansion> ExpandGraphAsync(
             string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<NamsReasoningStep> RecordReasoningStepAsync(
+            string conversationId, string reasoning, string actionTaken, string? result, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsReasoningStep>> ListReasoningStepsAsync(string conversationId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<NamsToolCall> RecordToolCallAsync(
+            string? stepId, string toolName, string input, string? output, string? status, int? durationMs,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<NamsReasoningTrace> GetReasoningTraceAsync(string conversationId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static readonly NamsContext EmptyContext = new([], [], []);
