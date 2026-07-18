@@ -77,4 +77,8 @@ internal class ThrowingNamsClientStub : INamsClient
     public virtual Task<NamsQueryResult> ExecuteCypherQueryAsync(
         string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
+
+    public virtual Task<NamsCreateEntityResult> CreateEntityAsync(
+        string name, string type, string? description, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 }

@@ -183,4 +183,18 @@ internal interface INamsClient
     /// </summary>
     Task<NamsQueryResult> ExecuteCypherQueryAsync(
         string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Manually creates an entity (<c>POST /v1/entities</c>) -- confirmed live (Phase 10j). Entities are
+    /// normally created by the async extraction pipeline; this is the explicit-write counterpart, needed by
+    /// the upstream TCK's own <c>test_set_entity_feedback_returns_updated</c> Platinum scenario (it creates an
+    /// entity via <c>add_entity</c> before scoring it). Returns <see cref="NamsCreateEntityResult"/>, NOT
+    /// <see cref="NamsEntity"/> -- confirmed live that NAMS's own fuzzy entity-resolution can return a
+    /// genuinely different, minimal response shape (no name/type/description at all) when it auto-merges the
+    /// submission into an existing entity rather than creating a new one; see that type's own doc comment for
+    /// the full three-shape breakdown. A genuine write, not idempotent-for-retry. Deliberately not wired into
+    /// any higher-level service or MCP tool yet.
+    /// </summary>
+    Task<NamsCreateEntityResult> CreateEntityAsync(
+        string name, string type, string? description, CancellationToken cancellationToken);
 }

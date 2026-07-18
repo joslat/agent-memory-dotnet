@@ -240,6 +240,15 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             DeserializeAsync<NamsQueryResult>,
             cancellationToken);
 
+    public Task<NamsCreateEntityResult> CreateEntityAsync(
+        string name, string type, string? description, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "create_entity",
+            () => BuildJsonRequest(HttpMethod.Post, "entities", new CreateEntityRequestBody(name, type, description)),
+            retryEligibility: NamsRetryEligibility.NonIdempotent,
+            DeserializeAsync<NamsCreateEntityResult>,
+            cancellationToken);
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -380,4 +389,9 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private sealed record ExecuteCypherQueryRequestBody(
         [property: JsonPropertyName("cypher")] string Cypher,
         [property: JsonPropertyName("params"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, object?>? Params);
+
+    private sealed record CreateEntityRequestBody(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("description"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Description);
 }

@@ -517,6 +517,89 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task CreateEntityAsync_CreatedResolution_DeserializesFullEntityFields()
+    {
+        // Shape confirmed live (Phase 10j probe): richer than the pinned OpenAPI snapshot's EntityResponse
+        // (adds ontologyVersionId/resolution/systemAdded/validationMode, none of which NamsCreateEntityResult
+        // needs to model since they're not consumed).
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created, """
+            {"description":"probe","id":"e1","name":"Acme","ontologyVersionId":"ov_1","resolution":"created",
+             "systemAdded":true,"type":"Org","validationMode":"permissive"}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.CreateEntityAsync("Acme", "Org", "probe", CancellationToken.None);
+
+        result.Id.Should().Be("e1");
+        result.Resolution.Should().Be("created");
+        result.Name.Should().Be("Acme");
+        result.Type.Should().Be("Org");
+        result.Description.Should().Be("probe");
+        result.DuplicateOf.Should().BeNull();
+        result.MergedInto.Should().BeNull();
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Post);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/entities"));
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.GetProperty("name").GetString().Should().Be("Acme",
+            "name and type must not be transposed -- both are plain strings, so nothing else would catch it");
+        requestJson.RootElement.GetProperty("type").GetString().Should().Be("Org");
+        requestJson.RootElement.GetProperty("description").GetString().Should().Be("probe");
+    }
+
+    [Fact]
+    public async Task CreateEntityAsync_ReviewPendingResolution_DeserializesDuplicateOf()
+    {
+        // Confirmed live: a probable (not certain) duplicate still returns full entity fields, plus
+        // duplicate_of (snake_case -- confirmed inconsistent with this same response's camelCase fields).
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created, """
+            {"description":"probe","duplicate_of":"e0","id":"e1","name":"Acme","ontologyVersionId":"ov_1",
+             "resolution":"review_pending","systemAdded":true,"type":"Org","validationMode":"permissive"}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.CreateEntityAsync("Acme", "Org", "probe", CancellationToken.None);
+
+        result.Resolution.Should().Be("review_pending");
+        result.Name.Should().Be("Acme");
+        result.DuplicateOf.Should().Be("e0");
+    }
+
+    [Fact]
+    public async Task CreateEntityAsync_MergedResolution_DeserializesMinimalShape_NoNameOrType()
+    {
+        // The genuinely surprising live discovery this phase's own live test caught: when NAMS auto-merges
+        // the submission into an existing entity, the response is a COMPLETELY different, minimal shape --
+        // no name/type/description/duplicate_of at all, only id/resolution/merged_into/confidence.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created, """
+            {"confidence":0.9413830497142857,"id":"e1","merged_into":"e0","resolution":"merged"}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.CreateEntityAsync("Acme", "Org", "probe", CancellationToken.None);
+
+        result.Id.Should().Be("e1");
+        result.Resolution.Should().Be("merged");
+        result.MergedInto.Should().Be("e0");
+        result.Confidence.Should().BeApproximately(0.9413830497142857, 1e-12);
+        result.Name.Should().BeNull("the merged-resolution response genuinely omits name -- this is not a bug");
+        result.Type.Should().BeNull();
+        result.Description.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CreateEntityAsync_ServerError_DoesNotRetry()
+    {
+        var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var adapter = CreateAdapter(fake);
+
+        var act = () => adapter.CreateEntityAsync("Acme", "Org", null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<NamsOperationException>();
+        fake.Requests.Should().HaveCount(1); // a genuine write -- resending would create a duplicate entity
+    }
+
+    [Fact]
     public async Task AnyOperation_CallerCancellation_PropagatesOperationCanceledException()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.OK));
