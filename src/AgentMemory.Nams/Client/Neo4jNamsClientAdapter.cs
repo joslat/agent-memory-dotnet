@@ -47,7 +47,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         InvokeAsync(
             "resolve_conversation",
             () => BuildJsonRequest(HttpMethod.Post, "conversations", new CreateConversationRequestBody(userId, metadata)),
-            isIdempotent: false,
+            retryEligibility: NamsRetryEligibility.NonIdempotent,
             DeserializeAsync<NamsConversation>,
             cancellationToken);
 
@@ -55,7 +55,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         InvokeAsync(
             "get_context",
             () => new HttpRequestMessage(HttpMethod.Get, $"conversations/{Uri.EscapeDataString(conversationId)}/context"),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsContext>,
             cancellationToken);
 
@@ -66,7 +66,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         var response = await InvokeAsync(
             "store_turn",
             () => BuildJsonRequest(HttpMethod.Post, path, new AddMessagesBulkRequestBody(messages)),
-            isIdempotent: false,
+            retryEligibility: NamsRetryEligibility.NonIdempotent,
             DeserializeAsync<AddMessagesBatchResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Messages;
@@ -75,13 +75,12 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     public async Task<IReadOnlyList<NamsEntity>> SearchEntitiesAsync(
         string query, string? type, int limit, CancellationToken cancellationToken)
     {
-        // A POST verb, but a pure read-only query with no server-side side effects -- safe to treat as
-        // idempotent for retry purposes (matches the engineering plan's retry matrix, which lists "Search" as
-        // always-retryable regardless of the verb it happens to use).
+        // A POST verb, but a pure read-only query with no server-side side effects -- the engineering plan's
+        // retry matrix lists "Search" as always-retryable regardless of the verb it happens to use.
         var response = await InvokeAsync(
             "search_entities",
             () => BuildJsonRequest(HttpMethod.Post, "entities/search", new SearchEntitiesRequestBody(query, type, limit)),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<SearchEntitiesResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Entities;
@@ -92,7 +91,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         var response = await InvokeAsync(
             "list_entities",
             () => new HttpRequestMessage(HttpMethod.Get, $"entities?limit={limit.ToString(CultureInfo.InvariantCulture)}"),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<ListEntitiesResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Entities;
@@ -101,13 +100,12 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     public async Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
         string conversationId, string query, int limit, CancellationToken cancellationToken)
     {
-        // A POST verb, but a pure read-only query with no server-side side effects -- same idempotent-for-
-        // retry-purposes treatment as SearchEntitiesAsync above.
+        // A POST verb, but a pure read-only query with no server-side side effects, same as SearchEntitiesAsync.
         var path = $"conversations/{Uri.EscapeDataString(conversationId)}/search";
         var response = await InvokeAsync(
             "search_messages",
             () => BuildJsonRequest(HttpMethod.Post, path, new SearchMessagesRequestBody(query, limit)),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<SearchMessagesResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Messages;
@@ -118,8 +116,8 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             "delete_conversation",
             () => new HttpRequestMessage(HttpMethod.Delete, $"conversations/{Uri.EscapeDataString(conversationId)}"),
             // Confirmed live: deleting an already-deleted (or otherwise nonexistent) conversation still
-            // returns 200, not 404 -- genuinely idempotent, safe to retry like any other read.
-            isIdempotent: true,
+            // returns 200, not 404 -- genuinely idempotent.
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<DeleteConversationResponseBody>,
             cancellationToken);
 
@@ -129,7 +127,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         var response = await InvokeAsync(
             "list_conversations",
             () => new HttpRequestMessage(HttpMethod.Get, $"conversations?limit={limit.ToString(CultureInfo.InvariantCulture)}"),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<ListConversationsResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Conversations;
@@ -142,7 +140,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         var response = await InvokeAsync(
             "get_observations",
             () => new HttpRequestMessage(HttpMethod.Get, path),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<GetObservationsResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Observations;
@@ -156,9 +154,8 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
                 HttpMethod.Put, $"entities/{Uri.EscapeDataString(entityId)}/feedback",
                 new EntityFeedbackRequestBody(userScore, confirmed)),
             // A PUT full-value replacement, not a POST create -- resending the same body produces the same end
-            // state, none of the duplicate-row risk NamsRetryPolicy's writes-don't-retry default guards
-            // against. Genuinely idempotent, safe to retry like DeleteConversationAsync above.
-            isIdempotent: true,
+            // state, none of the duplicate-row risk a non-idempotent classification guards against.
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsEntityFeedbackResult>,
             cancellationToken);
 
@@ -166,7 +163,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         InvokeAsync(
             "get_entity_graph",
             () => new HttpRequestMessage(HttpMethod.Get, "entities/graph"),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsEntityGraph>,
             cancellationToken);
 
@@ -174,10 +171,9 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken) =>
         InvokeAsync(
             "expand_graph",
-            // POST verb, but read-only (no server-side side effects) -- same idempotent-for-retry treatment
-            // as SearchEntitiesAsync/SearchMessagesAsync.
+            // POST verb, but read-only (no server-side side effects), same as SearchEntitiesAsync/SearchMessagesAsync.
             () => BuildJsonRequest(HttpMethod.Post, "graph/expand", new ExpandGraphRequestBody(nodeId, loadedIds)),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsGraphExpansion>,
             cancellationToken);
 
@@ -188,7 +184,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             () => BuildJsonRequest(
                 HttpMethod.Post, "reasoning/steps",
                 new RecordReasoningStepRequestBody(conversationId, reasoning, actionTaken, result)),
-            isIdempotent: false,
+            retryEligibility: NamsRetryEligibility.NonIdempotent,
             DeserializeAsync<NamsReasoningStep>,
             cancellationToken);
 
@@ -199,7 +195,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         var response = await InvokeAsync(
             "list_reasoning_steps",
             () => new HttpRequestMessage(HttpMethod.Get, path),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<ListReasoningStepsResponseBody>,
             cancellationToken).ConfigureAwait(false);
         return response.Steps;
@@ -213,7 +209,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             () => BuildJsonRequest(
                 HttpMethod.Post, "reasoning/tool-calls",
                 new RecordToolCallRequestBody(stepId, toolName, input, output, status, durationMs)),
-            isIdempotent: false,
+            retryEligibility: NamsRetryEligibility.NonIdempotent,
             DeserializeAsync<NamsToolCall>,
             cancellationToken);
 
@@ -221,7 +217,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         InvokeAsync(
             "get_reasoning_trace",
             () => new HttpRequestMessage(HttpMethod.Get, $"reasoning/trace/{Uri.EscapeDataString(conversationId)}"),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsReasoningTrace>,
             cancellationToken);
 
@@ -229,7 +225,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         InvokeAsync(
             "get_entity_provenance",
             () => new HttpRequestMessage(HttpMethod.Get, $"reasoning/provenance/{Uri.EscapeDataString(entityId)}"),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsEntityProvenance>,
             cancellationToken);
 
@@ -237,17 +233,17 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
         InvokeAsync(
             "execute_cypher_query",
-            // Read-only by NAMS's own server-enforced contract (confirmed live) -- same idempotent-for-retry
-            // treatment as ExpandGraphAsync/SearchEntitiesAsync despite the POST verb.
+            // Read-only by NAMS's own server-enforced contract (confirmed live), same as ExpandGraphAsync/
+            // SearchEntitiesAsync despite the POST verb.
             () => BuildJsonRequest(HttpMethod.Post, "query", new ExecuteCypherQueryRequestBody(cypher, parameters)),
-            isIdempotent: true,
+            retryEligibility: NamsRetryEligibility.Idempotent,
             DeserializeAsync<NamsQueryResult>,
             cancellationToken);
 
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
-        bool isIdempotent,
+        NamsRetryEligibility retryEligibility,
         Func<Stream, CancellationToken, Task<T>> deserialize,
         CancellationToken cancellationToken)
     {
@@ -256,7 +252,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         try
         {
             using var response = await _retryPolicy.ExecuteAsync(
-                requestFactory, _httpClient, isIdempotent, cancellationToken,
+                requestFactory, _httpClient, retryEligibility, cancellationToken,
                 onRetry: () => _metrics.BackendRetries.Add(1, NamsMetricTags.Operation(operationName)))
                 .ConfigureAwait(false);
             var result = await NamsClientExceptionMapper.MapResponseAsync(response, deserialize, _apiKeyForRedaction, cancellationToken)

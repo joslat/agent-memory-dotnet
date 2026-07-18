@@ -31,11 +31,11 @@ internal sealed class NamsRetryPolicy
     public async Task<HttpResponseMessage> ExecuteAsync(
         Func<HttpRequestMessage> requestFactory,
         HttpClient httpClient,
-        bool isIdempotent,
+        NamsRetryEligibility retryEligibility,
         CancellationToken cancellationToken,
         Action? onRetry = null)
     {
-        if (!isIdempotent)
+        if (retryEligibility == NamsRetryEligibility.NonIdempotent)
             return await httpClient.SendAsync(requestFactory(), cancellationToken).ConfigureAwait(false);
 
         for (var attempt = 0; ; attempt++)
