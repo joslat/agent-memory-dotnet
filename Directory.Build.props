@@ -20,9 +20,9 @@
        which builds and runs cleanly under net10.0). net8.0 costs nothing to add and lets consumers on the
        still-widely-deployed .NET 8 LTS use the library without adopting a newer runtime; net10.0 keeps
        pace with the newest release. Verified with real builds and executed tests on all three TFMs, not
-       just compiled. Scoped the same way as the packaging metadata below, plus excluding the two
-       non-packable tools/ console apps (Cli, TckBridge), which stay single-targeted. -->
-  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample')) and '$(MSBuildProjectName)' != 'AgentMemory.Cli' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge'">
+       just compiled. Scoped the same way as the packaging metadata below, plus excluding the three
+       non-packable tools/ console apps (Cli, TckBridge, TckBridge.Nams), which stay single-targeted. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('AgentMemory')) and !$(MSBuildProjectName.Contains('.Tests')) and !$(MSBuildProjectName.Contains('.Sample')) and '$(MSBuildProjectName)' != 'AgentMemory.Cli' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge' and '$(MSBuildProjectName)' != 'AgentMemory.TckBridge.Nams'">
     <TargetFramework></TargetFramework>
     <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
   </PropertyGroup>

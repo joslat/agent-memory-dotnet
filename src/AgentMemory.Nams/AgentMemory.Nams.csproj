@@ -20,6 +20,10 @@
          public service (see its own doc comment). The live-integration test for it needs direct access,
          mirroring AgentMemory.AgentFramework's identical grant to both test projects. -->
     <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
+    <!-- The TCK Platinum bridge resolves INamsClient directly from DI (same pattern as the direct-backend
+         AgentMemory.TckBridge, which src/Directory.Build.props already grants under that exact name;
+         this is a DIFFERENT project name, so it needs its own explicit grant here). -->
+    <InternalsVisibleTo Include="AgentMemory.TckBridge.Nams" />
   </ItemGroup>
 
 </Project>
