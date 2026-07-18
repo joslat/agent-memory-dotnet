@@ -11,19 +11,12 @@ namespace AgentMemory.Tests.Unit.Nams;
 
 public sealed class NamsPersistenceServiceTests
 {
-    private sealed class FakeNamsClient : INamsClient
+    private sealed class FakeNamsClient : ThrowingNamsClientStub
     {
         public List<IReadOnlyList<NamsMessageInput>> Calls { get; } = [];
         public Func<IReadOnlyList<NamsMessageInput>, Task<IReadOnlyList<NamsMessage>>>? OnAddMessages { get; set; }
 
-        public Task<NamsConversation> CreateConversationAsync(
-            string? userId, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsContext> GetContextAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsMessage>> AddMessagesAsync(
+        public override Task<IReadOnlyList<NamsMessage>> AddMessagesAsync(
             string conversationId, IReadOnlyList<NamsMessageInput> messages, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -31,60 +24,6 @@ public sealed class NamsPersistenceServiceTests
             return (OnAddMessages ?? (msgs => Task.FromResult<IReadOnlyList<NamsMessage>>(
                 msgs.Select((m, i) => new NamsMessage($"m{i}", m.Content, m.Role, null, conversationId, null, null)).ToList())))(messages);
         }
-
-        public Task<IReadOnlyList<NamsEntity>> SearchEntitiesAsync(
-            string query, string? type, int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
-            string conversationId, string query, int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsConversationSummary>> ListConversationsAsync(int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
-            string conversationId, int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsEntityFeedbackResult> SetEntityFeedbackAsync(
-            string entityId, double? userScore, bool? confirmed, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsEntityGraph> GetEntityGraphAsync(CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsGraphExpansion> ExpandGraphAsync(
-            string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsReasoningStep> RecordReasoningStepAsync(
-            string conversationId, string reasoning, string actionTaken, string? result, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsReasoningStep>> ListReasoningStepsAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsToolCall> RecordToolCallAsync(
-            string? stepId, string toolName, string input, string? output, string? status, int? durationMs,
-            CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsReasoningTrace> GetReasoningTraceAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsQueryResult> ExecuteCypherQueryAsync(
-            string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
     }
 
     private static NamsPersistenceService CreateService(

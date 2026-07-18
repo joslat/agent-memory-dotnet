@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using FluentAssertions;
 using AgentMemory.Nams.Client;
@@ -27,13 +26,18 @@ public sealed class NamsConversationLifecycleTests
     public async Task ListConversationsAsync_ReturnsCreatedConversationsWithCorrectSummaryFields()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var userIdA = UniqueUserId();
-        var userIdB = UniqueUserId();
+        var userIdA = NamsLiveTestHelpers.UniqueUserId();
+        var userIdB = NamsLiveTestHelpers.UniqueUserId();
 
-        var conversationA = await namsClient.CreateConversationAsync(
+        // Independent creates -- no data dependency between them, so run concurrently rather than paying two
+        // sequential round trips to the live SaaS (a Phase 10-review efficiency finding).
+        var createTaskA = namsClient.CreateConversationAsync(
             userIdA, new Dictionary<string, string> { ["title"] = $"{userIdA}-title" }, CancellationToken.None);
-        var conversationB = await namsClient.CreateConversationAsync(
+        var createTaskB = namsClient.CreateConversationAsync(
             userIdB, new Dictionary<string, string> { ["title"] = $"{userIdB}-title" }, CancellationToken.None);
+        await Task.WhenAll(createTaskA, createTaskB);
+        var conversationA = createTaskA.Result;
+        var conversationB = createTaskB.Result;
 
         try
         {
@@ -52,8 +56,10 @@ public sealed class NamsConversationLifecycleTests
         }
         finally
         {
-            await namsClient.DeleteConversationAsync(conversationA.Id, CancellationToken.None);
-            await namsClient.DeleteConversationAsync(conversationB.Id, CancellationToken.None);
+            // Independent deletes -- same efficiency reasoning as the creates above.
+            await Task.WhenAll(
+                namsClient.DeleteConversationAsync(conversationA.Id, CancellationToken.None),
+                namsClient.DeleteConversationAsync(conversationB.Id, CancellationToken.None));
         }
     }
 
@@ -61,7 +67,7 @@ public sealed class NamsConversationLifecycleTests
     public async Task GetObservationsAsync_OnFreshConversation_ReturnsEmptyTypedList()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var conversation = await namsClient.CreateConversationAsync(UniqueUserId(), null, CancellationToken.None);
+        var conversation = await namsClient.CreateConversationAsync(NamsLiveTestHelpers.UniqueUserId(), null, CancellationToken.None);
 
         try
         {
@@ -83,9 +89,4 @@ public sealed class NamsConversationLifecycleTests
         }
     }
 
-    // [CallerMemberName] embeds the calling test's name in UserId, matching the convention already established
-    // by NamsLiveConnectivityTests.UniqueIdentity / NamsMultiInstanceMappingTests.UniqueIdentity -- aids tracing
-    // any conversation that outlives its test (e.g. a failed assertion skipping the try/finally cleanup).
-    private static string UniqueUserId([CallerMemberName] string testName = "") =>
-        $"test-{testName}-{Guid.NewGuid():N}";
 }

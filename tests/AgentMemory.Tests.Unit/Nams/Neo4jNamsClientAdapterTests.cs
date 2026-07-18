@@ -259,6 +259,25 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task SetEntityFeedbackAsync_WithOneNullArgument_OmitsThatFieldEntirely()
+    {
+        // The interface doc comment promises "pass null to leave either unset". Without an explicit
+        // JsonIgnoreCondition, System.Text.Json would instead serialize an explicit "confirmed":null, which a
+        // PUT full-value-replacement handler could plausibly read as "clear this field" -- this test locks in
+        // the actual, safer behavior: the key is genuinely absent, not null.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """{"id":"e1","updated":true}"""));
+        var adapter = CreateAdapter(fake);
+
+        await adapter.SetEntityFeedbackAsync("e1", userScore: 0.5, confirmed: null, CancellationToken.None);
+
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.GetProperty("userScore").GetDouble().Should().Be(0.5);
+        requestJson.RootElement.TryGetProperty("confirmed", out _).Should().BeFalse(
+            "confirmed: null must omit the key entirely, not serialize an explicit JSON null");
+    }
+
+    [Fact]
     public async Task SetEntityFeedbackAsync_TransientFailureThenSuccess_Retries()
     {
         var fake = new FakeHttpMessageHandler(
@@ -490,6 +509,11 @@ public sealed class Neo4jNamsClientAdapterTests
         var result = await adapter.ExecuteCypherQueryAsync("MATCH (n) RETURN n LIMIT 0", null, CancellationToken.None);
 
         result.Rows.Should().BeEmpty();
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.TryGetProperty("params", out _).Should().BeFalse(
+            "a null parameters argument must genuinely omit the \"params\" key, not serialize an explicit " +
+            "JSON null, matching this method's JsonIgnoreCondition.WhenWritingNull annotation");
     }
 
     [Fact]

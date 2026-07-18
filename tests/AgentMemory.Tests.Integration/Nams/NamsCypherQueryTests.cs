@@ -54,9 +54,7 @@ public sealed class NamsCypherQueryTests
     public async Task ExecuteCypherQueryAsync_WithParameters_SubstitutesThemCorrectly()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var entities = await namsClient.ListEntitiesAsync(1, CancellationToken.None);
-        entities.Should().NotBeEmpty();
-        var knownEntityId = entities[0].Id;
+        var knownEntityId = await NamsLiveTestHelpers.GetAnyExistingEntityIdAsync(namsClient, limit: 1, CancellationToken.None);
 
         var result = await namsClient.ExecuteCypherQueryAsync(
             "MATCH (n) WHERE n.id = $id RETURN n.id AS id",

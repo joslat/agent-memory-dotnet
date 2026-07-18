@@ -175,7 +175,11 @@ internal interface INamsClient
     /// explicit user approval (like Phase 12) rather than the general autonomous-execution authorization
     /// covering Phase 10e-10h, given it's a raw-Cypher-passthrough security/design decision. Deliberately not
     /// wired into any higher-level service or MCP tool -- exposing this to an agent/end-user is a separate,
-    /// later decision from adding the client capability itself.
+    /// later decision from adding the client capability itself. <paramref name="parameters"/> values must be
+    /// JSON-primitive-compatible (string/number/bool/null/nested list-or-map) -- <see cref="System.Text.Json"/>
+    /// serializes anything else (e.g. a raw <see cref="DateTime"/>) using its own default conversion, which may
+    /// not match the Cypher literal the query expects to bind against (e.g. a temporal property comparison);
+    /// pass pre-formatted strings and cast explicitly in the query (<c>datetime($x)</c>) for those cases.
     /// </summary>
     Task<NamsQueryResult> ExecuteCypherQueryAsync(
         string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken);
