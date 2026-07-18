@@ -338,6 +338,109 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task RecordReasoningStepAsync_Success_SendsPostAndDeserializesStep()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created, """
+            {"id":"s1","conversationId":"conv-1","reasoning":"thinking","actionTaken":"search","result":"found it"}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var step = await adapter.RecordReasoningStepAsync("conv-1", "thinking", "search", "found it", CancellationToken.None);
+
+        step.Id.Should().Be("s1");
+        step.ConversationId.Should().Be("conv-1");
+        step.Reasoning.Should().Be("thinking");
+        step.ActionTaken.Should().Be("search");
+        step.Result.Should().Be("found it");
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Post);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/reasoning/steps"));
+    }
+
+    [Fact]
+    public async Task RecordReasoningStepAsync_ServerError_DoesNotRetry()
+    {
+        var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var adapter = CreateAdapter(fake);
+
+        var act = () => adapter.RecordReasoningStepAsync("conv-1", "thinking", "search", null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<NamsOperationException>();
+        fake.Requests.Should().HaveCount(1); // a genuine write -- resending would create a duplicate step
+    }
+
+    [Fact]
+    public async Task ListReasoningStepsAsync_Success_DeserializesStepsAndUsesConversationIdQueryParam()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"steps":[{"id":"s1","reasoning":"thinking","actionTaken":"search","createdAt":"2026-07-18T12:26:02.143Z"}]}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var steps = await adapter.ListReasoningStepsAsync("conv-1", CancellationToken.None);
+
+        steps.Single().Id.Should().Be("s1");
+        steps.Single().CreatedAt.Should().Be("2026-07-18T12:26:02.143Z");
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Get);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/reasoning/steps?conversation_id=conv-1"));
+    }
+
+    [Fact]
+    public async Task RecordToolCallAsync_Success_SendsPostWithPreSerializedInputOutput()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created,
+            """{"id":"t1","stepId":"s1","toolName":"web_search","status":"success"}"""));
+        var adapter = CreateAdapter(fake);
+
+        var toolCall = await adapter.RecordToolCallAsync(
+            "s1", "web_search", "{\"query\":\"foo\"}", "{\"results\":[\"r1\"]}", "success", 150, CancellationToken.None);
+
+        toolCall.Id.Should().Be("t1");
+        toolCall.StepId.Should().Be("s1");
+        toolCall.ToolName.Should().Be("web_search");
+        toolCall.Status.Should().Be("success");
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.GetProperty("input").GetString().Should().Be("{\"query\":\"foo\"}",
+            "input must be a pre-serialized JSON string value, not a nested object");
+        requestJson.RootElement.GetProperty("durationMs").GetInt32().Should().Be(150);
+    }
+
+    [Fact]
+    public async Task GetReasoningTraceAsync_Success_DeserializesFlatStepsAndToolCalls()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"conversationId":"conv-1",
+             "steps":[{"id":"s1","reasoning":"thinking","actionTaken":"search","createdAt":"2026-07-18T12:26:02.143Z"}],
+             "toolCalls":[{"id":"t1","stepId":"s1","toolName":"web_search","status":"success","input":"{}",
+             "output":"{}","durationMs":42,"createdAt":"2026-07-18T12:26:03.729Z"}]}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var trace = await adapter.GetReasoningTraceAsync("conv-1", CancellationToken.None);
+
+        trace.ConversationId.Should().Be("conv-1");
+        trace.Steps.Single().Id.Should().Be("s1");
+        trace.ToolCalls.Single().StepId.Should().Be("s1");
+        trace.ToolCalls.Single().DurationMs.Should().Be(42);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/reasoning/trace/conv-1"));
+    }
+
+    [Fact]
+    public async Task GetEntityProvenanceAsync_Success_DeserializesEnvelopeWithProvenanceField()
+    {
+        // Confirmed live (Phase 10e): the field is named "provenance", not "steps" as the pinned OpenAPI
+        // snapshot's schema name wrongly implied.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """{"entityId":"e1","provenance":[]}"""));
+        var adapter = CreateAdapter(fake);
+
+        var provenance = await adapter.GetEntityProvenanceAsync("e1", CancellationToken.None);
+
+        provenance.EntityId.Should().Be("e1");
+        provenance.Provenance.Should().BeEmpty();
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/reasoning/provenance/e1"));
+    }
+
+    [Fact]
     public async Task AnyOperation_CallerCancellation_PropagatesOperationCanceledException()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.OK));

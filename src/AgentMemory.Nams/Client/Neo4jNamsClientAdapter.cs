@@ -180,6 +180,58 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             DeserializeAsync<NamsGraphExpansion>,
             cancellationToken);
 
+    public Task<NamsReasoningStep> RecordReasoningStepAsync(
+        string conversationId, string reasoning, string actionTaken, string? result, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "record_reasoning_step",
+            () => BuildJsonRequest(
+                HttpMethod.Post, "reasoning/steps",
+                new RecordReasoningStepRequestBody(conversationId, reasoning, actionTaken, result)),
+            isIdempotent: false,
+            DeserializeAsync<NamsReasoningStep>,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<NamsReasoningStep>> ListReasoningStepsAsync(
+        string conversationId, CancellationToken cancellationToken)
+    {
+        var path = $"reasoning/steps?conversation_id={Uri.EscapeDataString(conversationId)}";
+        var response = await InvokeAsync(
+            "list_reasoning_steps",
+            () => new HttpRequestMessage(HttpMethod.Get, path),
+            isIdempotent: true,
+            DeserializeAsync<ListReasoningStepsResponseBody>,
+            cancellationToken).ConfigureAwait(false);
+        return response.Steps;
+    }
+
+    public Task<NamsToolCall> RecordToolCallAsync(
+        string? stepId, string toolName, string input, string? output, string? status, int? durationMs,
+        CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "record_tool_call",
+            () => BuildJsonRequest(
+                HttpMethod.Post, "reasoning/tool-calls",
+                new RecordToolCallRequestBody(stepId, toolName, input, output, status, durationMs)),
+            isIdempotent: false,
+            DeserializeAsync<NamsToolCall>,
+            cancellationToken);
+
+    public Task<NamsReasoningTrace> GetReasoningTraceAsync(string conversationId, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "get_reasoning_trace",
+            () => new HttpRequestMessage(HttpMethod.Get, $"reasoning/trace/{Uri.EscapeDataString(conversationId)}"),
+            isIdempotent: true,
+            DeserializeAsync<NamsReasoningTrace>,
+            cancellationToken);
+
+    public Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "get_entity_provenance",
+            () => new HttpRequestMessage(HttpMethod.Get, $"reasoning/provenance/{Uri.EscapeDataString(entityId)}"),
+            isIdempotent: true,
+            DeserializeAsync<NamsEntityProvenance>,
+            cancellationToken);
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -294,4 +346,21 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private sealed record ExpandGraphRequestBody(
         [property: JsonPropertyName("nodeId")] string NodeId,
         [property: JsonPropertyName("loadedIds")] IReadOnlyList<string> LoadedIds);
+
+    private sealed record RecordReasoningStepRequestBody(
+        [property: JsonPropertyName("conversationId")] string ConversationId,
+        [property: JsonPropertyName("reasoning")] string Reasoning,
+        [property: JsonPropertyName("actionTaken")] string ActionTaken,
+        [property: JsonPropertyName("result")] string? Result);
+
+    private sealed record ListReasoningStepsResponseBody(
+        [property: JsonPropertyName("steps")] IReadOnlyList<NamsReasoningStep> Steps);
+
+    private sealed record RecordToolCallRequestBody(
+        [property: JsonPropertyName("stepId")] string? StepId,
+        [property: JsonPropertyName("toolName")] string ToolName,
+        [property: JsonPropertyName("input")] string Input,
+        [property: JsonPropertyName("output")] string? Output,
+        [property: JsonPropertyName("status")] string? Status,
+        [property: JsonPropertyName("durationMs")] int? DurationMs);
 }
