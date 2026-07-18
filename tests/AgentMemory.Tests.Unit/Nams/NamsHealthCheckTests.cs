@@ -40,6 +40,13 @@ public sealed class NamsHealthCheckTests
 
         public Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsConversationSummary>> ListConversationsAsync(int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
+            string conversationId, int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static NamsOptions ValidOptions() => new() { Endpoint = new Uri("https://nams.test/v1/"), ApiKey = "nams_key" };

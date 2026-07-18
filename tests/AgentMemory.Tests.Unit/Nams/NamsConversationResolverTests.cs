@@ -53,6 +53,13 @@ public sealed class NamsConversationResolverTests
 
         public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsConversationSummary>> ListConversationsAsync(int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
+            string conversationId, int limit, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static NamsConversationIdentity Identity(
