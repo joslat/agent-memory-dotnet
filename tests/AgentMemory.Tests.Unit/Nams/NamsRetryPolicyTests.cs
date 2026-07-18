@@ -20,7 +20,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         fake.Requests.Should().HaveCount(2);
@@ -33,7 +33,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         using var response = await CreatePolicy(maxAttempts: 2).ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         fake.Requests.Should().HaveCount(3); // initial attempt + 2 retries
@@ -53,7 +53,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         fake.Requests.Should().HaveCount(2);
@@ -76,7 +76,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         fake.Requests.Should().HaveCount(2);
@@ -89,7 +89,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         fake.Requests.Should().HaveCount(1);
@@ -102,7 +102,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Post, "x"), client, isIdempotent: false, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Post, "x"), client, retryEligibility: NamsRetryEligibility.NonIdempotent, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         fake.Requests.Should().HaveCount(1);
@@ -117,7 +117,7 @@ public sealed class NamsRetryPolicyTests
         await cts.CancelAsync();
 
         var act = () => CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, cts.Token);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -132,7 +132,7 @@ public sealed class NamsRetryPolicyTests
         var retryCount = 0;
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None,
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None,
             onRetry: () => retryCount++);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -147,7 +147,7 @@ public sealed class NamsRetryPolicyTests
         var retryCount = 0;
 
         using var response = await CreatePolicy().ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None,
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None,
             onRetry: () => retryCount++);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -161,7 +161,7 @@ public sealed class NamsRetryPolicyTests
         using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
 
         var act = () => CreatePolicy(maxAttempts: 2).ExecuteAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, isIdempotent: true, CancellationToken.None);
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
 
         await act.Should().ThrowAsync<HttpRequestException>();
         fake.Requests.Should().HaveCount(3); // initial attempt + 2 retries
