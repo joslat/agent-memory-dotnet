@@ -9,10 +9,11 @@ namespace AgentMemory.Tests.Integration.Nams;
 /// <see cref="INamsClient.SetEntityFeedbackAsync"/>, <see cref="INamsClient.GetEntityGraphAsync"/>, and
 /// <see cref="INamsClient.ExpandGraphAsync"/>. See
 /// <c>docs/reviews/NAMS_Phase10g_EntityFeedbackGraph_PlanningAndImplementationPlan.md</c> for the design.
-/// Deliberately reuses an existing entity discovered via the already-shipped <see cref="INamsClient.ListEntitiesAsync"/>
-/// rather than creating one -- entity creation only happens via the async extraction pipeline or the
-/// out-of-scope <c>POST /entities</c> endpoint, and non-destructively scoring/reading an existing entity matches
-/// the same pattern the Phase 10e spike itself used.
+/// Most tests deliberately reuse an existing entity discovered via the already-shipped
+/// <see cref="INamsClient.ListEntitiesAsync"/> rather than creating one -- non-destructively scoring/reading an
+/// existing entity matches the same pattern the Phase 10e spike itself used.
+/// <see cref="INamsClient.CreateEntityAsync"/> (Phase 10j) is tested separately below, added specifically to
+/// support the NAMS TCK bridge's <c>add_entity</c> route.
 /// </summary>
 [Collection("NAMS Live")]
 [Trait("Category", "Integration")]
@@ -65,15 +66,57 @@ public sealed class NamsEntityGraphTests
     public async Task ExpandGraphAsync_OnASeedEntity_ReturnsANonEmptyNeighborhood()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var seedId = await NamsLiveTestHelpers.GetAnyExistingEntityIdAsync(namsClient, limit: 1, CancellationToken.None);
+
+        // Deliberately NOT "any entity via ListEntitiesAsync(1)" -- that returns newest-first (confirmed live),
+        // and a just-created entity (e.g. from CreateEntityAsync's own live test, or any other test run in the
+        // same session) genuinely has zero edges yet, since relationship extraction lags entity creation. This
+        // real flakiness was caught while adding Phase 10j's CreateEntityAsync test. Instead, pull the full
+        // workspace graph and pick a seed provably referenced by at least one edge -- guaranteed connected,
+        // not gambling on freshness.
+        var graph = await namsClient.GetEntityGraphAsync(CancellationToken.None);
+        var connectedIds = (graph.Edges ?? []).SelectMany(e => new[] { e.SourceId, e.TargetId }).ToHashSet();
+        connectedIds.Should().NotBeEmpty("this workspace's entities are heavily interlinked from prior phases");
+        var seedId = connectedIds.First();
 
         var expansion = await namsClient.ExpandGraphAsync(seedId, [seedId], CancellationToken.None);
 
-        // This dev workspace's entities are heavily interlinked from many prior phases' live tests (confirmed
-        // Phase 10e: expanding a single entity returned 21 nodes/27 edges) -- a genuinely empty neighborhood
-        // would indicate expand is broken, not just that this particular entity happens to be isolated.
-        expansion.Nodes.Should().NotBeEmpty("this workspace's entities are heavily interlinked from prior phases");
+        expansion.Nodes.Should().NotBeEmpty("the seed was chosen specifically because it has at least one edge");
         expansion.Truncated.Should().NotBeNull();
         expansion.Truncated!.NodeId.Should().Be(seedId);
+    }
+
+    [LiveNamsFact]
+    public async Task CreateEntityAsync_ReturnsAWellFormedResultForWhicheverResolutionOccurs()
+    {
+        // Deliberately does NOT assume "created" -- this test ITSELF originally did, using a name sharing the
+        // "TckBridgeProbeEntity" prefix already reused across many earlier probes in this same shared dev
+        // workspace, and NAMS's own fuzzy entity-resolution auto-merged it ("resolution":"merged") instead of
+        // creating a new one, returning a genuinely different, minimal response shape (no name/type at all).
+        // See NamsCreateEntityResult's own doc comment for the full three-shape finding this caused. A
+        // resolution outcome is inherently probabilistic (semantic/name-similarity-based, not something a
+        // caller fully controls), so this test asserts on whichever real outcome occurs rather than gambling
+        // that name uniqueness alone guarantees "created".
+        var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
+        var marker = Guid.NewGuid().ToString("N");
+        var name = $"zzTckBridgeProbe{marker}";
+
+        var result = await namsClient.CreateEntityAsync(
+            name, "TestType", "created by CreateEntityAsync_ReturnsAWellFormedResultForWhicheverResolutionOccurs",
+            CancellationToken.None);
+
+        result.Id.Should().NotBeNullOrWhiteSpace();
+        result.Resolution.Should().NotBeNullOrWhiteSpace();
+        if (result.Resolution is "created" or "review_pending")
+        {
+            result.Name.Should().Be(name,
+                "the response must echo back the exact name this test just created, not some other entity");
+            result.Type.Should().Be("TestType");
+        }
+        else
+        {
+            result.Resolution.Should().Be("merged");
+            result.MergedInto.Should().NotBeNullOrWhiteSpace();
+            result.Confidence.Should().NotBeNull();
+        }
     }
 }
