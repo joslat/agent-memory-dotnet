@@ -33,6 +33,7 @@
   <Folder Name="/tools/">
     <Project Path="tools/AgentMemory.Cli/AgentMemory.Cli.csproj" />
     <Project Path="tools/AgentMemory.TckBridge/AgentMemory.TckBridge.csproj" />
+    <Project Path="tools/AgentMemory.TckBridge.Nams/AgentMemory.TckBridge.Nams.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj" />
