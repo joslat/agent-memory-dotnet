@@ -13,21 +13,27 @@ namespace AgentMemory.McpServer.Nams;
 /// </summary>
 public static class NamsMcpServiceCollectionExtensions
 {
-    /// <summary>Registers the read-only <c>nams_recall</c> tool. Routine automatic recall/persistence
+    /// <summary>Registers every read-only NAMS tool: <c>nams_recall</c> plus the entity-graph and
+    /// reasoning/provenance tools added alongside it. Routine automatic recall/persistence
     /// (<c>NamsMemoryContextProvider</c>) works identically whether or not this is ever called.</summary>
     public static IMcpServerBuilder AddNamsAgentMemoryMcpTools(this IMcpServerBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        return builder.WithTools<NamsRecallTools>();
+        return builder.WithTools<NamsRecallTools>()
+            .WithTools<NamsEntityReadTools>()
+            .WithTools<NamsReasoningReadTools>();
     }
 
-    /// <summary>Additionally registers the write <c>nams_remember</c> tool -- a separate, explicit opt-in
-    /// from <see cref="AddNamsAgentMemoryMcpTools"/>, per the plan's "write tools never automatic" rule.
+    /// <summary>Additionally registers every write NAMS tool (<c>nams_remember</c> plus entity-creation/
+    /// feedback and reasoning-step/tool-call recording) -- a separate, explicit opt-in from
+    /// <see cref="AddNamsAgentMemoryMcpTools"/>, per the plan's "write tools never automatic" rule.
     /// Calling this without first calling <see cref="AddNamsAgentMemoryMcpTools"/> registers only the write
-    /// tool; call both if you want the full NAMS MCP surface.</summary>
+    /// tools; call both if you want the full NAMS MCP surface.</summary>
     public static IMcpServerBuilder AddNamsAgentMemoryMcpWriteTools(this IMcpServerBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        return builder.WithTools<NamsPersistenceTools>();
+        return builder.WithTools<NamsPersistenceTools>()
+            .WithTools<NamsEntityWriteTools>()
+            .WithTools<NamsReasoningWriteTools>();
     }
 }

@@ -24,6 +24,12 @@
          AgentMemory.TckBridge, which src/Directory.Build.props already grants under that exact name;
          this is a DIFFERENT project name, so it needs its own explicit grant here). -->
     <InternalsVisibleTo Include="AgentMemory.TckBridge.Nams" />
+    <!-- The entity/reasoning MCP tools (nams_entity_graph, nams_create_entity, nams_reasoning_trace, etc.)
+         resolve INamsClient directly, the same as AgentMemory.TckBridge.Nams above, since these operations
+         sit outside the security-gated recall/persistence pipeline Phases 4 to 6 built (no untrusted content
+         flows into an LLM context through them), so a dedicated public service wrapper isn't warranted; a
+         different project name needs its own explicit grant here. -->
+    <InternalsVisibleTo Include="AgentMemory.McpServer.Nams" />
   </ItemGroup>
 
 </Project>
