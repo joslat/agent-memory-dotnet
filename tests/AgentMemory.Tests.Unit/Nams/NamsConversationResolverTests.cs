@@ -60,6 +60,17 @@ public sealed class NamsConversationResolverTests
         public Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
             string conversationId, int limit, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<NamsEntityFeedbackResult> SetEntityFeedbackAsync(
+            string entityId, double? userScore, bool? confirmed, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<NamsEntityGraph> GetEntityGraphAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<NamsGraphExpansion> ExpandGraphAsync(
+            string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static NamsConversationIdentity Identity(

@@ -147,6 +147,39 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         return response.Observations;
     }
 
+    public Task<NamsEntityFeedbackResult> SetEntityFeedbackAsync(
+        string entityId, double? userScore, bool? confirmed, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "set_entity_feedback",
+            () => BuildJsonRequest(
+                HttpMethod.Put, $"entities/{Uri.EscapeDataString(entityId)}/feedback",
+                new EntityFeedbackRequestBody(userScore, confirmed)),
+            // A PUT full-value replacement, not a POST create -- resending the same body produces the same end
+            // state, none of the duplicate-row risk NamsRetryPolicy's writes-don't-retry default guards
+            // against. Genuinely idempotent, safe to retry like DeleteConversationAsync above.
+            isIdempotent: true,
+            DeserializeAsync<NamsEntityFeedbackResult>,
+            cancellationToken);
+
+    public Task<NamsEntityGraph> GetEntityGraphAsync(CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "get_entity_graph",
+            () => new HttpRequestMessage(HttpMethod.Get, "entities/graph"),
+            isIdempotent: true,
+            DeserializeAsync<NamsEntityGraph>,
+            cancellationToken);
+
+    public Task<NamsGraphExpansion> ExpandGraphAsync(
+        string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "expand_graph",
+            // POST verb, but read-only (no server-side side effects) -- same idempotent-for-retry treatment
+            // as SearchEntitiesAsync/SearchMessagesAsync.
+            () => BuildJsonRequest(HttpMethod.Post, "graph/expand", new ExpandGraphRequestBody(nodeId, loadedIds)),
+            isIdempotent: true,
+            DeserializeAsync<NamsGraphExpansion>,
+            cancellationToken);
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -253,4 +286,12 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
 
     private sealed record GetObservationsResponseBody(
         [property: JsonPropertyName("observations")] IReadOnlyList<NamsObservation> Observations);
+
+    private sealed record EntityFeedbackRequestBody(
+        [property: JsonPropertyName("userScore")] double? UserScore,
+        [property: JsonPropertyName("confirmed")] bool? Confirmed);
+
+    private sealed record ExpandGraphRequestBody(
+        [property: JsonPropertyName("nodeId")] string NodeId,
+        [property: JsonPropertyName("loadedIds")] IReadOnlyList<string> LoadedIds);
 }

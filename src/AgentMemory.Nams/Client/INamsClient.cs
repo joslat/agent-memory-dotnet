@@ -91,4 +91,31 @@ internal interface INamsClient
     /// </summary>
     Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
         string conversationId, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Scores/confirms an entity (<c>PUT /v1/entities/{id}/feedback</c>) -- confirmed live as part of the
+    /// Phase 10e TCK Platinum probe. Both <paramref name="userScore"/> (0-1 confidence) and
+    /// <paramref name="confirmed"/> (human-verified flag) are optional; pass <see langword="null"/> to leave
+    /// either unset. Deliberately not wired into any higher-level service or MCP tool yet -- low-level client
+    /// capability only.
+    /// </summary>
+    Task<NamsEntityFeedbackResult> SetEntityFeedbackAsync(
+        string entityId, double? userScore, bool? confirmed, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the full workspace entity graph (<c>GET /v1/entities/graph</c>, no parameters) -- confirmed live as
+    /// part of the Phase 10e TCK Platinum probe. Nodes reuse <see cref="NamsEntity"/> (confirmed identical
+    /// shape); see <see cref="ExpandGraphAsync"/> for the genuinely different node shape that endpoint returns.
+    /// Deliberately not wired into any higher-level service or MCP tool yet -- low-level client capability only.
+    /// </summary>
+    Task<NamsEntityGraph> GetEntityGraphAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Expands a graph node's 1-hop neighborhood (<c>POST /v1/graph/expand</c>) -- confirmed live as part of
+    /// the Phase 10e TCK Platinum probe. A POST verb but read-only (no server-side side effects per its own
+    /// description), so treated as idempotent-for-retry like <see cref="SearchEntitiesAsync"/>. Deliberately not
+    /// wired into any higher-level service or MCP tool yet -- low-level client capability only.
+    /// </summary>
+    Task<NamsGraphExpansion> ExpandGraphAsync(
+        string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken);
 }

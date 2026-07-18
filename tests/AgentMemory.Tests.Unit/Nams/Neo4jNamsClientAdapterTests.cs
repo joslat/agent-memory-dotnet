@@ -243,6 +243,101 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task SetEntityFeedbackAsync_Success_SendsPutWithBodyAndDeserializesResult()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """{"id":"e1","updated":true}"""));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.SetEntityFeedbackAsync("e1", 0.9, true, CancellationToken.None);
+
+        result.Id.Should().Be("e1");
+        result.Updated.Should().BeTrue();
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Put);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/entities/e1/feedback"));
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        requestBody.Should().Contain("\"userScore\":0.9").And.Contain("\"confirmed\":true");
+    }
+
+    [Fact]
+    public async Task SetEntityFeedbackAsync_TransientFailureThenSuccess_Retries()
+    {
+        var fake = new FakeHttpMessageHandler(
+            () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            () => Json(HttpStatusCode.OK, """{"id":"e1","updated":true}"""));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.SetEntityFeedbackAsync("e1", 0.9, true, CancellationToken.None);
+
+        result.Updated.Should().BeTrue();
+        // A PUT full-value replacement is genuinely idempotent -- retries like DeleteConversationAsync's PUT/DELETE.
+        fake.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task GetEntityGraphAsync_Success_DeserializesNodesAndEdges()
+    {
+        // Shape confirmed live (Phase 10e probe): nodes are flat NamsEntity records; edges carry a compound id.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"nodes":[{"id":"e1","name":"Acme","type":"Org","confidence":0.9}],
+             "edges":[{"id":"e1|RELATED_TO|e2","sourceId":"e1","targetId":"e2","type":"RELATED_TO",
+             "confidence":0.8,"method":"gliner2","predicate":"located_at","sourceMessageCount":3}]}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var graph = await adapter.GetEntityGraphAsync(CancellationToken.None);
+
+        graph.Nodes.Single().Name.Should().Be("Acme");
+        var edge = graph.Edges.Single();
+        edge.SourceId.Should().Be("e1");
+        edge.TargetId.Should().Be("e2");
+        edge.Predicate.Should().Be("located_at");
+        edge.SourceMessageCount.Should().Be(3);
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Get);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/entities/graph"));
+    }
+
+    [Fact]
+    public async Task ExpandGraphAsync_Success_DeserializesGenericNodesAndTruncation()
+    {
+        // Shape confirmed live (Phase 10e probe): expand nodes are NOT flat NamsEntity records -- they carry
+        // labels + a heterogeneous properties bag (a Message node was observed live alongside Entity nodes).
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"nodes":[{"id":"m1","labels":["Message"],"properties":{"content":"hi","role":"user"}}],
+             "edges":[{"id":"m1|MENTIONS|e1","sourceId":"m1","targetId":"e1","type":"MENTIONS"}],
+             "truncated":{"nodeId":"e1","shown":1,"total":1}}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var expansion = await adapter.ExpandGraphAsync("e1", ["e1"], CancellationToken.None);
+
+        var node = expansion.Nodes.Single();
+        node.Id.Should().Be("m1");
+        node.Labels.Should().Equal("Message");
+        node.Properties["content"].GetString().Should().Be("hi");
+        expansion.Edges.Single().Type.Should().Be("MENTIONS");
+        expansion.Truncated!.Shown.Should().Be(1);
+        expansion.Truncated.Total.Should().Be(1);
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Post);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/graph/expand"));
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        requestBody.Should().Contain("\"nodeId\":\"e1\"").And.Contain("\"loadedIds\":[\"e1\"]");
+    }
+
+    [Fact]
+    public async Task ExpandGraphAsync_TransientFailureThenSuccess_Retries()
+    {
+        var fake = new FakeHttpMessageHandler(
+            () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            () => Json(HttpStatusCode.OK, """{"nodes":[],"edges":[],"truncated":null}"""));
+        var adapter = CreateAdapter(fake);
+
+        var expansion = await adapter.ExpandGraphAsync("e1", ["e1"], CancellationToken.None);
+
+        expansion.Nodes.Should().BeEmpty();
+        fake.Requests.Should().HaveCount(2); // read-only POST -- retries like SearchEntitiesAsync/SearchMessagesAsync
+    }
+
+    [Fact]
     public async Task AnyOperation_CallerCancellation_PropagatesOperationCanceledException()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.OK));
