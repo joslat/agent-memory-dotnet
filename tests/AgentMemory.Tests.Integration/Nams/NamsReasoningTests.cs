@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using FluentAssertions;
 using AgentMemory.Nams.Client;
@@ -27,7 +26,7 @@ public sealed class NamsReasoningTests
     public async Task RecordReasoningStepAsync_ThenListReasoningStepsAsync_ReturnsTheRecordedStep()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var conversation = await namsClient.CreateConversationAsync(UniqueUserId(), null, CancellationToken.None);
+        var conversation = await namsClient.CreateConversationAsync(NamsLiveTestHelpers.UniqueUserId(), null, CancellationToken.None);
         var marker = Guid.NewGuid().ToString("N");
 
         try
@@ -50,7 +49,7 @@ public sealed class NamsReasoningTests
     public async Task RecordToolCallAsync_LinkedToAStep_AppearsInTheTrace()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var conversation = await namsClient.CreateConversationAsync(UniqueUserId(), null, CancellationToken.None);
+        var conversation = await namsClient.CreateConversationAsync(NamsLiveTestHelpers.UniqueUserId(), null, CancellationToken.None);
         var marker = Guid.NewGuid().ToString("N");
 
         try
@@ -79,9 +78,7 @@ public sealed class NamsReasoningTests
     public async Task GetEntityProvenanceAsync_OnExistingEntity_ReturnsWellTypedResult()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var entities = await namsClient.ListEntitiesAsync(1, CancellationToken.None);
-        entities.Should().NotBeEmpty();
-        var entityId = entities[0].Id;
+        var entityId = await NamsLiveTestHelpers.GetAnyExistingEntityIdAsync(namsClient, limit: 1, CancellationToken.None);
 
         var provenance = await namsClient.GetEntityProvenanceAsync(entityId, CancellationToken.None);
 
@@ -92,7 +89,4 @@ public sealed class NamsReasoningTests
         // worker machinery (the same family as Phase 10f's observations), and this phase's own design doc
         // explains why forcing that timing is out of scope here.
     }
-
-    private static string UniqueUserId([CallerMemberName] string testName = "") =>
-        $"test-{testName}-{Guid.NewGuid():N}";
 }

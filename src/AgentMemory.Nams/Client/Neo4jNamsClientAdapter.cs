@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -90,7 +91,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     {
         var response = await InvokeAsync(
             "list_entities",
-            () => new HttpRequestMessage(HttpMethod.Get, $"entities?limit={limit}"),
+            () => new HttpRequestMessage(HttpMethod.Get, $"entities?limit={limit.ToString(CultureInfo.InvariantCulture)}"),
             isIdempotent: true,
             DeserializeAsync<ListEntitiesResponseBody>,
             cancellationToken).ConfigureAwait(false);
@@ -127,7 +128,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     {
         var response = await InvokeAsync(
             "list_conversations",
-            () => new HttpRequestMessage(HttpMethod.Get, $"conversations?limit={limit}"),
+            () => new HttpRequestMessage(HttpMethod.Get, $"conversations?limit={limit.ToString(CultureInfo.InvariantCulture)}"),
             isIdempotent: true,
             DeserializeAsync<ListConversationsResponseBody>,
             cancellationToken).ConfigureAwait(false);
@@ -137,7 +138,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     public async Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
         string conversationId, int limit, CancellationToken cancellationToken)
     {
-        var path = $"conversations/{Uri.EscapeDataString(conversationId)}/observations?limit={limit}";
+        var path = $"conversations/{Uri.EscapeDataString(conversationId)}/observations?limit={limit.ToString(CultureInfo.InvariantCulture)}";
         var response = await InvokeAsync(
             "get_observations",
             () => new HttpRequestMessage(HttpMethod.Get, path),
@@ -350,9 +351,14 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private sealed record GetObservationsResponseBody(
         [property: JsonPropertyName("observations")] IReadOnlyList<NamsObservation> Observations);
 
+    // WhenWritingNull on both properties: INamsClient.SetEntityFeedbackAsync's doc comment promises "pass null
+    // to leave either unset" -- without this, default JsonSerializerOptions would serialize a null argument as
+    // an explicit `"userScore":null` in the PUT body rather than omitting the key, which could plausibly read
+    // to NAMS as "clear this field" instead of "don't touch it" (a real self-review finding: this diff's own
+    // live probe never exercised the partial-null case).
     private sealed record EntityFeedbackRequestBody(
-        [property: JsonPropertyName("userScore")] double? UserScore,
-        [property: JsonPropertyName("confirmed")] bool? Confirmed);
+        [property: JsonPropertyName("userScore"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? UserScore,
+        [property: JsonPropertyName("confirmed"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Confirmed);
 
     private sealed record ExpandGraphRequestBody(
         [property: JsonPropertyName("nodeId")] string NodeId,
@@ -377,5 +383,5 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
 
     private sealed record ExecuteCypherQueryRequestBody(
         [property: JsonPropertyName("cypher")] string Cypher,
-        [property: JsonPropertyName("params")] IReadOnlyDictionary<string, object?>? Params);
+        [property: JsonPropertyName("params"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, object?>? Params);
 }

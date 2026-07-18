@@ -26,11 +26,7 @@ public sealed class NamsEntityGraphTests
     public async Task SetEntityFeedbackAsync_OnExistingEntity_UpdatesScoreAndConfirmedFlag()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var entities = await namsClient.ListEntitiesAsync(1, CancellationToken.None);
-        entities.Should().NotBeEmpty(
-            "this live dev workspace has accumulated entities from earlier phases' extraction runs -- " +
-            "if this ever fails, the workspace was reset and this test needs a different entity source");
-        var entityId = entities[0].Id;
+        var entityId = await NamsLiveTestHelpers.GetAnyExistingEntityIdAsync(namsClient, limit: 1, CancellationToken.None);
 
         var result = await namsClient.SetEntityFeedbackAsync(entityId, userScore: 0.75, confirmed: true, CancellationToken.None);
 
@@ -47,11 +43,16 @@ public sealed class NamsEntityGraphTests
         // principle fall outside some undocumented cap as this shared dev workspace keeps growing. Requiring
         // overlap with ANY of several entities (rather than one specific one) keeps the assertion genuine
         // while removing that single-entity fragility.
-        var entities = await namsClient.ListEntitiesAsync(20, CancellationToken.None);
+        // Independent reads -- neither depends on the other's result, so run concurrently rather than paying
+        // two sequential round trips to the live SaaS (a Phase 10-review efficiency finding).
+        var listEntitiesTask = namsClient.ListEntitiesAsync(20, CancellationToken.None);
+        var graphTask = namsClient.GetEntityGraphAsync(CancellationToken.None);
+        await Task.WhenAll(listEntitiesTask, graphTask);
+        var entities = listEntitiesTask.Result;
+        var graph = graphTask.Result;
+
         entities.Should().NotBeEmpty();
         var knownEntityIds = entities.Select(e => e.Id).ToHashSet();
-
-        var graph = await namsClient.GetEntityGraphAsync(CancellationToken.None);
 
         graph.Nodes.Should().NotBeEmpty();
         graph.Nodes.Should().Contain(n => knownEntityIds.Contains(n.Id),
@@ -64,9 +65,7 @@ public sealed class NamsEntityGraphTests
     public async Task ExpandGraphAsync_OnASeedEntity_ReturnsANonEmptyNeighborhood()
     {
         var namsClient = _fixture.Services!.GetRequiredService<INamsClient>();
-        var entities = await namsClient.ListEntitiesAsync(1, CancellationToken.None);
-        entities.Should().NotBeEmpty();
-        var seedId = entities[0].Id;
+        var seedId = await NamsLiveTestHelpers.GetAnyExistingEntityIdAsync(namsClient, limit: 1, CancellationToken.None);
 
         var expansion = await namsClient.ExpandGraphAsync(seedId, [seedId], CancellationToken.None);
 

@@ -9,77 +9,15 @@ namespace AgentMemory.Tests.Unit.Nams;
 
 public sealed class NamsHealthCheckTests
 {
-    private sealed class FakeNamsClient : INamsClient
+    private sealed class FakeNamsClient : ThrowingNamsClientStub
     {
         public Func<int, CancellationToken, Task<IReadOnlyList<NamsEntity>>>? OnListEntities { get; set; }
 
-        public Task<NamsConversation> CreateConversationAsync(
-            string? userId, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsContext> GetContextAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsMessage>> AddMessagesAsync(
-            string conversationId, IReadOnlyList<NamsMessageInput> messages, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsEntity>> SearchEntitiesAsync(
-            string query, string? type, int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken)
+        public override Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return (OnListEntities ?? ((_, _) => Task.FromResult<IReadOnlyList<NamsEntity>>([])))(limit, cancellationToken);
         }
-
-        public Task<IReadOnlyList<NamsMessage>> SearchMessagesAsync(
-            string conversationId, string query, int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsConversationSummary>> ListConversationsAsync(int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
-            string conversationId, int limit, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsEntityFeedbackResult> SetEntityFeedbackAsync(
-            string entityId, double? userScore, bool? confirmed, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsEntityGraph> GetEntityGraphAsync(CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsGraphExpansion> ExpandGraphAsync(
-            string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsReasoningStep> RecordReasoningStepAsync(
-            string conversationId, string reasoning, string actionTaken, string? result, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<IReadOnlyList<NamsReasoningStep>> ListReasoningStepsAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsToolCall> RecordToolCallAsync(
-            string? stepId, string toolName, string input, string? output, string? status, int? durationMs,
-            CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsReasoningTrace> GetReasoningTraceAsync(string conversationId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<NamsQueryResult> ExecuteCypherQueryAsync(
-            string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
     }
 
     private static NamsOptions ValidOptions() => new() { Endpoint = new Uri("https://nams.test/v1/"), ApiKey = "nams_key" };
