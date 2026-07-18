@@ -301,5 +301,9 @@ public sealed class NamsObservabilityTests
 
         public Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<NamsQueryResult> ExecuteCypherQueryAsync(
+            string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

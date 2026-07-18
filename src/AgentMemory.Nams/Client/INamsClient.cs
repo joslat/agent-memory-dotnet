@@ -165,4 +165,18 @@ internal interface INamsClient
     /// into any higher-level service or MCP tool yet.
     /// </summary>
     Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Executes a caller-supplied Cypher query against the tenant's graph (<c>POST /v1/query</c>) --
+    /// confirmed live as part of the Phase 10e TCK Platinum probe. NAMS enforces read-only server-side: a real
+    /// write attempt (<c>CREATE</c>) was confirmed live to be rejected with HTTP 400, not merely documented as
+    /// read-only. A POST verb, but read-only by that server-enforced contract -- treated as idempotent-for-retry
+    /// like <see cref="ExpandGraphAsync"/>. This is the last TCK Platinum capability added deliberately behind
+    /// explicit user approval (like Phase 12) rather than the general autonomous-execution authorization
+    /// covering Phase 10e-10h, given it's a raw-Cypher-passthrough security/design decision. Deliberately not
+    /// wired into any higher-level service or MCP tool -- exposing this to an agent/end-user is a separate,
+    /// later decision from adding the client capability itself.
+    /// </summary>
+    Task<NamsQueryResult> ExecuteCypherQueryAsync(
+        string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken);
 }

@@ -76,6 +76,10 @@ public sealed class NamsHealthCheckTests
 
         public Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<NamsQueryResult> ExecuteCypherQueryAsync(
+            string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private static NamsOptions ValidOptions() => new() { Endpoint = new Uri("https://nams.test/v1/"), ApiKey = "nams_key" };
