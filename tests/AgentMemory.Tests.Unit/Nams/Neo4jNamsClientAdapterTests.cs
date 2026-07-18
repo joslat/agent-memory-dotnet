@@ -441,6 +441,58 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task ExecuteCypherQueryAsync_Success_SendsCypherAndParamsAndDeserializesResult()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"columns":["cnt"],"rows":[{"cnt":541}],
+             "stats":{"nodesCreated":0,"nodesDeleted":0,"relationshipsCreated":0}}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.ExecuteCypherQueryAsync(
+            "MATCH (n) WHERE n.id = $id RETURN count(n) AS cnt",
+            new Dictionary<string, object?> { ["id"] = "e1" },
+            CancellationToken.None);
+
+        result.Columns.Should().Equal("cnt");
+        result.Rows.Single()["cnt"].GetInt32().Should().Be(541);
+        result.Stats!["nodesCreated"].GetInt32().Should().Be(0);
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Post);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/query"));
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.GetProperty("cypher").GetString().Should().Contain("$id");
+        requestJson.RootElement.GetProperty("params").GetProperty("id").GetString().Should().Be("e1");
+    }
+
+    [Fact]
+    public async Task ExecuteCypherQueryAsync_WriteRejectedByServer_ThrowsValidationFailure()
+    {
+        // Confirmed live (Phase 10e): a real CREATE attempt against the live NAMS SaaS was rejected with
+        // exactly this shape -- HTTP 400, {"error":"write operations are not permitted via this endpoint"}.
+        var fake = new FakeHttpMessageHandler(() => Json(
+            HttpStatusCode.BadRequest, """{"error":"write operations are not permitted via this endpoint"}"""));
+        var adapter = CreateAdapter(fake);
+
+        var act = () => adapter.ExecuteCypherQueryAsync("CREATE (n:Test) RETURN n", null, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<NamsOperationException>();
+        exception.Which.FailureKind.Should().Be(NamsFailureKind.Validation);
+        fake.Requests.Should().HaveCount(1); // a 400 is not transient -- must not retry
+    }
+
+    [Fact]
+    public async Task ExecuteCypherQueryAsync_NullParameters_OmitsParamsWithoutError()
+    {
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """{"columns":[],"rows":[]}"""));
+        var adapter = CreateAdapter(fake);
+
+        var result = await adapter.ExecuteCypherQueryAsync("MATCH (n) RETURN n LIMIT 0", null, CancellationToken.None);
+
+        result.Rows.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task AnyOperation_CallerCancellation_PropagatesOperationCanceledException()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.OK));

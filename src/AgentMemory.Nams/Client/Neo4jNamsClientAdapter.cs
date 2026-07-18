@@ -232,6 +232,17 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             DeserializeAsync<NamsEntityProvenance>,
             cancellationToken);
 
+    public Task<NamsQueryResult> ExecuteCypherQueryAsync(
+        string cypher, IReadOnlyDictionary<string, object?>? parameters, CancellationToken cancellationToken) =>
+        InvokeAsync(
+            "execute_cypher_query",
+            // Read-only by NAMS's own server-enforced contract (confirmed live) -- same idempotent-for-retry
+            // treatment as ExpandGraphAsync/SearchEntitiesAsync despite the POST verb.
+            () => BuildJsonRequest(HttpMethod.Post, "query", new ExecuteCypherQueryRequestBody(cypher, parameters)),
+            isIdempotent: true,
+            DeserializeAsync<NamsQueryResult>,
+            cancellationToken);
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -363,4 +374,8 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         [property: JsonPropertyName("output")] string? Output,
         [property: JsonPropertyName("status")] string? Status,
         [property: JsonPropertyName("durationMs")] int? DurationMs);
+
+    private sealed record ExecuteCypherQueryRequestBody(
+        [property: JsonPropertyName("cypher")] string Cypher,
+        [property: JsonPropertyName("params")] IReadOnlyDictionary<string, object?>? Params);
 }
