@@ -195,6 +195,54 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task ListConversationsAsync_Success_DeserializesConversationSummaries()
+    {
+        // Shape confirmed live (Phase 10e probe) -- note the deliberate absence of "workspaceId", unlike
+        // CreateConversationAsync's response.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"conversations":[{"id":"conv-1","userId":"user-1","metadata":{"title":"hi"},"title":"hi",
+            "firstMessageSnippet":"hello there","messageCount":4,"createdAt":"2026-07-17T22:37:19.781Z",
+            "updatedAt":"2026-07-17T22:37:22.028Z"}]}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var conversations = await adapter.ListConversationsAsync(50, CancellationToken.None);
+
+        var summary = conversations.Single();
+        summary.Id.Should().Be("conv-1");
+        summary.UserId.Should().Be("user-1");
+        summary.Title.Should().Be("hi");
+        summary.FirstMessageSnippet.Should().Be("hello there");
+        summary.MessageCount.Should().Be(4);
+        summary.CreatedAt.Should().Be("2026-07-17T22:37:19.781Z");
+        summary.UpdatedAt.Should().Be("2026-07-17T22:37:22.028Z");
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Get);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/conversations?limit=50"));
+    }
+
+    [Fact]
+    public async Task GetObservationsAsync_Success_DeserializesObservations()
+    {
+        // Shape confirmed live (Phase 10e probe): id/content/conversationId/createdAt/sourceMsgIds.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """
+            {"observations":[{"id":"o1","content":"summary of messages 10-29","conversationId":"conv-1",
+            "createdAt":"2026-07-18T12:26:02.143Z","sourceMsgIds":["m10","m11"]}]}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        var observations = await adapter.GetObservationsAsync("conv-1", 50, CancellationToken.None);
+
+        var observation = observations.Single();
+        observation.Id.Should().Be("o1");
+        observation.Content.Should().Be("summary of messages 10-29");
+        observation.ConversationId.Should().Be("conv-1");
+        observation.CreatedAt.Should().Be("2026-07-18T12:26:02.143Z");
+        observation.SourceMessageIds.Should().Equal("m10", "m11");
+        fake.Requests.Single().Method.Should().Be(HttpMethod.Get);
+        fake.Requests.Single().RequestUri.Should().Be(new Uri("https://nams.test/v1/conversations/conv-1/observations?limit=50"));
+    }
+
+    [Fact]
     public async Task AnyOperation_CallerCancellation_PropagatesOperationCanceledException()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.OK));

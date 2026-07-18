@@ -122,6 +122,31 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
             DeserializeAsync<DeleteConversationResponseBody>,
             cancellationToken);
 
+    public async Task<IReadOnlyList<NamsConversationSummary>> ListConversationsAsync(
+        int limit, CancellationToken cancellationToken)
+    {
+        var response = await InvokeAsync(
+            "list_conversations",
+            () => new HttpRequestMessage(HttpMethod.Get, $"conversations?limit={limit}"),
+            isIdempotent: true,
+            DeserializeAsync<ListConversationsResponseBody>,
+            cancellationToken).ConfigureAwait(false);
+        return response.Conversations;
+    }
+
+    public async Task<IReadOnlyList<NamsObservation>> GetObservationsAsync(
+        string conversationId, int limit, CancellationToken cancellationToken)
+    {
+        var path = $"conversations/{Uri.EscapeDataString(conversationId)}/observations?limit={limit}";
+        var response = await InvokeAsync(
+            "get_observations",
+            () => new HttpRequestMessage(HttpMethod.Get, path),
+            isIdempotent: true,
+            DeserializeAsync<GetObservationsResponseBody>,
+            cancellationToken).ConfigureAwait(false);
+        return response.Observations;
+    }
+
     private async Task<T> InvokeAsync<T>(
         string operationName,
         Func<HttpRequestMessage> requestFactory,
@@ -222,4 +247,10 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     // Not exposed publicly -- callers only care whether DeleteConversationAsync threw.
     private sealed record DeleteConversationResponseBody(
         [property: JsonPropertyName("status")] string? Status);
+
+    private sealed record ListConversationsResponseBody(
+        [property: JsonPropertyName("conversations")] IReadOnlyList<NamsConversationSummary> Conversations);
+
+    private sealed record GetObservationsResponseBody(
+        [property: JsonPropertyName("observations")] IReadOnlyList<NamsObservation> Observations);
 }
