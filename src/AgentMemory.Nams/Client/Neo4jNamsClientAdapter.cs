@@ -315,9 +315,12 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
 
     // ---- Wire-only request/response envelopes (not part of the public interface's domain shapes) ----
 
+    // WhenWritingNull on both optional fields -- same reasoning as EntityFeedbackRequestBody further below:
+    // without it, a null userId/metadata serializes an explicit JSON null in the POST body rather than
+    // omitting the key. Found by a later review pass sweeping every request body in this file for the same gap.
     private sealed record CreateConversationRequestBody(
-        [property: JsonPropertyName("userId")] string? UserId,
-        [property: JsonPropertyName("metadata")] IReadOnlyDictionary<string, string>? Metadata);
+        [property: JsonPropertyName("userId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? UserId,
+        [property: JsonPropertyName("metadata"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? Metadata);
 
     private sealed record AddMessagesBulkRequestBody(
         [property: JsonPropertyName("messages")] IReadOnlyList<NamsMessageInput> Messages);
@@ -325,9 +328,11 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     private sealed record AddMessagesBatchResponseBody(
         [property: JsonPropertyName("messages")] IReadOnlyList<NamsMessage> Messages);
 
+    // WhenWritingNull on Type -- SearchEntitiesAsync's own callers (e.g. NamsRecallService) pass type: null
+    // for an unscoped search; same reasoning as CreateConversationRequestBody above.
     private sealed record SearchEntitiesRequestBody(
         [property: JsonPropertyName("query")] string Query,
-        [property: JsonPropertyName("type")] string? Type,
+        [property: JsonPropertyName("type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Type,
         [property: JsonPropertyName("limit")] int Limit);
 
     private sealed record SearchEntitiesResponseBody(

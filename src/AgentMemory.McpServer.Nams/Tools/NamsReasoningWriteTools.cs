@@ -31,7 +31,11 @@ internal sealed class NamsReasoningWriteTools
             return NamsMcpToolJson.Serialize(new { error = "actionTaken is required." });
 
         var step = await client.RecordReasoningStepAsync(namsConversationId, reasoning, actionTaken, result, cancellationToken).ConfigureAwait(false);
-        return NamsMcpToolJson.Serialize(new { step.Id, step.ConversationId, step.Reasoning, step.ActionTaken, step.Result, step.CreatedAt });
+        // Substitute the caller's already-known namsConversationId rather than echoing the domain field --
+        // preventive hardening, not a confirmed live bug: NAMS's create response is confirmed (via the
+        // adapter's own test fixture) to include conversationId today, unlike the list/trace endpoints, but
+        // this removes any dependency on that continuing to be true.
+        return NamsMcpToolJson.Serialize(new { step.Id, ConversationId = namsConversationId, step.Reasoning, step.ActionTaken, step.Result, step.CreatedAt });
     }
 
     [McpServerTool(Name = "nams_record_tool_call"),

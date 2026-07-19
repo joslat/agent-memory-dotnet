@@ -393,6 +393,26 @@ public sealed class NamsServiceCollectionExtensionsTests
         act.Should().Throw<OptionsValidationException>();
     }
 
+    [Fact]
+    public void AddNamsAgentMemory_NonPositiveMaxTotalCharacters_FailsValidation()
+    {
+        // Regression test: HasPositiveMaxTotalCharacters had no coverage at all, unlike its sibling
+        // HasPositiveEntitySearchLimit above -- a future edit weakening this predicate (e.g. `> 0` to `>= 0`)
+        // would ship silently, letting a 0-character budget pass DI validation.
+        var services = new ServiceCollection();
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = ValidEndpoint;
+            o.ApiKey = "nams_key";
+        });
+        services.Configure<NamsRecallOptions>(o => o.MaxTotalCharacters = 0);
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<NamsRecallOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
     // ── Phase 5: post-turn persistence DI wiring ─────────────────────────────
 
     [Fact]
