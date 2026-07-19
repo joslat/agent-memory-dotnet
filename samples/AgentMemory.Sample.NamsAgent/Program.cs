@@ -14,9 +14,11 @@
 //      <recalled_memory> blocks NamsMemoryContextProvider injects before each live model call.
 //
 // Unlike the direct Neo4j samples, there is no local embedding generator, schema bootstrapper, or
-// memory tools to wire up — NAMS performs extraction/embedding/reflection server-side, and no MCP
-// tool surface for NAMS exists yet (that's engineering plan Phase 8, not built). This sample calls a
-// REAL Azure OpenAI chat model — no mock. Requires:
+// memory tools to wire up — NAMS performs extraction/embedding/reflection server-side. AgentMemory.
+// McpServer.Nams now ships 11 MCP tools (nams_recall/nams_remember plus entity-graph/reasoning-
+// provenance tools), but this sample deliberately doesn't use any of them — routine memory must never
+// depend on a model deciding to call a tool. This sample calls a REAL Azure OpenAI chat model — no
+// mock. Requires:
 //   AZURE_OPENAI_ENDPOINT   (required, e.g. https://<resource>.openai.azure.com/)
 //   AZURE_OPENAI_API_KEY    (required — no live-model fallback)
 //   AZURE_OPENAI_DEPLOYMENT (chat deployment name; default: gpt-4o-mini)

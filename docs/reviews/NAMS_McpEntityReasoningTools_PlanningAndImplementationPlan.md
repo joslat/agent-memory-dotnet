@@ -114,3 +114,15 @@ above in "Why these 9 are safe for autonomous execution" and the design-decision
 No other findings survived review -- parameter order/types, JSON projections, `Truncated`/`Provenance`
 null-handling, `ConfigureAwait` consistency, and the deliberate non-reference of `ExecuteCypherQueryAsync`
 were all independently confirmed correct.
+
+> **UPDATE (PR #156, one day later): this "no other findings" claim didn't hold up.** A fresh, independent
+> review of the whole push (not scoped to this PR alone) found several more real bugs in this PR's own code:
+> `nams_list_reasoning_steps`/`nams_reasoning_trace` always returned `null` `conversationId` per step;
+> `nams_expand_graph`'s Message-node elision (item 1 above) was narrower than it should have been (missed
+> `"Observation"`/`"Reflection"`); and the doc comments this plan added to `INamsClient.cs` calling these
+> operations "not wired into any higher-level service or MCP tool yet" went stale the moment this very PR
+> wired them in. **Lesson: a same-PR self-review, however thorough, can't catch a fix pattern established in
+> a sibling PR from the same push that this code should have picked up on** (the TCK bridge, built earlier
+> in the same push, had already learned the conversationId-omission fix this PR's tools needed). See PR
+> #156/#157 in `strategy/STATUS.md` for the full account -- "no other findings" should be read as "no other findings
+> this specific review pass caught," not as a durable completeness guarantee.

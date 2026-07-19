@@ -25,6 +25,15 @@ public sealed class Neo4jNamsClientAdapterTests
         return new Neo4jNamsClientAdapter(httpClient, options, NullLogger<Neo4jNamsClientAdapter>.Instance, new NamsMetrics());
     }
 
+    // A 200 OK whose body stream fails mid-read (e.g. a truncated/reset connection) -- used to regression-test
+    // that this doesn't escape as a raw, unclassified exception (see NamsClientExceptionMapperTests too).
+    private sealed class StreamFailsOnReadContent : HttpContent
+    {
+        protected override Task<Stream> CreateContentReadStreamAsync() => throw new IOException("connection reset mid-read");
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => throw new IOException("connection reset mid-read");
+        protected override bool TryComputeLength(out long length) { length = 0; return false; }
+    }
+
     private static HttpResponseMessage Json(HttpStatusCode statusCode, string json) =>
         new(statusCode) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
@@ -107,6 +116,24 @@ public sealed class Neo4jNamsClientAdapterTests
 
         context.RecentMessages.Should().BeEmpty();
         fake.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task GetContextAsync_SuccessResponseWithBodyStreamFailure_ThrowsMappedNetworkException()
+    {
+        // Regression test: a 200 OK whose body stream fails mid-read (truncated/reset connection) must be
+        // mapped to a proper NamsOperationException(FailureKind.Network) -- not escape as a raw, unclassified
+        // IOException that bypasses redaction and every caller's NamsOperationException-based handling.
+        var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamFailsOnReadContent()
+        });
+        var adapter = CreateAdapter(fake);
+
+        var act = () => adapter.GetContextAsync("conv-1", CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<NamsOperationException>();
+        exception.Which.FailureKind.Should().Be(NamsFailureKind.Network);
     }
 
     [Fact]

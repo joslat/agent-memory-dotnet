@@ -39,8 +39,10 @@ internal interface INamsClient
     /// Lists entities in the workspace with no query -- confirmed against the live NAMS REST API
     /// (<c>GET /v1/entities</c>) as part of Phase 9. Unlike <see cref="SearchEntitiesAsync"/> (which requires
     /// a non-empty query -- NAMS returns 400 for an empty one), this needs no precondition and no existing
-    /// conversation, making it the one safe, side-effect-free read this client can use for a connectivity
-    /// health probe.
+    /// conversation, making it a safe, side-effect-free read this client can use for a connectivity health
+    /// probe -- used with <c>limit: 1</c> by <see cref="AgentMemory.Nams.Observability.NamsHealthCheck"/> for
+    /// exactly that, since it bounds the result unlike the also-qualifying but unbounded
+    /// <see cref="GetEntityGraphAsync"/>.
     /// </summary>
     Task<IReadOnlyList<NamsEntity>> ListEntitiesAsync(int limit, CancellationToken cancellationToken);
 

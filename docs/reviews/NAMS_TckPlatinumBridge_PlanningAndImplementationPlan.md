@@ -141,3 +141,10 @@ NAMS SaaS dev workspace already *is* the verification — a parallel in-process 
 (defeating the point: catching real wire-shape mismatches, as the JsonPropertyName-bypass bug above shows) or
 need live NAMS credentials in CI, which the direct bridge's local-Neo4j-backed tests don't require. Left as a
 disclosed gap rather than added speculatively.
+
+> **UPDATE (PR #155, the next day): this gap was revisited and closed.** A fast, offline DTO wire-contract
+> unit test (`NamsTckBridgeWireContractTests.cs`) was added -- it doesn't replace the live pytest
+> conformance run (still the real verification for actual wire-shape correctness against NAMS), but it does
+> lock the DTO-to-JSON shape at the C# level so a future refactor gets fast, local feedback before needing a
+> live run at all. The "would either mock NAMS or need live credentials" framing above missed this third
+> option: testing the DTO layer's own serialization in isolation, with no NAMS involved at all.

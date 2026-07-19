@@ -28,9 +28,10 @@ internal sealed class NamsHealthCheck : INamsHealthCheck
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            // The one safe, side-effect-free, no-precondition read this client exposes -- see
-            // INamsClient.ListEntitiesAsync's own doc for why SearchEntitiesAsync/GetContextAsync don't work
-            // as a probe (a required non-empty query, and a pre-existing conversation, respectively).
+            // A safe, side-effect-free, no-precondition read (limit: 1 keeps the result bounded, unlike the
+            // also-qualifying but unbounded GetEntityGraphAsync) -- see INamsClient.ListEntitiesAsync's own
+            // doc for why SearchEntitiesAsync/GetContextAsync don't work as a probe (a required non-empty
+            // query, and a pre-existing conversation, respectively).
             await _namsClient.ListEntitiesAsync(1, cancellationToken).ConfigureAwait(false);
             return new NamsHealthCheckResult
             {

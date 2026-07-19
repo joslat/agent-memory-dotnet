@@ -209,6 +209,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-request) trust attribution, monotonic trust for shared/global facts, `ReasoningTrace` trust stamping,
   observed/inferred/verified knowledge distinctions, and richer telemetry are future phases.
 
+- **NAMS (Neo4j Agent Memory as a Service) backend support (#128) — a new, opt-in hosted-backend alternative
+  to the direct Neo4j implementation.** Three new additive packages: `AgentMemory.Nams` (a dedicated `HttpClient`-based
+  REST client against the NAMS SaaS API — `AddNamsAgentMemory()` — with identity/conversation-resolution,
+  recall, and post-turn persistence subsystems, zero dependency on Core/Neo4j), `AgentMemory.AgentFramework.Nams`
+  (`NamsMemoryContextProvider`, a dedicated Microsoft Agent Framework adapter wiring NAMS's recalled content
+  through the same #92 trust-boundary protections — delimiting/escaping, admission policy, trust-level mapping
+  — the direct backend already applies), and `AgentMemory.McpServer.Nams` (11 MCP tools across a two-tier read/
+  write opt-in split: `nams_recall`/`nams_remember` for automatic-recall-equivalent access, plus entity-graph
+  (`nams_entity_graph`/`nams_expand_graph`/`nams_create_entity`/`nams_entity_feedback`) and reasoning/provenance
+  (`nams_record_reasoning_step`/`nams_record_tool_call`/`nams_list_reasoning_steps`/`nams_reasoning_trace`/
+  `nams_entity_provenance`) tools resolving `INamsClient` directly). A new sample,
+  `AgentMemory.Sample.NamsAgent`, demonstrates the full recall/persistence lifecycle against a real, live NAMS
+  SaaS workspace with no local embedding generator or schema bootstrapper needed. Verified against the actual
+  official upstream `neo4j-labs/agent-memory-tck` conformance suite via a new `tools/AgentMemory.TckBridge.Nams`
+  bridge — **10/11 Platinum scenarios pass** (the 1 failure is a confirmed bug in the upstream TCK's own test
+  model, not fixable by any bridge). Deliberately excluded: `nams_graph_query` (raw Cypher passthrough via MCP)
+  — `INamsClient.ExecuteCypherQueryAsync` exists at the client layer, but exposing it as an agent-callable tool
+  needs an explicit, separate decision, the same gate this project applies to its own preview-release cut.
+  Fully additive: existing direct-Neo4j behavior is completely unchanged, and NAMS is a purely opt-in backend
+  choice.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added
