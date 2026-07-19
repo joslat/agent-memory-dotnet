@@ -33,6 +33,18 @@ internal static class NamsClientExceptionMapper
                     Redact($"NAMS returned a response that could not be parsed: {ex.Message}", secretToRedact),
                     (int)response.StatusCode);
             }
+            // A 200 OK's body stream can still fail mid-read (truncated/reset connection) -- SafeReadBodyAsync
+            // below already anticipates exactly this exception set for the failure-path body reader; the
+            // success path was missing the same guard, letting a raw, unclassified exception escape this
+            // mapper entirely (bypassing redaction, failure-kind classification, and every caller's
+            // NamsOperationException-based graceful-degradation logic).
+            catch (Exception ex) when (ex is HttpRequestException or IOException or ObjectDisposedException)
+            {
+                return NamsOperationResult<T>.Failure(
+                    NamsFailureKind.Network,
+                    Redact($"NAMS response body could not be read: {ex.Message}", secretToRedact),
+                    (int)response.StatusCode);
+            }
         }
 
         var kind = ClassifyStatusCode(response.StatusCode);
