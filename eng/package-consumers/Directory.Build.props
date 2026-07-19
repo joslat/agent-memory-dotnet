@@ -13,6 +13,6 @@
   <ItemGroup>
     <!-- None of the AgentMemory.* packages reference the concrete logging implementation (only
          Logging.Abstractions), so a real consumer needs this to satisfy ILogger<T> at DI time. -->
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
   </ItemGroup>
 </Project>
