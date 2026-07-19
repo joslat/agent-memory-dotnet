@@ -134,6 +134,32 @@ public sealed class NamsEntityToolsTests
             .Should().Be("raw unvetted message text");
     }
 
+    [Theory]
+    [InlineData("Observation")]
+    [InlineData("Reflection")]
+    public async Task NamsExpandGraph_ObservationOrReflectionLabeledNode_ElidesProperties(string label)
+    {
+        // Regression test: broadened denylist -- Observation/Reflection are the same raw-content-carrying
+        // categories NamsRecallCategory enumerates for the recall pipeline, even though only "Message" has
+        // been live-confirmed as an actual expand-graph label so far.
+        var properties = new Dictionary<string, JsonElement>
+        {
+            ["content"] = JsonDocument.Parse("\"raw unvetted content\"").RootElement
+        };
+        var client = new FakeNamsClient
+        {
+            OnExpandGraph = (_, _, _) => Task.FromResult(new NamsGraphExpansion(
+                [new NamsExpandNode("n-1", [label], properties)],
+                [],
+                null))
+        };
+
+        var json = await NamsEntityReadTools.NamsExpandGraph(client, "n1", null, CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("nodes")[0].TryGetProperty("properties", out _).Should().BeFalse();
+    }
+
     // ---- nams_create_entity ----
 
     [Theory]

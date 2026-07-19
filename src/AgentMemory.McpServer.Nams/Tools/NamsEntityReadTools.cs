@@ -33,8 +33,9 @@ internal sealed class NamsEntityReadTools
     [McpServerTool(Name = "nams_expand_graph"),
      Description("Expand a single graph node's 1-hop neighborhood. Can surface non-entity nodes (e.g. a " +
                   "Message node), which is why nodes here carry generic labels rather than fixed entity " +
-                  "fields; properties are omitted for any node labeled \"Message\" since those can carry raw, " +
-                  "unvetted conversation content that must not flow back to a model unescaped.")]
+                  "fields; properties are omitted for any node labeled \"Message\", \"Observation\", or " +
+                  "\"Reflection\" since those can carry raw, unvetted conversation content that must not flow " +
+                  "back to a model unescaped.")]
     public static async Task<string> NamsExpandGraph(
         INamsClient client,
         [Description("The node id to expand from.")] string nodeId,
@@ -50,20 +51,28 @@ internal sealed class NamsEntityReadTools
             : loadedIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var expansion = await client.ExpandGraphAsync(nodeId, loadedIdList, cancellationToken).ConfigureAwait(false);
+        // SECURITY: `ExpandGraphAsync` can surface non-Entity nodes -- confirmed live (Phase 10e) that a
+        // "Message" node's properties can carry raw, unescaped conversation content, the same class of
+        // untrusted data NamsRecalledItem's own SECURITY doc comment (src/AgentMemory.Nams/Recall/
+        // NamsRecalledItem.cs) says must never reach a model without admission/delimiting. This tool has no
+        // access to that gating machinery (AgentMemory.McpServer.Nams doesn't reference Core/AgentFramework),
+        // so it elides properties for any node labeled "Message", "Observation", or "Reflection" -- the same
+        // raw-content risk class NamsRecallCategory enumerates for the recall pipeline (its RecentMessage/
+        // RelevantMessage/Observation/Reflection members), even though the graph's own node-label strings
+        // don't literally match those C# enum member names -- rather than passing them through unfiltered --
+        // id/labels alone are harmless metadata. Only "Message" has been live-confirmed as an actual
+        // expand-graph label so far; "Observation"/"Reflection" are included defensively (same content-risk
+        // class, not yet observed on this specific endpoint) -- this is deliberately a denylist, not an
+        // allowlist, since NAMS's exact "Entity" label string was never live-confirmed either, so allowlisting
+        // on it risked over-eliding legitimate entity data.
+        var messageLikeLabels = new[] { "Message", "Observation", "Reflection" };
         return NamsMcpToolJson.Serialize(new
         {
-            // SECURITY: `ExpandGraphAsync` can surface non-Entity nodes -- confirmed live (Phase 10e) that a
-            // "Message" node's properties can carry raw, unescaped conversation content, the same class of
-            // untrusted data NamsRecalledItem's own SECURITY doc comment (src/AgentMemory.Nams/Recall/
-            // NamsRecalledItem.cs) says must never reach a model without admission/delimiting. This tool has
-            // no access to that gating machinery (AgentMemory.McpServer.Nams doesn't reference Core/
-            // AgentFramework), so it elides properties for "Message"-labeled nodes entirely rather than
-            // passing them through unfiltered -- id/labels alone are harmless metadata.
             nodes = expansion.Nodes.Select(n => new
             {
                 n.Id,
                 n.Labels,
-                properties = n.Labels.Contains("Message") ? null : n.Properties
+                properties = n.Labels.Any(messageLikeLabels.Contains) ? null : n.Properties
             }),
             edges = expansion.Edges.Select(e => new { e.Id, e.SourceId, e.TargetId, e.Type, e.Confidence }),
             truncated = expansion.Truncated is null

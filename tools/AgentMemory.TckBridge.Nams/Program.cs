@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using AgentMemory.Nams;
 using AgentMemory.Nams.Client;
@@ -75,8 +76,9 @@ static async Task ClearAllConversationsAsync(INamsClient client, CancellationTok
     // Acceptable for the same reason as that other gap -- every Platinum assertion is permissive enough
     // that accumulated data doesn't affect the outcome.
     var conversations = await client.ListConversationsAsync(200, ct).ConfigureAwait(false);
-    foreach (var conversation in conversations)
-        await client.DeleteConversationAsync(conversation.Id, ct).ConfigureAwait(false);
+    // Independent deletes -- same efficiency reasoning already applied elsewhere in this push
+    // (e.g. NamsConversationLifecycleTests): no need to await each round trip before starting the next.
+    await Task.WhenAll(conversations.Select(c => client.DeleteConversationAsync(c.Id, ct))).ConfigureAwait(false);
 }
 
 // ---- Conversation lifecycle ----
@@ -98,7 +100,7 @@ app.MapPost("/list_conversations", async (ListConversationsRequest req, INamsCli
     var dtos = conversations.Select(c => new TckConversation(
         c.Id, c.Id, c.Title,
         ParseOrUtcNow(c.CreatedAt),
-        string.IsNullOrEmpty(c.UpdatedAt) ? null : DateTimeOffset.Parse(c.UpdatedAt))).ToList();
+        string.IsNullOrEmpty(c.UpdatedAt) ? null : ParseIso8601(c.UpdatedAt))).ToList();
     return Results.Ok(dtos);
 });
 
@@ -130,9 +132,13 @@ app.MapPost("/add_message", async (AddMessageRequest req, INamsClient client, Ca
 app.MapPost("/get_context", async (GetContextRequest req, INamsClient client, CancellationToken ct) =>
 {
     var context = await client.GetContextAsync(req.ConversationId, ct).ConfigureAwait(false);
+    // NamsReflection/NamsObservation.ConversationId are nullable domain fields (confirmed live: NAMS's own
+    // response can omit them), but the TCK's TCKReflection/TCKObservation Pydantic models require a non-
+    // Optional conversation_id: UUID -- substitute the caller's own known req.ConversationId, the same
+    // fallback pattern get_trace_by_conversation below already applies to reasoning steps.
     var dto = new TckContext(
-        context.Reflections.Select(r => new TckReflection(r.Id, r.ConversationId, r.Content, r.CreatedAt)).ToList(),
-        context.Observations.Select(o => new TckObservationEntry(o.Id, o.ConversationId, o.Content, o.CreatedAt)).ToList(),
+        context.Reflections.Select(r => new TckReflection(r.Id, req.ConversationId, r.Content, r.CreatedAt)).ToList(),
+        context.Observations.Select(o => new TckObservationEntry(o.Id, req.ConversationId, o.Content, o.CreatedAt)).ToList(),
         context.RecentMessages.Select(ToTckMessage).ToList());
     return Results.Ok(dto);
 });
@@ -140,7 +146,8 @@ app.MapPost("/get_context", async (GetContextRequest req, INamsClient client, Ca
 app.MapPost("/get_observations", async (GetObservationsRequest req, INamsClient client, CancellationToken ct) =>
 {
     var observations = await client.GetObservationsAsync(req.ConversationId, req.Limit ?? 50, ct).ConfigureAwait(false);
-    var dtos = observations.Select(o => new TckObservationEntry(o.Id, o.ConversationId, o.Content, o.CreatedAt)).ToList();
+    // Same ConversationId-null-propagation fix as /get_context above.
+    var dtos = observations.Select(o => new TckObservationEntry(o.Id, req.ConversationId, o.Content, o.CreatedAt)).ToList();
     return Results.Ok(dtos);
 });
 
@@ -173,8 +180,11 @@ app.MapPost("/set_entity_feedback", async (SetEntityFeedbackRequest req, INamsCl
 app.MapPost("/get_entity_graph", async (INamsClient client, CancellationToken ct) =>
 {
     var graph = await client.GetEntityGraphAsync(ct).ConfigureAwait(false);
+    // NamsEntity.Type is nullable (an entity can be unclassified), but the TCK's TCKEntityGraphNode.type is a
+    // required (non-Optional) str -- unlike /add_entity there's no submitted request value to fall back to
+    // for a read, so fall back to a display sentinel rather than propagating null.
     var dto = new TckEntityGraph(
-        graph.Nodes.Select(n => new TckGraphNode(n.Id, n.Name, n.Type)).ToList(),
+        graph.Nodes.Select(n => new TckGraphNode(n.Id, n.Name, n.Type ?? "Unknown")).ToList(),
         // TCK's edge parser requires "source"/"target" (not NAMS's "sourceId"/"targetId") AND requires "id"
         // to be a parseable UUID -- NAMS's real edge id is a compound "sourceId|TYPE|targetId" string, not a
         // UUID at all (confirmed live), so synthesize a fresh one; these are display-only ids for the Memory
@@ -242,7 +252,13 @@ static object? JsonElementToObject(JsonElement element) => element.ValueKind swi
 };
 
 static TckMessage ToTckMessage(NamsMessage m) =>
-    new(m.Id, m.Role, m.Content, string.IsNullOrEmpty(m.CreatedAt) ? null : DateTimeOffset.Parse(m.CreatedAt));
+    new(m.Id, m.Role, m.Content, string.IsNullOrEmpty(m.CreatedAt) ? null : ParseIso8601(m.CreatedAt));
 
 static DateTimeOffset ParseOrUtcNow(string? value) =>
-    string.IsNullOrEmpty(value) ? DateTimeOffset.UtcNow : DateTimeOffset.Parse(value);
+    string.IsNullOrEmpty(value) ? DateTimeOffset.UtcNow : ParseIso8601(value);
+
+// Repo convention (PR #69/#150): parse with an explicit invariant culture, not the host's default culture --
+// under a non-Gregorian-calendar culture (e.g. th-TH), DateTimeOffset.Parse(string) without this either
+// throws FormatException or silently misinterprets the year against the wrong calendar system.
+static DateTimeOffset ParseIso8601(string value) =>
+    DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
