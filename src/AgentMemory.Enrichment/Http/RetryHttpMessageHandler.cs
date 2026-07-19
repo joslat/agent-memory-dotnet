@@ -73,6 +73,27 @@ internal sealed class RetryHttpMessageHandler : DelegatingHandler
         }
     }
 
-    private TimeSpan BackoffFor(int attempt) =>
-        TimeSpan.FromMilliseconds(_baseDelay.TotalMilliseconds * Math.Pow(2, attempt));
+    // A cap, not just a formula: maxRetries only has a lower bound (Math.Max(0, ...) above) enforced by the
+    // ctor -- with no ceiling here, a caller-configured large retry count would grow this exponential past
+    // Task.Delay's ~49.7-day argument limit (ArgumentOutOfRangeException) or even overflow
+    // TimeSpan.FromMilliseconds itself (OverflowException), both escaping as a raw, unhandled exception
+    // instead of the graceful retry behavior this handler exists to provide. Same bug found and fixed in the
+    // NAMS backend's own mirror of this class, AgentMemory.Nams.Client.NamsRetryPolicy.
+    // Internal (not private): lets a unit test verify the cap directly instead of waiting through real
+    // multi-attempt delays.
+    internal static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
+
+    // NaN is reachable and not caught by an uncapped >= comparison alone: baseDelay has no validation floor
+    // (unlike maxRetries), so baseDelay=0 combined with a large enough attempt that Math.Pow(2, attempt)
+    // itself overflows to +Infinity produces 0 * Infinity = NaN, and every comparison against NaN is false --
+    // TimeSpan.FromMilliseconds(NaN) would then throw ArgumentException, the same class of bug this cap
+    // exists to prevent. (+Infinity alone IS already caught by the >= comparison, since any comparison
+    // against +Infinity other than NaN is well-defined under IEEE 754 -- no separate IsInfinity check needed.)
+    internal TimeSpan BackoffFor(int attempt)
+    {
+        var uncapped = _baseDelay.TotalMilliseconds * Math.Pow(2, attempt);
+        return double.IsNaN(uncapped) || uncapped >= MaxBackoff.TotalMilliseconds
+            ? MaxBackoff
+            : TimeSpan.FromMilliseconds(uncapped);
+    }
 }

@@ -79,26 +79,53 @@ internal sealed class NamsRetryPolicy
     private static bool IsTransient(HttpStatusCode status) =>
         status == HttpStatusCode.TooManyRequests || (int)status is >= 500 and < 600;
 
-    private TimeSpan RetryDelayFor(HttpResponseMessage response, int attempt)
+    // Internal (not private): lets a unit test verify the Retry-After capping directly.
+    internal TimeSpan RetryDelayFor(HttpResponseMessage response, int attempt)
     {
         // Retry-After has two legal forms (RFC 9110 §10.2.3): delta-seconds or an absolute HTTP-date. They're
         // mutually exclusive on RetryConditionHeaderValue -- check both, since NAMS's use of one form over the
         // other isn't confirmed (strategy/NAMS/Neo4j_Questions.md #24).
+        // Both forms are server-supplied and capped at MaxBackoff too -- an absurd or misconfigured
+        // Retry-After (e.g. many days out) would otherwise bypass the cap entirely, since neither value
+        // originates from BackoffFor's own formula. Both are also floored at zero before capping -- RFC 9110
+        // forbids a negative delta-seconds value, but RetryConditionHeaderValue's own constructor doesn't
+        // enforce that, and Task.Delay throws ArgumentOutOfRangeException for any negative TimeSpan.
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
             var retryAfter = response.Headers.RetryAfter;
             if (retryAfter?.Delta is { } delta)
-                return delta;
+                return Cap(delta > TimeSpan.Zero ? delta : TimeSpan.Zero);
             if (retryAfter?.Date is { } date)
             {
                 var untilDate = date - DateTimeOffset.UtcNow;
-                return untilDate > TimeSpan.Zero ? untilDate : TimeSpan.Zero;
+                return Cap(untilDate > TimeSpan.Zero ? untilDate : TimeSpan.Zero);
             }
         }
 
         return BackoffFor(attempt);
     }
 
-    private TimeSpan BackoffFor(int attempt) =>
-        TimeSpan.FromMilliseconds(_baseDelay.TotalMilliseconds * Math.Pow(2, attempt));
+    // A cap, not just a formula: MaxRetryAttempts only has a lower bound (>= 0) enforced by
+    // NamsOptionValidator -- with no ceiling here, a misconfigured large attempt count would grow this
+    // exponential past Task.Delay's ~49.7-day argument limit (ArgumentOutOfRangeException) or even overflow
+    // TimeSpan.FromMilliseconds itself (OverflowException), both escaping this class's own
+    // NamsOperationException/NamsFailureKind error contract as a raw, unclassified framework exception.
+    // Internal (not private): lets a unit test verify the cap directly instead of waiting through real
+    // multi-attempt delays.
+    internal static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
+
+    internal TimeSpan BackoffFor(int attempt) => Cap(_baseDelay.TotalMilliseconds * Math.Pow(2, attempt));
+
+    // NaN is reachable and not caught by an uncapped >= comparison alone: baseDelay has no validation floor
+    // (unlike maxAttempts), so baseDelay=0 combined with a large enough attempt that Math.Pow(2, attempt)
+    // itself overflows to +Infinity produces 0 * Infinity = NaN, and every comparison against NaN is false --
+    // TimeSpan.FromMilliseconds(NaN) would then throw ArgumentException, the same class of bug this cap
+    // exists to prevent. (+Infinity alone IS already caught by the >= comparison, since any comparison
+    // against +Infinity other than NaN is well-defined under IEEE 754 -- no separate IsInfinity check needed.)
+    private static TimeSpan Cap(double milliseconds) =>
+        double.IsNaN(milliseconds) || milliseconds >= MaxBackoff.TotalMilliseconds
+            ? MaxBackoff
+            : TimeSpan.FromMilliseconds(milliseconds);
+
+    private static TimeSpan Cap(TimeSpan delay) => delay >= MaxBackoff ? MaxBackoff : delay;
 }
