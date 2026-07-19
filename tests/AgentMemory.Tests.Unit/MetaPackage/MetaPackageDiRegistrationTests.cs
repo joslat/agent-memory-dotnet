@@ -5,6 +5,9 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extraction.AzureLanguage;
 using AgentMemory.Extraction.Llm;
+using AgentMemory.Nams;
+using AgentMemory.Nams.Persistence;
+using AgentMemory.Nams.Recall;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Observability;
 
@@ -300,5 +303,36 @@ public sealed class MetaPackageDiRegistrationTests
         var services = BuildServices();
         var act = () => services.WithAzureLanguageExtraction(null!);
         act.Should().Throw<ArgumentNullException>();
+    }
+
+    // ── Round 5 review gap: no test anywhere registered BOTH backends in one container ─────────────────
+
+    [Fact]
+    public void AddNeo4jAgentMemory_AndAddNamsAgentMemory_TogetherResolveWithNoCollision()
+    {
+        // Regression guard: the two backends were verified by a review pass to use fully disjoint service
+        // types, typed/named HttpClients, and per-type options validation -- this test locks that in so a
+        // future change (e.g. a shared interface, an unnamed HttpClient) that broke the separation would
+        // actually be caught, rather than relying only on manual inspection.
+        var services = BuildServices(configureNeo4j: o => o.Uri = "bolt://test:7687");
+        services.AddNamsAgentMemory(o =>
+        {
+            o.Endpoint = new Uri("https://nams.test/v1/");
+            o.ApiKey = "nams_key";
+        });
+
+        // Both backends' service types are present together -- descriptor-level, matching this file's
+        // established convention (full IMemoryService construction needs more setup than this minimal
+        // harness provides, per the existing AddNeo4jAgentMemory_RegistersCoreServices test above).
+        services.Should().Contain(d => d.ServiceType == typeof(IMemoryRecall));
+        services.Should().Contain(d => d.ServiceType == typeof(INamsRecallService));
+        services.Should().Contain(d => d.ServiceType == typeof(INamsPersistenceService));
+
+        var provider = services.BuildServiceProvider();
+
+        // Resolving each backend's options must not shadow the other's -- proves the two AddXxxOptions<T>()
+        // registrations didn't collide on the same options type.
+        provider.GetRequiredService<IOptions<Neo4jOptions>>().Value.Uri.Should().Be("bolt://test:7687");
+        provider.GetRequiredService<IOptions<NamsOptions>>().Value.Endpoint.Should().Be(new Uri("https://nams.test/v1/"));
     }
 }

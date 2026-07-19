@@ -60,12 +60,24 @@ internal static class NamsClientExceptionMapper
     public static NamsOperationException FromTransportException(Exception ex, string? secretToRedact) => ex switch
     {
         HttpRequestException => new NamsOperationException(
-            NamsFailureKind.Network, Redact($"Network failure calling NAMS: {ex.Message}", secretToRedact), innerException: ex),
+            NamsFailureKind.Network, Redact($"Network failure calling NAMS: {ex.Message}", secretToRedact),
+            innerException: RedactedInnerException(ex, secretToRedact)),
         TaskCanceledException => new NamsOperationException(
-            NamsFailureKind.Timeout, "NAMS request timed out.", innerException: ex),
+            NamsFailureKind.Timeout, "NAMS request timed out.", innerException: RedactedInnerException(ex, secretToRedact)),
         _ => new NamsOperationException(
-            NamsFailureKind.Unknown, Redact($"Unexpected failure calling NAMS: {ex.Message}", secretToRedact), innerException: ex)
+            NamsFailureKind.Unknown, Redact($"Unexpected failure calling NAMS: {ex.Message}", secretToRedact),
+            innerException: RedactedInnerException(ex, secretToRedact))
     };
+
+    // A logger commonly renders an exception's full InnerException chain via Exception.ToString() -- attaching
+    // the raw transport exception here would let its own (unredacted) Message bypass the Redact(...) call
+    // above entirely, defeating this class's own stated redaction guarantee. Preserve the original exception's
+    // type name for diagnostics, but replace its message with a redacted copy and deliberately drop any
+    // further nested InnerException (same reasoning would otherwise apply recursively).
+    // Internal (not private): NamsRetryPolicy's own transient-failure logging needs the identical treatment
+    // for the same reason -- shared here rather than duplicated.
+    internal static Exception RedactedInnerException(Exception ex, string? secretToRedact) =>
+        new Exception($"{ex.GetType().Name}: {Redact(ex.Message, secretToRedact)}");
 
     private static NamsFailureKind ClassifyStatusCode(HttpStatusCode statusCode) => statusCode switch
     {

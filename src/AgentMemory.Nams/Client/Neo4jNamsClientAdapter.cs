@@ -37,7 +37,7 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
     {
         _httpClient = httpClient;
         var namsOptions = options.Value;
-        _retryPolicy = new NamsRetryPolicy(namsOptions.MaxRetryAttempts, namsOptions.InitialRetryDelay, logger);
+        _retryPolicy = new NamsRetryPolicy(namsOptions.MaxRetryAttempts, namsOptions.InitialRetryDelay, logger, namsOptions.ApiKey);
         _apiKeyForRedaction = namsOptions.ApiKey;
         _metrics = metrics;
     }

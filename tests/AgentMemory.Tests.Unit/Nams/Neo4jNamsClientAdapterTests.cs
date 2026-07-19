@@ -736,4 +736,23 @@ public sealed class Neo4jNamsClientAdapterTests
         var exception = await act.Should().ThrowAsync<NamsOperationException>();
         exception.Which.FailureKind.Should().Be(NamsFailureKind.Network);
     }
+
+    [Fact]
+    public async Task NetworkFailure_RedactsApiKeyFromInnerExceptionToo()
+    {
+        // Regression test: FromTransportException redacted the outer NamsOperationException.Message, but
+        // originally attached the raw, unredacted transport exception as InnerException -- a logger calling
+        // Exception.ToString() (which recurses into InnerException) would still leak the secret. The full
+        // ToString() chain, not just the top-level Message, must never contain it.
+        const string apiKey = "nams_super_secret_12345";
+        var fake = new FakeHttpMessageHandler((_, _) => throw new HttpRequestException($"connection refused for key {apiKey}"));
+        var adapter = CreateAdapter(fake, apiKey);
+
+        var act = () => adapter.GetContextAsync("conv-1", CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<NamsOperationException>();
+        exception.Which.ToString().Should().NotContain(apiKey);
+        exception.Which.InnerException.Should().NotBeNull();
+        exception.Which.InnerException!.Message.Should().NotContain(apiKey);
+    }
 }

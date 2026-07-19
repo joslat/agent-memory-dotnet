@@ -15,12 +15,14 @@ internal sealed class NamsRetryPolicy
     private readonly int _maxAttempts;
     private readonly TimeSpan _baseDelay;
     private readonly ILogger? _logger;
+    private readonly string? _secretToRedact;
 
-    public NamsRetryPolicy(int maxAttempts, TimeSpan baseDelay, ILogger? logger = null)
+    public NamsRetryPolicy(int maxAttempts, TimeSpan baseDelay, ILogger? logger = null, string? secretToRedact = null)
     {
         _maxAttempts = Math.Max(0, maxAttempts);
         _baseDelay = baseDelay;
         _logger = logger;
+        _secretToRedact = secretToRedact;
     }
 
     /// <summary><paramref name="requestFactory"/> is invoked once per attempt -- an <see cref="HttpRequestMessage"/>
@@ -62,7 +64,12 @@ internal sealed class NamsRetryPolicy
             {
                 // Network failure, or a per-request timeout (a TaskCanceledException whose token was NOT the
                 // caller's -- caller cancellation is handled by the guarded catch above).
-                _logger?.LogDebug(ex, "Transient NAMS failure; retry {Next}/{Max}.", attempt + 1, _maxAttempts);
+                // A logger renders the passed exception via ToString(), which would bypass redaction if the
+                // raw ex were passed directly (same gap NamsClientExceptionMapper.FromTransportException had,
+                // and the same fix -- a redacted-message-only substitute, never the raw exception object).
+                _logger?.LogDebug(
+                    NamsClientExceptionMapper.RedactedInnerException(ex, _secretToRedact),
+                    "Transient NAMS failure; retry {Next}/{Max}.", attempt + 1, _maxAttempts);
                 onRetry?.Invoke();
                 await Task.Delay(BackoffFor(attempt), cancellationToken).ConfigureAwait(false);
             }
