@@ -208,4 +208,79 @@ public sealed class NamsRetryPolicyTests
         logger.LoggedExceptions.Should().NotBeEmpty();
         logger.LoggedExceptions.Should().OnlyContain(ex => !ex.ToString().Contains(apiKey));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(10)]
+    [InlineData(1000)]
+    public void BackoffFor_NeverExceedsMaxBackoff_EvenForALargeAttemptCount(int attempt)
+    {
+        // Regression test: BackoffFor's exponential formula had no ceiling -- NamsOptionValidator only
+        // enforces MaxRetryAttempts >= 0, no upper bound, so a misconfigured large attempt count would grow
+        // past Task.Delay's ~49.7-day argument limit (ArgumentOutOfRangeException) or overflow
+        // TimeSpan.FromMilliseconds (OverflowException), both escaping this class's own NamsOperationException
+        // contract. attempt=1000 alone would previously throw when constructing the TimeSpan; now it must
+        // just return the cap.
+        var delay = CreatePolicy().BackoffFor(attempt);
+
+        delay.Should().BeLessThanOrEqualTo(NamsRetryPolicy.MaxBackoff);
+    }
+
+    [Fact]
+    public void BackoffFor_ZeroBaseDelayWithExtremeAttempt_DoesNotProduceNaN()
+    {
+        // Regression test: baseDelay has no validation floor (unlike maxAttempts) -- a zero baseDelay
+        // combined with an attempt large enough that Math.Pow(2, attempt) itself overflows to +Infinity
+        // produces 0 * Infinity = NaN, which an uncapped ">=" comparison alone does not catch (every
+        // comparison against NaN is false). TimeSpan.FromMilliseconds(NaN) would previously throw
+        // ArgumentException -- the same class of bug this whole fix exists to prevent.
+        var policy = new NamsRetryPolicy(maxAttempts: 3, TimeSpan.Zero);
+
+        var delay = policy.BackoffFor(2000);
+
+        delay.Should().Be(NamsRetryPolicy.MaxBackoff);
+    }
+
+    [Fact]
+    public void RetryDelayFor_AbsurdRetryAfterDeltaHeader_IsCapped()
+    {
+        // Regression test: the Retry-After header path returned the server-supplied delay directly, never
+        // routing through BackoffFor/MaxBackoff -- a misconfigured or hostile server sending an absurd
+        // Retry-After (e.g. many days out) would bypass the cap entirely, even though the raw value itself
+        // doesn't overflow anything.
+        var policy = CreatePolicy();
+        var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromDays(1));
+
+        var delay = policy.RetryDelayFor(response, attempt: 0);
+
+        delay.Should().Be(NamsRetryPolicy.MaxBackoff);
+    }
+
+    [Fact]
+    public void RetryDelayFor_NegativeRetryAfterDeltaHeader_IsFlooredToZero_NotPassedNegativeToTaskDelay()
+    {
+        // Regression test: RFC 9110 forbids a negative delta-seconds value, but RetryConditionHeaderValue's
+        // own constructor doesn't enforce that -- a non-conformant/hostile server sending one would otherwise
+        // reach Task.Delay with a negative TimeSpan, which throws ArgumentOutOfRangeException.
+        var policy = CreatePolicy();
+        var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(-5));
+
+        var delay = policy.RetryDelayFor(response, attempt: 0);
+
+        delay.Should().Be(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void RetryDelayFor_AbsurdRetryAfterDateHeader_IsCapped()
+    {
+        var policy = CreatePolicy();
+        var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(DateTimeOffset.UtcNow.AddDays(1));
+
+        var delay = policy.RetryDelayFor(response, attempt: 0);
+
+        delay.Should().Be(NamsRetryPolicy.MaxBackoff);
+    }
 }

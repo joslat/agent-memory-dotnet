@@ -93,6 +93,14 @@ internal sealed class NamsReasoningReadTools
             return NamsMcpToolJson.Serialize(new { error = "entityId is required." });
 
         var provenance = await client.GetEntityProvenanceAsync(entityId, cancellationToken).ConfigureAwait(false);
+        // SECURITY (flagged, not mitigated): Provenance is raw, untyped JsonElement[] -- its real shape was
+        // never live-confirmed (only ever observed as an empty array; see NamsEntityProvenance's own doc
+        // comment), so it can't safely get the same Delimit/IsInstructionLike treatment nams_reasoning_trace's
+        // tool-call Input/Output got (that helper is string-typed; arbitrary JSON can't be escaped the same
+        // way without knowing its shape). This is the same untrusted-content risk class -- if the provenance
+        // chain is ever populated with content derived from reasoning steps that themselves recorded
+        // untrusted tool output, it would flow back here unescaped. Revisit once the real populated shape is
+        // observed live, matching this project's own "verify real behavior, don't guess" discipline.
         return NamsMcpToolJson.Serialize(new { provenance.EntityId, provenance.Provenance });
     }
 }

@@ -173,4 +173,20 @@ public sealed class RetryHttpMessageHandlerTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         stub.Calls.Should().Be(2); // initial 503 + one retry → the retry handler is wired into the pipeline
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(10)]
+    [InlineData(1000)]
+    public void BackoffFor_NeverExceedsMaxBackoff_EvenForALargeAttemptCount(int attempt)
+    {
+        // Regression test: same unbounded-exponential-backoff bug found and fixed in this handler's NAMS
+        // mirror (AgentMemory.Nams.Client.NamsRetryPolicy) -- with no ceiling, a large attempt count would
+        // grow past Task.Delay's ~49.7-day argument limit or overflow TimeSpan.FromMilliseconds outright.
+        var handler = new RetryHttpMessageHandler(maxRetries: 3, logger: null, baseDelay: FastDelay);
+
+        var delay = handler.BackoffFor(attempt);
+
+        delay.Should().BeLessThanOrEqualTo(RetryHttpMessageHandler.MaxBackoff);
+    }
 }
