@@ -11,4 +11,10 @@
     <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Unlike the direct-backend AgentMemory.TckBridge (whose Dtos.cs records are public, needing no
+         grant), these DTOs are deliberately internal, so the wire-contract unit test needs its own grant. -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
 </Project>
