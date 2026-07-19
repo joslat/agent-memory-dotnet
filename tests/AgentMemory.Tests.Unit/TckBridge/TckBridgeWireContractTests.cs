@@ -118,7 +118,7 @@ public class TckBridgeWireContractTests
         timestampText.Should().NotBeNull();
         Iso8601Pattern.IsMatch(timestampText!).Should().BeTrue(
             $"'{timestampText}' should be an ISO-8601 timestamp");
-        DateTimeOffset.Parse(timestampText!, null, System.Globalization.DateTimeStyles.RoundtripKind)
+        DateTimeOffset.Parse(timestampText!, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
             .Should().Be(timestamp);
     }
 
@@ -511,7 +511,7 @@ public class TckBridgeWireContractTests
         startedAtText.Should().NotBeNull();
         Iso8601Pattern.IsMatch(startedAtText!).Should().BeTrue(
             $"'{startedAtText}' should be an ISO-8601 timestamp");
-        DateTimeOffset.Parse(startedAtText!, null, System.Globalization.DateTimeStyles.RoundtripKind)
+        DateTimeOffset.Parse(startedAtText!, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
             .Should().Be(startedAt);
     }
 

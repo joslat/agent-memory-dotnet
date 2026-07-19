@@ -49,9 +49,11 @@ judging recall quality from a short, scripted run.
   alive across a *local* tool-calling loop (#90) — it's only needed by the direct backend's memory tools.
   `NamsMemoryContextProvider` reads identity straight off the session's state bag, with no ambient context
   and no local tools (yet), so the session identity alone is sufficient.
-- **No MCP tool surface.** Capability-aware MCP tools for NAMS are engineering plan Phase 8 — not built.
-  This sample runs the complete recall/persistence lifecycle with no MCP involvement at all, which is also
-  the plan's own required baseline: routine memory must never depend on a model deciding to call a tool.
+- **No MCP tool surface in this sample.** `AgentMemory.McpServer.Nams` now ships 11 MCP tools (`nams_recall`/
+  `nams_remember` from Phase 8, plus entity-graph/reasoning-provenance tools added in a later pass) for hosts
+  that want model-invoked NAMS access, but this sample deliberately doesn't use any of them: it runs the
+  complete recall/persistence lifecycle with no MCP involvement at all, which is also the plan's own required
+  baseline — routine memory must never depend on a model deciding to call a tool.
 
 ## Live Providers — No Mocks
 

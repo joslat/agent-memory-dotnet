@@ -80,7 +80,8 @@ public sealed class Neo4jEntityRepositoryRefreshTests
         var param = calls[0].Parameters!;
         var updatedAt = param.GetType().GetProperty("updatedAt")!.GetValue(param) as string;
         updatedAt.Should().NotBeNullOrEmpty();
-        var parsed = DateTimeOffset.Parse(updatedAt!, null, System.Globalization.DateTimeStyles.RoundtripKind);
+        var parsed = DateTimeOffset.Parse(
+            updatedAt!, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
         parsed.Should().BeOnOrAfter(before);
     }
 

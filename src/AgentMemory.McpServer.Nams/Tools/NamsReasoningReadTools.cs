@@ -51,17 +51,32 @@ internal sealed class NamsReasoningReadTools
             // already-known namsConversationId, same fix as NamsListReasoningSteps above and matching
             // tools/AgentMemory.TckBridge.Nams/Program.cs's get_trace_by_conversation route.
             steps = trace.Steps.Select(s => new { s.Id, ConversationId = namsConversationId, s.Reasoning, s.ActionTaken, s.Result, s.CreatedAt }),
-            // SECURITY GAP (flagged, not yet mitigated): Input/Output are caller-supplied, pre-serialized JSON
-            // strings (see INamsClient.RecordToolCallAsync) that can carry arbitrary content -- e.g. the text
-            // of a fetched web page an agent tool call returned. Unlike NamsExpandGraph's Message-node
-            // elision, this tool passes them through completely raw with no admission/escaping, the same
-            // untrusted-content risk NamsRecalledItem's SECURITY comment describes for the recall pipeline.
-            // No mitigation applied here yet -- unlike the expand-graph case, Input/Output are this tool's
-            // entire value, so blanket eliding them would defeat its purpose; a real fix needs the same kind
-            // of delimiting/escaping decision Phase 4-6 made for recall, which this package cannot build alone
-            // (AgentMemory.McpServer.Nams has no Core/AgentFramework reference). Needs an explicit decision,
-            // not a unilateral patch.
-            toolCalls = trace.ToolCalls.Select(c => new { c.Id, c.StepId, c.ToolName, c.Status, c.Input, c.Output, c.DurationMs, c.CreatedAt })
+            // SECURITY (partially mitigated): Input/Output are caller-supplied, pre-serialized JSON strings
+            // (see INamsClient.RecordToolCallAsync) that can carry arbitrary content -- e.g. the text of a
+            // fetched web page an agent tool call returned -- the same untrusted-content risk NamsRecalledItem's
+            // SECURITY comment describes for the recall pipeline. Unlike NamsExpandGraph's Message-node
+            // elision, blanket-eliding Input/Output would defeat this tool's entire purpose, so instead:
+            // delimited+escaped (defeats tag/boundary forgery, NamsUntrustedContentGuard.Delimit) and flagged
+            // if they match common instruction-like phrasings (advisory only, content is never redacted).
+            // This is NOT the full #92 admission-policy/trust-level pipeline Phase 4-6 built for automatic
+            // recall -- deliberately so; that pipeline gates content injected into EVERY turn automatically,
+            // whereas this tool's content is only seen if a model/developer explicitly calls it, a narrower
+            // exposure this reduced-scope mitigation is proportionate to. If usage ever shows tool-call output
+            // regularly carries adopted untrusted content (e.g. an agent that browses the web and records
+            // results), revisit whether the fuller pipeline is warranted.
+            toolCalls = trace.ToolCalls.Select(c => new
+            {
+                c.Id,
+                c.StepId,
+                c.ToolName,
+                c.Status,
+                Input = NamsUntrustedContentGuard.Delimit(c.Input),
+                Output = NamsUntrustedContentGuard.Delimit(c.Output),
+                InputFlaggedInstructionLike = NamsUntrustedContentGuard.IsInstructionLike(c.Input),
+                OutputFlaggedInstructionLike = NamsUntrustedContentGuard.IsInstructionLike(c.Output),
+                c.DurationMs,
+                c.CreatedAt
+            })
         });
     }
 

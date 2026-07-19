@@ -45,6 +45,23 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task CreateConversationAsync_NullUserIdAndMetadata_OmitsThoseFieldsEntirely()
+    {
+        // Regression test: without an explicit JsonIgnoreCondition, null userId/metadata would serialize as
+        // explicit JSON nulls in the POST body rather than omitting the keys.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created,
+            """{"id":"conv-1","workspaceId":"ws-1"}"""));
+        var adapter = CreateAdapter(fake);
+
+        await adapter.CreateConversationAsync(userId: null, metadata: null, CancellationToken.None);
+
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.TryGetProperty("userId", out _).Should().BeFalse("userId: null must omit the key entirely");
+        requestJson.RootElement.TryGetProperty("metadata", out _).Should().BeFalse("metadata: null must omit the key entirely");
+    }
+
+    [Fact]
     public async Task CreateConversationAsync_ServerError_DoesNotRetry_ThrowsMappedException()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.InternalServerError));
@@ -133,6 +150,21 @@ public sealed class Neo4jNamsClientAdapterTests
 
         entities.Single().Name.Should().Be("Acme");
         fake.Requests.Should().HaveCount(2); // search is a read despite the POST verb -- retries like other reads
+    }
+
+    [Fact]
+    public async Task SearchEntitiesAsync_NullType_OmitsTypeFieldEntirely()
+    {
+        // Regression test: without an explicit JsonIgnoreCondition, a null type would serialize an explicit
+        // JSON null in the POST body rather than omitting the key.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.OK, """{"entities":[]}"""));
+        var adapter = CreateAdapter(fake);
+
+        await adapter.SearchEntitiesAsync("acme", type: null, 10, CancellationToken.None);
+
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.TryGetProperty("type", out _).Should().BeFalse("type: null must omit the key entirely");
     }
 
     [Fact]
