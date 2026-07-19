@@ -63,6 +63,23 @@ public sealed class NamsReasoningToolsTests
         doc.RootElement.GetProperty("steps")[0].GetProperty("reasoning").GetString().Should().Be("because X");
     }
 
+    [Fact]
+    public async Task NamsListReasoningSteps_StepConversationIdOmittedByNams_UsesCallerSuppliedConversationId()
+    {
+        // Regression test: NAMS's own response omits conversationId per-step (confirmed live) -- this tool
+        // must substitute the caller's known namsConversationId, not echo the (null) domain field verbatim.
+        var client = new FakeNamsClient
+        {
+            OnListReasoningSteps = (_, _) => Task.FromResult<IReadOnlyList<NamsReasoningStep>>(
+                [new NamsReasoningStep("s1", null, "because X", "did Y", "worked", "2026-01-01")])
+        };
+
+        var json = await NamsReasoningReadTools.NamsListReasoningSteps(client, "conv-1", CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("steps")[0].GetProperty("conversationId").GetString().Should().Be("conv-1");
+    }
+
     // ---- nams_reasoning_trace ----
 
     [Fact]
@@ -91,6 +108,25 @@ public sealed class NamsReasoningToolsTests
         doc.RootElement.GetProperty("conversationId").GetString().Should().Be("conv-1");
         doc.RootElement.GetProperty("steps")[0].GetProperty("id").GetString().Should().Be("s1");
         doc.RootElement.GetProperty("toolCalls")[0].GetProperty("toolName").GetString().Should().Be("search");
+    }
+
+    [Fact]
+    public async Task NamsReasoningTrace_StepConversationIdOmittedByNams_UsesCallerSuppliedConversationId()
+    {
+        // Regression test: NAMS's own trace response omits conversationId per-step (confirmed live) -- this
+        // tool must substitute the caller's known namsConversationId, not echo the (null) domain field verbatim.
+        var client = new FakeNamsClient
+        {
+            OnGetReasoningTrace = (cid, _) => Task.FromResult(new NamsReasoningTrace(
+                cid,
+                [new NamsReasoningStep("s1", null, "r", "a", null, "2026-01-01")],
+                []))
+        };
+
+        var json = await NamsReasoningReadTools.NamsReasoningTrace(client, "conv-1", CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("steps")[0].GetProperty("conversationId").GetString().Should().Be("conv-1");
     }
 
     // ---- nams_entity_provenance ----

@@ -96,8 +96,7 @@ internal interface INamsClient
     /// Scores/confirms an entity (<c>PUT /v1/entities/{id}/feedback</c>) -- confirmed live as part of the
     /// Phase 10e TCK Platinum probe. Both <paramref name="userScore"/> (0-1 confidence) and
     /// <paramref name="confirmed"/> (human-verified flag) are optional; pass <see langword="null"/> to leave
-    /// either unset. Deliberately not wired into any higher-level service or MCP tool yet -- low-level client
-    /// capability only.
+    /// either unset. Wired into the <c>nams_entity_feedback</c> MCP tool (PR #154).
     /// </summary>
     Task<NamsEntityFeedbackResult> SetEntityFeedbackAsync(
         string entityId, double? userScore, bool? confirmed, CancellationToken cancellationToken);
@@ -106,15 +105,16 @@ internal interface INamsClient
     /// Gets the full workspace entity graph (<c>GET /v1/entities/graph</c>, no parameters) -- confirmed live as
     /// part of the Phase 10e TCK Platinum probe. Nodes reuse <see cref="NamsEntity"/> (confirmed identical
     /// shape); see <see cref="ExpandGraphAsync"/> for the genuinely different node shape that endpoint returns.
-    /// Deliberately not wired into any higher-level service or MCP tool yet -- low-level client capability only.
+    /// Wired into the <c>nams_entity_graph</c> MCP tool (PR #154).
     /// </summary>
     Task<NamsEntityGraph> GetEntityGraphAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Expands a graph node's 1-hop neighborhood (<c>POST /v1/graph/expand</c>) -- confirmed live as part of
     /// the Phase 10e TCK Platinum probe. A POST verb but read-only (no server-side side effects per its own
-    /// description), so treated as idempotent-for-retry like <see cref="SearchEntitiesAsync"/>. Deliberately not
-    /// wired into any higher-level service or MCP tool yet -- low-level client capability only.
+    /// description), so treated as idempotent-for-retry like <see cref="SearchEntitiesAsync"/>. Wired into the
+    /// <c>nams_expand_graph</c> MCP tool (PR #154) -- see that tool's own SECURITY comment for the Message-node
+    /// content-elision mitigation it applies, since this method itself performs no gating.
     /// </summary>
     Task<NamsGraphExpansion> ExpandGraphAsync(
         string nodeId, IReadOnlyList<string> loadedIds, CancellationToken cancellationToken);
@@ -123,8 +123,8 @@ internal interface INamsClient
     /// Records a reasoning step (<c>POST /v1/reasoning/steps</c>) -- confirmed live as part of the Phase 10e TCK
     /// Platinum probe. Unlike every other addition in Phase 10e-10g, this is the first method touching an
     /// entirely new domain -- reasoning/provenance -- this client has never exposed before. A genuine write
-    /// (resending would create a duplicate step), not idempotent-for-retry. Deliberately not wired into any
-    /// higher-level service or MCP tool yet -- low-level client capability only.
+    /// (resending would create a duplicate step), not idempotent-for-retry. Wired into the
+    /// <c>nams_record_reasoning_step</c> MCP tool (PR #154).
     /// </summary>
     Task<NamsReasoningStep> RecordReasoningStepAsync(
         string conversationId, string reasoning, string actionTaken, string? result, CancellationToken cancellationToken);
@@ -133,7 +133,9 @@ internal interface INamsClient
     /// Lists reasoning steps for a conversation (<c>GET /v1/reasoning/steps?conversation_id=</c>) -- confirmed
     /// live as part of the Phase 10e TCK Platinum probe. Unlike Phase 10f's observations, recording and
     /// immediately listing a step is NOT subject to any async worker delay -- confirmed live to be immediately
-    /// visible. Deliberately not wired into any higher-level service or MCP tool yet.
+    /// visible. Wired into the <c>nams_list_reasoning_steps</c> MCP tool (PR #154) -- that tool substitutes the
+    /// caller's own known conversation id for each step's <see cref="NamsReasoningStep.ConversationId"/> rather
+    /// than echoing this method's response verbatim, since NAMS's response omits it per-step.
     /// </summary>
     Task<IReadOnlyList<NamsReasoningStep>> ListReasoningStepsAsync(string conversationId, CancellationToken cancellationToken);
 
@@ -141,8 +143,7 @@ internal interface INamsClient
     /// Records a tool call, optionally linked to a step (<c>POST /v1/reasoning/tool-calls</c>) -- confirmed
     /// live as part of the Phase 10e TCK Platinum probe. <paramref name="input"/>/<paramref name="output"/>
     /// must be pre-serialized JSON strings, not objects -- NAMS stores them as scalar string properties. A
-    /// genuine write, not idempotent-for-retry. Deliberately not wired into any higher-level service or MCP
-    /// tool yet.
+    /// genuine write, not idempotent-for-retry. Wired into the <c>nams_record_tool_call</c> MCP tool (PR #154).
     /// </summary>
     Task<NamsToolCall> RecordToolCallAsync(
         string? stepId, string toolName, string input, string? output, string? status, int? durationMs,
@@ -152,8 +153,10 @@ internal interface INamsClient
     /// Gets the full reasoning trace for a conversation -- all steps and tool calls, in order
     /// (<c>GET /v1/reasoning/trace/{conversationId}</c>) -- confirmed live as part of the Phase 10e TCK
     /// Platinum probe. Flat shape (steps and toolCalls as parallel arrays), not steps-with-nested-toolCalls
-    /// despite the endpoint's own prose description implying nesting. Deliberately not wired into any
-    /// higher-level service or MCP tool yet.
+    /// despite the endpoint's own prose description implying nesting. Wired into the <c>nams_reasoning_trace</c>
+    /// MCP tool (PR #154) -- that tool substitutes the caller's own known conversation id for each step's
+    /// <see cref="NamsReasoningStep.ConversationId"/> rather than echoing this method's response verbatim, for
+    /// the same per-step-omission reason as <see cref="ListReasoningStepsAsync"/>.
     /// </summary>
     Task<NamsReasoningTrace> GetReasoningTraceAsync(string conversationId, CancellationToken cancellationToken);
 
@@ -161,8 +164,8 @@ internal interface INamsClient
     /// Gets the reasoning chain that influenced an entity's creation (<c>GET /v1/reasoning/provenance/{entityId}</c>)
     /// -- confirmed live as part of the Phase 10e TCK Platinum probe. Like Phase 10f's observations, this links
     /// to async entity-extraction machinery -- callers should not assume a call shortly after recording
-    /// reasoning steps will see a populated provenance chain for any particular entity. Deliberately not wired
-    /// into any higher-level service or MCP tool yet.
+    /// reasoning steps will see a populated provenance chain for any particular entity. Wired into the
+    /// <c>nams_entity_provenance</c> MCP tool (PR #154).
     /// </summary>
     Task<NamsEntityProvenance> GetEntityProvenanceAsync(string entityId, CancellationToken cancellationToken);
 
@@ -192,8 +195,8 @@ internal interface INamsClient
     /// <see cref="NamsEntity"/> -- confirmed live that NAMS's own fuzzy entity-resolution can return a
     /// genuinely different, minimal response shape (no name/type/description at all) when it auto-merges the
     /// submission into an existing entity rather than creating a new one; see that type's own doc comment for
-    /// the full three-shape breakdown. A genuine write, not idempotent-for-retry. Deliberately not wired into
-    /// any higher-level service or MCP tool yet.
+    /// the full three-shape breakdown. A genuine write, not idempotent-for-retry. Wired into the
+    /// <c>nams_create_entity</c> MCP tool (PR #154).
     /// </summary>
     Task<NamsCreateEntityResult> CreateEntityAsync(
         string name, string type, string? description, CancellationToken cancellationToken);

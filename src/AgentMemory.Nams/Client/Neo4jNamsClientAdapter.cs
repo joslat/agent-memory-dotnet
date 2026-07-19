@@ -369,22 +369,29 @@ internal sealed class Neo4jNamsClientAdapter : INamsClient
         [property: JsonPropertyName("nodeId")] string NodeId,
         [property: JsonPropertyName("loadedIds")] IReadOnlyList<string> LoadedIds);
 
+    // WhenWritingNull on this record's optional field (and on RecordToolCallRequestBody's below), same
+    // reasoning as EntityFeedbackRequestBody above: without it, passing null serializes an explicit JSON null
+    // in the POST body rather than omitting the key, which risks NAMS's request schema rejecting the call if
+    // it models these as "may be absent" without also being "may be null" (a real, review-caught
+    // inconsistency -- these two request bodies were the only ones in this push missing the annotation their
+    // siblings already carry).
     private sealed record RecordReasoningStepRequestBody(
         [property: JsonPropertyName("conversationId")] string ConversationId,
         [property: JsonPropertyName("reasoning")] string Reasoning,
         [property: JsonPropertyName("actionTaken")] string ActionTaken,
-        [property: JsonPropertyName("result")] string? Result);
+        [property: JsonPropertyName("result"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Result);
 
     private sealed record ListReasoningStepsResponseBody(
         [property: JsonPropertyName("steps")] IReadOnlyList<NamsReasoningStep> Steps);
 
+    // See RecordReasoningStepRequestBody's comment above for why these are WhenWritingNull.
     private sealed record RecordToolCallRequestBody(
-        [property: JsonPropertyName("stepId")] string? StepId,
+        [property: JsonPropertyName("stepId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? StepId,
         [property: JsonPropertyName("toolName")] string ToolName,
         [property: JsonPropertyName("input")] string Input,
-        [property: JsonPropertyName("output")] string? Output,
-        [property: JsonPropertyName("status")] string? Status,
-        [property: JsonPropertyName("durationMs")] int? DurationMs);
+        [property: JsonPropertyName("output"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Output,
+        [property: JsonPropertyName("status"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Status,
+        [property: JsonPropertyName("durationMs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DurationMs);
 
     private sealed record ExecuteCypherQueryRequestBody(
         [property: JsonPropertyName("cypher")] string Cypher,

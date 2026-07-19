@@ -376,6 +376,26 @@ public sealed class Neo4jNamsClientAdapterTests
     }
 
     [Fact]
+    public async Task RecordReasoningStepAsync_NullResult_OmitsResultFieldEntirely()
+    {
+        // Regression test: without an explicit JsonIgnoreCondition, a null `result` would serialize as an
+        // explicit "result":null in the POST body rather than omitting the key -- this and RecordToolCallAsync
+        // below were the only two request bodies in this push missing the annotation their siblings
+        // (EntityFeedbackRequestBody, ExecuteCypherQueryRequestBody, CreateEntityRequestBody) already carry.
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created, """
+            {"id":"s1","conversationId":"conv-1","reasoning":"thinking","actionTaken":"search"}
+            """));
+        var adapter = CreateAdapter(fake);
+
+        await adapter.RecordReasoningStepAsync("conv-1", "thinking", "search", null, CancellationToken.None);
+
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.TryGetProperty("result", out _).Should().BeFalse(
+            "result: null must omit the key entirely, not serialize an explicit JSON null");
+    }
+
+    [Fact]
     public async Task RecordReasoningStepAsync_ServerError_DoesNotRetry()
     {
         var fake = new FakeHttpMessageHandler(() => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
@@ -422,6 +442,27 @@ public sealed class Neo4jNamsClientAdapterTests
         requestJson.RootElement.GetProperty("input").GetString().Should().Be("{\"query\":\"foo\"}",
             "input must be a pre-serialized JSON string value, not a nested object");
         requestJson.RootElement.GetProperty("durationMs").GetInt32().Should().Be(150);
+    }
+
+    [Fact]
+    public async Task RecordToolCallAsync_AllOptionalArgumentsNull_OmitsThoseFieldsEntirely()
+    {
+        // Regression test: stepId/output/status/durationMs are all optional -- without an explicit
+        // JsonIgnoreCondition on each, passing null would serialize explicit JSON nulls rather than omitting
+        // the keys (same class of gap as RecordReasoningStepAsync's `result` above).
+        var fake = new FakeHttpMessageHandler(() => Json(HttpStatusCode.Created,
+            """{"id":"t1","toolName":"web_search","status":"success"}"""));
+        var adapter = CreateAdapter(fake);
+
+        await adapter.RecordToolCallAsync(
+            stepId: null, "web_search", "{\"query\":\"foo\"}", output: null, status: null, durationMs: null, CancellationToken.None);
+
+        var requestBody = await fake.Requests.Single().Content!.ReadAsStringAsync();
+        using var requestJson = System.Text.Json.JsonDocument.Parse(requestBody);
+        requestJson.RootElement.TryGetProperty("stepId", out _).Should().BeFalse("stepId: null must omit the key entirely");
+        requestJson.RootElement.TryGetProperty("output", out _).Should().BeFalse("output: null must omit the key entirely");
+        requestJson.RootElement.TryGetProperty("status", out _).Should().BeFalse("status: null must omit the key entirely");
+        requestJson.RootElement.TryGetProperty("durationMs", out _).Should().BeFalse("durationMs: null must omit the key entirely");
     }
 
     [Fact]
