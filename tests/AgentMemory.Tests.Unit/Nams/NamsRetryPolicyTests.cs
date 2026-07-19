@@ -1,5 +1,6 @@
 using System.Net;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using AgentMemory.Nams.Client;
 
 namespace AgentMemory.Tests.Unit.Nams;
@@ -10,6 +11,25 @@ public sealed class NamsRetryPolicyTests
 
     private static NamsRetryPolicy CreatePolicy(int maxAttempts = 3) =>
         new(maxAttempts, TimeSpan.FromMilliseconds(1));
+
+    /// <summary>Captures every exception object passed to Log(...), so a test can inspect what a real
+    /// logger would have rendered via Exception.ToString() -- redaction bugs only show up here, not in the
+    /// message template string itself.</summary>
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<Exception> LoggedExceptions { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null)
+                LoggedExceptions.Add(exception);
+        }
+    }
 
     [Fact]
     public async Task Idempotent_TransientServerErrorThenSuccess_Retries()
@@ -165,5 +185,27 @@ public sealed class NamsRetryPolicyTests
 
         await act.Should().ThrowAsync<HttpRequestException>();
         fake.Requests.Should().HaveCount(3); // initial attempt + 2 retries
+    }
+
+    [Fact]
+    public async Task Idempotent_TransientNetworkExceptionLogged_RedactsApiKeyFromLoggedException()
+    {
+        // Regression test: the transient-failure LogDebug call passed the raw caught exception straight to
+        // the logger -- a real ILogger provider renders it via Exception.ToString(), which would leak the API
+        // key if it ever appeared in the exception's own message (the same threat model
+        // NamsClientExceptionMapper's redaction already guards against; this call site bypassed it entirely).
+        const string apiKey = "nams_super_secret_12345";
+        var logger = new CapturingLogger();
+        var fake = new FakeHttpMessageHandler(
+            (_, _) => throw new HttpRequestException($"connection refused for key {apiKey}"));
+        using var client = new HttpClient(fake) { BaseAddress = BaseAddress };
+        var policy = new NamsRetryPolicy(maxAttempts: 1, TimeSpan.FromMilliseconds(1), logger, secretToRedact: apiKey);
+
+        var act = () => policy.ExecuteAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, "x"), client, retryEligibility: NamsRetryEligibility.Idempotent, CancellationToken.None);
+
+        await act.Should().ThrowAsync<HttpRequestException>();
+        logger.LoggedExceptions.Should().NotBeEmpty();
+        logger.LoggedExceptions.Should().OnlyContain(ex => !ex.ToString().Contains(apiKey));
     }
 }
