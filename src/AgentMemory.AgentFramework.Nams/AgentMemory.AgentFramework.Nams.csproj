@@ -9,7 +9,7 @@
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.9.0" />
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.13.0" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
