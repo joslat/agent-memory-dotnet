@@ -53,15 +53,18 @@ public sealed class HermeticProfile : IAsyncDisposable
         TimeSpan embeddingLatency,
         TimeSpan modelLatency,
         TextWriter log,
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
         CancellationToken cancellationToken = default)
     {
         var profile = new HermeticProfile(dimensions);
-        await profile.InitializeAsync(embeddingLatency, modelLatency, log, cancellationToken).ConfigureAwait(false);
+        await profile.InitializeAsync(embeddingLatency, modelLatency, log, scriptedRules, cancellationToken)
+            .ConfigureAwait(false);
         return profile;
     }
 
     private async Task InitializeAsync(
-        TimeSpan embeddingLatency, TimeSpan modelLatency, TextWriter log, CancellationToken cancellationToken)
+        TimeSpan embeddingLatency, TimeSpan modelLatency, TextWriter log,
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, CancellationToken cancellationToken)
     {
         log.WriteLine($"perf: starting {Image} (Testcontainers)…");
         _container = new Neo4jBuilder(Image)
@@ -98,7 +101,8 @@ public sealed class HermeticProfile : IAsyncDisposable
                     new DeterministicEmbeddingGenerator(Dimensions), embeddingLatency)));
 
         services.RemoveAll<IChatClient>();
-        services.AddSingleton<IChatClient>(new CountingChatClient(new ScriptedChatClient(modelLatency)));
+        services.AddSingleton<IChatClient>(
+            new CountingChatClient(new ScriptedChatClient(modelLatency, payload: null, rules: scriptedRules)));
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();

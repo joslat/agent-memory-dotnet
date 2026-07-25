@@ -83,8 +83,13 @@ public sealed class PerfCommand
         var runStopwatch = Stopwatch.StartNew();
         using var collector = new PerfCollector(trace);
 
+        // The extraction fixture supplies the scripted model's per-case answers, so it must be loaded
+        // before the profile that wires the chat client.
+        var extractionFixture = ExtractionQualityFixture.Load();
+
         await using var profile = await HermeticProfile
-            .StartAsync(dimensions, embeddingLatency, modelLatency, _output, cancellationToken)
+            .StartAsync(dimensions, embeddingLatency, modelLatency, _output,
+                extractionFixture.ScriptedRules(), cancellationToken)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
@@ -118,17 +123,21 @@ public sealed class PerfCommand
         _output.WriteLine("perf: scoring retrieval quality…");
         var qualityResult = await quality.EvaluateAsync(cancellationToken).ConfigureAwait(false);
 
+        _output.WriteLine("perf: scoring extraction quality…");
+        var extractionQuality = await new ExtractionQualityEvaluator(extractionFixture, profile.Services, profile.Driver)
+            .EvaluateAsync(cancellationToken).ConfigureAwait(false);
+
         runStopwatch.Stop();
         trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
 
         var measured = collector.Records.Where(r => r.Phase == "measure").ToList();
         await WriteSamplesAsync(runDir, measured, cancellationToken).ConfigureAwait(false);
-        var summary = BuildSummary(manifest, measured, qualityResult);
+        var summary = BuildSummary(manifest, measured, qualityResult, extractionQuality);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "summary.json"), JsonSerializer.Serialize(summary, Json), cancellationToken)
             .ConfigureAwait(false);
 
-        var report = RenderReport(runId, measured, qualityResult);
+        var report = RenderReport(runId, measured, qualityResult, extractionQuality);
         await File.WriteAllTextAsync(Path.Combine(runDir, "report.md"), report, cancellationToken)
             .ConfigureAwait(false);
 
@@ -230,9 +239,25 @@ public sealed class PerfCommand
     }
 
     private static object BuildSummary(
-        object manifest, IReadOnlyList<TurnRecord> measured, QualityResult quality) => new
+        object manifest, IReadOnlyList<TurnRecord> measured, QualityResult quality,
+        ExtractionQualityResult extraction) => new
     {
         manifest,
+        extractionQuality = new
+        {
+            entityPrecision = extraction.EntityPrecision,
+            entityRecall = extraction.EntityRecall,
+            factPrecision = extraction.FactPrecision,
+            factRecall = extraction.FactRecall,
+            preferencePrecision = extraction.PreferencePrecision,
+            preferenceRecall = extraction.PreferenceRecall,
+            cases = extraction.Cases,
+            expectNothingCases = extraction.ExpectNothingCases,
+            falsePositives = extraction.FalsePositives,
+            falsePositiveRate = extraction.FalsePositiveRate,
+            clean = extraction.Clean,
+            caseResults = extraction.CaseResults,
+        },
         quality = new
         {
             recallAtK = quality.RecallAtK,
@@ -346,7 +371,8 @@ public sealed class PerfCommand
     }
 
     private static string RenderReport(
-        string runId, IReadOnlyList<TurnRecord> measured, QualityResult quality)
+        string runId, IReadOnlyList<TurnRecord> measured, QualityResult quality,
+        ExtractionQualityResult extraction)
     {
         var sb = new StringBuilder();
         sb.AppendLine(CultureInfo.InvariantCulture, $"# Performance run — {runId}");
@@ -381,6 +407,38 @@ public sealed class PerfCommand
                 var violations = c.Violations.Count == 0 ? "–" : string.Join(", ", c.Violations);
                 sb.AppendLine(CultureInfo.InvariantCulture,
                     $"| `{c.CaseId}` | {c.Kind} | {c.RecallAtK:F2} | {c.ReciprocalRank:F2} | {c.Retrieved} | {violations} |");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("## Extraction quality (deterministic — scripted model, no judging model)");
+        sb.AppendLine();
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"{extraction.Cases} judged cases · **false-positive rate {extraction.FalsePositiveRate:P0}** " +
+            $"({extraction.FalsePositives}/{extraction.ExpectNothingCases} cases that should learn nothing) · " +
+            $"{(extraction.Clean ? "✅ clean" : "⚠️ **see failures below**")}");
+        sb.AppendLine();
+        sb.AppendLine("| Kind | Precision | Recall |");
+        sb.AppendLine("|---|---:|---:|");
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"| entities | {extraction.EntityPrecision:F3} | {extraction.EntityRecall:F3} |");
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"| facts | {extraction.FactPrecision:F3} | {extraction.FactRecall:F3} |");
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"| preferences | {extraction.PreferencePrecision:F3} | {extraction.PreferenceRecall:F3} |");
+        sb.AppendLine();
+
+        var dirty = extraction.CaseResults.Where(c => !c.Clean).ToList();
+        if (dirty.Count > 0)
+        {
+            sb.AppendLine("| Case | Missing | Unexpected | False positive |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var c in dirty)
+            {
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"| `{c.CaseId}` | {(c.Missing.Count == 0 ? "–" : string.Join(", ", c.Missing))} " +
+                    $"| {(c.Unexpected.Count == 0 ? "–" : string.Join(", ", c.Unexpected))} " +
+                    $"| {(c.FalsePositive ? "**YES**" : "–")} |");
             }
             sb.AppendLine();
         }
