@@ -447,20 +447,29 @@ internal sealed class MemoryService : IMemoryService
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.access_tracking");
         try
         {
-            var tasks = new List<Task>();
+            // One batched call rather than one call per recalled item. The previous form fanned out into
+            // a task per item, and the Neo4j adapter turned each into its own session and write
+            // transaction — measured at 25 write transactions per default recall, all awaited before the
+            // model was invoked. The batch API is a default interface method that falls back to exactly
+            // that loop, so an implementation which cannot batch is unaffected.
+            var nodes = new List<(string NodeId, MemoryNodeKind NodeKind)>(
+                context.RelevantEntities.Items.Count
+                + context.RelevantFacts.Items.Count
+                + context.RelevantPreferences.Items.Count);
 
             foreach (var entity in context.RelevantEntities.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(entity.EntityId, MemoryNodeKind.Entity, cancellationToken));
+                nodes.Add((entity.EntityId, MemoryNodeKind.Entity));
 
             foreach (var fact in context.RelevantFacts.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(fact.FactId, MemoryNodeKind.Fact, cancellationToken));
+                nodes.Add((fact.FactId, MemoryNodeKind.Fact));
 
             foreach (var pref in context.RelevantPreferences.Items)
-                tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, MemoryNodeKind.Preference, cancellationToken));
+                nodes.Add((pref.PreferenceId, MemoryNodeKind.Preference));
 
-            activity?.SetTag("memory.access_tracking.items", tasks.Count);
+            activity?.SetTag("memory.access_tracking.items", nodes.Count);
 
-            await Task.WhenAll(tasks).ConfigureAwait(false);
+            if (nodes.Count > 0)
+                await _decayService!.UpdateAccessTimestampsAsync(nodes, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

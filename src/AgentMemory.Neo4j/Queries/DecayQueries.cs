@@ -25,6 +25,30 @@ internal static class DecayQueries
             RETURN n.access_count AS accessCount";
 
     /// <summary>
+    /// Batch form of <see cref="UpdateAccessTimestamp(string)"/>: same per-node effect, driven by an
+    /// <c>UNWIND</c> so one query touches every recalled node of a given kind.
+    /// </summary>
+    /// <remarks>
+    /// Statement-for-statement identical to the single-node query — same <c>SET</c>, same audit node,
+    /// with <c>access_count</c> read after the <c>SET</c> so the audit records the post-increment value
+    /// exactly as before. The only difference is arity. Callers must de-duplicate <c>$ids</c>: a
+    /// repeated id would be a repeated row and would increment twice.
+    /// </remarks>
+    public static string UpdateAccessTimestampBatch(string label) => $@"
+            UNWIND $ids AS nodeId
+            MATCH (n:{label} {{id: nodeId}})
+            SET n.last_accessed_at = datetime($now),
+                n.access_count     = COALESCE(n.access_count, 0) + 1
+            CREATE (:MemoryReadAudit {{
+                id: randomUUID(),
+                kind: $kind,
+                memory_id: nodeId,
+                owner_id: n.owner_id,
+                read_at: datetime($now),
+                access_count: n.access_count
+            }})";
+
+    /// <summary>
     /// Retrieves the fields needed to compute a retention score for a single node.
     /// </summary>
     public static string GetRetentionFields(string label) => $@"

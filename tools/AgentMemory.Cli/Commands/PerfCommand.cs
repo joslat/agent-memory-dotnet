@@ -248,6 +248,59 @@ public sealed class PerfCommand
             .ToList(),
     };
 
+    /// <summary>
+    /// The unit a counter is expressed in. Stated explicitly on every row because the single most
+    /// common way a performance number gets misread is a reader assuming milliseconds.
+    /// </summary>
+    private static string UnitFor(string counter) => counter switch
+    {
+        "neo4j.tx.read" => "read transactions",
+        "neo4j.tx.write" => "write transactions",
+        "neo4j.queries" => "Cypher queries",
+        "embed.requests" => "provider requests",
+        "embed.items" => "texts embedded",
+        "embed.chars" => "characters",
+        "llm.calls" => "model completions",
+        "llm.tokens_in" => "input tokens",
+        "llm.tokens_out" => "output tokens",
+        "access_tracking.items" => "per-item writes",
+        "store.messages" => "messages persisted",
+        "context.messages" => "prompt messages",
+        "context.chars" or "recall.chars" => "characters",
+        "items.retrieved" => "memory items",
+        _ when counter.StartsWith("items.", StringComparison.Ordinal) => "memory items",
+        _ => "count",
+    };
+
+    /// <summary>
+    /// Total and per-occurrence time for the span backing a counter, when one exists. Returns nulls for
+    /// counters with no corresponding span rather than inventing a number.
+    /// </summary>
+    private static (double? Total, double? Mean) TimingFor(string counter, IEnumerable<TurnRecord> group)
+    {
+        var span = counter switch
+        {
+            "neo4j.tx.read" or "neo4j.tx.write" => "memory.db.tx",
+            "access_tracking.items" => "memory.recall.access_tracking",
+            "store.messages" => "memory.store.messages",
+            _ => null,
+        };
+        if (span is null) return (null, null);
+
+        var records = group.ToList();
+        var total = Median(records.Select(r =>
+            r.SpanMilliseconds.TryGetValue(span, out var ms) ? ms : 0d).ToList());
+
+        // Mean is over the counter's own occurrences, not the span's, so "mean ms per write transaction"
+        // divides transaction time by transactions. For db.tx the span covers reads AND writes, so the
+        // mean is across all transactions in that span and is labelled as an approximation by the note
+        // under the table rather than silently attributed to one access mode.
+        var occurrences = Median(records.Select(r =>
+            (double)(r.SpanCounts.TryGetValue(span, out var n) ? n : 0)).ToList());
+
+        return (total, occurrences > 0 ? total / occurrences : null);
+    }
+
     private static IEnumerable<string> AllKeys(IEnumerable<TurnRecord> records) =>
         records.SelectMany(r => r.Counters.Keys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
 
@@ -281,16 +334,35 @@ public sealed class PerfCommand
             sb.AppendLine();
             sb.AppendLine("### Structural counters (exact — these are what CI may gate on)");
             sb.AppendLine();
-            sb.AppendLine("| Counter | Value | Deterministic |");
-            sb.AppendLine("|---|---:|---|");
+            sb.AppendLine("Per iteration — i.e. per agent turn. Every row states its unit, because a bare");
+            sb.AppendLine("count is ambiguous: 25 *write transactions* and 25 *milliseconds* are very");
+            sb.AppendLine("different claims, and a performance record that cannot distinguish them is worse");
+            sb.AppendLine("than no record. Where a counter has a matching span, its measured time is shown.");
+            sb.AppendLine();
+            sb.AppendLine("| Counter | Value | Unit | Total ms | Mean ms each | Deterministic |");
+            sb.AppendLine("|---|---:|---|---:|---:|---|");
             foreach (var key in AllKeys(group))
             {
                 var min = group.Min(r => r.Counter(key));
                 var max = group.Max(r => r.Counter(key));
                 var stable = min == max;
                 var value = stable ? min.ToString(CultureInfo.InvariantCulture) : $"{min}–{max}";
-                sb.AppendLine(CultureInfo.InvariantCulture, $"| `{key}` | {value} | {(stable ? "yes" : "**NO**")} |");
+
+                // Attach timing where a counter has a corresponding span, so "25 write transactions" is
+                // immediately readable as "and they cost this much".
+                var (totalMs, meanMs) = TimingFor(key, group);
+                var totalText = totalMs is null ? "–" : totalMs.Value.ToString("F2", CultureInfo.InvariantCulture);
+                var meanText = meanMs is null ? "–" : meanMs.Value.ToString("F2", CultureInfo.InvariantCulture);
+
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"| `{key}` | {value} | {UnitFor(key)} | {totalText} | {meanText} | {(stable ? "yes" : "**NO**")} |");
             }
+
+            sb.AppendLine();
+            sb.AppendLine(
+                "Read and write transactions share one `memory.db.tx` span, so their **Total ms** and " +
+                "**Mean ms each** are for all transactions combined, not for that access mode alone. " +
+                "Totals are summed across concurrent work — see the timing note below.");
 
             sb.AppendLine();
             sb.AppendLine("### Timings (comparable only within this run)");

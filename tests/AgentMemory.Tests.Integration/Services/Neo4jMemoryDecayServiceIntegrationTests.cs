@@ -131,6 +131,89 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
         global::Neo4j.Driver.ValueExtensions.As<bool>(record["auditRowsHaveReadAt"]).Should().BeTrue();
     }
 
+    /// <summary>
+    /// The batched form must be indistinguishable, per node, from calling the single-node form once for
+    /// each entry. This is the path recall actually takes now — the per-node loop it replaced cost 25
+    /// write transactions on the pre-model critical path at default recall limits — so it needs live-DB
+    /// coverage of its own rather than inheriting confidence from the single-node test above.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAccessTimestampsAsync_BatchesAcrossKinds_WithPerNodeEffectsIdenticalToTheSingleNodeForm()
+    {
+        var entityA = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 2, ownerId: "user-A");
+        var entityB = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 0, ownerId: "user-A");
+        var fact = await SeedAsync("Fact", confidence: 0.9, daysOld: 10, accessCount: 5, ownerId: "user-A");
+        var preference = await SeedAsync("Preference", confidence: 0.9, daysOld: 10, accessCount: 0, ownerId: "user-B");
+
+        await _service.UpdateAccessTimestampsAsync(new[]
+        {
+            (entityA, MemoryNodeKind.Entity),
+            (entityB, MemoryNodeKind.Entity),
+            (fact, MemoryNodeKind.Fact),
+            (preference, MemoryNodeKind.Preference),
+        });
+
+        // Each node incremented exactly once from its own starting value, timestamped, and given exactly
+        // one audit row carrying its own kind and owner.
+        (await ReadAccessAsync(entityA)).Should().Be((3, true, 1, "Entity", "user-A"));
+        (await ReadAccessAsync(entityB)).Should().Be((1, true, 1, "Entity", "user-A"));
+        (await ReadAccessAsync(fact)).Should().Be((6, true, 1, "Fact", "user-A"));
+        (await ReadAccessAsync(preference)).Should().Be((1, true, 1, "Preference", "user-B"));
+    }
+
+    /// <summary>
+    /// A repeated id must be applied once. UNWIND yields one row per element, so without de-duplication
+    /// the batch would double-increment and write two audit rows — a divergence from the single-node
+    /// form, which could not have this failure mode.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAccessTimestampsAsync_DuplicateIds_AppliedOnce()
+    {
+        var id = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 0, ownerId: "user-A");
+
+        await _service.UpdateAccessTimestampsAsync(new[]
+        {
+            (id, MemoryNodeKind.Entity),
+            (id, MemoryNodeKind.Entity),
+            (id, MemoryNodeKind.Entity),
+        });
+
+        (await ReadAccessAsync(id)).Should().Be((1, true, 1, "Entity", "user-A"));
+    }
+
+    [Fact]
+    public async Task UpdateAccessTimestampsAsync_EmptyCollection_IsANoOp()
+    {
+        var id = await SeedAsync("Entity", confidence: 0.9, daysOld: 10, accessCount: 4, ownerId: "user-A");
+
+        await _service.UpdateAccessTimestampsAsync(Array.Empty<(string, MemoryNodeKind)>());
+
+        (await ReadAccessAsync(id)).Should().Be((4, false, 0, null, null));
+    }
+
+    /// <summary>Reads the observable effects of an access bump for one node.</summary>
+    private async Task<(long AccessCount, bool HasTimestamp, long AuditRows, string? AuditKind, string? AuditOwner)>
+        ReadAccessAsync(string id)
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync(
+            @"MATCH (n {id:$id})
+              OPTIONAL MATCH (audit:MemoryReadAudit {memory_id:$id})
+              RETURN n.access_count AS ac,
+                     n.last_accessed_at IS NOT NULL AS hasTs,
+                     count(audit) AS auditCount,
+                     head(collect(audit.kind)) AS auditKind,
+                     head(collect(audit.owner_id)) AS auditOwner",
+            new { id });
+        var record = await cursor.SingleAsync();
+        return (
+            global::Neo4j.Driver.ValueExtensions.As<long>(record["ac"]),
+            global::Neo4j.Driver.ValueExtensions.As<bool>(record["hasTs"]),
+            global::Neo4j.Driver.ValueExtensions.As<long>(record["auditCount"]),
+            record["auditKind"]?.ToString(),
+            record["auditOwner"]?.ToString());
+    }
+
     [Fact]
     public async Task CalculateRetentionScoreAsync_ReflectsDecayFormula()
     {

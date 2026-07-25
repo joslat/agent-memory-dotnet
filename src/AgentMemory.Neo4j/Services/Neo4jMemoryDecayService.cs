@@ -147,6 +147,58 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         _logger.LogDebug("Bumped access timestamp for {Label} {NodeId}", label, nodeId);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// One write transaction containing one <c>UNWIND</c> query per distinct node kind, replacing the
+    /// interface default's one-transaction-per-node loop. This is the pre-model critical path: measured
+    /// at shipped recall defaults, the loop cost 25 write transactions (and 25 sessions) per turn before
+    /// the model was invoked. Per-node effects are unchanged — same timestamp, same access-count
+    /// increment, same <c>:MemoryReadAudit</c> row.
+    /// </remarks>
+    public async Task UpdateAccessTimestampsAsync(
+        IReadOnlyCollection<(string NodeId, MemoryNodeKind NodeKind)> nodes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(nodes);
+        if (nodes.Count == 0) return;
+
+        // Group by kind (the label is interpolated into Cypher, so it cannot be a parameter) and
+        // de-duplicate ids within each group: UNWIND yields one row per element, so a repeated id would
+        // increment access_count twice and write two audit rows. The per-node form could not have this
+        // problem, so guarding here is not paranoia — it is preserving the previous semantics.
+        var byKind = new Dictionary<MemoryNodeKind, HashSet<string>>();
+        foreach (var (nodeId, nodeKind) in nodes)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+            if (!Enum.IsDefined(nodeKind))
+                throw new ArgumentOutOfRangeException(nameof(nodes), nodeKind, "Unknown MemoryNodeKind.");
+
+            if (!byKind.TryGetValue(nodeKind, out var ids))
+                byKind[nodeKind] = ids = new HashSet<string>(StringComparer.Ordinal);
+            ids.Add(nodeId);
+        }
+
+        string now = _clock.UtcNow.ToString("O");
+
+        // A single transaction for every kind: the whole point is to stop paying per-node transaction
+        // and session overhead on the read path. It is also more atomic than the loop it replaces, which
+        // could partially fail across 25 independent transactions.
+        await _tx.WriteAsync(async runner =>
+        {
+            foreach (var (nodeKind, ids) in byKind)
+            {
+                var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
+                await runner.RunAsync(
+                    DecayQueries.UpdateAccessTimestampBatch(label),
+                    new { ids = ids.ToList(), kind = label, now }).ConfigureAwait(false);
+            }
+        }, cancellationToken).ConfigureAwait(false);
+
+        _logger.LogDebug(
+            "Bumped access timestamps for {NodeCount} nodes across {KindCount} kinds in one transaction.",
+            byKind.Sum(kv => kv.Value.Count), byKind.Count);
+    }
+
     /// <summary>
     /// Computes the retention score from raw field values, mirroring the server-side prune formula.
     /// </summary>
