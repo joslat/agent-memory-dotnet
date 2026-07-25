@@ -67,6 +67,23 @@ public sealed class DeterministicEmbeddingGenerator : IEmbeddingGenerator<string
         return vector;
     }
 
+    /// <summary>
+    /// Words carrying no retrieval signal. Removed because this embedder weights every token equally,
+    /// so without this a natural question ("Where did I stay in Lisbon, which hotel?") is mostly
+    /// function words and the two words that matter get drowned out. A real embedder does not have that
+    /// problem, so neither should the stand-in.
+    /// </summary>
+    private static readonly HashSet<string> StopWords = new(StringComparer.Ordinal)
+    {
+        "a", "an", "the", "and", "or", "but", "if", "of", "at", "by", "for", "with", "about", "into",
+        "to", "from", "in", "on", "off", "over", "under", "is", "are", "was", "were", "be", "been",
+        "being", "do", "does", "did", "doing", "have", "has", "had", "having", "i", "me", "my", "we",
+        "our", "you", "your", "it", "its", "this", "that", "these", "those", "what", "which", "who",
+        "whom", "when", "where", "why", "how", "any", "some", "no", "not", "so", "than", "then",
+        "there", "here", "can", "could", "should", "would", "will", "shall", "may", "might", "must",
+        "me", "am", "as", "s",
+    };
+
     private static IEnumerable<string> Tokenize(string text)
     {
         var start = -1;
@@ -76,10 +93,46 @@ public sealed class DeterministicEmbeddingGenerator : IEmbeddingGenerator<string
             if (isWord && start < 0) start = i;
             else if (!isWord && start >= 0)
             {
-                yield return text[start..i].ToLowerInvariant();
+                var token = Stem(text[start..i].ToLowerInvariant());
                 start = -1;
+                if (token.Length > 0 && !StopWords.Contains(token))
+                    yield return token;
             }
         }
+    }
+
+    /// <summary>
+    /// Conservative inflectional stemming: plural and verb-form endings only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without this, "work" and "works" — or "peanut" and "peanuts" — are entirely different tokens and
+    /// contribute nothing to similarity. That is not how any real embedding model behaves, and a
+    /// stand-in that fails where the real thing succeeds makes the harness report retrieval failures
+    /// that would never occur in production. Every conclusion drawn through it would inherit that.
+    /// </para>
+    /// <para>
+    /// Deliberately limited to inflection (-s, -es, -ies, -ed, -ing). Derivational stemming
+    /// ("allergy" → "allergic") needs a real algorithm, and guessing at one would trade a known small
+    /// gap for an unpredictable one. Minimum stem length 4 keeps short words intact ("is", "was").
+    /// </para>
+    /// </remarks>
+    private static string Stem(string token)
+    {
+        if (token.Length < 5) return token;
+
+        if (token.EndsWith("ies", StringComparison.Ordinal) && token.Length > 5)
+            return string.Concat(token.AsSpan(0, token.Length - 3), "y");
+        if (token.EndsWith("ing", StringComparison.Ordinal) && token.Length > 6)
+            return token[..^3];
+        if (token.EndsWith("ed", StringComparison.Ordinal) && token.Length > 5)
+            return token[..^2];
+        if (token.EndsWith("es", StringComparison.Ordinal) && token.Length > 5)
+            return token[..^2];
+        if (token.EndsWith('s') && !token.EndsWith("ss", StringComparison.Ordinal))
+            return token[..^1];
+
+        return token;
     }
 
     /// <summary>FNV-1a: stable across processes, machines, and runtime versions.</summary>

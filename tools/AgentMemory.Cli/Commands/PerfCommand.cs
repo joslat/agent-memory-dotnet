@@ -86,6 +86,12 @@ public sealed class PerfCommand
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
 
+        // The quality guard shares the run so its scores sit beside the counters that were measured on
+        // the same code, same data, same moment. Reporting speed and quality from separate runs is how
+        // a regression gets attributed to the wrong change.
+        var quality = new QualityEvaluator(QualityFixture.Load(), profile.Services, dimensions);
+        await quality.SeedAsync(_output, cancellationToken).ConfigureAwait(false);
+
         var provider = PerfScenarios.CreateProvider(profile);
 
         foreach (var scenario in scenarios)
@@ -106,17 +112,20 @@ public sealed class PerfCommand
             }
         }
 
+        _output.WriteLine("perf: scoring retrieval quality…");
+        var qualityResult = await quality.EvaluateAsync(cancellationToken).ConfigureAwait(false);
+
         runStopwatch.Stop();
         trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
 
         var measured = collector.Records.Where(r => r.Phase == "measure").ToList();
         await WriteSamplesAsync(runDir, measured, cancellationToken).ConfigureAwait(false);
-        var summary = BuildSummary(manifest, measured);
+        var summary = BuildSummary(manifest, measured, qualityResult);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "summary.json"), JsonSerializer.Serialize(summary, Json), cancellationToken)
             .ConfigureAwait(false);
 
-        var report = RenderReport(runId, measured);
+        var report = RenderReport(runId, measured, qualityResult);
         await File.WriteAllTextAsync(Path.Combine(runDir, "report.md"), report, cancellationToken)
             .ConfigureAwait(false);
 
@@ -217,9 +226,20 @@ public sealed class PerfCommand
         return process.ExitCode == 0 ? stdout.Trim() : null;
     }
 
-    private static object BuildSummary(object manifest, IReadOnlyList<TurnRecord> measured) => new
+    private static object BuildSummary(
+        object manifest, IReadOnlyList<TurnRecord> measured, QualityResult quality) => new
     {
         manifest,
+        quality = new
+        {
+            recallAtK = quality.RecallAtK,
+            mrr = quality.Mrr,
+            cases = quality.Cases,
+            casesWithViolations = quality.CasesWithViolations,
+            clean = quality.Clean,
+            recallByCategory = quality.RecallByCategory,
+            caseResults = quality.CaseResults,
+        },
         scenarios = measured
             .GroupBy(r => r.Scenario, StringComparer.Ordinal)
             .Select(g => new
@@ -322,10 +342,47 @@ public sealed class PerfCommand
             .ConfigureAwait(false);
     }
 
-    private static string RenderReport(string runId, IReadOnlyList<TurnRecord> measured)
+    private static string RenderReport(
+        string runId, IReadOnlyList<TurnRecord> measured, QualityResult quality)
     {
         var sb = new StringBuilder();
         sb.AppendLine(CultureInfo.InvariantCulture, $"# Performance run — {runId}");
+        sb.AppendLine();
+
+        // Quality first, deliberately. A speed number read without the quality number beside it is how
+        // "we got 96% faster" ships without the second sentence.
+        sb.AppendLine("## Retrieval quality (deterministic — no model involved)");
+        sb.AppendLine();
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"**Recall@K {quality.RecallAtK:F3}** · **MRR {quality.Mrr:F3}** · {quality.Cases} judged cases · " +
+            $"{quality.CasesWithViolations} with forbidden retrievals · " +
+            $"{(quality.Clean ? "✅ clean" : "⚠️ **see failures below**")}");
+        sb.AppendLine();
+        sb.AppendLine("| Category | Recall@K |");
+        sb.AppendLine("|---|---:|");
+        foreach (var (category, recall) in quality.RecallByCategory.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            sb.AppendLine(CultureInfo.InvariantCulture, $"| {category} | {recall:F3} |");
+        sb.AppendLine();
+
+        var imperfect = quality.CaseResults
+            .Where(c => c.RecallAtK < 1.0 || c.ReciprocalRank < 1.0 || c.Violations.Count > 0)
+            .ToList();
+        if (imperfect.Count > 0)
+        {
+            sb.AppendLine("Cases not scoring perfectly — these are the rows a quality-risk change moves:");
+            sb.AppendLine();
+            sb.AppendLine("| Case | Kind | Recall@K | 1/rank | Retrieved | Forbidden retrieved |");
+            sb.AppendLine("|---|---|---:|---:|---:|---|");
+            foreach (var c in imperfect)
+            {
+                var violations = c.Violations.Count == 0 ? "–" : string.Join(", ", c.Violations);
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"| `{c.CaseId}` | {c.Kind} | {c.RecallAtK:F2} | {c.ReciprocalRank:F2} | {c.Retrieved} | {violations} |");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("---");
         sb.AppendLine();
 
         foreach (var group in measured.GroupBy(r => r.Scenario, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal))

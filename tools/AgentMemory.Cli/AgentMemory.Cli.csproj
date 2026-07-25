@@ -29,4 +29,12 @@
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The judged retrieval fixture is embedded, not read from disk: it defines what "correct
+         retrieval" means, so it must version with the assembly that scores against it and be reviewed
+         in the diff like source. A loose file could differ per machine and silently invalidate every
+         comparison. -->
+    <EmbeddedResource Include="Perf\Fixtures\retrieval-quality.json" />
+  </ItemGroup>
+
 </Project>
