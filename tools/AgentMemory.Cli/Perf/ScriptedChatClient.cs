@@ -45,13 +45,19 @@ public sealed class ScriptedChatClient : IChatClient
         }
         """;
 
+    /// <summary>A per-input scripted answer: when <see cref="MatchOn"/> appears in the prompt, return
+    /// <see cref="Payload"/>.</summary>
+    public sealed record Rule(string MatchOn, string Payload);
+
     private readonly TimeSpan _delay;
     private readonly string _payload;
+    private readonly IReadOnlyList<Rule> _rules;
 
-    public ScriptedChatClient(TimeSpan delay, string? payload = null)
+    public ScriptedChatClient(TimeSpan delay, string? payload = null, IReadOnlyList<Rule>? rules = null)
     {
         _delay = delay;
         _payload = payload ?? ExtractionPayload;
+        _rules = rules ?? Array.Empty<Rule>();
     }
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -62,18 +68,52 @@ public sealed class ScriptedChatClient : IChatClient
         if (_delay > TimeSpan.Zero)
             await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
 
+        var materialized = messages as IList<ChatMessage> ?? messages.ToList();
+        var payload = SelectPayload(materialized);
+
         // Token counts are approximated from character length rather than invented, so cost accounting
         // stays proportional to real prompt growth as scenarios change.
-        var inputChars = messages.Sum(m => m.Text?.Length ?? 0);
-        return new ChatResponse(new ChatMessage(ChatRole.Assistant, _payload))
+        var inputChars = materialized.Sum(m => m.Text?.Length ?? 0);
+        return new ChatResponse(new ChatMessage(ChatRole.Assistant, payload))
         {
             Usage = new UsageDetails
             {
                 InputTokenCount = inputChars / 4,
-                OutputTokenCount = _payload.Length / 4,
+                OutputTokenCount = payload.Length / 4,
             },
         };
     }
+
+    /// <summary>
+    /// Picks the scripted answer for this prompt.
+    /// </summary>
+    /// <remarks>
+    /// Cost scenarios do not care what comes back, so they use the single default payload. Extraction
+    /// <em>quality</em> scenarios do: a client that answers identically regardless of input would make
+    /// every judged case extract the same facts, and the fixture would measure nothing at all. Rules
+    /// key on a distinctive phrase from the case's own conversation — deterministic, and readable in the
+    /// fixture, unlike a hash.
+    /// </remarks>
+    private string SelectPayload(IEnumerable<ChatMessage> messages)
+    {
+        if (_rules.Count == 0) return _payload;
+
+        var prompt = string.Join("\n", messages.Select(m => m.Text ?? string.Empty));
+        foreach (var rule in _rules)
+        {
+            if (prompt.Contains(rule.MatchOn, StringComparison.OrdinalIgnoreCase))
+                return rule.Payload;
+        }
+
+        // No rule matched. Return an EMPTY extraction rather than the default payload: silently
+        // substituting facts from an unrelated case would make a mis-keyed fixture case look like it
+        // extracted correctly, which is the one failure mode this client must not hide.
+        return EmptyPayload;
+    }
+
+    /// <summary>A well-formed response that extracts nothing.</summary>
+    public const string EmptyPayload =
+        """{"entities": [], "facts": [], "preferences": [], "relations": []}""";
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,

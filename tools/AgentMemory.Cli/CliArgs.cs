@@ -93,11 +93,13 @@ public static class CliHelp
                                      write a JSON report under artifacts/evaluation by default.
               perf [--label <name>] [--scenarios <ids|all>] [--iterations <n>] [--warmup <n>]
                    [--latency <zero|remote>] [--embedding-dimensions <n>] [--output <dir>]
+                   [--quality-gate <true|false>]
                                      Measure a complete agent TURN: database round trips, embedding
                                      requests, model calls, and per-stage timing. Provisions its own
                                      Neo4j via Testcontainers (Docker required) with deterministic
                                      embeddings and a scripted model, so counters are reproducible.
-                                     Writes a dated run directory under performance/runs by default.
+                                     Quality gate defaults on. Writes a dated run directory under
+                                     artifacts/perf by default.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
               schema-parity [--upstream-version <v>]

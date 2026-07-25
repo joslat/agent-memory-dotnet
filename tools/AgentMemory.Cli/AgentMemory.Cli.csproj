@@ -34,7 +34,9 @@
          retrieval" means, so it must version with the assembly that scores against it and be reviewed
          in the diff like source. A loose file could differ per machine and silently invalidate every
          comparison. -->
-    <EmbeddedResource Include="Perf\Fixtures\retrieval-quality.json" />
+    <!-- Glob, not a list: a fixture added without a matching csproj line would fail at run time with
+         "sequence contains no matching element", far from the cause. -->
+    <EmbeddedResource Include="Perf\Fixtures\*.json" />
   </ItemGroup>
 
 </Project>

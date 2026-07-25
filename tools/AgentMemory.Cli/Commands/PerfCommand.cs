@@ -42,12 +42,15 @@ public sealed class PerfCommand
         string? dimensionsValue,
         string? latency,
         string? outputRoot,
+        string? qualityGateValue,
         CancellationToken cancellationToken = default)
     {
         var runLabel = Sanitize(label) ?? "baseline";
         var iterations = ParsePositive(iterationsValue, 10, "iterations");
         var warmup = ParseNonNegative(warmupValue, 3, "warmup");
         var dimensions = ParsePositive(dimensionsValue, 384, "embedding-dimensions");
+        var qualityGateEnabled = ParseDefaultTrue(qualityGateValue, "quality-gate");
+        var qualityBaseline = qualityGateEnabled ? QualityGate.LoadBaseline() : null;
 
         var (embeddingLatency, modelLatency) = ResolveLatency(latency);
 
@@ -83,8 +86,14 @@ public sealed class PerfCommand
         var runStopwatch = Stopwatch.StartNew();
         using var collector = new PerfCollector(trace);
 
+        // The extraction fixture and cost scenarios supply input-keyed model answers, so they must be
+        // assembled before the profile that wires the chat client.
+        var extractionFixture = ExtractionQualityFixture.Load();
+        var scriptedRules = extractionFixture.ScriptedRules().Concat(PerfScenarios.ScriptedRules).ToList();
+
         await using var profile = await HermeticProfile
-            .StartAsync(dimensions, embeddingLatency, modelLatency, _output, cancellationToken)
+            .StartAsync(dimensions, embeddingLatency, modelLatency, _output,
+                scriptedRules, cancellationToken)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
@@ -118,24 +127,37 @@ public sealed class PerfCommand
         _output.WriteLine("perf: scoring retrieval quality…");
         var qualityResult = await quality.EvaluateAsync(cancellationToken).ConfigureAwait(false);
 
+        _output.WriteLine("perf: scoring extraction quality…");
+        var extractionQuality = await new ExtractionQualityEvaluator(extractionFixture, profile.Services, profile.Driver)
+            .EvaluateAsync(cancellationToken).ConfigureAwait(false);
+        var qualityGate = qualityBaseline is null
+            ? QualityGateResult.Disabled()
+            : QualityGate.Evaluate(qualityBaseline, qualityResult, extractionQuality);
+
         runStopwatch.Stop();
         trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
 
         var measured = collector.Records.Where(r => r.Phase == "measure").ToList();
         await WriteSamplesAsync(runDir, measured, cancellationToken).ConfigureAwait(false);
-        var summary = BuildSummary(manifest, measured, qualityResult);
+        var summary = BuildSummary(manifest, measured, qualityGate, qualityResult, extractionQuality);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "summary.json"), JsonSerializer.Serialize(summary, Json), cancellationToken)
             .ConfigureAwait(false);
 
-        var report = RenderReport(runId, measured, qualityResult);
+        var report = RenderReport(runId, measured, qualityGate, qualityResult, extractionQuality);
         await File.WriteAllTextAsync(Path.Combine(runDir, "report.md"), report, cancellationToken)
             .ConfigureAwait(false);
 
         _output.WriteLine();
         _output.Write(report);
         _output.WriteLine($"perf: wrote {runDir}");
-        return 0;
+        if (qualityGate.Passed)
+            return 0;
+
+        _output.WriteLine($"error: quality gate failed with {qualityGate.Violations.Count} violation(s).");
+        foreach (var violation in qualityGate.Violations)
+            _output.WriteLine($"error:   {violation}");
+        return 1;
     }
 
     private static async Task RunScenarioAsync(
@@ -230,9 +252,34 @@ public sealed class PerfCommand
     }
 
     private static object BuildSummary(
-        object manifest, IReadOnlyList<TurnRecord> measured, QualityResult quality) => new
+        object manifest, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
+        QualityResult quality,
+        ExtractionQualityResult extraction) => new
     {
         manifest,
+        qualityGate = new
+        {
+            enabled = qualityGate.Enabled,
+            passed = qualityGate.Passed,
+            baseline = qualityGate.BaselinePath,
+            tolerance = qualityGate.Tolerance,
+            violations = qualityGate.Violations,
+        },
+        extractionQuality = new
+        {
+            entityPrecision = extraction.EntityPrecision,
+            entityRecall = extraction.EntityRecall,
+            factPrecision = extraction.FactPrecision,
+            factRecall = extraction.FactRecall,
+            preferencePrecision = extraction.PreferencePrecision,
+            preferenceRecall = extraction.PreferenceRecall,
+            cases = extraction.Cases,
+            expectNothingCases = extraction.ExpectNothingCases,
+            falsePositives = extraction.FalsePositives,
+            falsePositiveRate = extraction.FalsePositiveRate,
+            clean = extraction.Clean,
+            caseResults = extraction.CaseResults,
+        },
         quality = new
         {
             recallAtK = quality.RecallAtK,
@@ -346,7 +393,9 @@ public sealed class PerfCommand
     }
 
     private static string RenderReport(
-        string runId, IReadOnlyList<TurnRecord> measured, QualityResult quality)
+        string runId, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
+        QualityResult quality,
+        ExtractionQualityResult extraction)
     {
         var sb = new StringBuilder();
         sb.AppendLine(CultureInfo.InvariantCulture, $"# Performance run — {runId}");
@@ -354,6 +403,26 @@ public sealed class PerfCommand
 
         // Quality first, deliberately. A speed number read without the quality number beside it is how
         // "we got 96% faster" ships without the second sentence.
+        sb.AppendLine("## Quality gate");
+        sb.AppendLine();
+        if (!qualityGate.Enabled)
+        {
+            sb.AppendLine("**DISABLED** by `--quality-gate=false`; scores below are report-only.");
+        }
+        else
+        {
+            sb.AppendLine(CultureInfo.InvariantCulture,
+                $"**{(qualityGate.Passed ? "PASS ✅" : "FAIL ❌")}** · baseline " +
+                $"`{qualityGate.BaselinePath}` · tolerance {qualityGate.Tolerance:F6}");
+            if (!qualityGate.Passed)
+            {
+                sb.AppendLine();
+                foreach (var violation in qualityGate.Violations)
+                    sb.AppendLine($"- {violation}");
+            }
+        }
+        sb.AppendLine();
+
         sb.AppendLine("## Retrieval quality (deterministic — no model involved)");
         sb.AppendLine();
         sb.AppendLine(CultureInfo.InvariantCulture,
@@ -381,6 +450,38 @@ public sealed class PerfCommand
                 var violations = c.Violations.Count == 0 ? "–" : string.Join(", ", c.Violations);
                 sb.AppendLine(CultureInfo.InvariantCulture,
                     $"| `{c.CaseId}` | {c.Kind} | {c.RecallAtK:F2} | {c.ReciprocalRank:F2} | {c.Retrieved} | {violations} |");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("## Extraction quality (deterministic — scripted model, no judging model)");
+        sb.AppendLine();
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"{extraction.Cases} judged cases · **false-positive rate {extraction.FalsePositiveRate:P0}** " +
+            $"({extraction.FalsePositives}/{extraction.ExpectNothingCases} cases that should learn nothing) · " +
+            $"{(extraction.Clean ? "✅ clean" : "⚠️ **see failures below**")}");
+        sb.AppendLine();
+        sb.AppendLine("| Kind | Precision | Recall |");
+        sb.AppendLine("|---|---:|---:|");
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"| entities | {extraction.EntityPrecision:F3} | {extraction.EntityRecall:F3} |");
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"| facts | {extraction.FactPrecision:F3} | {extraction.FactRecall:F3} |");
+        sb.AppendLine(CultureInfo.InvariantCulture,
+            $"| preferences | {extraction.PreferencePrecision:F3} | {extraction.PreferenceRecall:F3} |");
+        sb.AppendLine();
+
+        var dirty = extraction.CaseResults.Where(c => !c.Clean).ToList();
+        if (dirty.Count > 0)
+        {
+            sb.AppendLine("| Case | Missing | Unexpected | False positive |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var c in dirty)
+            {
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"| `{c.CaseId}` | {(c.Missing.Count == 0 ? "–" : string.Join(", ", c.Missing))} " +
+                    $"| {(c.Unexpected.Count == 0 ? "–" : string.Join(", ", c.Unexpected))} " +
+                    $"| {(c.FalsePositive ? "**YES**" : "–")} |");
             }
             sb.AppendLine();
         }
@@ -529,6 +630,17 @@ public sealed class PerfCommand
         if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed < 0)
             throw new ArgumentException($"--{name} must be zero or a positive integer.");
         return parsed;
+    }
+
+    private static bool ParseDefaultTrue(string? value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        return value.ToLowerInvariant() switch
+        {
+            "true" or "1" or "on" or "yes" => true,
+            "false" or "0" or "off" or "no" => false,
+            _ => throw new ArgumentException($"--{name} must be true or false."),
+        };
     }
 
     /// <summary>Keeps the label safe for a directory name without silently mangling it.</summary>

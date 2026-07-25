@@ -59,6 +59,16 @@ consecutive runs of the published baseline produced identical values for all 27 
 **These are safe to reason about, budget against, and compare across versions.** They are what
 [baseline-1.3.0.md](baseline-1.3.0.md) leads with.
 
+### Quality guards — deterministic and enforced
+
+Every performance run also executes 19 judged retrieval cases and 20 judged extraction cases. Retrieval
+is scored with Recall@K, MRR, and forbidden-result checks; extraction is scored with precision and
+recall per memory kind plus false positives on six turns that should teach the system nothing.
+
+Five fresh-container runs produced identical values for every guarded metric, so the committed
+tolerance is the observed variance: **zero**. The gate is on by default and returns a non-zero exit when
+a score falls below `eng/perf/baselines/quality.json` or a forbidden retrieval appears.
+
 ### Timings — indicative only
 
 Latency figures published here come from a local container with in-process stand-ins for the embedding
@@ -98,7 +108,9 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label mine --latency remote
 ```
 
 Each run writes a dated directory containing a manifest with the full environment fingerprint, an
-append-only trace log, per-iteration samples, a machine-readable summary, and a rendered report.
+append-only trace log, per-iteration samples, a machine-readable summary, and a rendered report. The
+quality gate is on by default; `--quality-gate=false` is available for diagnostic runs, and the report
+marks those scores as report-only.
 
 Run it at both latency settings. A change that improves only the `remote` shape is an ordering or
 overlap win; one that improves both removed work.
@@ -106,9 +118,12 @@ overlap win; one that improves both removed work.
 ### Determinism
 
 The harness uses a deterministic embedding function and a scripted model, so counters are reproducible.
-Both measured scenarios **self-assert**: the recall scenario fails the run if it retrieves fewer items
-than the configured limits, and the ingestion scenario fails if extraction never ran. Both failures are
-otherwise silent and would produce a confident, wrong number.
+The judged quality fixtures had zero observed variance across five complete runs, which is why their
+tolerance is zero rather than a guessed allowance.
+
+Both measured scenarios also **self-assert**: the recall scenario fails the run if it retrieves fewer
+items than the configured limits, and the ingestion scenario fails if extraction never ran. Those
+failures are otherwise silent and would produce a confident, wrong number.
 
 ---
 

@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 1,
+  "description": "Judged extraction-quality fixture. Each case is a turn plus the response the model is scripted to give for it, plus what the pipeline should end up having learned. Scored with precision and recall per memory kind, and a false-positive rate over the cases where the correct behaviour is to learn NOTHING. Deterministic: the model is scripted, matching is normalized string comparison, no LLM is involved in scoring.",
+  "ownerPrefix": "perf-xq",
+
+  "cases": [
+    {
+      "id": "XQ-001",
+      "category": "employment",
+      "matchOn": "joined the platform team at Northwind Traders",
+      "messages": [{ "role": "user", "content": "I just joined the platform team at Northwind Traders as a staff engineer." }],
+      "scriptedResponse": {
+        "entities": [{ "name": "Northwind Traders", "type": "ORGANIZATION", "confidence": 0.93 }],
+        "facts": [{ "subject": "user", "predicate": "works_at", "object": "Northwind Traders", "confidence": 0.92 }],
+        "preferences": [],
+        "relations": []
+      },
+      "expectEntities": ["Northwind Traders"],
+      "expectFacts": [{ "subject": "user", "predicate": "works_at", "object": "Northwind Traders" }],
+      "expectPreferences": []
+    },
+    {
+      "id": "XQ-002",
+      "category": "preference",
+      "matchOn": "send me short written summaries",
+      "messages": [{ "role": "user", "content": "Please send me short written summaries, not long documents." }],
+      "scriptedResponse": {
+        "entities": [],
+        "facts": [],
+        "preferences": [{ "category": "communication", "preference": "short written summaries over long documents", "confidence": 0.9 }],
+        "relations": []
+      },
+      "expectEntities": [],
+      "expectFacts": [],
+      "expectPreferences": ["short written summaries over long documents"]
+    },
+    {
+      "id": "XQ-003",
+      "category": "mixed",
+      "matchOn": "allergic to shellfish and I cook on Sundays",
+      "messages": [{ "role": "user", "content": "I'm allergic to shellfish and I cook on Sundays." }],
+      "scriptedResponse": {
+        "entities": [{ "name": "shellfish", "type": "CONCEPT", "confidence": 0.88 }],
+        "facts": [{ "subject": "user", "predicate": "allergic_to", "object": "shellfish", "confidence": 0.94 }],
+        "preferences": [{ "category": "lifestyle", "preference": "cooks on Sundays", "confidence": 0.82 }],
+        "relations": []
+      },
+      "expectEntities": ["shellfish"],
+      "expectFacts": [{ "subject": "user", "predicate": "allergic_to", "object": "shellfish" }],
+      "expectPreferences": ["cooks on Sundays"]
+    },
+    {
+      "id": "XQ-004",
+      "category": "relationship",
+      "matchOn": "Priya is my manager at Northwind",
+      "messages": [{ "role": "user", "content": "Priya is my manager at Northwind." }],
+      "scriptedResponse": {
+        "entities": [{ "name": "Priya", "type": "PERSON", "confidence": 0.91 }],
+        "facts": [{ "subject": "Priya", "predicate": "manages", "object": "user", "confidence": 0.9 }],
+        "preferences": [],
+        "relations": [{ "source": "Priya", "target": "user", "relationType": "MANAGES", "confidence": 0.88 }]
+      },
+      "expectEntities": ["Priya"],
+      "expectFacts": [{ "subject": "Priya", "predicate": "manages", "object": "user" }],
+      "expectPreferences": [],
+      "expectRelationships": 1
+    },
+    {
+      "id": "XQ-005",
+      "category": "employment",
+      "matchOn": "moved from Contoso to Fabrikam last March",
+      "messages": [{ "role": "user", "content": "I moved from Contoso to Fabrikam last March." }],
+      "scriptedResponse": {
+        "entities": [
+          { "name": "Contoso", "type": "ORGANIZATION", "confidence": 0.9 },
+          { "name": "Fabrikam", "type": "ORGANIZATION", "confidence": 0.9 }
+        ],
+        "facts": [{ "subject": "user", "predicate": "works_at", "object": "Fabrikam", "confidence": 0.89 }],
+        "preferences": [],
+        "relations": []
+      },
+      "expectEntities": ["Contoso", "Fabrikam"],
+      "expectFacts": [{ "subject": "user", "predicate": "works_at", "object": "Fabrikam" }],
+      "expectPreferences": []
+    },
+    {
+      "id": "XQ-006",
+      "category": "preference",
+      "matchOn": "prefer dark mode and keyboard shortcuts",
+      "messages": [{ "role": "user", "content": "I prefer dark mode and keyboard shortcuts everywhere." }],
+      "scriptedResponse": {
+        "entities": [],
+        "facts": [],
+        "preferences": [{ "category": "interface", "preference": "dark mode and keyboard shortcuts", "confidence": 0.87 }],
+        "relations": []
+      },
+      "expectEntities": [],
+      "expectFacts": [],
+      "expectPreferences": ["dark mode and keyboard shortcuts"]
+    },
+    {
+      "id": "XQ-007",
+      "category": "location",
+      "matchOn": "based in Porto now, moved from Berlin",
+      "messages": [{ "role": "user", "content": "I'm based in Porto now, moved from Berlin." }],
+      "scriptedResponse": {
+        "entities": [
+          { "name": "Porto", "type": "LOCATION", "confidence": 0.92 },
+          { "name": "Berlin", "type": "LOCATION", "confidence": 0.9 }
+        ],
+        "facts": [{ "subject": "user", "predicate": "lives_in", "object": "Porto", "confidence": 0.91 }],
+        "preferences": [],
+        "relations": []
+      },
+      "expectEntities": ["Porto", "Berlin"],
+      "expectFacts": [{ "subject": "user", "predicate": "lives_in", "object": "Porto" }],
+      "expectPreferences": []
+    },
+    {
+      "id": "XQ-008",
+      "category": "skill",
+      "matchOn": "been writing Rust for about six years",
+      "messages": [{ "role": "user", "content": "I've been writing Rust for about six years." }],
+      "scriptedResponse": {
+        "entities": [{ "name": "Rust", "type": "TECHNOLOGY", "confidence": 0.93 }],
+        "facts": [{ "subject": "user", "predicate": "skilled_in", "object": "Rust", "confidence": 0.9 }],
+        "preferences": [],
+        "relations": []
+      },
+      "expectEntities": ["Rust"],
+      "expectFacts": [{ "subject": "user", "predicate": "skilled_in", "object": "Rust" }],
+      "expectPreferences": []
+    },
+    {
+      "id": "XQ-009",
+      "category": "multi-turn",
+      "matchOn": "quarterly planning offsite in Valencia",
+      "messages": [
+        { "role": "user", "content": "We're doing the quarterly planning offsite in Valencia." },
+        { "role": "assistant", "content": "Noted." },
+        { "role": "user", "content": "Book me a window seat, I always take window seats." }
+      ],
+      "scriptedResponse": {
+        "entities": [{ "name": "Valencia", "type": "LOCATION", "confidence": 0.9 }],
+        "facts": [{ "subject": "team", "predicate": "meets_in", "object": "Valencia", "confidence": 0.85 }],
+        "preferences": [{ "category": "travel", "preference": "window seats when flying", "confidence": 0.88 }],
+        "relations": []
+      },
+      "expectEntities": ["Valencia"],
+      "expectFacts": [{ "subject": "team", "predicate": "meets_in", "object": "Valencia" }],
+      "expectPreferences": ["window seats when flying"]
+    },
+    {
+      "id": "XQ-010",
+      "category": "confidence-filtering",
+      "matchOn": "might possibly be interested in woodworking",
+      "messages": [{ "role": "user", "content": "I might possibly be interested in woodworking, not sure yet." }],
+      "scriptedResponse": {
+        "entities": [],
+        "facts": [],
+        "preferences": [{ "category": "hobby", "preference": "possibly woodworking", "confidence": 0.2 }],
+        "relations": []
+      },
+      "expectEntities": [],
+      "expectFacts": [],
+      "expectPreferences": [],
+      "note": "Confidence 0.2 is below MinConfidenceThreshold (0.5). The pipeline must DROP it. If this case ever reports a learned preference, confidence filtering has regressed."
+    },
+
+    {
+      "id": "XQ-020",
+      "category": "nothing-to-learn",
+      "matchOn": "thanks that works",
+      "messages": [{ "role": "user", "content": "thanks, that works" }],
+      "scriptedResponse": { "entities": [], "facts": [], "preferences": [], "relations": [] },
+      "expectNothing": true
+    },
+    {
+      "id": "XQ-021",
+      "category": "nothing-to-learn",
+      "matchOn": "run the tests again please",
+      "messages": [{ "role": "user", "content": "run the tests again please" }],
+      "scriptedResponse": { "entities": [], "facts": [], "preferences": [], "relations": [] },
+      "expectNothing": true
+    },
+    {
+      "id": "XQ-022",
+      "category": "nothing-to-learn",
+      "matchOn": "translate that paragraph into German",
+      "messages": [{ "role": "user", "content": "translate that paragraph into German" }],
+      "scriptedResponse": { "entities": [], "facts": [], "preferences": [], "relations": [] },
+      "expectNothing": true
+    },
+    {
+      "id": "XQ-023",
+      "category": "nothing-to-learn",
+      "matchOn": "yes go ahead",
+      "messages": [{ "role": "user", "content": "yes, go ahead" }],
+      "scriptedResponse": { "entities": [], "facts": [], "preferences": [], "relations": [] },
+      "expectNothing": true
+    },
+    {
+      "id": "XQ-024",
+      "category": "nothing-to-learn",
+      "matchOn": "what was the second point again",
+      "messages": [{ "role": "user", "content": "what was the second point again?" }],
+      "scriptedResponse": { "entities": [], "facts": [], "preferences": [], "relations": [] },
+      "expectNothing": true
+    },
+    {
+      "id": "XQ-025",
+      "category": "nothing-to-learn",
+      "matchOn": "reformat this as a bulleted list",
+      "messages": [{ "role": "user", "content": "reformat this as a bulleted list" }],
+      "scriptedResponse": { "entities": [], "facts": [], "preferences": [], "relations": [] },
+      "expectNothing": true
+    },
+
+    {
+      "id": "XQ-030",
+      "category": "partial-extraction",
+      "matchOn": "drink oat milk and my sister works at Adventure Works",
+      "messages": [{ "role": "user", "content": "I drink oat milk and my sister works at Adventure Works." }],
+      "scriptedResponse": {
+        "entities": [{ "name": "Adventure Works", "type": "ORGANIZATION", "confidence": 0.9 }],
+        "facts": [{ "subject": "sister", "predicate": "works_at", "object": "Adventure Works", "confidence": 0.88 }],
+        "preferences": [{ "category": "food", "preference": "drinks oat milk", "confidence": 0.85 }],
+        "relations": []
+      },
+      "expectEntities": ["Adventure Works"],
+      "expectFacts": [{ "subject": "sister", "predicate": "works_at", "object": "Adventure Works" }],
+      "expectPreferences": ["drinks oat milk"]
+    },
+    {
+      "id": "XQ-031",
+      "category": "multi-entity",
+      "matchOn": "Tailspin and Wingtip both use our SDK",
+      "messages": [{ "role": "user", "content": "Tailspin and Wingtip both use our SDK." }],
+      "scriptedResponse": {
+        "entities": [
+          { "name": "Tailspin", "type": "ORGANIZATION", "confidence": 0.9 },
+          { "name": "Wingtip", "type": "ORGANIZATION", "confidence": 0.9 }
+        ],
+        "facts": [
+          { "subject": "Tailspin", "predicate": "uses", "object": "SDK", "confidence": 0.87 },
+          { "subject": "Wingtip", "predicate": "uses", "object": "SDK", "confidence": 0.87 }
+        ],
+        "preferences": [],
+        "relations": []
+      },
+      "expectEntities": ["Tailspin", "Wingtip"],
+      "expectFacts": [
+        { "subject": "Tailspin", "predicate": "uses", "object": "SDK" },
+        { "subject": "Wingtip", "predicate": "uses", "object": "SDK" }
+      ],
+      "expectPreferences": []
+    },
+    {
+      "id": "XQ-032",
+      "category": "preference",
+      "matchOn": "never schedule anything before ten in the morning",
+      "messages": [{ "role": "user", "content": "Never schedule anything before ten in the morning for me." }],
+      "scriptedResponse": {
+        "entities": [],
+        "facts": [],
+        "preferences": [{ "category": "scheduling", "preference": "no meetings before 10am", "confidence": 0.91 }],
+        "relations": []
+      },
+      "expectEntities": [],
+      "expectFacts": [],
+      "expectPreferences": ["no meetings before 10am"]
+    },
+    {
+      "id": "XQ-033",
+      "category": "skill",
+      "matchOn": "certified in Kubernetes administration",
+      "messages": [{ "role": "user", "content": "I got certified in Kubernetes administration last month." }],
+      "scriptedResponse": {
+        "entities": [{ "name": "Kubernetes", "type": "TECHNOLOGY", "confidence": 0.92 }],
+        "facts": [{ "subject": "user", "predicate": "certified_in", "object": "Kubernetes administration", "confidence": 0.9 }],
+        "preferences": [],
+        "relations": []
+      },
+      "expectEntities": ["Kubernetes"],
+      "expectFacts": [{ "subject": "user", "predicate": "certified_in", "object": "Kubernetes administration" }],
+      "expectPreferences": []
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "tolerance": 0.0,
+  "evidence": {
+    "measuredAtUtc": "2026-07-25",
+    "runs": 5,
+    "profile": "hermetic-S-zero",
+    "iterationsPerRun": 1,
+    "judgedFixturesRunInFull": true,
+    "maxObservedVariance": 0.0,
+    "toleranceDerivation": "Every guarded metric was identical across five fresh containers, so tolerance equals observed variance: zero."
+  },
+  "retrieval": {
+    "recallAtK": 1.0,
+    "mrr": 1.0,
+    "cases": 19,
+    "maxCasesWithViolations": 0
+  },
+  "extraction": {
+    "entityPrecision": 1.0,
+    "entityRecall": 1.0,
+    "factPrecision": 1.0,
+    "factRecall": 1.0,
+    "preferencePrecision": 1.0,
+    "preferenceRecall": 1.0,
+    "cases": 20,
+    "expectNothingCases": 6,
+    "maxFalsePositiveRate": 0.0
+  }
+}
