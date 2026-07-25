@@ -28,6 +28,10 @@ public sealed class PerfCollector : IDisposable
     public static readonly string[] RecallCategories =
         ["recent", "relevant", "entities", "facts", "preferences", "traces"];
 
+    /// <summary>Memory kinds the ingestion phase persists, reported individually for the same reason.</summary>
+    public static readonly string[] PersistedKinds =
+        ["entities", "facts", "preferences", "relationships"];
+
     private readonly ActivityListener _listener;
     private readonly List<TurnRecord> _records = new();
     private readonly TraceLogWriter? _trace;
@@ -112,6 +116,19 @@ public sealed class PerfCollector : IDisposable
             case "memory.store.messages":
                 if (activity.GetTagItem("memory.store.message_count") is int stored)
                     turn.Add("store.messages", stored);
+                break;
+
+            case "memory.extract.resolution":
+                if (activity.GetTagItem("memory.extract.candidate_entities") is int candidates)
+                    turn.Add("extract.candidate_entities", candidates);
+                break;
+
+            case "memory.persist.total":
+                foreach (var kind in PersistedKinds)
+                {
+                    if (activity.GetTagItem($"memory.persist.{kind}") is int count)
+                        turn.Add($"persist.{kind}", count);
+                }
                 break;
         }
 

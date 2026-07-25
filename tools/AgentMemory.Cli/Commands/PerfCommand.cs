@@ -379,7 +379,7 @@ public sealed class PerfCommand
 
             var total = Percentiles(group.Select(r => r.DurationMs).ToList());
             sb.AppendLine(CultureInfo.InvariantCulture,
-                $"| **iteration total** (elapsed) | 1 | {total.p50:F2} | {total.p95:F2} | {total.p50:F2} |");
+                $"| **iteration total** (elapsed) | 1 | {total.P50:F2} | {total.P95:F2} | {total.P50:F2} |");
 
             foreach (var name in AllSpans(group))
             {
@@ -387,10 +387,10 @@ public sealed class PerfCommand
                     r.SpanMilliseconds.TryGetValue(name, out var ms) ? ms : 0d).ToList());
                 var occurrences = Median(group.Select(r =>
                     (double)(r.SpanCounts.TryGetValue(name, out var n) ? n : 0)).ToList());
-                var perOccurrence = occurrences > 0 ? summed.p50 / occurrences : 0d;
+                var perOccurrence = occurrences > 0 ? summed.P50 / occurrences : 0d;
                 var note = name == "memory.db.query" ? " ⚠" : string.Empty;
                 sb.AppendLine(CultureInfo.InvariantCulture,
-                    $"| `{name}`{note} | {occurrences:F0} | {summed.p50:F2} | {summed.p95:F2} | {perOccurrence:F2} |");
+                    $"| `{name}`{note} | {occurrences:F0} | {summed.P50:F2} | {summed.P95:F2} | {perOccurrence:F2} |");
             }
 
             sb.AppendLine();
@@ -405,11 +405,23 @@ public sealed class PerfCommand
         return sb.ToString();
     }
 
-    private static (double p50, double p95, double min, double max) Percentiles(List<double> values)
+    /// <summary>
+    /// Latency distribution for one metric.
+    /// </summary>
+    /// <remarks>
+    /// A record, deliberately, not a <c>ValueTuple</c>. <c>System.Text.Json</c> serializes public
+    /// <em>properties</em>, and a tuple's members are fields — so returning a tuple here wrote
+    /// <c>{}</c> for every timing in <c>summary.json</c> while <c>report.md</c>, which reads the values
+    /// in C#, looked perfectly correct. The machine-readable artifact is the one that gates and trend
+    /// analysis consume, so that silent hole was worse than a visible failure.
+    /// </remarks>
+    private sealed record Distribution(double P50, double P95, double Min, double Max);
+
+    private static Distribution Percentiles(List<double> values)
     {
-        if (values.Count == 0) return (0, 0, 0, 0);
+        if (values.Count == 0) return new Distribution(0, 0, 0, 0);
         values.Sort();
-        return (Quantile(values, 0.50), Quantile(values, 0.95), values[0], values[^1]);
+        return new Distribution(Quantile(values, 0.50), Quantile(values, 0.95), values[0], values[^1]);
     }
 
     private static double Quantile(List<double> sorted, double q)

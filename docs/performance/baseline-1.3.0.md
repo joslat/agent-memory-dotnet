@@ -1,0 +1,146 @@
+# Cost model — release 1.3.0
+
+What one agent turn costs at shipped defaults, measured per phase.
+
+**Measured:** 2026-07-25 · AgentMemory 1.3.0 · Neo4j 5.26 (container) · deterministic embeddings
+(384-dim) · scripted model · ~5k-node graph · 10 iterations after 3 warm-up · .NET 9.
+
+**Reproduce:** `dotnet run --project tools/AgentMemory.Cli -- perf --label mine --iterations 10`
+
+> Read [README.md](README.md) first if you have not. In particular: the counters below are portable and
+> reproducible; the timings are proportions from a local container, **not** deployment performance.
+
+---
+
+## 1. Structural cost — the portable part
+
+Per turn, at shipped defaults. **Two consecutive runs produced identical values for all 27 counters**,
+on every one of these.
+
+| | Phase 1 — Recall | Phase 2 — Ingestion |
+|---|---:|---:|
+| Neo4j **read** transactions | 6 | 4 |
+| Neo4j **write** transactions | 1 | 18 |
+| Neo4j queries | 9 | 43 |
+| Embedding provider requests | 1 | 4 |
+| **Model completions** | 0 | **4** |
+| Model tokens (in / out) | – | 947 / 668 |
+| Memory items returned | 43 | – |
+| Prompt characters added | 3,901 (≈975 tokens) | – |
+
+### What drives each number
+
+**Phase 1 — recall.** Six reads: recent messages, semantic message search, entities, facts,
+preferences, reasoning traces — issued concurrently, one per enabled category. One embedding request for
+the query. One write, batching the access-timestamp updates for every recalled long-term item. The 43
+items are the shipped `RecallOptions` limits: 10 recent + 5 relevant messages, 10 entities, 10 facts,
+5 preferences, 3 traces.
+
+**Phase 2 — ingestion.** The four model completions are the headline: the LLM extraction backend
+registers **one extractor per memory kind** — entity, fact, preference, relationship — and each issues
+its own completion carrying its own copy of the turn. They run concurrently, so they cost roughly one
+completion of *latency* but four completions of *spend*. The four embedding requests are one per
+extracted memory. The 18 writes are the message plus the extracted entities, facts, preferences, and
+their provenance edges.
+
+### How these scale
+
+Worth knowing before you tune anything:
+
+| If you change | Phase 1 | Phase 2 |
+|---|---|---|
+| Raise a `RecallOptions` limit | reads unchanged; items, prompt size, and tracked writes grow | – |
+| Enable another recall category | +1 read transaction | – |
+| Register another extractor | – | **+1 model completion per turn** |
+| Turn produces more memories | – | writes and embedding requests grow linearly |
+| Grow the graph | read cost grows with index behaviour (not yet characterised) | resolution cost grows |
+
+---
+
+## 2. Where the time goes — proportions, not expectations
+
+Same turn, measured twice: once with no injected provider latency (isolating database and CPU work),
+once with a remote-like shape (embedding 120 ms, model 900 ms). **The two tell different stories, which
+is the single most useful thing on this page.**
+
+### Phase 1 — Recall
+
+| | No provider latency | Remote-like |
+|---|---:|---:|
+| **Total elapsed** | **29 ms** | **155 ms** |
+| Query embedding | ~0 | ~120 ms |
+| Category retrieval (6 concurrent) | ~10 ms each | ~11 ms each |
+| Access-tracking write | 19 ms | 18 ms |
+
+With a local database, recall is database-bound and small. With a remote embedding provider, **the
+single query embedding dominates everything else combined**. If you are optimising recall latency in a
+real deployment, that is where to look first — not at the database.
+
+### Phase 2 — Ingestion
+
+| | No provider latency | Remote-like |
+|---|---:|---:|
+| **Total elapsed** | **218 ms** | **1,718 ms** |
+| Extraction (4 concurrent completions) | ~0 | **~908 ms** |
+| Persistence of extracted memories | 128 ms | 579 ms |
+| Entity resolution | 41 ms | (within extraction) |
+| Message persistence | 22 ms | 24 ms |
+
+With a local database and an instant model, ingestion is dominated by **persisting** what was extracted
+(≈59%) and by **entity resolution** (≈19%) — not by extraction itself. Add a real model and the picture
+inverts: the four completions become the cost.
+
+Note the concurrency effect: four completions at ~908 ms each contribute **~908 ms of elapsed time**,
+not 3.6 s. Concurrency hides the cost in latency — but not in the bill, and not in your provider's rate
+limit.
+
+---
+
+## 3. Collecting these from your own deployment
+
+The instrumentation is in the product, not the harness. Subscribe to the `AgentMemory`
+`ActivitySource` with OpenTelemetry and you get the same breakdown from live traffic.
+
+**Phase 1 — recall**
+
+| Span | Covers |
+|---|---|
+| `memory.recall.total` | The whole phase. Tags: item counts per category, total, characters |
+| `memory.recall.embedding` | Query embedding |
+| `memory.recall.recent` / `.messages` | Recent history / semantic message search |
+| `memory.recall.entities` / `.facts` / `.preferences` / `.traces` | Long-term category retrieval |
+| `memory.recall.graphrag` | GraphRAG, when enabled |
+| `memory.recall.access_tracking` | Access-timestamp writes. Tag: items tracked |
+
+**Phase 2 — ingestion**
+
+| Span | Covers |
+|---|---|
+| `memory.store.messages` | Response-message persistence. Tag: message count |
+| `memory.store.extract` | The whole extraction + persistence stage |
+| `memory.extract.entity` / `.fact` / `.preference` / `.relationship` | One per extractor category |
+| `memory.extract.resolution` | Entity resolution. Tag: candidate entities |
+| `memory.persist.total` | Persistence. Tags: counts per memory kind |
+
+**Both phases**
+
+| Span | Covers |
+|---|---|
+| `memory.db.tx` | One per database transaction. Tag: `db.mode` = read / write |
+| `memory.db.query` | One per Cypher query. **Counts are exact; duration covers dispatch only**, since results stream after the span closes |
+
+Cost is a null check when nothing is listening.
+
+---
+
+## 4. Honest limits of this page
+
+- Timings are local-container with stand-in providers. **Not deployment performance.**
+- Payload bytes are not measured; recall currently materialises embedding vectors it does not use, and
+  that cost is not yet quantified.
+- Cold start is not measured — everything here is warm.
+- One graph size (~5k nodes), one session, no concurrency or saturation figures.
+- No managed-database (Aura) or hosted-backend (NAMS) figures.
+
+Anything not listed in section 1 should be treated as directional. When these gaps close, this page will
+say so and the numbers will be dated.

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
@@ -106,6 +107,11 @@ internal sealed class ExtractionStage : IExtractionStage
         }
 
         // 2. Filter + validate + resolve entities; build name→Entity map for relationship resolution.
+        // Spanned separately from extraction: resolution is a SEQUENTIAL per-entity loop, so unlike the
+        // concurrent extractor categories above its cost grows linearly with entity count.
+        using var resolutionActivity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.resolution");
+        resolutionActivity?.SetTag("memory.extract.candidate_entities", rawEntities.Count);
+
         var resolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in rawEntities)
         {
@@ -283,6 +289,13 @@ internal sealed class ExtractionStage : IExtractionStage
     {
         if (extractors.Count == 0)
             return (Array.Empty<T>(), Array.Empty<IngestionItemOutcome>());
+
+        // One span per extractor category. The four categories run concurrently, so these overlap —
+        // which is exactly what makes them worth separating: without per-category attribution the only
+        // observable is the slowest of the four, and there is no way to see that each is a separate
+        // model completion carrying its own copy of the turn.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity($"memory.extract.{extractorTypeName}");
+        activity?.SetTag("memory.extract.extractor_count", extractors.Count);
 
         if (extractors.Count == 1)
             return await ExtractSafeAsync(() => extractFn(extractors[0]), extractorTypeName, kind, failureErrorCode, cancellationToken)

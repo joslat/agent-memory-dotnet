@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
@@ -52,6 +53,20 @@ internal sealed class PersistenceStage : IPersistenceStage
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
     {
+        // Spans the whole persistence stage. The four per-kind blocks below are sequential loops that
+        // embed and upsert one item at a time, so the stage's cost grows with how much the turn produced
+        // -- the candidate counts are tagged here so that growth is attributable without needing four
+        // more spans. (Per-kind TIMING would mean restructuring those loops; the counts plus the stage
+        // total answer "is persistence expensive, and because of how many of what" already.)
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.persist.total");
+        if (activity is not null)
+        {
+            activity.SetTag("memory.persist.entities", extraction.ResolvedEntityMap.Count);
+            activity.SetTag("memory.persist.facts", extraction.FilteredFacts.Count);
+            activity.SetTag("memory.persist.preferences", extraction.FilteredPreferences.Count);
+            activity.SetTag("memory.persist.relationships", extraction.FilteredRelationships.Count);
+        }
+
         var sourceMessageIds = extraction.SourceMessageIds;
         var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
         var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
