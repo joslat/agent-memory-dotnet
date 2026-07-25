@@ -428,9 +428,7 @@ FodyWeavers.xsd
 # reference research, core design set) - local-only, not part of the published repo
 /strategy/
 
-# Internal performance analysis, roadmap, measurement-system design, and captured
-# benchmark runs - local-only, same posture as /strategy/. NOTE: when the measurement
-# harness ships, its *committed* Class A baselines belong under eng/perf/baselines/
-# (tracked and reviewed in the diff), NOT here. Only analysis docs and run artifacts
-# are local-only.
-/performance/
+# NOTE: internal performance analysis now lives under /strategy/performance/ (already
+# covered by the /strategy/ rule above). Generated benchmark runs go to artifacts/perf/,
+# covered by the existing artifacts/ rule. Committed Class A baselines belong under
+# eng/perf/baselines/ and are deliberately TRACKED.

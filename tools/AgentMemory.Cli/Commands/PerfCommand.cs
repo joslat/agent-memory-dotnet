@@ -64,7 +64,10 @@ public sealed class PerfCommand
 
         var startedAt = DateTimeOffset.UtcNow;
         var runId = $"{startedAt:yyyyMMdd'T'HHmmss'Z'}__{runLabel}__hermetic-S-{LatencyName(latency)}";
-        var runDir = Path.Combine(outputRoot ?? Path.Combine("performance", "runs"), runId);
+        // artifacts/ is the repository's existing home for generated reports (the `evaluate` verb writes
+        // to artifacts/evaluation), and it is already gitignored. Run output is regenerable and must not
+        // live beside the hand-written analysis documents.
+        var runDir = Path.Combine(outputRoot ?? Path.Combine("artifacts", "perf"), runId);
         Directory.CreateDirectory(runDir);
 
         _output.WriteLine($"perf: run {runId}");
