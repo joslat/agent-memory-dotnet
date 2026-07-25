@@ -41,6 +41,17 @@ public static class PerfScenarios
         new("PERF-W-02", "Single response message, extraction enabled (shipped defaults)", StoreAndExtractAsync),
     ];
 
+    private const string StoreProbeUserMessage =
+        "Alice Martin just moved to the Acme Corporation platform team and prefers concise updates.";
+
+    /// <summary>
+    /// Input-keyed model responses required by cost scenarios. Kept separate from judged fixture rules:
+    /// an unmatched rule deliberately returns an empty extraction, so omitting this entry turns W-02
+    /// into a no-op that its self-assertion rejects.
+    /// </summary>
+    internal static IReadOnlyList<ScriptedChatClient.Rule> ScriptedRules { get; } =
+        [new(StoreProbeUserMessage, ScriptedChatClient.ExtractionPayload)];
+
     public static IReadOnlyList<PerfScenario> Select(string? filter)
     {
         if (string.IsNullOrWhiteSpace(filter) || filter.Equals("all", StringComparison.OrdinalIgnoreCase))
@@ -107,8 +118,7 @@ public static class PerfScenarios
 
         var requestMessages = new[]
         {
-            new ChatMessage(ChatRole.User,
-                "Alice Martin just moved to the Acme Corporation platform team and prefers concise updates."),
+            new ChatMessage(ChatRole.User, StoreProbeUserMessage),
         };
         var responseMessages = new[]
         {
@@ -125,12 +135,20 @@ public static class PerfScenarios
             PerfFixture.OwnerId).ConfigureAwait(false);
 
         // The mirror of the recall self-check: a scripted model returning unparseable output would make
-        // extraction yield nothing, persistence write nothing, and this scenario measure a no-op.
-        if (ctx.Turn.Counter("llm.calls") == 0)
+        // extraction yield nothing, persistence write nothing, and this scenario measure a no-op. Model
+        // calls alone are not evidence: an empty-but-valid response still records all four calls.
+        var modelCalls = ctx.Turn.Counter("llm.calls");
+        var entities = ctx.Turn.Counter("persist.entities");
+        var facts = ctx.Turn.Counter("persist.facts");
+        var preferences = ctx.Turn.Counter("persist.preferences");
+        if (modelCalls == 0 || entities == 0 || facts == 0 || preferences == 0)
         {
             throw new InvalidOperationException(
-                "PERF-W-02 recorded zero LLM calls, so automatic extraction did not run. Check that LLM " +
-                "extraction is opted in (AddNeo4jAgentMemory's configureLlm) and AutoExtractOnPersist is true.");
+                $"PERF-W-02 did not persist the scripted extraction (llm.calls={modelCalls}, " +
+                $"persist.entities={entities}, persist.facts={facts}, " +
+                $"persist.preferences={preferences}). The scenario would measure a no-op. Check that " +
+                "LLM extraction is opted in, AutoExtractOnPersist is true, and the scripted client " +
+                "returned its cost-scenario payload.");
         }
     }
 

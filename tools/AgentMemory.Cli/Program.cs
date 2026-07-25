@@ -49,7 +49,8 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             cli.Get("warmup"),
             cli.Get("embedding-dimensions"),
             cli.Get("latency"),
-            cli.Get("output"));
+            cli.Get("output"),
+            cli.Get("quality-gate"));
     }
     catch (Exception ex)
     {

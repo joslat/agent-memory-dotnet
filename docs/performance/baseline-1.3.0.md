@@ -55,6 +55,25 @@ Worth knowing before you tune anything:
 | Turn produces more memories | – | writes and embedding requests grow linearly |
 | Grow the graph | read cost grows with index behaviour (not yet characterised) | resolution cost grows |
 
+### Quality guard applied beside this cost baseline
+
+The cost counters are only accepted when deterministic quality remains at this committed baseline:
+
+| Guard | Baseline |
+|---|---:|
+| Retrieval Recall@K / MRR | 1.000 / 1.000 |
+| Retrieval cases with forbidden results | 0 of 19 |
+| Entity precision / recall | 1.000 / 1.000 |
+| Fact precision / recall | 1.000 / 1.000 |
+| Preference precision / recall | 1.000 / 1.000 |
+| Extraction false positives on learn-nothing turns | 0 of 6 (20 total cases) |
+
+Every value above was identical across five fresh-container runs: maximum observed variance **0.000**.
+The derived tolerance is therefore **zero**, recorded in
+`eng/perf/baselines/quality.json`. The `perf` command gates by default and exits non-zero on a drop or
+forbidden retrieval. This guard is about deterministic pipeline behavior; it does not claim to score
+the quality of a live model's prose.
+
 ---
 
 ## 2. Where the time goes — proportions, not expectations
