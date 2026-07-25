@@ -43,6 +43,33 @@ public sealed class MemoryServiceAccessTrackingTests
         _decayService
             .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<MemoryNodeKind>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+
+        _decayService
+            .UpdateAccessTimestampsAsync(
+                Arg.Any<IReadOnlyCollection<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+    }
+
+    /// <summary>
+    /// The nodes handed to the single batched access-tracking call.
+    /// </summary>
+    /// <remarks>
+    /// Recall now tracks access with one batched call instead of one call per recalled item — measured
+    /// at 25 write transactions per default recall before the change, all on the pre-model path. These
+    /// tests therefore assert on the batch's <em>contents</em>, which is the invariant that actually
+    /// matters (every recalled item is tracked, under the right kind) rather than on how many method
+    /// calls carried it.
+    /// <para>
+    /// Note that a substitute cannot exercise the interface's default implementation: the proxy replaces
+    /// the default body, so <see cref="IMemoryDecayService.UpdateAccessTimestampAsync"/> is never reached
+    /// through it. The fallback loop is covered where it runs for real, against the live adapter.
+    /// </para>
+    /// </remarks>
+    private IReadOnlyCollection<(string NodeId, MemoryNodeKind NodeKind)> CapturedTrackedNodes()
+    {
+        var call = _decayService.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IMemoryDecayService.UpdateAccessTimestampsAsync));
+        return (IReadOnlyCollection<(string NodeId, MemoryNodeKind NodeKind)>)call.GetArguments()[0]!;
     }
 
     private MemoryService CreateSut(IMemoryDecayService? decay = null) =>
@@ -77,11 +104,40 @@ public sealed class MemoryServiceAccessTrackingTests
         var sut = CreateSut(_decayService);
         await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
 
-        // Give fire-and-forget time to execute
-        await Task.Delay(100);
+        CapturedTrackedNodes().Should().BeEquivalentTo(new[]
+        {
+            ("ent-1", MemoryNodeKind.Entity),
+            ("ent-2", MemoryNodeKind.Entity),
+        });
+    }
 
-        await _decayService.Received().UpdateAccessTimestampAsync("ent-1", MemoryNodeKind.Entity, Arg.Any<CancellationToken>());
-        await _decayService.Received().UpdateAccessTimestampAsync("ent-2", MemoryNodeKind.Entity, Arg.Any<CancellationToken>());
+    [Fact]
+    public async Task RecallAsync_WithDecayService_TracksEveryCategoryInOneBatchedCall()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = _fixedTime,
+            RelevantEntities = new MemoryContextSection<Entity> { Items = new[] { CreateEntity("ent-1") } },
+            RelevantFacts = new MemoryContextSection<Fact> { Items = new[] { CreateFact("fact-1") } },
+            RelevantPreferences = new MemoryContextSection<Preference> { Items = new[] { CreatePreference("pref-1") } },
+        };
+
+        _assembler
+            .AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(context));
+
+        var sut = CreateSut(_decayService);
+        await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
+
+        // Exactly one call — the regression guard for the 25-transactions-per-recall behaviour this
+        // replaced. CapturedTrackedNodes() itself asserts singularity via Single().
+        CapturedTrackedNodes().Should().BeEquivalentTo(new[]
+        {
+            ("ent-1", MemoryNodeKind.Entity),
+            ("fact-1", MemoryNodeKind.Fact),
+            ("pref-1", MemoryNodeKind.Preference),
+        });
     }
 
     [Fact]
@@ -103,9 +159,8 @@ public sealed class MemoryServiceAccessTrackingTests
 
         var sut = CreateSut(_decayService);
         await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
-        await Task.Delay(100);
 
-        await _decayService.Received().UpdateAccessTimestampAsync("fact-1", MemoryNodeKind.Fact, Arg.Any<CancellationToken>());
+        CapturedTrackedNodes().Should().BeEquivalentTo(new[] { ("fact-1", MemoryNodeKind.Fact) });
     }
 
     [Fact]
@@ -127,9 +182,8 @@ public sealed class MemoryServiceAccessTrackingTests
 
         var sut = CreateSut(_decayService);
         await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
-        await Task.Delay(100);
 
-        await _decayService.Received().UpdateAccessTimestampAsync("pref-1", MemoryNodeKind.Preference, Arg.Any<CancellationToken>());
+        CapturedTrackedNodes().Should().BeEquivalentTo(new[] { ("pref-1", MemoryNodeKind.Preference) });
     }
 
     [Fact]
@@ -172,10 +226,13 @@ public sealed class MemoryServiceAccessTrackingTests
 
         var sut = CreateSut(_decayService);
         await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "test" });
-        await Task.Delay(100);
 
+        // An empty recall must not reach the database at all — not even to send an empty batch.
         await _decayService.DidNotReceive()
             .UpdateAccessTimestampAsync(Arg.Any<string>(), Arg.Any<MemoryNodeKind>(), Arg.Any<CancellationToken>());
+        await _decayService.DidNotReceive()
+            .UpdateAccessTimestampsAsync(
+                Arg.Any<IReadOnlyCollection<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

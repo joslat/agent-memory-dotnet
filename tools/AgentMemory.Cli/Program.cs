@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate" };
+var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -33,6 +33,29 @@ if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 if (string.Equals(cli.Command, "schema-parity", StringComparison.OrdinalIgnoreCase))
 {
     return new AgentMemory.Cli.Commands.SchemaParityCommand(Console.Out).Execute(cli.Get("upstream-version"));
+}
+
+// perf provisions its OWN Neo4j (Testcontainers) and its own deterministic embedding/model stand-ins,
+// so it must not go through the shared host below — that one binds to a caller-supplied connection and
+// would measure whatever database happens to be configured, with whatever data is already in it.
+if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
+{
+    try
+    {
+        return await new AgentMemory.Cli.Commands.PerfCommand(Console.Out).ExecuteAsync(
+            cli.Get("label"),
+            cli.Get("scenarios"),
+            cli.Get("iterations"),
+            cli.Get("warmup"),
+            cli.Get("embedding-dimensions"),
+            cli.Get("latency"),
+            cli.Get("output"));
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"error: {ex.Message}");
+        return 1;
+    }
 }
 
 try

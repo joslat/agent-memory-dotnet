@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "description": "Judged retrieval-quality fixture. Five topics with deliberately disjoint vocabulary, so a query about one topic should retrieve that topic's memories and not another's. Scored with Recall@K and MRR against hand-labelled relevant ids. Deterministic: no model is involved anywhere in scoring.",
+  "ownerId": "perf-quality-owner",
+  "sessionId": "perf-quality-session",
+
+  "topics": {
+    "work": {
+      "vocabulary": "acme corporation platform engineering standup deployment",
+      "entities": [
+        { "id": "q-ent-work-1", "name": "Acme Corporation", "text": "Acme Corporation engineering organisation" },
+        { "id": "q-ent-work-2", "name": "platform team", "text": "Acme Corporation platform team deployment pipeline" },
+        { "id": "q-ent-work-3", "name": "daily standup", "text": "Acme Corporation engineering daily standup meeting" }
+      ],
+      "facts": [
+        { "id": "q-fact-work-1", "subject": "user", "predicate": "works_at", "object": "Acme Corporation", "text": "user works at Acme Corporation engineering" },
+        { "id": "q-fact-work-2", "subject": "user", "predicate": "member_of", "object": "platform team", "text": "user is member of the Acme platform team deployment group" }
+      ],
+      "preferences": [
+        { "id": "q-pref-work-1", "category": "work", "text": "prefers Acme standup meetings kept under fifteen minutes" }
+      ]
+    },
+    "travel": {
+      "vocabulary": "lisbon flight hotel itinerary passport airport",
+      "entities": [
+        { "id": "q-ent-travel-1", "name": "Lisbon", "text": "Lisbon travel destination city" },
+        { "id": "q-ent-travel-2", "name": "Hotel Baixa", "text": "Lisbon hotel Baixa booking reservation" }
+      ],
+      "facts": [
+        { "id": "q-fact-travel-1", "subject": "user", "predicate": "travelled_to", "object": "Lisbon", "text": "user travelled to Lisbon airport flight" }
+      ],
+      "preferences": [
+        { "id": "q-pref-travel-1", "category": "travel", "text": "prefers aisle seats on long flights and early airport arrival" }
+      ]
+    },
+    "food": {
+      "vocabulary": "vegetarian peanut allergy recipe kitchen dinner",
+      "entities": [
+        { "id": "q-ent-food-1", "name": "peanut allergy", "text": "peanut allergy dietary restriction" }
+      ],
+      "facts": [
+        { "id": "q-fact-food-1", "subject": "user", "predicate": "allergic_to", "object": "peanuts", "text": "user is allergic to peanuts dietary" }
+      ],
+      "preferences": [
+        { "id": "q-pref-food-1", "category": "food", "text": "prefers vegetarian recipes for weeknight dinner" }
+      ]
+    },
+    "music": {
+      "vocabulary": "guitar jazz vinyl concert album saxophone",
+      "entities": [
+        { "id": "q-ent-music-1", "name": "jazz", "text": "jazz music genre saxophone" }
+      ],
+      "facts": [
+        { "id": "q-fact-music-1", "subject": "user", "predicate": "plays", "object": "guitar", "text": "user plays guitar jazz music" }
+      ],
+      "preferences": [
+        { "id": "q-pref-music-1", "category": "music", "text": "prefers vinyl albums over streaming for jazz listening" }
+      ]
+    },
+    "fitness": {
+      "vocabulary": "marathon running knee physiotherapy treadmill stretching",
+      "entities": [
+        { "id": "q-ent-fitness-1", "name": "marathon", "text": "marathon running race training" }
+      ],
+      "facts": [
+        { "id": "q-fact-fitness-1", "subject": "user", "predicate": "recovering_from", "object": "knee injury", "text": "user recovering from knee injury physiotherapy" }
+      ],
+      "preferences": [
+        { "id": "q-pref-fitness-1", "category": "fitness", "text": "prefers morning treadmill running with stretching afterwards" }
+      ]
+    }
+  },
+
+  "cases": [
+    { "id": "RQ-001", "category": "entity-lookup",     "kind": "entity",     "query": "Tell me about Acme Corporation engineering",                       "relevant": ["q-ent-work-1", "q-ent-work-2", "q-ent-work-3"] },
+    { "id": "RQ-002", "category": "entity-lookup",     "kind": "entity",     "query": "What is the platform team deployment pipeline at Acme?",           "relevant": ["q-ent-work-2"] },
+    { "id": "RQ-003", "category": "entity-lookup",     "kind": "entity",     "query": "Where did I stay in Lisbon, which hotel?",                         "relevant": ["q-ent-travel-2"], "labellingNote": "Originally also listed q-ent-travel-1 (the city). Corrected: the question asks which HOTEL, so the city entity is context, not the answer. Over-labelling context as relevant makes Recall@K unachievable by construction and the metric stops meaning anything." },
+    { "id": "RQ-004", "category": "entity-lookup",     "kind": "entity",     "query": "What do I know about jazz and saxophone music?",                   "relevant": ["q-ent-music-1"] },
+    { "id": "RQ-005", "category": "entity-lookup",     "kind": "entity",     "query": "Tell me about marathon running training",                          "relevant": ["q-ent-fitness-1"] },
+
+    { "id": "RQ-010", "category": "fact-retrieval",    "kind": "fact",       "query": "Where does the user work?",                                        "relevant": ["q-fact-work-1"] },
+    { "id": "RQ-011", "category": "fact-retrieval",    "kind": "fact",       "query": "Which Acme platform team deployment group am I a member of?",      "relevant": ["q-fact-work-2"] },
+    { "id": "RQ-012", "category": "fact-retrieval",    "kind": "fact",       "query": "Is the user allergic to any food, such as peanuts?",               "relevant": ["q-fact-food-1"] },
+    { "id": "RQ-013", "category": "fact-retrieval",    "kind": "fact",       "query": "What instrument does the user play?",                              "relevant": ["q-fact-music-1"] },
+    { "id": "RQ-014", "category": "fact-retrieval",    "kind": "fact",       "query": "Is the user recovering from a knee injury, any physiotherapy?",    "relevant": ["q-fact-fitness-1"] },
+    { "id": "RQ-015", "category": "fact-retrieval",    "kind": "fact",       "query": "Has the user travelled to Lisbon by flight?",                      "relevant": ["q-fact-travel-1"] },
+
+    { "id": "RQ-020", "category": "preference-recall", "kind": "preference", "query": "How long should Acme standup meetings be kept?",                    "relevant": ["q-pref-work-1"] },
+    { "id": "RQ-021", "category": "preference-recall", "kind": "preference", "query": "What seat does the user prefer on long flights?",                   "relevant": ["q-pref-travel-1"] },
+    { "id": "RQ-022", "category": "preference-recall", "kind": "preference", "query": "What kind of recipes does the user want for weeknight dinner?",     "relevant": ["q-pref-food-1"] },
+    { "id": "RQ-023", "category": "preference-recall", "kind": "preference", "query": "Does the user prefer vinyl albums or streaming for jazz?",          "relevant": ["q-pref-music-1"] },
+    { "id": "RQ-024", "category": "preference-recall", "kind": "preference", "query": "When does the user prefer treadmill running and stretching?",       "relevant": ["q-pref-fitness-1"] },
+
+    { "id": "RQ-030", "category": "cross-topic-isolation", "kind": "fact",   "query": "peanut allergy dietary restriction",                                "relevant": ["q-fact-food-1"], "mustNotRetrieve": ["q-fact-work-1", "q-fact-work-2", "q-fact-travel-1", "q-fact-music-1", "q-fact-fitness-1"] },
+    { "id": "RQ-031", "category": "cross-topic-isolation", "kind": "entity", "query": "lisbon hotel baixa reservation",                                    "relevant": ["q-ent-travel-2"], "mustNotRetrieve": ["q-ent-work-1", "q-ent-work-2", "q-ent-work-3", "q-ent-music-1", "q-ent-fitness-1"] },
+    { "id": "RQ-032", "category": "cross-topic-isolation", "kind": "preference", "query": "marathon treadmill stretching morning",                         "relevant": ["q-pref-fitness-1"], "mustNotRetrieve": ["q-pref-work-1", "q-pref-travel-1", "q-pref-food-1", "q-pref-music-1"] }
+  ]
+}

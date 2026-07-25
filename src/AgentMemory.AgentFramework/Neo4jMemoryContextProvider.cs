@@ -2,6 +2,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -283,34 +284,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 .Select(msg => MafTypeMapper.ToInternalMessage(msg, sessionId, conversationId, _clock, _idGenerator))
                 .ToList();
 
-            var storedMessages = new List<Message>();
-            foreach (var msg in responseMessages)
-            {
-                if (string.IsNullOrWhiteSpace(msg.Text)) continue;
-
-                // When the underlying IChatClient stamps a provider-native MessageId on this response
-                // message, persist it under a deterministic id (#89): if another persisting component
-                // (e.g. Neo4jChatHistoryProvider, Neo4jChatMessageStore) configured on the same agent
-                // observes the same response, it converges on this same :Message node instead of creating
-                // a duplicate. Falls back to today's fresh-id behavior when absent (no regression).
-                var providerId = MafTypeMapper.TryGetProviderMessageId(msg);
-                var stored = providerId is not null
-                    ? await _memoryService
-                        .AddMessageWithIdAsync(
-                            sessionId, conversationId,
-                            MafTypeMapper.ToInternalRole(msg.Role),
-                            msg.Text, providerId,
-                            cancellationToken: cancellationToken)
-                        .ConfigureAwait(false)
-                    : await _memoryService
-                        .AddMessageAsync(
-                            sessionId, conversationId,
-                            MafTypeMapper.ToInternalRole(msg.Role),
-                            msg.Text,
-                            cancellationToken: cancellationToken)
-                        .ConfigureAwait(false);
-                storedMessages.Add(stored);
-            }
+            var storedMessages = await StoreResponseMessagesAsync(
+                responseMessages, sessionId, conversationId, cancellationToken).ConfigureAwait(false);
 
             // Extraction sees the complete turn (#89): a fact or preference the user states in their
             // request is now captured even if the assistant never repeats it back. Because
@@ -325,6 +300,8 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             var turnMessages = transientRequestMessages.Concat(storedMessages).ToList();
             if (_agentOptions.AutoExtractOnPersist && turnMessages.Count > 0)
             {
+                using var extractSpan = AgentMemoryDiagnostics.Source.StartActivity("memory.store.extract");
+                extractSpan?.SetTag("memory.extract.source_messages", turnMessages.Count);
                 try
                 {
                     await _memoryService.ExtractAndPersistAsync(
@@ -355,6 +332,52 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             _logger.LogWarning(ex,
                 "Failed to persist messages after run for session {SessionId}.", sessionId);
         }
+    }
+
+    /// <summary>
+    /// Persists the run's response messages, one node each, inside a <c>memory.store.messages</c> span.
+    /// Extracted from <see cref="PerformStoreAsync"/> so the per-message loop is attributable in a trace
+    /// without nesting a <c>using</c> block around the surrounding logic; behaviour is unchanged.
+    /// </summary>
+    private async Task<List<Message>> StoreResponseMessagesAsync(
+        IEnumerable<ChatMessage> responseMessages,
+        string sessionId,
+        string conversationId,
+        CancellationToken cancellationToken)
+    {
+        using var span = AgentMemoryDiagnostics.Source.StartActivity("memory.store.messages");
+        var storedMessages = new List<Message>();
+
+        foreach (var msg in responseMessages)
+        {
+            if (string.IsNullOrWhiteSpace(msg.Text)) continue;
+
+            // When the underlying IChatClient stamps a provider-native MessageId on this response
+            // message, persist it under a deterministic id (#89): if another persisting component
+            // (e.g. Neo4jChatHistoryProvider, Neo4jChatMessageStore) configured on the same agent
+            // observes the same response, it converges on this same :Message node instead of creating
+            // a duplicate. Falls back to today's fresh-id behavior when absent (no regression).
+            var providerId = MafTypeMapper.TryGetProviderMessageId(msg);
+            var stored = providerId is not null
+                ? await _memoryService
+                    .AddMessageWithIdAsync(
+                        sessionId, conversationId,
+                        MafTypeMapper.ToInternalRole(msg.Role),
+                        msg.Text, providerId,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false)
+                : await _memoryService
+                    .AddMessageAsync(
+                        sessionId, conversationId,
+                        MafTypeMapper.ToInternalRole(msg.Role),
+                        msg.Text,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            storedMessages.Add(stored);
+        }
+
+        span?.SetTag("memory.store.message_count", storedMessages.Count);
+        return storedMessages;
     }
 
     private (string sessionId, string conversationId, string? userId, string? applicationId) ExtractIds(

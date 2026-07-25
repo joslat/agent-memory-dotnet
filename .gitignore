@@ -427,3 +427,8 @@ FodyWeavers.xsd
 # Internal planning/strategy docs (roadmap, continue-here, archive, reviews,
 # reference research, core design set) - local-only, not part of the published repo
 /strategy/
+
+# NOTE: internal performance analysis now lives under /strategy/performance/ (already
+# covered by the /strategy/ rule above). Generated benchmark runs go to artifacts/perf/,
+# covered by the existing artifacts/ rule. Committed Class A baselines belong under
+# eng/perf/baselines/ and are deliberately TRACKED.

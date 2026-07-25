@@ -1,0 +1,139 @@
+# Performance
+
+What AgentMemory costs you per agent turn, how that cost is measured, and how to reproduce it.
+
+| Doc | What it covers |
+|---|---|
+| **README.md** (this file) | The two phases, what is and isn't measured, how to run it yourself |
+| [baseline-1.3.0.md](baseline-1.3.0.md) | The measured cost model for release 1.3.0 |
+
+---
+
+## The two phases
+
+AgentMemory plugs into the Microsoft Agent Framework at two points, and they have completely different
+cost profiles. Almost every performance question about this library resolves to "which phase?".
+
+```
+                user message
+                     │
+   ┌─────────────────▼─────────────────┐
+   │  PHASE 1 — RECALL                 │   ProvideAIContextAsync
+   │  decide → embed query → retrieve  │   BLOCKS the model.
+   │  → assemble prompt context        │   Cost lands on time-to-first-token.
+   └─────────────────┬─────────────────┘
+                     │
+                  the model
+                     │
+   ┌─────────────────▼─────────────────┐
+   │  PHASE 2 — INGESTION              │   StoreAIContextAsync
+   │  persist messages → extract       │   Runs after the answer.
+   │  → resolve → embed → persist      │   Cost lands on run-completion time
+   └───────────────────────────────────┘   and on your model bill.
+```
+
+**Phase 1 is a latency problem. Phase 2 is mostly a cost problem.** They deserve to be tuned, budgeted,
+and reasoned about separately — which is why every measurement here is reported per phase, never as a
+single "memory overhead" figure.
+
+| | Phase 1 — Recall | Phase 2 — Ingestion |
+|---|---|---|
+| MAF hook | `ProvideAIContextAsync` | `StoreAIContextAsync` |
+| Blocks the user? | **Yes** — before the first token | No — after the answer |
+| Dominant cost, local database | Database round trips | Persistence writes + entity resolution |
+| Dominant cost, remote model | Query embedding | **Model completions** |
+| Main tuning levers | `RecallOptions` limits, recall policy | `AutoExtractOnPersist`, extractor selection |
+
+---
+
+## What is measured, and what is not
+
+This distinction matters more than any individual number.
+
+### Structural counters — trustworthy, portable
+
+Round trips, queries, embedding requests, model completions, tokens, items. These are **deterministic**:
+the same scenario on the same data produces identical counts on any machine, in any environment. Two
+consecutive runs of the published baseline produced identical values for all 27 counters.
+
+**These are safe to reason about, budget against, and compare across versions.** They are what
+[baseline-1.3.0.md](baseline-1.3.0.md) leads with.
+
+### Timings — indicative only
+
+Latency figures published here come from a local container with in-process stand-ins for the embedding
+and model providers. **They are not deployment performance**, and we do not present them as such. Your
+latency depends on where Neo4j lives relative to your app, which embedding model you use, how large your
+graph is, and which model you call — none of which this harness holds fixed for you.
+
+Timings are published to show **proportions** — which phase, and which stage inside it, dominates — not
+absolute expectations. Where a figure is elapsed time and where it is a sum across concurrent work is
+always labelled, because the two differ by an order of magnitude in the recall phase.
+
+### Not yet measured
+
+Stated plainly rather than left for you to discover:
+
+- **Payload bytes** returned from Neo4j. Recall currently materialises stored embedding vectors it does
+  not use; the cost is understood in principle and not yet quantified.
+- **Cold start** — every figure here is warm. First-call cost after process start, pool expiry, or a
+  cache-cold database is not yet characterised.
+- **Scale** — the published baseline is a small graph (~5k memory nodes). Behaviour as the graph grows
+  is not yet published.
+- **Managed/hosted deployments** — no Aura or NAMS figures yet.
+- **Concurrency** — single-session only; no saturation or p99-under-load numbers.
+
+---
+
+## Reproduce it yourself
+
+Requires Docker. The harness provisions its own pinned Neo4j, so it does not touch your database.
+
+```bash
+# Isolates database and CPU cost — no injected provider latency
+dotnet run --project tools/AgentMemory.Cli -- perf --label mine --iterations 10
+
+# Reproduces the shape of a remote deployment (embedding 120 ms, model 900 ms)
+dotnet run --project tools/AgentMemory.Cli -- perf --label mine --latency remote --iterations 10
+```
+
+Each run writes a dated directory containing a manifest with the full environment fingerprint, an
+append-only trace log, per-iteration samples, a machine-readable summary, and a rendered report.
+
+Run it at both latency settings. A change that improves only the `remote` shape is an ordering or
+overlap win; one that improves both removed work.
+
+### Determinism
+
+The harness uses a deterministic embedding function and a scripted model, so counters are reproducible.
+Both measured scenarios **self-assert**: the recall scenario fails the run if it retrieves fewer items
+than the configured limits, and the ingestion scenario fails if extraction never ran. Both failures are
+otherwise silent and would produce a confident, wrong number.
+
+---
+
+## Tuning starting points
+
+Neither is a default change — both trade something. Measure before and after with the commands above.
+
+**Phase 1 — reduce recall latency.** Lower the per-category limits in `RecallOptions`; the shipped
+defaults retrieve up to 43 items per turn. Supply a task-aware `IAutomaticRecallPolicy` so turns that
+need no memory skip retrieval entirely. Both trade recall quality for latency.
+
+**Phase 2 — reduce ingestion cost.** `AgentFrameworkOptions.AutoExtractOnPersist` defaults to `true`,
+so every turn runs the full extraction pipeline. Setting it to `false` and calling
+`ExtractFromSessionAsync` on a schedule trades learning latency for a large reduction in model spend.
+Registering fewer extractors reduces completions proportionally.
+
+---
+
+## A note on how these numbers are produced
+
+The instrumentation lives in the product, not in the benchmark. Spans are emitted from the same code
+paths you run, and the harness is a passive `ActivityListener` — so the measured build and the shipped
+build are the same build. When no listener is attached, `ActivitySource.StartActivity` returns null and
+the cost is a null check.
+
+That also means **you can collect these same measurements from your own deployment** by subscribing to
+the `AgentMemory` `ActivitySource` with OpenTelemetry. The spans are documented in
+[baseline-1.3.0.md](baseline-1.3.0.md).

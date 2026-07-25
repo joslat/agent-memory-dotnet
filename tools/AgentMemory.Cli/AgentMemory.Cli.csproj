@@ -9,6 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <!-- `perf` only. Safe to carry here because this project is IsPackable=false operator tooling: the
+         release packs src/*/*.csproj only, so Testcontainers never reaches a published package. Docker is
+         required to RUN `perf`, not to build or run any other verb. -->
+    <PackageReference Include="Testcontainers.Neo4j" Version="4.11.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,10 +20,21 @@
          Extraction.AzureLanguage) — transitively exposes IMigrationRunner / ISchemaBootstrapper /
          IConsolidationService / IMemoryDecayService and the rest of the memory services. -->
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <!-- NOT in the meta-package, and `perf` measures the MAF turn (ProvideAIContext/StoreAIContext),
+         which is the whole point of turn-level measurement. -->
+    <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The judged retrieval fixture is embedded, not read from disk: it defines what "correct
+         retrieval" means, so it must version with the assembly that scores against it and be reviewed
+         in the diff like source. A loose file could differ per machine and silently invalidate every
+         comparison. -->
+    <EmbeddedResource Include="Perf\Fixtures\retrieval-quality.json" />
   </ItemGroup>
 
 </Project>
