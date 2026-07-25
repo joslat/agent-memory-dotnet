@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -78,6 +79,13 @@ internal sealed class MemoryService : IMemoryService
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Recalling memory for session {SessionId}", request.SessionId);
+
+        // Spans the complete recall — assembly, access tracking, and budgeting — so a trace has one
+        // parent to attribute the per-category child spans to. Distinct from the `memory.recall` span
+        // emitted by the opt-in InstrumentedMemoryService decorator, which wraps this method from
+        // outside; both can be present without colliding.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.total");
+
         var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
         // Update access timestamps for recalled long-term memories (awaited so failures and
@@ -107,6 +115,23 @@ internal sealed class MemoryService : IMemoryService
         int? estimatedTokens = null;
         if (budget.MaxTokens.HasValue)
             estimatedTokens = estimatedChars / 4;
+
+        if (activity is not null)
+        {
+            activity.SetTag("memory.recall.items", totalItems);
+            activity.SetTag("memory.recall.chars", estimatedChars);
+            activity.SetTag("memory.recall.truncated", context.Truncated);
+
+            // Per-category counts, not just the total. A total alone cannot distinguish "recall is
+            // working" from "one category silently returned nothing" — which is exactly the failure a
+            // similarity threshold or a missing index produces, and it is invisible in an aggregate.
+            activity.SetTag("memory.recall.recent", context.RecentMessages.Items.Count);
+            activity.SetTag("memory.recall.relevant", context.RelevantMessages.Items.Count);
+            activity.SetTag("memory.recall.entities", context.RelevantEntities.Items.Count);
+            activity.SetTag("memory.recall.facts", context.RelevantFacts.Items.Count);
+            activity.SetTag("memory.recall.preferences", context.RelevantPreferences.Items.Count);
+            activity.SetTag("memory.recall.traces", context.SimilarTraces.Items.Count);
+        }
 
         return new RecallResult
         {
@@ -415,6 +440,11 @@ internal sealed class MemoryService : IMemoryService
 
     private async Task UpdateAccessTimestampsAsync(MemoryContext context, CancellationToken cancellationToken)
     {
+        // Spanned separately from the rest of recall because this is a WRITE burst on the pre-model read
+        // path: one update per recalled entity/fact/preference, each its own transaction in the Neo4j
+        // adapter. At shipped RecallOptions defaults that is up to 25 write transactions before the model
+        // is invoked. The span makes that cost attributable instead of hiding inside total recall time.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.access_tracking");
         try
         {
             var tasks = new List<Task>();
@@ -427,6 +457,8 @@ internal sealed class MemoryService : IMemoryService
 
             foreach (var pref in context.RelevantPreferences.Items)
                 tasks.Add(_decayService!.UpdateAccessTimestampAsync(pref.PreferenceId, MemoryNodeKind.Preference, cancellationToken));
+
+            activity?.SetTag("memory.access_tracking.items", tasks.Count);
 
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }

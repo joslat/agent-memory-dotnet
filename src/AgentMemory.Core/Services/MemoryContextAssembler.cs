@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
@@ -164,7 +165,10 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             // Generate embedding if not provided (only needed for memory-layer semantic search).
             var queryEmbedding = request.QueryEmbedding
-                ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false);
+                ?? await TimedAsync(
+                        "memory.recall.embedding",
+                        () => _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken))
+                    .ConfigureAwait(false);
 
             // Vector searches require a non-empty embedding. A blank query (e.g. a history-only
             // recall via the chat-history provider) yields an empty embedding — skip the semantic
@@ -177,12 +181,19 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // zeroes its limit, and skipping the call entirely (rather than issuing a LIMIT/TopK 0 query
             // whose result is always empty) is what actually saves the embedding/database work the policy
             // is asking to avoid.
+            // Each retrieval is wrapped in a per-category span so a measurement harness can attribute
+            // recall time by category rather than seeing one opaque total. TimedAsync invokes its factory
+            // synchronously (an async method runs to its first await, and that await IS the factory call),
+            // which is what keeps the ranking-context contract below intact — the repositories still read
+            // the ambient override while the task is *created*, exactly as they did before.
             var recentTask = recallOpts.MaxRecentMessages > 0
-                ? _shortTerm.GetRecentMessagesAsync(request.SessionId, recallOpts.MaxRecentMessages, cancellationToken)
+                ? TimedAsync("memory.recall.recent",
+                    () => _shortTerm.GetRecentMessagesAsync(request.SessionId, recallOpts.MaxRecentMessages, cancellationToken))
                 : Empty<Message>();
 
             var relevantTask = hasEmbedding && recallOpts.MaxRelevantMessages > 0
-                ? _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken)
+                ? TimedAsync("memory.recall.messages",
+                    () => _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken))
                 : Empty<Message>();
 
             // D3 — apply the per-request query intent (latest/analog) as an ambient ranking override for
@@ -193,19 +204,23 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
 
             var entitiesTask = hasEmbedding && recallOpts.MaxEntities > 0
-                ? _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
+                ? TimedAsync("memory.recall.entities",
+                    () => _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken))
                 : Empty<Entity>();
 
             var preferencesTask = hasEmbedding && recallOpts.MaxPreferences > 0
-                ? _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
+                ? TimedAsync("memory.recall.preferences",
+                    () => _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken))
                 : Empty<Preference>();
 
             var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
-                ? _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken)
+                ? TimedAsync("memory.recall.facts",
+                    () => _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
                 : Empty<Fact>();
 
             var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
-                ? _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+                ? TimedAsync("memory.recall.traces",
+                    () => _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken))
                 : Empty<ReasoningTrace>();
 
             if (overrideRanking) _rankingContext!.Current = null;
@@ -390,12 +405,29 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         return context;
     }
 
+    /// <summary>
+    /// Runs <paramref name="factory"/> inside a named span so per-category recall cost is attributable.
+    /// </summary>
+    /// <remarks>
+    /// The factory is invoked <em>synchronously</em> by the first <c>await</c> of this method, so wrapping
+    /// a call here does not move it out of the caller's synchronous task-creation region. That matters at
+    /// the call sites in <see cref="AssembleContextAsync"/>, where the long-term repositories read the
+    /// ambient <see cref="IWritableMemoryRankingContext"/> override at task-creation time.
+    /// When no listener is attached the span is null and this adds one null check plus one await.
+    /// </remarks>
+    private static async Task<T> TimedAsync<T>(string spanName, Func<Task<T>> factory)
+    {
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity(spanName);
+        return await factory().ConfigureAwait(false);
+    }
+
     private async Task<GraphRagContextResult?> FetchGraphRagAsync(
         RecallRequest request,
         RecallOptions recallOpts,
         MemoryScope scope,
         CancellationToken cancellationToken)
     {
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.graphrag");
         try
         {
             // #100 Stage 2: use the SAME already-resolved scope as every other recall source (line ~117),

@@ -91,6 +91,13 @@ public static class CliHelp
               evaluate [--iterations <n>] [--owner <id>] [--output <path>]
                                      Run deterministic memory-layer quality/performance scenarios and
                                      write a JSON report under artifacts/evaluation by default.
+              perf [--label <name>] [--scenarios <ids|all>] [--iterations <n>] [--warmup <n>]
+                   [--latency <zero|remote>] [--embedding-dimensions <n>] [--output <dir>]
+                                     Measure a complete agent TURN: database round trips, embedding
+                                     requests, model calls, and per-stage timing. Provisions its own
+                                     Neo4j via Testcontainers (Docker required) with deterministic
+                                     embeddings and a scripted model, so counters are reproducible.
+                                     Writes a dated run directory under performance/runs by default.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
               schema-parity [--upstream-version <v>]
@@ -114,6 +121,8 @@ public static class CliHelp
               agentmemory decay --owner user-42  # prune only user-42's memories
               agentmemory history --type fact --owner user-42 --limit 20
               agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
+              agentmemory perf --label baseline --iterations 10
+              agentmemory perf --label feat-01-access-tracking --latency remote
             """);
     }
 }
