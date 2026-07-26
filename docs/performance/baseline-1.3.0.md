@@ -61,6 +61,29 @@ relevant message is returned. This is a control for selective/task-aware recall:
 target is to drive all recall work to zero on a skipped greeting while the retrieval quality guard
 remains unchanged. Hermetic milliseconds are intentionally not used for this claim.
 
+### Six-message tool-heavy ingestion control
+
+`PERF-W-03` holds the scripted extraction result constant while increasing response messages from one
+to six. This isolates the structural fan-out of a tool-heavy MAF turn:
+
+| Counter | One message (`W-02`) | Six messages (`W-03`) | Change |
+|---|---:|---:|---:|
+| Messages persisted | 1 | **6** | +5 |
+| Embedding requests | 4 | **9** | +5 |
+| Neo4j read transactions | 4 | **4** | 0 |
+| Neo4j write transactions | 18 | **48** | +30 |
+| Neo4j queries | 43 | **88** | +45 |
+| Model completions | 4 | **4** | 0 |
+| Model input tokens | 947 | **1,170** | +223 |
+| Persisted entities / facts / preferences | 2 / 2 / 1 | **2 / 2 / 1** | 0 |
+
+The write increase is larger than the five extra message nodes. The same five extracted memories
+remain guarded, and each gains an `EXTRACTED_FROM` link to each of the five additional source
+messages: **5 message writes + (5 memories × 5 provenance links) = 30 additional writes**. Query
+growth similarly consists of four message-persistence queries per additional message plus those 25
+provenance queries: **(5 × 4) + 25 = 45**. This control makes true batch response-message persistence
+measurable while also exposing the separate provenance fan-out it will not remove.
+
 ### How these scale
 
 Worth knowing before you tune anything:

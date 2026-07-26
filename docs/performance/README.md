@@ -141,8 +141,8 @@ as independent. `--iterations` must therefore be a multiple of six and at least 
 The initial configuration grammar accepts `default` plus `Recall.Max*` and
 `Recall.MinSimilarityScore` assignments. `PERF-R-04` measures a full default recall, while
 `PERF-R-01` is a greeting-only control that locks the work performed by the shipped default recall
-policy. State-mutating scenarios such as `PERF-W-02` are rejected because shared write state would
-invalidate paired-sample independence.
+policy. State-mutating scenarios such as `PERF-W-02` and `PERF-W-03` are rejected because shared write
+state would invalidate paired-sample independence.
 
 The rendered markdown reports exact counter ranges, retrieval and extraction quality, and the
 candidate/control bootstrap interval together. Only `iteration total` is the pre-registered timing

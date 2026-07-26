@@ -63,6 +63,25 @@
         "persist.relationships": 0,
         "store.messages": 1
       }
+    },
+    "PERF-W-03": {
+      "counters": {
+        "embed.chars": 378,
+        "embed.items": 9,
+        "embed.requests": 9,
+        "extract.candidate_entities": 2,
+        "llm.calls": 4,
+        "llm.tokens_in": 1170,
+        "llm.tokens_out": 668,
+        "neo4j.queries": 88,
+        "neo4j.tx.read": 4,
+        "neo4j.tx.write": 48,
+        "persist.entities": 2,
+        "persist.facts": 2,
+        "persist.preferences": 1,
+        "persist.relationships": 0,
+        "store.messages": 6
+      }
     }
   },
   "quality": {

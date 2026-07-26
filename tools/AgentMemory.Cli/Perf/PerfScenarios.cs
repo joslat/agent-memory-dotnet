@@ -36,9 +36,9 @@ public sealed record ScenarioContext(
     CancellationToken CancellationToken);
 
 /// <summary>
-/// The Step 1 scenario catalog: one read-path scenario and one write-path scenario, both at shipped
-/// defaults. Between them they cover the two questions the roadmap's estimates most need replaced with
-/// facts — what a recall costs before the model runs, and what a turn costs after it.
+/// The versioned performance scenario catalog covers read- and write-path controls at shipped
+/// defaults. Together they replace estimates with facts about recall cost before the model runs and
+/// ingestion cost after it, including turns that exercise policy and workload extremes.
 /// </summary>
 public static class PerfScenarios
 {
@@ -53,6 +53,11 @@ public static class PerfScenarios
             "PERF-W-02",
             "Single response message, extraction enabled (shipped defaults)",
             StoreAndExtractAsync,
+            SupportsInterleavedAb: false),
+        new(
+            "PERF-W-03",
+            "Six-message tool-heavy response turn, extraction enabled",
+            StoreToolHeavyAndExtractAsync,
             SupportsInterleavedAb: false),
     ];
 
@@ -208,6 +213,54 @@ public static class PerfScenarios
             ctx.CancellationToken,
             PerfFixture.OwnerId).ConfigureAwait(false);
 
+        AssertScriptedExtraction(ctx, "PERF-W-02");
+    }
+
+    /// <summary>
+    /// PERF-W-03 — a tool-heavy turn with six non-empty response messages. The current provider
+    /// persists each response separately, so this captures the fan-out that matrix rank 9 must batch.
+    /// </summary>
+    private static async Task StoreToolHeavyAndExtractAsync(ScenarioContext ctx)
+    {
+        var sessionId = $"perf-w03-{ctx.Phase}-{ctx.Iteration}";
+        var conversationId = $"{sessionId}-conv";
+        var requestMessages = new[]
+        {
+            new ChatMessage(ChatRole.User, StoreProbeUserMessage),
+        };
+        var responseMessages = new[]
+        {
+            new ChatMessage(ChatRole.Assistant, "I'll check the account details."),
+            new ChatMessage(ChatRole.Tool, "Account lookup completed for Acme Corporation."),
+            new ChatMessage(ChatRole.Assistant, "I'll inspect the platform deployment."),
+            new ChatMessage(ChatRole.Tool, "Deployment lookup completed: all services are healthy."),
+            new ChatMessage(ChatRole.Assistant, "I'll verify the notification settings."),
+            new ChatMessage(ChatRole.Tool, "Notification lookup completed: concise written updates are preferred."),
+        };
+
+        await ctx.Provider.PerformStoreAsync(
+            requestMessages,
+            responseMessages,
+            sessionId,
+            conversationId,
+            ctx.CancellationToken,
+            PerfFixture.OwnerId).ConfigureAwait(false);
+
+        var storedMessages = ctx.Turn.Counter("store.messages");
+        if (storedMessages != responseMessages.Length)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-03 stored {storedMessages} response messages but expected " +
+                $"{responseMessages.Length}. The scenario would not exercise multi-message " +
+                "persistence, so it cannot grade rank 9. Check that every fixture response has " +
+                "non-empty text and reaches StoreResponseMessagesAsync.");
+        }
+
+        AssertScriptedExtraction(ctx, "PERF-W-03");
+    }
+
+    private static void AssertScriptedExtraction(ScenarioContext ctx, string scenarioId)
+    {
         // The mirror of the recall self-check: a scripted model returning unparseable output would make
         // extraction yield nothing, persistence write nothing, and this scenario measure a no-op. Model
         // calls alone are not evidence: an empty-but-valid response still records all four calls.
@@ -218,7 +271,7 @@ public static class PerfScenarios
         if (modelCalls == 0 || entities == 0 || facts == 0 || preferences == 0)
         {
             throw new InvalidOperationException(
-                $"PERF-W-02 did not persist the scripted extraction (llm.calls={modelCalls}, " +
+                $"{scenarioId} did not persist the scripted extraction (llm.calls={modelCalls}, " +
                 $"persist.entities={entities}, persist.facts={facts}, " +
                 $"persist.preferences={preferences}). The scenario would measure a no-op. Check that " +
                 "LLM extraction is opted in, AutoExtractOnPersist is true, and the scripted client " +
