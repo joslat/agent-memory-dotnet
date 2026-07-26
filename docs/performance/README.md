@@ -111,6 +111,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label mine --latency remote
 dotnet run --project tools/AgentMemory.Cli -- perf --label degraded \
   --scenarios PERF-R-07 --iterations 3
 
+# Measures full memory + deterministic GraphRAG orchestration
+dotnet run --project tools/AgentMemory.Cli -- perf --label graphrag \
+  --scenarios PERF-R-08 --iterations 3
+
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
   --control default \
@@ -159,10 +163,12 @@ The judged quality fixtures had zero observed variance across five complete runs
 tolerance is zero rather than a guessed allowance.
 
 All measured scenarios also **self-assert**. The full and degraded recall scenarios fail if they
-retrieve fewer items than the configured limits; the degraded scenario additionally verifies that its
-embedding and database waits occurred inside recorded stage spans. The greeting scenario locks its
-current default-policy item shape, while both ingestion scenarios verify message persistence and
-extraction outcomes. Those failures are otherwise silent and would produce a confident, wrong number.
+retrieve fewer items than the configured limits; the degraded scenario additionally verifies that
+its embedding and database waits occurred inside recorded stage spans. The GraphRAG scenario requires
+its source call, two known items, configured wait, stage span, and rendered marker text while preserving
+the complete memory result. The greeting scenario locks its current default-policy item shape, while
+both ingestion scenarios verify message persistence and extraction outcomes. Those failures are
+otherwise silent and would produce a confident, wrong number.
 
 ### Pull-request regression gate
 

@@ -1,6 +1,8 @@
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
+using AgentMemory.Core.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,6 +66,10 @@ public static class PerfScenarios
             "Degraded dependency recall (embedding 2 s, database transaction 250 ms)",
             DegradedRecallAsync,
             DependencyLatency: PerfDependencyLatencyPreset.Degraded),
+        new(
+            "PERF-R-08",
+            "GraphRAG-enabled full recall with deterministic context",
+            GraphRagRecallAsync),
         new(
             "PERF-W-02",
             "Single response message, extraction enabled (shipped defaults)",
@@ -201,14 +207,65 @@ public static class PerfScenarios
         }
     }
 
-    private static async Task RunDefaultRecallAsync(ScenarioContext ctx, string scenarioId)
+    /// <summary>
+    /// PERF-R-08 — the full memory recall plus a scenario-only deterministic GraphRAG source. The
+    /// Agent Framework provider currently finishes its query embedding before the assembler can start
+    /// GraphRAG; rank 17 uses this control to prove those two stages overlap after orchestration moves.
+    /// </summary>
+    private static async Task GraphRagRecallAsync(ScenarioContext ctx)
+    {
+        var provider = CreateProvider(ctx.Profile, ctx.RecallOptions, enableGraphRag: true);
+        var context = await RunDefaultRecallAsync(ctx, "PERF-R-08", provider).ConfigureAwait(false);
+
+        var graphRagSpans = ctx.Turn.SpanCounts.TryGetValue(
+            "memory.recall.graphrag", out var graphRagSpanCount)
+            ? graphRagSpanCount
+            : 0;
+        var graphRagCalls = ctx.Turn.Counter("graphrag.calls");
+        var graphRagItems = ctx.Turn.Counter("items.graphrag");
+        var graphRagDelayCalls = ctx.Turn.Counter("injected.graphrag_delay.calls");
+        var graphRagDelayMs = ctx.Turn.Counter("injected.graphrag_delay.ms");
+        var embeddings = ctx.Turn.Counter("embed.requests");
+        var reads = ctx.Turn.Counter("neo4j.tx.read");
+        var writes = ctx.Turn.Counter("neo4j.tx.write");
+        var queries = ctx.Turn.Counter("neo4j.queries");
+        var accessTracked = ctx.Turn.Counter("access_tracking.items");
+        var materialized = context.Messages?.Any(message =>
+            message.Text?.Contains(
+                DeterministicGraphRagContextSource.FirstMarker,
+                StringComparison.Ordinal) == true &&
+            message.Text.Contains(
+                DeterministicGraphRagContextSource.SecondMarker,
+                StringComparison.Ordinal)) == true;
+
+        if (graphRagSpans != 1 || graphRagCalls != 1 || graphRagItems != 2 ||
+            graphRagDelayCalls != 1 ||
+            graphRagDelayMs != DeterministicGraphRagContextSource.DelayMilliseconds ||
+            embeddings != 1 || reads != 6 || writes != 1 || queries != 9 ||
+            accessTracked != 25 || !materialized)
+        {
+            throw new InvalidOperationException(
+                $"PERF-R-08 did not exercise its GraphRAG contract " +
+                $"(spans={graphRagSpans}/1, calls={graphRagCalls}/1, items={graphRagItems}/2, " +
+                $"delay calls/ms={graphRagDelayCalls}/{graphRagDelayMs}, expected " +
+                $"1/{DeterministicGraphRagContextSource.DelayMilliseconds}; embed.requests=" +
+                $"{embeddings}/1; neo4j read/write/queries={reads}/{writes}/{queries}, expected " +
+                $"6/1/9; access_tracking.items={accessTracked}/25; materialized={materialized}/true). " +
+                "A disabled or unregistered GraphRAG source would make this measurement a no-op.");
+        }
+    }
+
+    private static async Task<AIContext> RunDefaultRecallAsync(
+        ScenarioContext ctx,
+        string scenarioId,
+        Neo4jMemoryContextProvider? provider = null)
     {
         var identity = ctx.Variant is null
             ? PerfFixture.DefaultIdentity
             : PerfFixture.ForVariant(ctx.Variant);
         var messages = new[] { new ChatMessage(ChatRole.User, PerfFixture.ProbeQueryFor(identity)) };
 
-        var context = await ctx.Provider.BuildContextAsync(
+        var context = await (provider ?? ctx.Provider).BuildContextAsync(
             messages,
             identity.SessionId,
             identity.ConversationId,
@@ -231,6 +288,8 @@ public static class PerfScenarios
                 $"({breakdown}). The fixture is not exercising the configured recall shape, so this " +
                 "measurement would be misleading. Check MinSimilarityScore and the seeded embeddings.");
         }
+
+        return context;
     }
 
     private static void RecordContext(TurnRecord turn, AIContext context)
@@ -351,19 +410,63 @@ public static class PerfScenarios
     /// </remarks>
     public static Neo4jMemoryContextProvider CreateProvider(
         HermeticProfile profile,
-        RecallOptions? recallOptions = null)
+        RecallOptions? recallOptions = null,
+        bool enableGraphRag = false)
     {
         var services = profile.Services;
         var configuredMemory = services.GetRequiredService<IOptions<MemoryOptions>>().Value;
         var selectedRecall = recallOptions ?? configuredMemory.Recall;
+        var selectedMemory = configuredMemory with
+        {
+            Recall = selectedRecall,
+            EnableGraphRag = enableGraphRag || configuredMemory.EnableGraphRag,
+        };
+        var memoryService = enableGraphRag
+            ? CreateGraphRagMemoryService(services, selectedMemory)
+            : services.GetRequiredService<IMemoryService>();
         return new Neo4jMemoryContextProvider(
-            services.GetRequiredService<IMemoryService>(),
+            memoryService,
             services.GetRequiredService<IEmbeddingOrchestrator>(),
             services.GetRequiredService<IClock>(),
             services.GetRequiredService<IIdGenerator>(),
-            Options.Create(configuredMemory with { Recall = selectedRecall }),
+            Options.Create(selectedMemory),
             Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()),
             services.GetRequiredService<ILogger<Neo4jMemoryContextProvider>>());
+    }
+
+    private static IMemoryService CreateGraphRagMemoryService(
+        IServiceProvider services,
+        MemoryOptions memoryOptions)
+    {
+        var options = Options.Create(memoryOptions);
+        var shortTerm = services.GetRequiredService<IShortTermMemoryService>();
+        var embedding = services.GetRequiredService<IEmbeddingOrchestrator>();
+        var assembler = new MemoryContextAssembler(
+            shortTerm,
+            services.GetRequiredService<ILongTermMemoryService>(),
+            services.GetRequiredService<IReasoningMemoryService>(),
+            services.GetRequiredService<IGraphRagContextSource>(),
+            embedding,
+            services.GetRequiredService<IClock>(),
+            options,
+            services.GetRequiredService<ILogger<MemoryContextAssembler>>(),
+            services.GetRequiredService<IMemoryIsolationPolicy>(),
+            services.GetService<IWritableMemoryRankingContext>());
+
+        return new MemoryService(
+            shortTerm,
+            assembler,
+            services.GetRequiredService<IMemoryExtractionPipeline>(),
+            services.GetRequiredService<IEntityRepository>(),
+            services.GetRequiredService<IFactRepository>(),
+            services.GetRequiredService<IPreferenceRepository>(),
+            embedding,
+            options,
+            services.GetRequiredService<IClock>(),
+            services.GetRequiredService<IIdGenerator>(),
+            services.GetRequiredService<ILogger<MemoryService>>(),
+            services.GetService<IMemoryDecayService>(),
+            services.GetService<IConversationRepository>());
     }
 }

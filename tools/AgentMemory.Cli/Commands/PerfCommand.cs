@@ -351,6 +351,7 @@ public sealed class PerfCommand
         "context.chars" or "recall.chars" => "characters",
         "items.retrieved" => "memory items",
         _ when counter.StartsWith("items.", StringComparison.Ordinal) => "memory items",
+        "graphrag.calls" => "GraphRAG requests",
         _ when counter.EndsWith("_delay.calls", StringComparison.Ordinal) => "injected waits",
         _ when counter.EndsWith("_delay.ms", StringComparison.Ordinal) => "configured milliseconds",
         _ => "count",

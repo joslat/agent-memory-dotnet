@@ -95,6 +95,11 @@ public sealed class HermeticProfile : IAsyncDisposable
             // stay registered and a post-turn scenario would measure extraction that never happens.
             llm => { });
 
+        // Registered exactly as a host source would be, but the shared MemoryOptions keep GraphRAG
+        // disabled. PERF-R-08 builds an isolated production assembler with EnableGraphRag=true; every
+        // other scenario continues to exercise shipped defaults and cannot call this source.
+        services.AddSingleton<IGraphRagContextSource, DeterministicGraphRagContextSource>();
+
         DecorateTransactionRunner(services, DependencyLatency);
 
         // Counting wrappers sit outermost so they observe every call the product makes, including the

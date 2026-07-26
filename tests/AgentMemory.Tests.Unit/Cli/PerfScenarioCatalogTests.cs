@@ -64,4 +64,24 @@ public sealed class PerfScenarioCatalogTests
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-R-07");
     }
+
+    [Fact]
+    public void Catalog_ContainsGraphRagRecallScenario_WithStableContract()
+    {
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-R-08");
+
+        scenario.Description.Should().ContainEquivalentOf("GraphRAG");
+        scenario.Description.Should().ContainEquivalentOf("recall");
+        scenario.SupportsInterleavedAb.Should().BeTrue(
+            "the GraphRAG source is deterministic and the recall fixture is isolated per A/B arm");
+    }
+
+    [Fact]
+    public void Select_GraphRagRecallScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-R-08");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-R-08");
+    }
 }
