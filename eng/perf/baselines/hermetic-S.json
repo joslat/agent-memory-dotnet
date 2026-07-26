@@ -70,6 +70,31 @@
         "recall.chars": 3823
       }
     },
+    "PERF-R-08": {
+      "counters": {
+        "access_tracking.items": 25,
+        "context.chars": 4072,
+        "context.messages": 15,
+        "embed.chars": 95,
+        "embed.items": 1,
+        "embed.requests": 1,
+        "graphrag.calls": 1,
+        "injected.graphrag_delay.calls": 1,
+        "injected.graphrag_delay.ms": 300,
+        "items.entities": 10,
+        "items.facts": 10,
+        "items.graphrag": 2,
+        "items.preferences": 5,
+        "items.recent": 10,
+        "items.relevant": 5,
+        "items.retrieved": 43,
+        "items.traces": 3,
+        "neo4j.queries": 9,
+        "neo4j.tx.read": 6,
+        "neo4j.tx.write": 1,
+        "recall.chars": 3934
+      }
+    },
     "PERF-W-02": {
       "counters": {
         "embed.chars": 201,

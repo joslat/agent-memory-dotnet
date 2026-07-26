@@ -84,6 +84,32 @@ entire 43-item result is preserved and both degraded stages are now observable. 
 can use this control to prove bounded completion; graceful-degradation work must additionally report
 which categories were omitted rather than silently returning less.
 
+### GraphRAG orchestration control
+
+`PERF-R-08` adds a scenario-only deterministic GraphRAG source to the complete `PERF-R-04` memory
+shape. It returns two known context items after a configured 300 ms wait:
+
+| Counter | Full recall (`R-04`) | GraphRAG (`R-08`) |
+|---|---:|---:|
+| Memory items retrieved | 43 | **43** |
+| GraphRAG items | – | **2** |
+| Prompt messages | 14 | **15** |
+| Embedding requests | 1 | **1** |
+| Neo4j read / write transactions | 6 / 1 | **6 / 1** |
+| Neo4j queries | 9 | **9** |
+| Access timestamps updated | 25 | **25** |
+| Configured GraphRAG wait | – | **1 × 300 ms** |
+
+The portable result is that enabling this optional path adds its two known items without changing or
+dropping any of the 43 memory items. One `memory.recall.graphrag` span and the marker text in the final
+Agent Framework context prove the source was registered, enabled, invoked, and materialized.
+
+The remote-shaped hermetic run also validates rank 17's orchestration target. The provider embedding
+span had a 126 ms median and completed before the 312 ms GraphRAG span because the provider currently
+awaits embedding before entering the assembler; median turn elapsed was 468 ms. Rank 17 should overlap
+those controlled stages so their contribution tends toward the slower stage instead of their sum.
+These are deterministic stimulus figures for an A/B control—not deployment performance.
+
 ### Six-message tool-heavy ingestion control
 
 `PERF-W-03` holds the scripted extraction result constant while increasing response messages from one
