@@ -14,7 +14,7 @@ What one agent turn costs at shipped defaults, measured per phase.
 
 ## 1. Structural cost — the portable part
 
-Per turn, at shipped defaults. **Two consecutive runs produced identical values for all 27 counters**,
+Per turn, at shipped defaults. **Two consecutive runs produced identical values for all 29 counters**,
 on every one of these.
 
 | | Phase 1 — Recall | Phase 2 — Ingestion |
@@ -22,6 +22,8 @@ on every one of these.
 | Neo4j **read** transactions | 6 | 4 |
 | Neo4j **write** transactions | 1 | 18 |
 | Neo4j queries | 9 | 43 |
+| Neo4j materialized records | **43** | **32** |
+| Neo4j estimated payload bytes | **144,591** | **102,960** |
 | Embedding provider requests | 1 | 4 |
 | **Model completions** | 0 | **4** |
 | Model tokens (in / out) | – | 947 / 668 |
@@ -42,6 +44,30 @@ its own completion carrying its own copy of the turn. They run concurrently, so 
 completion of *latency* but four completions of *spend*. The four embedding requests are one per
 extracted memory. The 18 writes are the message plus the extracted entities, facts, preferences, and
 their provenance edges.
+
+### Payload volume and causal validation
+
+`neo4j.bytes_est` is an estimate of values materialized through the Neo4j cursor, not a claim about
+Bolt wire bytes. The driver exposes values but not protocol volume, so the estimator uses a documented,
+stable rule: UTF-16 strings are two bytes per character; numeric values are eight bytes; and
+lists/maps/nodes recursively sum their values. It is meaningful as an exact fixture counter and as a
+before/after ratio.
+
+Two fresh-container combined runs matched exactly: full recall materialized 43 records / 144,591
+estimated bytes, and default ingestion materialized 32 / 102,960. The complete seven-scenario run was
+also deterministic.
+
+The counter was tested causally, not accepted because it produced a plausible number. A temporary
+entity recall map projection omitted the stored vectors:
+
+| Metric | Full node | Projected fields | Change |
+|---|---:|---:|---:|
+| Entity-search transaction | 33,758 bytes | 3,038 bytes | **−91.0%** |
+| Complete 43-item recall turn | 144,591 bytes | 113,871 bytes | **−21.2%** |
+
+The 30,720-byte difference is exactly 10 returned entities × 384 vector values × 8 estimated bytes.
+Retrieved items, access tracking, queries, transactions, Recall@K, and MRR were unchanged. The
+projection was then reverted; it is the future rank-6 optimization, not part of this measurement change.
 
 ### Greeting-only default-policy control
 
@@ -271,18 +297,19 @@ The instrumentation is in the product, not the harness. Subscribe to the `AgentM
 
 | Span | Covers |
 |---|---|
-| `memory.db.tx` | One per database transaction. Tag: `db.mode` = read / write |
+| `memory.db.tx` | One per database transaction. Tags: `db.mode` = read / write, `db.records`, `db.bytes_est` |
 | `memory.db.query` | One per Cypher query. **Counts are exact; duration covers dispatch only**, since results stream after the span closes |
 
-Cost is a null check when nothing is listening.
+When nothing is listening, the original work delegate, query runner, and cursor pass through unchanged;
+the payload accumulator, cursor wrapper, and estimator are not allocated or executed.
 
 ---
 
 ## 4. Honest limits of this page
 
 - Timings are local-container with stand-in providers. **Not deployment performance.**
-- Payload bytes are not measured; recall currently materialises embedding vectors it does not use, and
-  that cost is not yet quantified.
+- Payload is a deterministic value-size **estimate**, not Bolt wire bytes or managed allocation volume.
+  Use it for ratios, not bandwidth billing.
 - Cold start is not measured — everything here is warm.
 - One graph size (~5k nodes), one session, no concurrency or saturation figures.
 - No managed-database (Aura) or hosted-backend (NAMS) figures.

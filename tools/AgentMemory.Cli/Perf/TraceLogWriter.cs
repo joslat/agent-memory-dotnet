@@ -31,6 +31,8 @@ public sealed class TraceLogWriter : IDisposable
     private static readonly string[] AllowedTags =
     [
         "db.mode",
+        "db.records",
+        "db.bytes_est",
         "memory.access_tracking.items",
         "memory.store.message_count",
         "memory.extract.source_messages",

@@ -97,12 +97,14 @@ public static class PerfScenarios
             "PERF-W-02",
             "Single response message, extraction enabled (shipped defaults)",
             StoreAndExtractAsync,
-            SupportsInterleavedAb: false),
+            SupportsInterleavedAb: false,
+            SetupAsync: PrepareStoreAndExtractAsync),
         new(
             "PERF-W-03",
             "Six-message tool-heavy response turn, extraction enabled",
             StoreToolHeavyAndExtractAsync,
-            SupportsInterleavedAb: false),
+            SupportsInterleavedAb: false,
+            SetupAsync: PrepareToolHeavyAndExtractAsync),
         new(
             "PERF-W-05",
             "Whole-session extraction over 50 pre-seeded messages",
@@ -339,9 +341,9 @@ public static class PerfScenarios
     /// </summary>
     private static async Task StoreAndExtractAsync(ScenarioContext ctx)
     {
-        // A distinct session per iteration keeps iterations independent: reusing one would let each turn
-        // see the previous turn's messages and entities, so cost would climb with iteration number and
-        // the "measurement" would really be measuring accumulation.
+        // A distinct session plus the unmeasured reset keeps iterations independent. The owner remains
+        // the seeded fixture owner because entity resolution against that fixed graph is part of this
+        // shipped-default workload; using a fresh, empty owner changes queries and embedding requests.
         //
         // The PHASE must be part of the key, not just the index. Warm-up and measurement both count from
         // zero, so keying on the index alone made measured iteration 0 run against the session warm-up
@@ -410,6 +412,95 @@ public static class PerfScenarios
         }
 
         AssertScriptedExtraction(ctx, "PERF-W-03");
+    }
+
+    private static async Task PrepareStoreAndExtractAsync(ScenarioSetupContext ctx)
+    {
+        var responseMessages = new[]
+        {
+            new ChatMessage(ChatRole.Assistant,
+                "Noted — Alice Martin is on the Acme Corporation platform team and prefers concise written updates."),
+        };
+        await ResetAndPrimeWriteScenarioAsync(ctx, "perf-w02-prime", responseMessages).ConfigureAwait(false);
+    }
+
+    private static async Task PrepareToolHeavyAndExtractAsync(ScenarioSetupContext ctx)
+    {
+        var responseMessages = new[]
+        {
+            new ChatMessage(ChatRole.Assistant, "I'll check the account details."),
+            new ChatMessage(ChatRole.Tool, "Account lookup completed for Acme Corporation."),
+            new ChatMessage(ChatRole.Assistant, "I'll inspect the platform deployment."),
+            new ChatMessage(ChatRole.Tool, "Deployment lookup completed: all services are healthy."),
+            new ChatMessage(ChatRole.Assistant, "I'll verify the notification settings."),
+            new ChatMessage(ChatRole.Tool,
+                "Notification lookup completed: concise written updates are preferred."),
+        };
+        await ResetAndPrimeWriteScenarioAsync(ctx, "perf-w03-prime", responseMessages).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Establishes the same one-prior-turn state before every iteration. The old fixture obtained this
+    /// state accidentally from its warm-up and then kept accumulating into it; explicit priming preserves
+    /// the shipped-default resolution path while making materialized payload bytes exact and repeatable.
+    /// </summary>
+    private static async Task ResetAndPrimeWriteScenarioAsync(
+        ScenarioSetupContext ctx,
+        string sessionId,
+        IReadOnlyList<ChatMessage> responseMessages)
+    {
+        await ResetWriteScenarioAsync(ctx).ConfigureAwait(false);
+
+        var provider = CreateProvider(ctx.Profile);
+        var requestMessages = new[]
+        {
+            new ChatMessage(ChatRole.User, StoreProbeUserMessage),
+        };
+        await provider.PerformStoreAsync(
+            requestMessages,
+            responseMessages,
+            sessionId,
+            $"{sessionId}-conv",
+            ctx.CancellationToken,
+            PerfFixture.OwnerId).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Restores the write scenarios to the same graph state before every warm-up and measured turn.
+    /// Setup uses the raw driver and runs before <see cref="PerfCollector.BeginTurn"/>, so fixture
+    /// maintenance cannot inflate product counters.
+    /// </summary>
+    private static async Task ResetWriteScenarioAsync(ScenarioSetupContext ctx)
+    {
+        const string cypher = """
+            MATCH (n)
+            WHERE (
+                    n.owner_id = $ownerId
+                    AND (
+                        (n:Entity AND NOT n.id STARTS WITH 'perf-entity-')
+                        OR (n:Fact AND NOT n.id STARTS WITH 'perf-fact-')
+                        OR (n:Preference AND NOT n.id STARTS WITH 'perf-pref-')
+                    )
+                  )
+               OR (
+                    (n:Message OR n:Conversation)
+                    AND (
+                        n.session_id STARTS WITH 'perf-w02-'
+                        OR n.session_id = 'perf-w02-prime'
+                        OR n.session_id STARTS WITH 'perf-w03-'
+                        OR n.session_id = 'perf-w03-prime'
+                    )
+                  )
+            DETACH DELETE n
+            """;
+
+        await using var session = ctx.Profile.Driver.AsyncSession();
+        await session.ExecuteWriteAsync(async transaction =>
+        {
+            var cursor = await transaction.RunAsync(cypher, new { ownerId = PerfFixture.OwnerId })
+                .ConfigureAwait(false);
+            await cursor.ConsumeAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     /// <summary>

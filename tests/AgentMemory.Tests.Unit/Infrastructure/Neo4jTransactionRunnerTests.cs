@@ -1,11 +1,13 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using AgentMemory.Cli.Perf;
 using AgentMemory.Neo4j.Infrastructure;
 using Neo4j.Driver;
 using NSubstitute;
 
 namespace AgentMemory.Tests.Unit.Infrastructure;
 
+[Collection("Observability")]
 public sealed class Neo4jTransactionRunnerTests
 {
     private static (Neo4jTransactionRunner Runner, INeo4jSessionFactory Factory) Create()
@@ -55,5 +57,65 @@ public sealed class Neo4jTransactionRunnerTests
 
         result.Should().Be(42);
         factory.Received(1).OpenSession(AccessMode.Read);
+    }
+
+    [Fact]
+    public async Task ReadAsync_MaterializedRows_ReportEstimatedPayloadOnTransaction()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var driverRunner = Substitute.For<IAsyncQueryRunner>();
+        var cursor = Substitute.For<IResultCursor>();
+        var record = Substitute.For<IRecord>();
+        record.Values.Returns(new Dictionary<string, object>
+        {
+            ["text"] = "abc",                    // 3 UTF-16 chars = 6 estimated bytes
+            ["score"] = 0.5d,                    // double = 8
+            ["ids"] = new long[] { 1L, 2L },     // two integers = 16
+        });
+        cursor.FetchAsync().Returns(Task.FromResult(true), Task.FromResult(false));
+        cursor.Current.Returns(record);
+        driverRunner.RunAsync("RETURN payload").Returns(cursor);
+        factory.OpenSession(AccessMode.Read).Returns(session);
+        session
+            .ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>())
+            .Returns(ci => ci.Arg<Func<IAsyncQueryRunner, Task<int>>>()(driverRunner));
+
+        using var collector = new PerfCollector();
+        using (collector.BeginTurn("payload-test", 0, "measure"))
+        {
+            await runner.ReadAsync(async tx =>
+            {
+                var result = await tx.RunAsync("RETURN payload");
+                while (await result.FetchAsync())
+                    _ = result.Current;
+                return 1;
+            });
+        }
+
+        var measured = collector.Records.Should().ContainSingle().Subject;
+        measured.Counter("neo4j.records").Should().Be(1);
+        measured.Counter("neo4j.bytes_est").Should().Be(30);
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithoutListener_PassesOriginalRunnerAndCursorThrough()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var driverRunner = Substitute.For<IAsyncQueryRunner>();
+        var driverCursor = Substitute.For<IResultCursor>();
+        driverRunner.RunAsync("RETURN payload").Returns(driverCursor);
+        factory.OpenSession(AccessMode.Read).Returns(session);
+        session
+            .ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>())
+            .Returns(ci => ci.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(driverRunner));
+
+        await runner.ReadAsync(async tx =>
+        {
+            tx.Should().BeSameAs(driverRunner);
+            var cursor = await tx.RunAsync("RETURN payload");
+            cursor.Should().BeSameAs(driverCursor);
+        });
     }
 }

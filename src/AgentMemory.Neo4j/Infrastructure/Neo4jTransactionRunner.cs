@@ -42,18 +42,23 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         cancellationToken.ThrowIfCancellationRequested();
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
         activity?.SetTag("db.mode", "read");
+        var payload = activity is null ? null : new PayloadAccumulator();
 
         var session = _sessionFactory.OpenSession(AccessMode.Read);
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteReadAsync(Instrument(work, "read", activity)).ConfigureAwait(false);
+            return await session.ExecuteReadAsync(Instrument(work, "read", activity, payload)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error);
             _logger.LogError(ex, "Error executing read transaction.");
             throw;
+        }
+        finally
+        {
+            TagPayload(activity, payload);
         }
     }
 
@@ -71,18 +76,23 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         cancellationToken.ThrowIfCancellationRequested();
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
         activity?.SetTag("db.mode", "write");
+        var payload = activity is null ? null : new PayloadAccumulator();
 
         var session = _sessionFactory.OpenSession(AccessMode.Write);
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteWriteAsync(Instrument(work, "write", activity)).ConfigureAwait(false);
+            return await session.ExecuteWriteAsync(Instrument(work, "write", activity, payload)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error);
             _logger.LogError(ex, "Error executing write transaction.");
             throw;
+        }
+        finally
+        {
+            TagPayload(activity, payload);
         }
     }
 
@@ -102,26 +112,43 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
     /// parented to their transaction even though the driver may resume the delegate on another thread.
     /// </summary>
     private static Func<IAsyncQueryRunner, Task<T>> Instrument<T>(
-        Func<IAsyncQueryRunner, Task<T>> work, string mode, Activity? transaction) =>
-        transaction is null ? work : runner => work(new CountingQueryRunner(runner, mode, transaction));
+        Func<IAsyncQueryRunner, Task<T>> work,
+        string mode,
+        Activity? transaction,
+        PayloadAccumulator? payload) =>
+        transaction is null
+            ? work
+            : runner => work(new CountingQueryRunner(runner, mode, transaction, payload!));
+
+    private static void TagPayload(Activity? activity, PayloadAccumulator? payload)
+    {
+        if (activity is null || payload is null) return;
+        activity.SetTag("db.records", payload.RecordCount);
+        activity.SetTag("db.bytes_est", payload.BytesEstimate);
+    }
 
     /// <summary>
-    /// Wraps the driver's query runner so each <c>RunAsync</c> emits a <c>memory.db.query</c> span. Pure
-    /// pass-through otherwise: every overload forwards to the inner runner and returns its cursor
-    /// untouched, so result streaming, error behaviour, and the managed-transaction retry contract are
-    /// unaffected. Only ever constructed when a listener is attached.
+    /// Wraps the driver's query runner so each <c>RunAsync</c> emits a <c>memory.db.query</c> span and
+    /// returns a cursor that counts records as callers materialize them. Only ever constructed when a
+    /// listener is attached.
     /// </summary>
     private sealed class CountingQueryRunner : IAsyncQueryRunner
     {
         private readonly IAsyncQueryRunner _inner;
         private readonly string _mode;
         private readonly ActivityContext _parent;
+        private readonly PayloadAccumulator _payload;
 
-        public CountingQueryRunner(IAsyncQueryRunner inner, string mode, Activity transaction)
+        public CountingQueryRunner(
+            IAsyncQueryRunner inner,
+            string mode,
+            Activity transaction,
+            PayloadAccumulator payload)
         {
             _inner = inner;
             _mode = mode;
             _parent = transaction.Context;
+            _payload = payload;
         }
 
         public Task<IResultCursor> RunAsync(string query) => TrackAsync(() => _inner.RunAsync(query));
@@ -134,17 +161,13 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
 
         public Task<IResultCursor> RunAsync(Query query) => TrackAsync(() => _inner.RunAsync(query));
 
-        // The span covers dispatching the query, NOT consuming its results: the driver returns a cursor
-        // that the caller streams afterwards, so an enclosing span here would end long before the records
-        // are actually read. Record counting and payload-size estimation therefore require wrapping the
-        // cursor itself, which is deliberately out of scope for the first measurement increment — the
-        // headline number this instrumentation exists to produce is round trips, and that is exact.
         private async Task<IResultCursor> TrackAsync(Func<Task<IResultCursor>> run)
         {
             using var activity = AgentMemoryDiagnostics.Source.StartActivity(
                 "memory.db.query", ActivityKind.Client, _parent);
             activity?.SetTag("db.mode", _mode);
-            return await run().ConfigureAwait(false);
+            var cursor = await run().ConfigureAwait(false);
+            return new CountingResultCursor(cursor, _payload);
         }
 
         // Forwarded, not swallowed. The wrapper must be indistinguishable from the runner it replaces:
@@ -155,5 +178,113 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         public void Dispose() => _inner.Dispose();
 
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Counts only records exposed by <see cref="IResultCursor.FetchAsync"/>. This is deliberately the
+    /// materialized payload, not an invented wire-byte count: the driver does not expose Bolt bytes, and
+    /// <see cref="IResultCursor.ConsumeAsync"/> can discard unread rows without exposing their values.
+    /// </summary>
+    private sealed class CountingResultCursor : IResultCursor
+    {
+        private readonly IResultCursor _inner;
+        private readonly PayloadAccumulator _payload;
+
+        public CountingResultCursor(IResultCursor inner, PayloadAccumulator payload)
+        {
+            _inner = inner;
+            _payload = payload;
+        }
+
+        public IRecord Current => _inner.Current;
+
+        public bool IsOpen => _inner.IsOpen;
+
+        public Task<string[]> KeysAsync() => _inner.KeysAsync();
+
+        public Task<IResultSummary> ConsumeAsync() => _inner.ConsumeAsync();
+
+        public Task<IRecord> PeekAsync() => _inner.PeekAsync();
+
+        public async Task<bool> FetchAsync()
+        {
+            var fetched = await _inner.FetchAsync().ConfigureAwait(false);
+            if (fetched)
+                _payload.Add(_inner.Current);
+            return fetched;
+        }
+
+        public async IAsyncEnumerator<IRecord> GetAsyncEnumerator(CancellationToken cancellationToken = default)
+        {
+            var enumerator = _inner.GetAsyncEnumerator(cancellationToken);
+            try
+            {
+                while (await enumerator.MoveNextAsync().ConfigureAwait(false))
+                {
+                    var record = enumerator.Current;
+                    _payload.Add(record);
+                    yield return record;
+                }
+            }
+            finally
+            {
+                await enumerator.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private sealed class PayloadAccumulator
+    {
+        private long _recordCount;
+        private long _bytesEstimate;
+
+        public long RecordCount => Interlocked.Read(ref _recordCount);
+
+        public long BytesEstimate => Interlocked.Read(ref _bytesEstimate);
+
+        public void Add(IRecord record)
+        {
+            Interlocked.Increment(ref _recordCount);
+            Interlocked.Add(ref _bytesEstimate, EstimateMap(record.Values));
+        }
+
+        private static long EstimateValue(object? value) => value switch
+        {
+            null => 0,
+            string text => 2L * text.Length,
+            bool => 1,
+            char => 2,
+            byte or sbyte or short or ushort or int or uint or long or ulong => 8,
+            float or double => 8,
+            decimal => 16,
+            IEntity entity => EstimateMap(entity.Properties),
+            IReadOnlyDictionary<string, object> map => EstimateMap(map),
+            IDictionary<string, object> map => EstimateValues(map.Values),
+            System.Collections.IDictionary map => EstimateDictionary(map),
+            System.Collections.IEnumerable sequence => EstimateSequence(sequence),
+            _ => 8,
+        };
+
+        private static long EstimateMap(IReadOnlyDictionary<string, object> map) =>
+            EstimateValues(map.Values);
+
+        private static long EstimateValues(IEnumerable<object> values) =>
+            values.Sum(EstimateValue);
+
+        private static long EstimateDictionary(System.Collections.IDictionary map)
+        {
+            long bytes = 0;
+            foreach (System.Collections.DictionaryEntry entry in map)
+                bytes += EstimateValue(entry.Value);
+            return bytes;
+        }
+
+        private static long EstimateSequence(System.Collections.IEnumerable sequence)
+        {
+            long bytes = 0;
+            foreach (var item in sequence)
+                bytes += EstimateValue(item);
+            return bytes;
+        }
     }
 }

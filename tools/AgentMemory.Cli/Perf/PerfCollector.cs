@@ -88,6 +88,10 @@ public sealed class PerfCollector : IDisposable
                 turn.Add(activity.GetTagItem("db.mode") as string == "write"
                     ? "neo4j.tx.write"
                     : "neo4j.tx.read");
+                if (activity.GetTagItem("db.records") is long records)
+                    turn.Add("neo4j.records", records);
+                if (activity.GetTagItem("db.bytes_est") is long bytesEstimate)
+                    turn.Add("neo4j.bytes_est", bytesEstimate);
                 break;
 
             case "memory.db.query":

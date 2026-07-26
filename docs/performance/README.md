@@ -53,12 +53,18 @@ This distinction matters more than any individual number.
 
 ### Structural counters — trustworthy, portable
 
-Round trips, queries, embedding requests, model completions, tokens, items. These are **deterministic**:
-the same scenario on the same data produces identical counts on any machine, in any environment. Two
-consecutive runs of the published baseline produced identical values for all 27 counters.
+Round trips, queries, materialized database records, estimated payload bytes, embedding requests, model
+completions, tokens, items. These are **deterministic**: the same scenario on the same data produces
+identical counts on any machine, in any environment. Two consecutive runs matched all 29 counters.
 
 **These are safe to reason about, budget against, and compare across versions.** They are what
 [baseline-1.3.0.md](baseline-1.3.0.md) leads with.
+
+`neo4j.bytes_est` is permanently labelled an **estimate**, not Bolt wire bytes: the driver does not
+expose wire volume. It sums the values callers materialize (`string` = 2 bytes/character; numeric
+values = 8 bytes; lists/maps/nodes recursively sum their values) and is used for repeatable ratios.
+A temporary entity projection reduced its transaction by 91.0%, proving the counter sees stored
+vectors.
 
 ### Quality guards — deterministic and enforced
 
@@ -85,8 +91,6 @@ always labelled, because the two differ by an order of magnitude in the recall p
 
 Stated plainly rather than left for you to discover:
 
-- **Payload bytes** returned from Neo4j. Recall currently materialises stored embedding vectors it does
-  not use; the cost is understood in principle and not yet quantified.
 - **Cold start** — every figure here is warm. First-call cost after process start, pool expiry, or a
   cache-cold database is not yet characterised.
 - **Scale** — the published baseline is a small graph (~5k memory nodes). Behaviour as the graph grows
@@ -184,7 +188,7 @@ provider latency. Each report is compared with
 [`eng/perf/baselines/hermetic-S.json`](../../eng/perf/baselines/hermetic-S.json). The gate rejects:
 
 - any increase in Neo4j transactions or queries, embedding requests, or model calls;
-- an estimated payload-byte increase above 5%, once that counter is available; and
+- an estimated payload-byte increase above 5%; and
 - any retrieval or extraction quality regression beyond the committed tolerance (currently zero).
 
 A deliberate structural-counter increase needs both the `perf-counter-change` pull-request label and

@@ -363,6 +363,8 @@ public sealed class PerfCommand
         "neo4j.tx.read" => "read transactions",
         "neo4j.tx.write" => "write transactions",
         "neo4j.queries" => "Cypher queries",
+        "neo4j.records" => "materialized records",
+        "neo4j.bytes_est" => "estimated bytes",
         "embed.requests" => "provider requests",
         "embed.items" => "texts embedded",
         "embed.chars" => "characters",
@@ -598,7 +600,8 @@ public sealed class PerfCommand
                 "⚠ `memory.db.query` measures **query dispatch only** — the driver returns a cursor and " +
                 "the records are streamed afterwards, inside the enclosing transaction but outside this " +
                 "span. Its *count* is exact and is the number to use; its *duration* substantially " +
-                "understates real query cost. Record-level timing needs cursor wrapping (a later step).");
+                "understates real query cost. The cursor wrapper counts materialized records and estimated " +
+                "payload bytes, but intentionally does not claim per-record wire timing.");
             sb.AppendLine();
         }
 
