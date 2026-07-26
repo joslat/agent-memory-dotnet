@@ -21,7 +21,9 @@ public sealed record PerfScenario(
     string Description,
     Func<ScenarioContext, Task> RunAsync,
     bool SupportsInterleavedAb = true,
-    PerfDependencyLatencyPreset? DependencyLatency = null)
+    PerfDependencyLatencyPreset? DependencyLatency = null,
+    Func<ScenarioSetupContext, Task>? SetupAsync = null,
+    Func<ScenarioVerificationContext, Task>? VerifyAsync = null)
 {
     public async Task ExecuteAsync(ScenarioContext context)
     {
@@ -30,7 +32,20 @@ public sealed record PerfScenario(
             : context.Profile.DependencyLatency.Push(DependencyLatency);
         await RunAsync(context).ConfigureAwait(false);
     }
+
+    public Task PrepareAsync(ScenarioSetupContext context) =>
+        SetupAsync?.Invoke(context) ?? Task.CompletedTask;
+
+    public Task ValidateAsync(ScenarioVerificationContext context) =>
+        VerifyAsync?.Invoke(context) ?? Task.CompletedTask;
 }
+
+public sealed record ScenarioSetupContext(
+    HermeticProfile Profile,
+    int Iteration,
+    string Phase,
+    string? Variant,
+    CancellationToken CancellationToken);
 
 /// <summary>Everything a scenario body needs for one iteration.</summary>
 /// <param name="Phase">
@@ -45,6 +60,14 @@ public sealed record ScenarioContext(
     string Phase,
     string? Variant,
     RecallOptions RecallOptions,
+    CancellationToken CancellationToken);
+
+public sealed record ScenarioVerificationContext(
+    HermeticProfile Profile,
+    TurnRecord Turn,
+    int Iteration,
+    string Phase,
+    string? Variant,
     CancellationToken CancellationToken);
 
 /// <summary>
@@ -80,10 +103,19 @@ public static class PerfScenarios
             "Six-message tool-heavy response turn, extraction enabled",
             StoreToolHeavyAndExtractAsync,
             SupportsInterleavedAb: false),
+        new(
+            "PERF-W-05",
+            "Whole-session extraction over 50 pre-seeded messages",
+            ExtractWholeSessionAsync,
+            SupportsInterleavedAb: false,
+            SetupAsync: PrepareWholeSessionAsync,
+            VerifyAsync: VerifyWholeSessionAsync),
     ];
 
-    private const string StoreProbeUserMessage =
+    internal const string StoreProbeUserMessage =
         "Alice Martin just moved to the Acme Corporation platform team and prefers concise updates.";
+
+    private const int SessionExtractionMessageCount = 50;
 
     /// <summary>
     /// Input-keyed model responses required by cost scenarios. Kept separate from judged fixture rules:
@@ -379,6 +411,75 @@ public static class PerfScenarios
 
         AssertScriptedExtraction(ctx, "PERF-W-03");
     }
+
+    /// <summary>
+    /// PERF-W-05 — reads one complete 50-message session and extracts once. Together with the existing
+    /// per-turn control, this is the baseline rank 8 needs to grade deferred/windowed extraction.
+    /// </summary>
+    private static async Task ExtractWholeSessionAsync(ScenarioContext ctx)
+    {
+        var sessionId = SessionExtractionSessionId(ctx.Phase, ctx.Iteration);
+        var ownerId = SessionExtractionOwnerId(ctx.Phase, ctx.Iteration);
+        var memory = ctx.Profile.Services.GetRequiredService<IMemoryService>();
+
+        await memory.ExtractFromSessionAsync(sessionId, ownerId, ctx.CancellationToken).ConfigureAwait(false);
+
+        var sourceMessages = ctx.Turn.Counter("extract.source_messages");
+        var modelCalls = ctx.Turn.Counter("llm.calls");
+        var entities = ctx.Turn.Counter("persist.entities");
+        var facts = ctx.Turn.Counter("persist.facts");
+        var preferences = ctx.Turn.Counter("persist.preferences");
+        if (sourceMessages != SessionExtractionMessageCount || modelCalls != 4 ||
+            entities != 2 || facts != 2 || preferences != 1)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-05 did not exercise whole-session extraction " +
+                $"(extract.source_messages={sourceMessages}/{SessionExtractionMessageCount}, " +
+                $"llm.calls={modelCalls}/4, persist entities/facts/preferences=" +
+                $"{entities}/{facts}/{preferences}, expected 2/2/1). A capped or empty session, " +
+                "missing extractor, or empty scripted response would make rank 8's baseline invalid.");
+        }
+    }
+
+    private static Task PrepareWholeSessionAsync(ScenarioSetupContext ctx)
+    {
+        var sessionId = SessionExtractionSessionId(ctx.Phase, ctx.Iteration);
+        return PerfFixture.SeedSessionExtractionAsync(
+            ctx.Profile,
+            sessionId,
+            $"{sessionId}-conv",
+            SessionExtractionMessageCount,
+            ctx.CancellationToken);
+    }
+
+    private static async Task VerifyWholeSessionAsync(ScenarioVerificationContext ctx)
+    {
+        var sessionId = SessionExtractionSessionId(ctx.Phase, ctx.Iteration);
+        var shape = await PerfFixture.InspectSessionExtractionAsync(
+            ctx.Profile,
+            sessionId,
+            SessionExtractionOwnerId(ctx.Phase, ctx.Iteration)).ConfigureAwait(false);
+
+        const int expectedMemories = 5;
+        var expectedProvenance = expectedMemories * SessionExtractionMessageCount;
+        if (shape.Messages != SessionExtractionMessageCount ||
+            shape.Entities != 2 || shape.Facts != 2 || shape.Preferences != 1 ||
+            shape.ProvenanceRelationships != expectedProvenance)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-05 graph read-back failed (messages={shape.Messages}/" +
+                $"{SessionExtractionMessageCount}, entities/facts/preferences=" +
+                $"{shape.Entities}/{shape.Facts}/{shape.Preferences}, expected 2/2/1; " +
+                $"provenance={shape.ProvenanceRelationships}/{expectedProvenance}). Counters alone " +
+                "cannot prove that the extracted memories were actually learned.");
+        }
+    }
+
+    private static string SessionExtractionSessionId(string phase, int iteration) =>
+        $"perf-w05-{phase}-{iteration}";
+
+    private static string SessionExtractionOwnerId(string phase, int iteration) =>
+        $"{SessionExtractionSessionId(phase, iteration)}-owner";
 
     private static void AssertScriptedExtraction(ScenarioContext ctx, string scenarioId)
     {

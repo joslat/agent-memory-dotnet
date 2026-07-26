@@ -115,6 +115,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label degraded \
 dotnet run --project tools/AgentMemory.Cli -- perf --label graphrag \
   --scenarios PERF-R-08 --iterations 3
 
+# Measures one whole-session extraction over 50 pre-seeded messages
+dotnet run --project tools/AgentMemory.Cli -- perf --label session-extraction \
+  --scenarios PERF-W-05 --iterations 3
+
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
   --control default \
@@ -149,8 +153,8 @@ as independent. `--iterations` must therefore be a multiple of six and at least 
 The initial configuration grammar accepts `default` plus `Recall.Max*` and
 `Recall.MinSimilarityScore` assignments. `PERF-R-04` measures a full default recall, while
 `PERF-R-01` is a greeting-only control that locks the work performed by the shipped default recall
-policy. State-mutating scenarios such as `PERF-W-02` and `PERF-W-03` are rejected because shared write
-state would invalidate paired-sample independence.
+policy. State-mutating scenarios `PERF-W-02`, `PERF-W-03`, and `PERF-W-05` are rejected because their
+writes would invalidate paired-sample independence.
 
 The rendered markdown reports exact counter ranges, retrieval and extraction quality, and the
 candidate/control bootstrap interval together. Only `iteration total` is the pre-registered timing
@@ -167,8 +171,11 @@ retrieve fewer items than the configured limits; the degraded scenario additiona
 its embedding and database waits occurred inside recorded stage spans. The GraphRAG scenario requires
 its source call, two known items, configured wait, stage span, and rendered marker text while preserving
 the complete memory result. The greeting scenario locks its current default-policy item shape, while
-both ingestion scenarios verify message persistence and extraction outcomes. Those failures are
-otherwise silent and would produce a confident, wrong number.
+the per-turn ingestion scenarios verify message persistence and extraction outcomes. Whole-session
+extraction additionally requires exactly 50 source messages and reads the graph back after the measured
+turn to prove that two entities, two facts, one preference, and 250 provenance relationships were
+actually stored. Fixture setup and graph verification are outside the measured scope. Those failures
+are otherwise silent and would produce a confident, wrong number.
 
 ### Pull-request regression gate
 

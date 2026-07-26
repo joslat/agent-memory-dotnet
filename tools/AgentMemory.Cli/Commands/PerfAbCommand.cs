@@ -291,17 +291,32 @@ public sealed class PerfAbCommand
         ICollection<AbSample> samples,
         CancellationToken cancellationToken)
     {
-        using var turn = collector.BeginTurn($"{scenario.Id}/{variant}", iteration, phase);
-        await scenario.ExecuteAsync(new ScenarioContext(
+        var datasetVariant = DatasetVariantFor(variant, iteration);
+        await scenario.PrepareAsync(new ScenarioSetupContext(
             profile,
-            provider,
-            turn.Record,
             iteration,
             phase,
-            DatasetVariantFor(variant, iteration),
-            configuration.Recall,
+            datasetVariant,
             cancellationToken)).ConfigureAwait(false);
-        samples.Add(new AbSample(scenario.Id, variant, turn.Record));
+
+        TurnRecord record;
+        using (var turn = collector.BeginTurn($"{scenario.Id}/{variant}", iteration, phase))
+        {
+            record = turn.Record;
+            await scenario.ExecuteAsync(new ScenarioContext(
+                profile,
+                provider,
+                record,
+                iteration,
+                phase,
+                datasetVariant,
+                configuration.Recall,
+                cancellationToken)).ConfigureAwait(false);
+        }
+
+        await scenario.ValidateAsync(new ScenarioVerificationContext(
+            profile, record, iteration, phase, datasetVariant, cancellationToken)).ConfigureAwait(false);
+        samples.Add(new AbSample(scenario.Id, variant, record));
     }
 
     internal static string DatasetVariantFor(string configurationVariant, int iteration) =>

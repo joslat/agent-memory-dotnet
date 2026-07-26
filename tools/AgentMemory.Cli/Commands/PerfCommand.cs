@@ -175,19 +175,43 @@ public sealed class PerfCommand
         // percentile is one of the standard ways a benchmark misleads.
         for (var i = 0; i < warmup; i++)
         {
-            using var turn = collector.BeginTurn(scenario.Id, i, "warmup");
-            await scenario.ExecuteAsync(new ScenarioContext(
-                profile, provider, turn.Record, i, "warmup", null,
-                AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
+            await RunIterationAsync(
+                scenario, profile, provider, collector, i, "warmup", cancellationToken).ConfigureAwait(false);
         }
 
         for (var i = 0; i < iterations; i++)
         {
-            using var turn = collector.BeginTurn(scenario.Id, i, "measure");
+            await RunIterationAsync(
+                scenario, profile, provider, collector, i, "measure", cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task RunIterationAsync(
+        PerfScenario scenario,
+        HermeticProfile profile,
+        AgentMemory.AgentFramework.Neo4jMemoryContextProvider provider,
+        PerfCollector collector,
+        int iteration,
+        string phase,
+        CancellationToken cancellationToken)
+    {
+        await scenario.PrepareAsync(new ScenarioSetupContext(
+            profile, iteration, phase, null, cancellationToken)).ConfigureAwait(false);
+
+        TurnRecord record;
+        using (var turn = collector.BeginTurn(scenario.Id, iteration, phase))
+        {
+            record = turn.Record;
             await scenario.ExecuteAsync(new ScenarioContext(
-                profile, provider, turn.Record, i, "measure", null,
+                profile, provider, record, iteration, phase, null,
                 AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
         }
+
+        // Verification is deliberately outside the measured turn. Scenarios may read their writes back
+        // to prove learning occurred; charging that harness-only query to the product path would corrupt
+        // both elapsed time and database counters.
+        await scenario.ValidateAsync(new ScenarioVerificationContext(
+            profile, record, iteration, phase, null, cancellationToken)).ConfigureAwait(false);
     }
 
     private static object BuildManifest(

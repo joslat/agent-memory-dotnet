@@ -133,6 +133,39 @@ growth similarly consists of four message-persistence queries per additional mes
 provenance queries: **(5 × 4) + 25 = 45**. This control makes true batch response-message persistence
 measurable while also exposing the separate provenance fan-out it will not remove.
 
+### Whole-session extraction control
+
+`PERF-W-05` bulk-seeds 50 messages outside the measured scope, then measures the production
+`ExtractFromSessionAsync` path once. A post-turn raw-driver check, also outside the measured scope,
+proves that the graph contains every input and learned item:
+
+| Counter | Whole-session extraction (`W-05`) |
+|---|---:|
+| Source messages read | **50** |
+| Model completions | **4** |
+| Model input / output tokens | **7,774 / 668** |
+| Embedding requests | **7** |
+| Neo4j read / write transactions | **5 / 257** |
+| Neo4j queries | **278** |
+| Persisted entities / facts / preferences | **2 / 2 / 1** |
+| Provenance relationships found by graph read-back | **250** |
+
+Two fresh-container runs produced the same exact counters; both judged quality fixtures remained at
+1.000 with zero forbidden retrievals and zero false positives.
+
+The four model calls are one per extractor category regardless of transcript length. They lock the
+session-end side of matrix rank 8's comparison: extracting every one of 20 turns separately costs
+80 completions today, while one final session extraction costs four, a predicted **95% reduction**.
+That reduction is the target of the later optimization, not a product improvement shipped by this
+measurement scenario; extracted-item count and judged quality remain mandatory guards.
+
+The 257 writes expose a separate current cost. The five learned memories each link to all 50 source
+messages, producing 250 per-message provenance transactions in addition to seven entity-resolution
+and memory-upsert writes. Repository upserts also issue their own bulk provenance queries, so the
+resulting graph has 250 unique `EXTRACTED_FROM` relationships while the measured path executes 278
+Cypher queries. This fan-out is now visible for a later batching optimization; it is not hidden from
+the baseline.
+
 ### How these scale
 
 Worth knowing before you tune anything:
