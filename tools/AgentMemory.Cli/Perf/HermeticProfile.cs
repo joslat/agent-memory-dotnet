@@ -48,6 +48,9 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// <summary>Raw driver, for bulk fixture seeding that would be pointlessly slow through the services.</summary>
     public IDriver Driver { get; private set; } = null!;
 
+    /// <summary>Scenario-scoped dependency latency; unset outside an explicitly degraded scenario.</summary>
+    public PerfDependencyLatency DependencyLatency { get; } = new();
+
     public static async Task<HermeticProfile> StartAsync(
         int dimensions,
         TimeSpan embeddingLatency,
@@ -92,13 +95,17 @@ public sealed class HermeticProfile : IAsyncDisposable
             // stay registered and a post-turn scenario would measure extraction that never happens.
             llm => { });
 
+        DecorateTransactionRunner(services, DependencyLatency);
+
         // Counting wrappers sit outermost so they observe every call the product makes, including the
         // ones issued from inside the extraction pipeline.
         services.RemoveAll<IEmbeddingGenerator<string, Embedding<float>>>();
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
             new CountingEmbeddingGenerator(
                 new LatencyInjectingEmbeddingGenerator(
-                    new DeterministicEmbeddingGenerator(Dimensions), embeddingLatency)));
+                    new DeterministicEmbeddingGenerator(Dimensions),
+                    embeddingLatency,
+                    DependencyLatency)));
 
         services.RemoveAll<IChatClient>();
         services.AddSingleton<IChatClient>(
@@ -125,6 +132,40 @@ public sealed class HermeticProfile : IAsyncDisposable
         if (_container is not null) await _container.DisposeAsync().ConfigureAwait(false);
     }
 
+    private static void DecorateTransactionRunner(
+        IServiceCollection services,
+        PerfDependencyLatency dependencyLatency)
+    {
+        var descriptor = services.LastOrDefault(
+            item => item.ServiceType == typeof(INeo4jTransactionRunner))
+            ?? throw new InvalidOperationException("Neo4j transaction runner was not registered.");
+
+        services.Remove(descriptor);
+        services.Add(new ServiceDescriptor(
+            typeof(INeo4jTransactionRunner),
+            provider => new LatencyInjectingTransactionRunner(
+                CreateTransactionRunner(provider, descriptor),
+                dependencyLatency),
+            descriptor.Lifetime));
+    }
+
+    private static INeo4jTransactionRunner CreateTransactionRunner(
+        IServiceProvider provider,
+        ServiceDescriptor descriptor)
+    {
+        if (descriptor.ImplementationInstance is INeo4jTransactionRunner instance)
+            return instance;
+
+        if (descriptor.ImplementationFactory is not null)
+            return (INeo4jTransactionRunner)descriptor.ImplementationFactory(provider);
+
+        if (descriptor.ImplementationType is not null)
+            return (INeo4jTransactionRunner)ActivatorUtilities.CreateInstance(
+                provider, descriptor.ImplementationType);
+
+        throw new InvalidOperationException("Neo4j transaction runner registration has no implementation.");
+    }
+
     /// <summary>
     /// Adds a fixed delay to every embedding request so the hermetic profile can reproduce the latency
     /// shape of a remote provider without a network. Separate from the counting decorator so latency and
@@ -133,13 +174,17 @@ public sealed class HermeticProfile : IAsyncDisposable
     private sealed class LatencyInjectingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
     {
         private readonly IEmbeddingGenerator<string, Embedding<float>> _inner;
-        private readonly TimeSpan _delay;
+        private readonly TimeSpan _runWideDelay;
+        private readonly PerfDependencyLatency _dependencyLatency;
 
         public LatencyInjectingEmbeddingGenerator(
-            IEmbeddingGenerator<string, Embedding<float>> inner, TimeSpan delay)
+            IEmbeddingGenerator<string, Embedding<float>> inner,
+            TimeSpan runWideDelay,
+            PerfDependencyLatency dependencyLatency)
         {
             _inner = inner;
-            _delay = delay;
+            _runWideDelay = runWideDelay;
+            _dependencyLatency = dependencyLatency;
         }
 
         public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
@@ -147,8 +192,19 @@ public sealed class HermeticProfile : IAsyncDisposable
             EmbeddingGenerationOptions? options = null,
             CancellationToken cancellationToken = default)
         {
-            if (_delay > TimeSpan.Zero)
-                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+            var preset = _dependencyLatency.Current;
+            var delay = _dependencyLatency.ResolveEmbeddingDelay(_runWideDelay);
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                if (preset is not null)
+                {
+                    PerfCollector.Current?.Add("injected.embedding_delay.calls");
+                    PerfCollector.Current?.Add(
+                        "injected.embedding_delay.ms",
+                        checked((long)delay.TotalMilliseconds));
+                }
+            }
             return await _inner.GenerateAsync(values, options, cancellationToken).ConfigureAwait(false);
         }
 
@@ -156,5 +212,79 @@ public sealed class HermeticProfile : IAsyncDisposable
             serviceType.IsInstanceOfType(this) ? this : _inner.GetService(serviceType, serviceKey);
 
         public void Dispose() => _inner.Dispose();
+    }
+
+    /// <summary>
+    /// Inserts deterministic waiting inside the real transaction span. The original work delegate still
+    /// receives the product's instrumented query runner, so query counting and behavior are unchanged.
+    /// </summary>
+    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner
+    {
+        private readonly INeo4jTransactionRunner _inner;
+        private readonly PerfDependencyLatency _dependencyLatency;
+
+        public LatencyInjectingTransactionRunner(
+            INeo4jTransactionRunner inner,
+            PerfDependencyLatency dependencyLatency)
+        {
+            _inner = inner;
+            _dependencyLatency = dependencyLatency;
+        }
+
+        public Task<T> ReadAsync<T>(
+            Func<IAsyncQueryRunner, Task<T>> work,
+            CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(
+                async runner =>
+                {
+                    await DelayAsync(cancellationToken).ConfigureAwait(false);
+                    return await work(runner).ConfigureAwait(false);
+                },
+                cancellationToken);
+
+        public Task ReadAsync(
+            Func<IAsyncQueryRunner, Task> work,
+            CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(
+                async runner =>
+                {
+                    await DelayAsync(cancellationToken).ConfigureAwait(false);
+                    await work(runner).ConfigureAwait(false);
+                },
+                cancellationToken);
+
+        public Task<T> WriteAsync<T>(
+            Func<IAsyncQueryRunner, Task<T>> work,
+            CancellationToken cancellationToken = default) =>
+            _inner.WriteAsync(
+                async runner =>
+                {
+                    await DelayAsync(cancellationToken).ConfigureAwait(false);
+                    return await work(runner).ConfigureAwait(false);
+                },
+                cancellationToken);
+
+        public Task WriteAsync(
+            Func<IAsyncQueryRunner, Task> work,
+            CancellationToken cancellationToken = default) =>
+            _inner.WriteAsync(
+                async runner =>
+                {
+                    await DelayAsync(cancellationToken).ConfigureAwait(false);
+                    await work(runner).ConfigureAwait(false);
+                },
+                cancellationToken);
+
+        private async Task DelayAsync(CancellationToken cancellationToken)
+        {
+            var delay = _dependencyLatency.Current?.DatabaseDelay ?? TimeSpan.Zero;
+            if (delay <= TimeSpan.Zero) return;
+
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            PerfCollector.Current?.Add("injected.database_delay.calls");
+            PerfCollector.Current?.Add(
+                "injected.database_delay.ms",
+                checked((long)delay.TotalMilliseconds));
+        }
     }
 }

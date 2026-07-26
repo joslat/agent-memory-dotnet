@@ -107,6 +107,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label mine --iterations 10
 # Reproduces the shape of a remote deployment (embedding 120 ms, model 900 ms)
 dotnet run --project tools/AgentMemory.Cli -- perf --label mine --latency remote --iterations 10
 
+# Exercises the scenario-scoped degraded control (embedding 2 s, each DB transaction 250 ms)
+dotnet run --project tools/AgentMemory.Cli -- perf --label degraded \
+  --scenarios PERF-R-07 --iterations 3
+
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
   --control default \
@@ -154,10 +158,11 @@ The harness uses a deterministic embedding function and a scripted model, so cou
 The judged quality fixtures had zero observed variance across five complete runs, which is why their
 tolerance is zero rather than a guessed allowance.
 
-All measured scenarios also **self-assert**. The full recall scenario fails if it retrieves fewer
-items than the configured limits, the greeting scenario locks its current default-policy item shape,
-and the ingestion scenario fails if extraction never ran. Those failures are otherwise silent and
-would produce a confident, wrong number.
+All measured scenarios also **self-assert**. The full and degraded recall scenarios fail if they
+retrieve fewer items than the configured limits; the degraded scenario additionally verifies that its
+embedding and database waits occurred inside recorded stage spans. The greeting scenario locks its
+current default-policy item shape, while both ingestion scenarios verify message persistence and
+extraction outcomes. Those failures are otherwise silent and would produce a confident, wrong number.
 
 ### Pull-request regression gate
 

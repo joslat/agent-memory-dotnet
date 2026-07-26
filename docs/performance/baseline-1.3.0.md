@@ -61,6 +61,29 @@ relevant message is returned. This is a control for selective/task-aware recall:
 target is to drive all recall work to zero on a skipped greeting while the retrieval quality guard
 remains unchanged. Hermetic milliseconds are intentionally not used for this claim.
 
+### Degraded-dependency recall control
+
+`PERF-R-07` applies a scenario-scoped deterministic stimulus: 2,000 ms for query embedding and 250 ms
+inside each database transaction. Current behavior has no recall deadline, so it waits and returns the
+same complete shape as `PERF-R-04`:
+
+| Counter | Normal full recall (`R-04`) | Degraded (`R-07`) |
+|---|---:|---:|
+| Neo4j read / write transactions | 6 / 1 | **6 / 1** |
+| Neo4j queries | 9 | **9** |
+| Embedding requests | 1 | **1** |
+| Items retrieved | 43 | **43** |
+| Access timestamps updated | 25 | **25** |
+| Configured embedding wait | – | **1 × 2,000 ms** |
+| Configured database wait | – | **7 × 250 ms** |
+
+In the five-iteration hermetic run, the embedding span had a 2,009 ms median, the seven transaction
+spans summed to 1,958 ms, and elapsed turn time was 2,566 ms because the six reads overlap. These are
+controlled-stimulus validation figures—not deployment performance. The portable finding is that the
+entire 43-item result is preserved and both degraded stages are now observable. Timeout/deadline work
+can use this control to prove bounded completion; graceful-degradation work must additionally report
+which categories were omitted rather than silently returning less.
+
 ### Six-message tool-heavy ingestion control
 
 `PERF-W-03` holds the scripted extraction result constant while increasing response messages from one

@@ -176,7 +176,7 @@ public sealed class PerfCommand
         for (var i = 0; i < warmup; i++)
         {
             using var turn = collector.BeginTurn(scenario.Id, i, "warmup");
-            await scenario.RunAsync(new ScenarioContext(
+            await scenario.ExecuteAsync(new ScenarioContext(
                 profile, provider, turn.Record, i, "warmup", null,
                 AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
         }
@@ -184,7 +184,7 @@ public sealed class PerfCommand
         for (var i = 0; i < iterations; i++)
         {
             using var turn = collector.BeginTurn(scenario.Id, i, "measure");
-            await scenario.RunAsync(new ScenarioContext(
+            await scenario.ExecuteAsync(new ScenarioContext(
                 profile, provider, turn.Record, i, "measure", null,
                 AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
         }
@@ -200,6 +200,16 @@ public sealed class PerfCommand
             profile = "hermetic",
             scale = "S",
             scenarios = scenarios.Select(s => s.Id).ToArray(),
+            scenarioDependencyLatency = scenarios
+                .Where(s => s.DependencyLatency is not null)
+                .ToDictionary(
+                    s => s.Id,
+                    s => new
+                    {
+                        name = s.DependencyLatency!.Name,
+                        embeddingDelayMs = s.DependencyLatency.EmbeddingDelay.TotalMilliseconds,
+                        databaseDelayMs = s.DependencyLatency.DatabaseDelay.TotalMilliseconds,
+                    }),
             iterations,
             warmup,
             // The fingerprint is what makes two reports comparable — or, more importantly, what makes it
@@ -341,6 +351,8 @@ public sealed class PerfCommand
         "context.chars" or "recall.chars" => "characters",
         "items.retrieved" => "memory items",
         _ when counter.StartsWith("items.", StringComparison.Ordinal) => "memory items",
+        _ when counter.EndsWith("_delay.calls", StringComparison.Ordinal) => "injected waits",
+        _ when counter.EndsWith("_delay.ms", StringComparison.Ordinal) => "configured milliseconds",
         _ => "count",
     };
 

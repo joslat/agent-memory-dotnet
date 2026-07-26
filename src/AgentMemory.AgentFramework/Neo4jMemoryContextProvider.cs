@@ -138,6 +138,7 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             float[]? queryEmbedding = null;
             try
             {
+                using var embeddingSpan = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.embedding");
                 queryEmbedding = await _embeddingOrchestrator
                     .EmbedQueryAsync(queryText, cancellationToken)
                     .ConfigureAwait(false);

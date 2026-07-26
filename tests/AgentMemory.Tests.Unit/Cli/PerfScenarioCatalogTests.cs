@@ -44,4 +44,24 @@ public sealed class PerfScenarioCatalogTests
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-W-03");
     }
+
+    [Fact]
+    public void Catalog_ContainsDegradedRecallScenario_WithStableContract()
+    {
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-R-07");
+
+        scenario.Description.Should().ContainEquivalentOf("degraded");
+        scenario.Description.Should().ContainEquivalentOf("dependency");
+        scenario.SupportsInterleavedAb.Should().BeTrue(
+            "the recall fixture is isolated per A/B arm and the dependency preset is scenario-scoped");
+    }
+
+    [Fact]
+    public void Select_DegradedRecallScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-R-07");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-R-07");
+    }
 }

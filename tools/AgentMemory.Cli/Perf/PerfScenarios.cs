@@ -18,7 +18,17 @@ public sealed record PerfScenario(
     string Id,
     string Description,
     Func<ScenarioContext, Task> RunAsync,
-    bool SupportsInterleavedAb = true);
+    bool SupportsInterleavedAb = true,
+    PerfDependencyLatencyPreset? DependencyLatency = null)
+{
+    public async Task ExecuteAsync(ScenarioContext context)
+    {
+        using var latencyScope = DependencyLatency is null
+            ? null
+            : context.Profile.DependencyLatency.Push(DependencyLatency);
+        await RunAsync(context).ConfigureAwait(false);
+    }
+}
 
 /// <summary>Everything a scenario body needs for one iteration.</summary>
 /// <param name="Phase">
@@ -49,6 +59,11 @@ public static class PerfScenarios
             "Greeting-only turn at the shipped default recall policy",
             GreetingRecallAsync),
         new("PERF-R-04", "Full multi-category recall at shipped defaults", RecallAsync),
+        new(
+            "PERF-R-07",
+            "Degraded dependency recall (embedding 2 s, database transaction 250 ms)",
+            DegradedRecallAsync,
+            DependencyLatency: PerfDependencyLatencyPreset.Degraded),
         new(
             "PERF-W-02",
             "Single response message, extraction enabled (shipped defaults)",
@@ -139,7 +154,54 @@ public static class PerfScenarios
     /// <summary>
     /// PERF-R-04 — the reference read turn: everything the MAF provider does before the model is called.
     /// </summary>
-    private static async Task RecallAsync(ScenarioContext ctx)
+    private static Task RecallAsync(ScenarioContext ctx) =>
+        RunDefaultRecallAsync(ctx, "PERF-R-04");
+
+    /// <summary>
+    /// PERF-R-07 — the same full recall under deterministic embedding/database degradation. Current
+    /// behavior has no deadline, so it must complete with the full item shape and record both waits.
+    /// </summary>
+    private static async Task DegradedRecallAsync(ScenarioContext ctx)
+    {
+        await RunDefaultRecallAsync(ctx, "PERF-R-07").ConfigureAwait(false);
+
+        var preset = PerfDependencyLatencyPreset.Degraded;
+        var embeddingCalls = ctx.Turn.Counter("injected.embedding_delay.calls");
+        var embeddingMs = ctx.Turn.Counter("injected.embedding_delay.ms");
+        var databaseCalls = ctx.Turn.Counter("injected.database_delay.calls");
+        var databaseMs = ctx.Turn.Counter("injected.database_delay.ms");
+        var accessTracked = ctx.Turn.Counter("access_tracking.items");
+        var queries = ctx.Turn.Counter("neo4j.queries");
+        var embeddingSpans = ctx.Turn.SpanCounts.TryGetValue(
+            "memory.recall.embedding", out var embeddingSpanCount)
+            ? embeddingSpanCount
+            : 0;
+        var transactionSpans = ctx.Turn.SpanCounts.TryGetValue(
+            "memory.db.tx", out var transactionSpanCount)
+            ? transactionSpanCount
+            : 0;
+
+        var expectedEmbeddingMs = checked((long)preset.EmbeddingDelay.TotalMilliseconds);
+        const long expectedDatabaseCalls = 7;
+        var expectedDatabaseMs = checked(
+            expectedDatabaseCalls * (long)preset.DatabaseDelay.TotalMilliseconds);
+        if (embeddingCalls != 1 || embeddingMs != expectedEmbeddingMs ||
+            databaseCalls != expectedDatabaseCalls || databaseMs != expectedDatabaseMs ||
+            embeddingSpans != 1 || transactionSpans != expectedDatabaseCalls ||
+            accessTracked != 25 || queries != 9)
+        {
+            throw new InvalidOperationException(
+                $"PERF-R-07 did not record its degraded dependency shape " +
+                $"(embedding delay calls/ms={embeddingCalls}/{embeddingMs}, expected " +
+                $"1/{expectedEmbeddingMs}; database delay calls/ms={databaseCalls}/{databaseMs}, " +
+                $"expected {expectedDatabaseCalls}/{expectedDatabaseMs}; embedding spans=" +
+                $"{embeddingSpans}/1; transaction spans={transactionSpans}/{expectedDatabaseCalls}; " +
+                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/9). The scenario " +
+                "would not grade timeouts or graceful degradation reliably.");
+        }
+    }
+
+    private static async Task RunDefaultRecallAsync(ScenarioContext ctx, string scenarioId)
     {
         var identity = ctx.Variant is null
             ? PerfFixture.DefaultIdentity
@@ -165,7 +227,7 @@ public static class PerfScenarios
             var breakdown = string.Join(", ", expected.ByCategory
                 .Select(kv => $"{kv.Key}={ctx.Turn.Counter($"items.{kv.Key}")}/{kv.Value}"));
             throw new InvalidOperationException(
-                $"PERF-R-04 recalled {retrieved} items but expected {expected.Total} " +
+                $"{scenarioId} recalled {retrieved} items but expected {expected.Total} " +
                 $"({breakdown}). The fixture is not exercising the configured recall shape, so this " +
                 "measurement would be misleading. Check MinSimilarityScore and the seeded embeddings.");
         }
