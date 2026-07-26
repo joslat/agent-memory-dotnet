@@ -18,7 +18,7 @@
         "items.relevant": 5,
         "items.retrieved": 43,
         "items.traces": 3,
-        "neo4j.queries": 9,
+        "neo4j.queries": 8,
         "neo4j.tx.read": 6,
         "neo4j.tx.write": 1,
         "recall.chars": 3823
