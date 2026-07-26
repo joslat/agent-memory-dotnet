@@ -84,4 +84,26 @@ public sealed class PerfScenarioCatalogTests
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-R-08");
     }
+
+    [Fact]
+    public void Catalog_ContainsWholeSessionExtractionScenario_WithStableContract()
+    {
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-W-05");
+
+        scenario.Description.Should().ContainEquivalentOf("session");
+        scenario.Description.Should().Contain("50");
+        scenario.SupportsInterleavedAb.Should().BeFalse(
+            "the scenario persists extracted memories and cannot share mutable state between A/B arms");
+        scenario.SetupAsync.Should().NotBeNull(
+            "the 50 source messages must be seeded outside the measured turn");
+    }
+
+    [Fact]
+    public void Select_WholeSessionExtractionScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-W-05");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-W-05");
+    }
 }

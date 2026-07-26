@@ -111,6 +111,7 @@ internal sealed class ExtractionStage : IExtractionStage
         // concurrent extractor categories above its cost grows linearly with entity count.
         using var resolutionActivity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.resolution");
         resolutionActivity?.SetTag("memory.extract.candidate_entities", rawEntities.Count);
+        resolutionActivity?.SetTag("memory.extract.source_messages", sourceMessageIds.Count);
 
         var resolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in rawEntities)

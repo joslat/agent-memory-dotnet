@@ -121,6 +121,8 @@ public sealed class PerfCollector : IDisposable
             case "memory.extract.resolution":
                 if (activity.GetTagItem("memory.extract.candidate_entities") is int candidates)
                     turn.Add("extract.candidate_entities", candidates);
+                if (activity.GetTagItem("memory.extract.source_messages") is int sourceMessages)
+                    turn.Add("extract.source_messages", sourceMessages);
                 break;
 
             case "memory.persist.total":

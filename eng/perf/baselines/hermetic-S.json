@@ -101,6 +101,7 @@
         "embed.items": 4,
         "embed.requests": 4,
         "extract.candidate_entities": 2,
+        "extract.source_messages": 2,
         "llm.calls": 4,
         "llm.tokens_in": 947,
         "llm.tokens_out": 668,
@@ -120,6 +121,7 @@
         "embed.items": 9,
         "embed.requests": 9,
         "extract.candidate_entities": 2,
+        "extract.source_messages": 7,
         "llm.calls": 4,
         "llm.tokens_in": 1170,
         "llm.tokens_out": 668,
@@ -131,6 +133,25 @@
         "persist.preferences": 1,
         "persist.relationships": 0,
         "store.messages": 6
+      }
+    },
+    "PERF-W-05": {
+      "counters": {
+        "embed.chars": 159,
+        "embed.items": 7,
+        "embed.requests": 7,
+        "extract.candidate_entities": 2,
+        "extract.source_messages": 50,
+        "llm.calls": 4,
+        "llm.tokens_in": 7774,
+        "llm.tokens_out": 668,
+        "neo4j.queries": 278,
+        "neo4j.tx.read": 5,
+        "neo4j.tx.write": 257,
+        "persist.entities": 2,
+        "persist.facts": 2,
+        "persist.preferences": 1,
+        "persist.relationships": 0
       }
     }
   },

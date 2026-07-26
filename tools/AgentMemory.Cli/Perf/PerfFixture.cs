@@ -2,6 +2,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Neo4j.Driver;
 
 namespace AgentMemory.Cli.Perf;
 
@@ -212,6 +213,104 @@ public static class PerfFixture
         log.WriteLine(
             $"perf: seeded {identity.IdPrefix}: {EntityCount} entities, {FactCount} facts, " +
             $"{preferenceTexts.Length} preferences, {MessageCount} messages, {TraceCount} traces.");
+    }
+
+    /// <summary>
+    /// Seeds an iteration-isolated whole-session extraction fixture in one raw-driver transaction.
+    /// This runs before the measured turn: setup latency and setup database work are fixture cost, not
+    /// product extraction cost. The production session-read and extraction paths remain fully measured.
+    /// </summary>
+    public static async Task SeedSessionExtractionAsync(
+        HermeticProfile profile,
+        string sessionId,
+        string conversationId,
+        int messageCount,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var messages = Enumerable.Range(0, messageCount)
+            .Select(index => new Dictionary<string, object?>
+            {
+                ["id"] = $"{sessionId}-msg-{index:D2}",
+                ["session_id"] = sessionId,
+                ["conversation_id"] = conversationId,
+                ["role"] = index % 2 == 0 ? "user" : "assistant",
+                ["content"] = index == 0
+                    ? PerfScenarios.StoreProbeUserMessage
+                    : $"Session extraction fixture message {index:D2}: Alice Martin works on the " +
+                      "Acme Corporation platform team and prefers concise written updates.",
+                ["timestamp"] = startedAt.AddSeconds(index).ToString("O"),
+                ["tool_call_ids"] = Array.Empty<string>(),
+                ["metadata"] = "{}",
+            })
+            .ToList();
+
+        const string cypher = """
+            UNWIND $messages AS item
+            MERGE (m:Message {id: item.id})
+            SET m.session_id = item.session_id,
+                m.conversation_id = item.conversation_id,
+                m.role = item.role,
+                m.content = item.content,
+                m.timestamp = item.timestamp,
+                m.tool_call_ids = item.tool_call_ids,
+                m.metadata = item.metadata
+            RETURN count(m) AS seeded
+            """;
+
+        await using var session = profile.Driver.AsyncSession();
+        var seeded = await session.ExecuteWriteAsync(async transaction =>
+        {
+            var cursor = await transaction.RunAsync(cypher, new { messages }).ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            return record["seeded"].As<long>();
+        }).ConfigureAwait(false);
+
+        if (seeded != messageCount)
+        {
+            throw new InvalidOperationException(
+                $"Session extraction setup seeded {seeded} messages but expected {messageCount}.");
+        }
+    }
+
+    public sealed record SessionExtractionShape(
+        long Messages,
+        long Entities,
+        long Facts,
+        long Preferences,
+        long ProvenanceRelationships);
+
+    /// <summary>
+    /// Reads the graph after the measured turn to prove extraction actually learned the expected items.
+    /// Raw-driver verification is intentional: it runs outside the turn and must not inflate product cost.
+    /// </summary>
+    public static async Task<SessionExtractionShape> InspectSessionExtractionAsync(
+        HermeticProfile profile,
+        string sessionId,
+        string ownerId)
+    {
+        const string cypher = """
+            CALL { MATCH (m:Message {session_id: $sessionId}) RETURN count(m) AS messages }
+            CALL { MATCH (e:Entity {owner_id: $ownerId}) RETURN count(e) AS entities }
+            CALL { MATCH (f:Fact {owner_id: $ownerId}) RETURN count(f) AS facts }
+            CALL { MATCH (p:Preference {owner_id: $ownerId}) RETURN count(p) AS preferences }
+            CALL {
+                MATCH (memory)-[:EXTRACTED_FROM]->(m:Message {session_id: $sessionId})
+                WHERE memory.owner_id = $ownerId
+                RETURN count(*) AS provenance
+            }
+            RETURN messages, entities, facts, preferences, provenance
+            """;
+
+        await using var session = profile.Driver.AsyncSession();
+        var cursor = await session.RunAsync(cypher, new { sessionId, ownerId }).ConfigureAwait(false);
+        var record = await cursor.SingleAsync().ConfigureAwait(false);
+        return new SessionExtractionShape(
+            record["messages"].As<long>(),
+            record["entities"].As<long>(),
+            record["facts"].As<long>(),
+            record["preferences"].As<long>(),
+            record["provenance"].As<long>());
     }
 
     public sealed record ExpectedRecallShape(IReadOnlyDictionary<string, int> ByCategory, int Total);
