@@ -292,7 +292,7 @@ public sealed class PerfAbCommand
         CancellationToken cancellationToken)
     {
         using var turn = collector.BeginTurn($"{scenario.Id}/{variant}", iteration, phase);
-        await scenario.RunAsync(new ScenarioContext(
+        await scenario.ExecuteAsync(new ScenarioContext(
             profile,
             provider,
             turn.Record,
