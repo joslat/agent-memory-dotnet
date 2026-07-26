@@ -1,0 +1,82 @@
+name: Performance Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  gate:
+    name: Hermetic counter + quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restore
+        run: dotnet restore tools/AgentMemory.Cli/AgentMemory.Cli.csproj
+
+      - name: Build performance CLI
+        run: >
+          dotnet build tools/AgentMemory.Cli/AgentMemory.Cli.csproj
+          -c Release --no-restore
+
+      - name: Run zero and remote profiles through the gate
+        shell: bash
+        env:
+          PERF_COUNTER_CHANGE_ALLOWED: ${{ contains(github.event.pull_request.labels.*.name, 'perf-counter-change') }}
+          PERF_COUNTER_CHANGE_JUSTIFICATION: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          for latency in zero remote; do
+            output="artifacts/perf-ci/$latency"
+            dotnet run --project tools/AgentMemory.Cli/AgentMemory.Cli.csproj \
+              -c Release --no-build -- \
+              perf \
+              --label "ci-$latency" \
+              --iterations 3 \
+              --warmup 1 \
+              --latency "$latency" \
+              --output "$output"
+
+            report="$(find "$output" -type f -name summary.json -print -quit)"
+            if [[ -z "$report" ]]; then
+              echo "::error::perf did not produce summary.json for $latency"
+              exit 1
+            fi
+
+            dotnet run --project tools/AgentMemory.Cli/AgentMemory.Cli.csproj \
+              -c Release --no-build -- \
+              perf gate \
+              --baseline eng/perf/baselines/hermetic-S.json \
+              --report "$report" \
+              --allow-counter-change "$PERF_COUNTER_CHANGE_ALLOWED" \
+              --counter-change-justification "$PERF_COUNTER_CHANGE_JUSTIFICATION"
+          done
+
+      - name: Upload performance reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: performance-gate-reports
+          path: artifacts/perf-ci
+          if-no-files-found: ignore

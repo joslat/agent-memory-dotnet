@@ -117,6 +117,15 @@ public static class CliHelp
                                      Specs use `default` or recall assignments such as
                                      `Recall.MaxEntities=2`. Reports exact counter deltas, paired
                                      timing ratios with bootstrap 95% CIs, and quality side by side.
+              perf baseline --update --report <summary.json> [--output <path>]
+                                     Write deterministic counters and quality to a reviewable baseline.
+                                     Default output: eng/perf/baselines/hermetic-S.json.
+              perf gate --baseline <path> --report <summary.json>
+                        [--allow-counter-change <true|false>]
+                        [--counter-change-justification <PR body>]
+                                     Fail on a structural counter increase or quality regression.
+                                     A counter increase needs both the perf-counter-change label
+                                     (passed as allow-counter-change) and a PR-body justification.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
               schema-parity [--upstream-version <v>]
@@ -144,6 +153,9 @@ public static class CliHelp
               agentmemory perf --label feat-01-access-tracking --latency remote
               agentmemory perf ab --control default --candidate default --scenarios PERF-R-04
               agentmemory perf ab --control default --candidate Recall.MaxEntities=2
+              agentmemory perf baseline --update --report artifacts/perf/run/summary.json
+              agentmemory perf gate --baseline eng/perf/baselines/hermetic-S.json \
+                  --report artifacts/perf/run/summary.json
             """);
     }
 }

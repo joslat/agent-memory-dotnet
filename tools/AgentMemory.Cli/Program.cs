@@ -42,6 +42,23 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
 {
     try
     {
+        if (string.Equals(cli.Subcommand, "baseline", StringComparison.OrdinalIgnoreCase))
+        {
+            return await new AgentMemory.Cli.Commands.PerfBaselineCommand(Console.Out).ExecuteAsync(
+                cli.HasFlag("update") ? cli.Get("update") ?? bool.TrueString : null,
+                cli.Get("report"),
+                cli.Get("output"));
+        }
+
+        if (string.Equals(cli.Subcommand, "gate", StringComparison.OrdinalIgnoreCase))
+        {
+            return await new AgentMemory.Cli.Commands.PerfGateCommand(Console.Out).ExecuteAsync(
+                cli.Get("baseline"),
+                cli.Get("report"),
+                cli.Get("allow-counter-change"),
+                cli.Get("counter-change-justification"));
+        }
+
         if (string.Equals(cli.Subcommand, "ab", StringComparison.OrdinalIgnoreCase))
         {
             return await new AgentMemory.Cli.Commands.PerfAbCommand(Console.Out).ExecuteAsync(
@@ -59,7 +76,7 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             !string.Equals(cli.Subcommand, "run", StringComparison.OrdinalIgnoreCase))
         {
             Console.Error.WriteLine(
-                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run' or 'ab'.");
+                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'ab', 'baseline', or 'gate'.");
             return 1;
         }
 
