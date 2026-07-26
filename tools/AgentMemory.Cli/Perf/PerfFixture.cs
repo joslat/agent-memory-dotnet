@@ -38,11 +38,38 @@ public static class PerfFixture
     /// <summary>Conversation used by the recall scenarios.</summary>
     public const string ConversationId = "perf-session-conv";
 
+    public sealed record DatasetIdentity(
+        string OwnerId,
+        string SessionId,
+        string ConversationId,
+        string IdPrefix,
+        string TopicToken);
+
+    public static DatasetIdentity DefaultIdentity { get; } =
+        new(OwnerId, SessionId, ConversationId, "perf", string.Empty);
+
+    public static DatasetIdentity ForVariant(string variant) =>
+        new(
+            $"{OwnerId}-{variant}",
+            $"{SessionId}-{variant}",
+            $"{ConversationId}-{variant}",
+            $"perf-{variant}",
+            variant switch
+            {
+                "control" => "alpha",
+                "candidate" => "bravo",
+                _ => throw new ArgumentException($"unknown A/B fixture variant '{variant}'.", nameof(variant)),
+            });
+
+    public static string ProbeQueryFor(DatasetIdentity identity) =>
+        Qualify(ProbeQuery, identity);
+
     // Sized above the shipped RecallOptions defaults (10 entities / 10 facts / 5 preferences /
     // 10 recent / 5 relevant / 3 traces) so the limits, not the fixture, decide what comes back.
     private const int EntityCount = 20;
     private const int FactCount = 20;
     private const int MessageCount = 30;
+    private const int PreferenceCount = 12;
     private const int TraceCount = 8;
 
     /// <summary>
@@ -64,8 +91,13 @@ public static class PerfFixture
     /// <summary>Total items a default recall should return once seeded.</summary>
     public static readonly int ExpectedRecalledItems = ExpectedByCategory.Values.Sum();
 
-    public static async Task SeedAsync(HermeticProfile profile, TextWriter log, CancellationToken cancellationToken)
+    public static async Task SeedAsync(
+        HermeticProfile profile,
+        TextWriter log,
+        CancellationToken cancellationToken,
+        DatasetIdentity? identity = null)
     {
+        identity ??= DefaultIdentity;
         var services = profile.Services;
         var shortTerm = services.GetRequiredService<IShortTermMemoryService>();
         var longTerm = services.GetRequiredService<ILongTermMemoryService>();
@@ -74,20 +106,21 @@ public static class PerfFixture
 
         log.WriteLine("perf: seeding scale-S fixture…");
 
-        await shortTerm.AddConversationAsync(ConversationId, SessionId, OwnerId, null, cancellationToken)
+        await shortTerm.AddConversationAsync(
+                identity.ConversationId, identity.SessionId, identity.OwnerId, null, cancellationToken)
             .ConfigureAwait(false);
 
         var now = clock.UtcNow;
 
         for (var i = 0; i < MessageCount; i++)
         {
-            var text = $"Alice Martin at Acme Corporation discussed platform work item {i} " +
-                       "and her preference for concise written communication.";
+            var text = Qualify($"Alice Martin at Acme Corporation discussed platform work item {i} " +
+                               "and her preference for concise written communication.", identity);
             await shortTerm.AddMessageAsync(new Message
             {
-                MessageId = $"perf-msg-{i}",
-                SessionId = SessionId,
-                ConversationId = ConversationId,
+                MessageId = $"{identity.IdPrefix}-msg-{i}",
+                SessionId = identity.SessionId,
+                ConversationId = identity.ConversationId,
                 Role = i % 2 == 0 ? "user" : "assistant",
                 Content = text,
                 TimestampUtc = now.AddSeconds(i),
@@ -99,14 +132,15 @@ public static class PerfFixture
             var name = $"Acme Corporation platform team {i}";
             await longTerm.AddEntityAsync(new Entity
             {
-                EntityId = $"perf-entity-{i}",
+                EntityId = $"{identity.IdPrefix}-entity-{i}",
                 Name = name,
                 Type = "ORGANIZATION",
                 Description = $"Alice Martin communication work at Acme Corporation, area {i}.",
                 Confidence = 0.95,
-                OwnerId = OwnerId,
+                OwnerId = identity.OwnerId,
                 CreatedAtUtc = now,
-                Embedding = Embed($"{name} Alice Martin work communication preferences", profile.Dimensions),
+                Embedding = Embed(
+                    Qualify($"{name} Alice Martin work communication preferences", identity), profile.Dimensions),
             }, cancellationToken).ConfigureAwait(false);
         }
 
@@ -114,15 +148,16 @@ public static class PerfFixture
         {
             await longTerm.AddFactAsync(new Fact
             {
-                FactId = $"perf-fact-{i}",
+                FactId = $"{identity.IdPrefix}-fact-{i}",
                 Subject = "Alice Martin",
                 Predicate = i % 2 == 0 ? "works_at" : "prefers",
                 Object = i % 2 == 0 ? $"Acme Corporation platform team {i}" : $"concise communication style {i}",
                 Confidence = 0.9,
-                OwnerId = OwnerId,
+                OwnerId = identity.OwnerId,
                 CreatedAtUtc = now,
                 Embedding = Embed(
-                    $"Alice Martin work Acme Corporation communication preferences {i}", profile.Dimensions),
+                    Qualify($"Alice Martin work Acme Corporation communication preferences {i}", identity),
+                    profile.Dimensions),
             }, cancellationToken).ConfigureAwait(false);
         }
 
@@ -153,29 +188,48 @@ public static class PerfFixture
         {
             await longTerm.AddPreferenceAsync(new Preference
             {
-                PreferenceId = $"perf-pref-{i}",
+                PreferenceId = $"{identity.IdPrefix}-pref-{i}",
                 Category = "communication",
                 PreferenceText = text,
                 Confidence = 0.9,
-                OwnerId = OwnerId,
+                OwnerId = identity.OwnerId,
                 CreatedAtUtc = now,
-                Embedding = Embed(text, profile.Dimensions),
+                Embedding = Embed(Qualify(text, identity), profile.Dimensions),
             }, cancellationToken).ConfigureAwait(false);
         }
 
         for (var i = 0; i < TraceCount; i++)
         {
-            var task = $"Summarize Alice Martin communication preferences for Acme Corporation work {i}";
+            var task = Qualify(
+                $"Summarize Alice Martin communication preferences for Acme Corporation work {i}", identity);
             var trace = await reasoning.StartTraceAsync(
-                SessionId, task, Embed(task, profile.Dimensions), null, OwnerId, cancellationToken)
+                identity.SessionId, task, Embed(task, profile.Dimensions), null, identity.OwnerId, cancellationToken)
                 .ConfigureAwait(false);
             await reasoning.CompleteTraceAsync(trace.TraceId, "done", true, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         log.WriteLine(
-            $"perf: seeded {EntityCount} entities, {FactCount} facts, {preferenceTexts.Length} preferences, " +
-            $"{MessageCount} messages, {TraceCount} traces.");
+            $"perf: seeded {identity.IdPrefix}: {EntityCount} entities, {FactCount} facts, " +
+            $"{preferenceTexts.Length} preferences, {MessageCount} messages, {TraceCount} traces.");
+    }
+
+    public sealed record ExpectedRecallShape(IReadOnlyDictionary<string, int> ByCategory, int Total);
+
+    /// <summary>Expected shape for a configured recall, capped by what scale S seeds.</summary>
+    public static ExpectedRecallShape ExpectedRecall(RecallOptions options)
+    {
+        var byCategory = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["recent"] = Math.Min(options.MaxRecentMessages, MessageCount),
+            ["relevant"] = Math.Min(options.MaxRelevantMessages, MessageCount),
+            ["entities"] = Math.Min(options.MaxEntities, EntityCount),
+            ["facts"] = Math.Min(options.MaxFacts, FactCount),
+            ["preferences"] = Math.Min(options.MaxPreferences, PreferenceCount),
+            ["traces"] = Math.Min(options.MaxTraces, TraceCount),
+        };
+
+        return new ExpectedRecallShape(byCategory, byCategory.Values.Sum());
     }
 
     /// <summary>
@@ -185,4 +239,10 @@ public static class PerfFixture
     /// </summary>
     private static float[] Embed(string text, int dimensions) =>
         DeterministicEmbeddingGenerator.Vector(text, dimensions);
+
+    private static string Qualify(string text, DatasetIdentity identity) =>
+        string.IsNullOrEmpty(identity.TopicToken)
+            ? text
+            : $"{text} {identity.TopicToken}";
+
 }

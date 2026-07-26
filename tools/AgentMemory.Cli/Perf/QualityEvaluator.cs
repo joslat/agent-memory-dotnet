@@ -52,12 +52,18 @@ public sealed class QualityEvaluator
     private readonly QualityFixture _fixture;
     private readonly IServiceProvider _services;
     private readonly int _dimensions;
+    private readonly RecallOptions _recallOptions;
 
-    public QualityEvaluator(QualityFixture fixture, IServiceProvider services, int dimensions)
+    public QualityEvaluator(
+        QualityFixture fixture,
+        IServiceProvider services,
+        int dimensions,
+        RecallOptions? recallOptions = null)
     {
         _fixture = fixture;
         _services = services;
         _dimensions = dimensions;
+        _recallOptions = recallOptions ?? RecallOptions.Default;
     }
 
     public async Task SeedAsync(TextWriter log, CancellationToken cancellationToken)
@@ -172,9 +178,7 @@ public sealed class QualityEvaluator
                 UserId = _fixture.OwnerId,
                 Query = testCase.Query,
                 QueryEmbedding = embedding,
-                // Shipped defaults, deliberately: the guard must measure what users get, not a
-                // configuration chosen to make the fixture look good.
-                Options = RecallOptions.Default,
+                Options = _recallOptions,
             }, cancellationToken).ConfigureAwait(false);
 
             results.Add(Score(testCase, RankedIds(recall.Context, testCase.Kind)));

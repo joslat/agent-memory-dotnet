@@ -13,7 +13,11 @@ namespace AgentMemory.Cli.Perf;
 /// Ids are stable forever. Adding a scenario is additive; <em>changing</em> one requires a new id, so a
 /// number recorded today stays comparable to one recorded a year from now.
 /// </remarks>
-public sealed record PerfScenario(string Id, string Description, Func<ScenarioContext, Task> RunAsync);
+public sealed record PerfScenario(
+    string Id,
+    string Description,
+    Func<ScenarioContext, Task> RunAsync,
+    bool SupportsInterleavedAb = true);
 
 /// <summary>Everything a scenario body needs for one iteration.</summary>
 /// <param name="Phase">
@@ -26,6 +30,8 @@ public sealed record ScenarioContext(
     TurnRecord Turn,
     int Iteration,
     string Phase,
+    string? Variant,
+    RecallOptions RecallOptions,
     CancellationToken CancellationToken);
 
 /// <summary>
@@ -38,7 +44,11 @@ public static class PerfScenarios
     public static IReadOnlyList<PerfScenario> All { get; } =
     [
         new("PERF-R-04", "Full multi-category recall at shipped defaults", RecallAsync),
-        new("PERF-W-02", "Single response message, extraction enabled (shipped defaults)", StoreAndExtractAsync),
+        new(
+            "PERF-W-02",
+            "Single response message, extraction enabled (shipped defaults)",
+            StoreAndExtractAsync,
+            SupportsInterleavedAb: false),
     ];
 
     private const string StoreProbeUserMessage =
@@ -70,14 +80,17 @@ public static class PerfScenarios
     /// </summary>
     private static async Task RecallAsync(ScenarioContext ctx)
     {
-        var messages = new[] { new ChatMessage(ChatRole.User, PerfFixture.ProbeQuery) };
+        var identity = ctx.Variant is null
+            ? PerfFixture.DefaultIdentity
+            : PerfFixture.ForVariant(ctx.Variant);
+        var messages = new[] { new ChatMessage(ChatRole.User, PerfFixture.ProbeQueryFor(identity)) };
 
         var context = await ctx.Provider.BuildContextAsync(
             messages,
-            PerfFixture.SessionId,
-            PerfFixture.ConversationId,
+            identity.SessionId,
+            identity.ConversationId,
             ctx.CancellationToken,
-            PerfFixture.OwnerId).ConfigureAwait(false);
+            identity.OwnerId).ConfigureAwait(false);
 
         // Materialized once: AIContext.Messages is an enumerable, so counting and summing it separately
         // would enumerate it twice.
@@ -88,14 +101,15 @@ public static class PerfScenarios
         // Self-check, not decoration. A fixture whose vectors drift below MinSimilarityScore produces an
         // empty recall that still "succeeds" — and a baseline recorded from that would understate the
         // real cost by an order of magnitude and be quietly wrong forever after.
+        var expected = PerfFixture.ExpectedRecall(ctx.RecallOptions);
         var retrieved = ctx.Turn.Counter("items.retrieved");
-        if (retrieved < PerfFixture.ExpectedRecalledItems)
+        if (retrieved != expected.Total)
         {
-            var breakdown = string.Join(", ", PerfFixture.ExpectedByCategory
+            var breakdown = string.Join(", ", expected.ByCategory
                 .Select(kv => $"{kv.Key}={ctx.Turn.Counter($"items.{kv.Key}")}/{kv.Value}"));
             throw new InvalidOperationException(
-                $"PERF-R-04 recalled {retrieved} items but expected {PerfFixture.ExpectedRecalledItems} " +
-                $"({breakdown}). The fixture is not exercising the default recall shape, so this " +
+                $"PERF-R-04 recalled {retrieved} items but expected {expected.Total} " +
+                $"({breakdown}). The fixture is not exercising the configured recall shape, so this " +
                 "measurement would be misleading. Check MinSimilarityScore and the seeded embeddings.");
         }
     }
@@ -115,7 +129,6 @@ public static class PerfScenarios
         // iteration 0 had already populated — the one measured turn that was not a clean turn.
         var sessionId = $"perf-w02-{ctx.Phase}-{ctx.Iteration}";
         var conversationId = $"{sessionId}-conv";
-
         var requestMessages = new[]
         {
             new ChatMessage(ChatRole.User, StoreProbeUserMessage),
@@ -160,15 +173,19 @@ public static class PerfScenarios
     /// <c>AddNeo4jAgentMemory</c>, and passing explicit defaults here documents that the scenarios run
     /// against shipped defaults rather than a tuned configuration.
     /// </remarks>
-    public static Neo4jMemoryContextProvider CreateProvider(HermeticProfile profile)
+    public static Neo4jMemoryContextProvider CreateProvider(
+        HermeticProfile profile,
+        RecallOptions? recallOptions = null)
     {
         var services = profile.Services;
+        var configuredMemory = services.GetRequiredService<IOptions<MemoryOptions>>().Value;
+        var selectedRecall = recallOptions ?? configuredMemory.Recall;
         return new Neo4jMemoryContextProvider(
             services.GetRequiredService<IMemoryService>(),
             services.GetRequiredService<IEmbeddingOrchestrator>(),
             services.GetRequiredService<IClock>(),
             services.GetRequiredService<IIdGenerator>(),
-            services.GetRequiredService<IOptions<MemoryOptions>>(),
+            Options.Create(configuredMemory with { Recall = selectedRecall }),
             Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()),
             services.GetRequiredService<ILogger<Neo4jMemoryContextProvider>>());

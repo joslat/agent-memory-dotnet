@@ -42,6 +42,27 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
 {
     try
     {
+        if (string.Equals(cli.Subcommand, "ab", StringComparison.OrdinalIgnoreCase))
+        {
+            return await new AgentMemory.Cli.Commands.PerfAbCommand(Console.Out).ExecuteAsync(
+                cli.Get("control"),
+                cli.Get("candidate"),
+                cli.Get("scenarios"),
+                cli.Get("iterations"),
+                cli.Get("warmup"),
+                cli.Get("embedding-dimensions"),
+                cli.Get("latency"),
+                cli.Get("output"));
+        }
+
+        if (cli.Subcommand is not null &&
+            !string.Equals(cli.Subcommand, "run", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine(
+                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run' or 'ab'.");
+            return 1;
+        }
+
         return await new AgentMemory.Cli.Commands.PerfCommand(Console.Out).ExecuteAsync(
             cli.Get("label"),
             cli.Get("scenarios"),

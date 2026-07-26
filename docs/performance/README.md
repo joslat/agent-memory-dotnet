@@ -105,6 +105,12 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label mine --iterations 10
 
 # Reproduces the shape of a remote deployment (embedding 120 ms, model 900 ms)
 dotnet run --project tools/AgentMemory.Cli -- perf --label mine --latency remote --iterations 10
+
+# Compare two in-process recall configurations, with quality in the same report
+dotnet run --project tools/AgentMemory.Cli -- perf ab \
+  --control default \
+  --candidate Recall.MaxEntities=2 \
+  --iterations 30
 ```
 
 Each run writes a dated directory containing a manifest with the full environment fingerprint, an
@@ -114,6 +120,22 @@ marks those scores as report-only.
 
 Run it at both latency settings. A change that improves only the `remote` shape is an ordering or
 overlap win; one that improves both removed work.
+
+### Trustworthy A/B comparisons
+
+`perf ab` counterbalances execution order and crosses each configuration over two equivalent,
+owner-isolated fixture copies in the same database. Six consecutive paired iterations form one
+bootstrap unit, preserving the Docker/driver timing correlation instead of treating adjacent samples
+as independent. `--iterations` must therefore be a multiple of six and at least 12; 30 is the default.
+
+The initial configuration grammar accepts `default` plus `Recall.Max*` and
+`Recall.MinSimilarityScore` assignments. The default scenario is `PERF-R-04`. State-mutating
+scenarios such as `PERF-W-02` are rejected because shared write state would invalidate paired-sample
+independence.
+
+The rendered markdown reports exact counter ranges, retrieval and extraction quality, and the
+candidate/control bootstrap interval together. Only `iteration total` is the pre-registered timing
+headline; subspan intervals are exploratory and are not corrected for multiple comparisons.
 
 ### Determinism
 
