@@ -177,14 +177,16 @@ public sealed class PerfCommand
         {
             using var turn = collector.BeginTurn(scenario.Id, i, "warmup");
             await scenario.RunAsync(new ScenarioContext(
-                profile, provider, turn.Record, i, "warmup", cancellationToken)).ConfigureAwait(false);
+                profile, provider, turn.Record, i, "warmup", null,
+                AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
         }
 
         for (var i = 0; i < iterations; i++)
         {
             using var turn = collector.BeginTurn(scenario.Id, i, "measure");
             await scenario.RunAsync(new ScenarioContext(
-                profile, provider, turn.Record, i, "measure", cancellationToken)).ConfigureAwait(false);
+                profile, provider, turn.Record, i, "measure", null,
+                AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
         }
     }
 

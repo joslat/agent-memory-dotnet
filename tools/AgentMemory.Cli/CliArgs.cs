@@ -8,11 +8,17 @@ namespace AgentMemory.Cli;
 public sealed class CliArgs
 {
     public string? Command { get; }
+    public string? Subcommand => Positionals.FirstOrDefault();
+    public IReadOnlyList<string> Positionals { get; }
     public IReadOnlyDictionary<string, string?> Options { get; }
 
-    private CliArgs(string? command, IReadOnlyDictionary<string, string?> options)
+    private CliArgs(
+        string? command,
+        IReadOnlyList<string> positionals,
+        IReadOnlyDictionary<string, string?> options)
     {
         Command = command;
+        Positionals = positionals;
         Options = options;
     }
 
@@ -25,6 +31,7 @@ public sealed class CliArgs
     public static CliArgs Parse(string[] args)
     {
         string? command = null;
+        var positionals = new List<string>();
         var options = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < args.Length; i++)
@@ -54,11 +61,14 @@ public sealed class CliArgs
             }
             else
             {
-                command ??= token;
+                if (command is null)
+                    command = token;
+                else
+                    positionals.Add(token);
             }
         }
 
-        return new CliArgs(command, options);
+        return new CliArgs(command, positionals, options);
     }
 }
 
@@ -100,6 +110,13 @@ public static class CliHelp
                                      embeddings and a scripted model, so counters are reproducible.
                                      Quality gate defaults on. Writes a dated run directory under
                                      artifacts/perf by default.
+              perf ab --control <spec> --candidate <spec> [--scenarios <ids|all>]
+                      [--iterations <n>] [--warmup <n>] [--latency <zero|remote>]
+                                     Run counterbalanced control/candidate pairs in one process/database.
+                                     Iterations must be a multiple of 6 and at least 12 (default 30).
+                                     Specs use `default` or recall assignments such as
+                                     `Recall.MaxEntities=2`. Reports exact counter deltas, paired
+                                     timing ratios with bootstrap 95% CIs, and quality side by side.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
               schema-parity [--upstream-version <v>]
@@ -125,6 +142,8 @@ public static class CliHelp
               agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
               agentmemory perf --label baseline --iterations 10
               agentmemory perf --label feat-01-access-tracking --latency remote
+              agentmemory perf ab --control default --candidate default --scenarios PERF-R-04
+              agentmemory perf ab --control default --candidate Recall.MaxEntities=2
             """);
     }
 }
