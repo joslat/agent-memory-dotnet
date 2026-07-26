@@ -3,6 +3,27 @@
   "profile": "hermetic-S",
   "qualityTolerance": 0,
   "scenarios": {
+    "PERF-R-01": {
+      "counters": {
+        "access_tracking.items": 1,
+        "context.chars": 1784,
+        "context.messages": 12,
+        "embed.chars": 20,
+        "embed.items": 1,
+        "embed.requests": 1,
+        "items.entities": 0,
+        "items.facts": 0,
+        "items.preferences": 1,
+        "items.recent": 10,
+        "items.relevant": 0,
+        "items.retrieved": 11,
+        "items.traces": 0,
+        "neo4j.queries": 7,
+        "neo4j.tx.read": 6,
+        "neo4j.tx.write": 1,
+        "recall.chars": 1261
+      }
+    },
     "PERF-R-04": {
       "counters": {
         "access_tracking.items": 25,
