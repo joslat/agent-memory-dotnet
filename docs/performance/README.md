@@ -5,6 +5,7 @@ What AgentMemory costs you per agent turn, how that cost is measured, and how to
 | Doc | What it covers |
 |---|---|
 | **README.md** (this file) | The two phases, what is and isn't measured, how to run it yourself |
+| [`hermetic-S.json`](../../eng/perf/baselines/hermetic-S.json) | Machine-readable counter + quality baseline enforced on pull requests |
 | [baseline-1.3.0.md](baseline-1.3.0.md) | The measured cost model for release 1.3.0 |
 
 ---
@@ -111,6 +112,15 @@ dotnet run --project tools/AgentMemory.Cli -- perf ab \
   --control default \
   --candidate Recall.MaxEntities=2 \
   --iterations 30
+
+# Check one completed run against the committed counter + quality baseline
+dotnet run --project tools/AgentMemory.Cli -- perf gate \
+  --baseline eng/perf/baselines/hermetic-S.json \
+  --report <path-to-summary.json>
+
+# Deliberately refresh the reviewable baseline from a completed run
+dotnet run --project tools/AgentMemory.Cli -- perf baseline --update \
+  --report <path-to-summary.json>
 ```
 
 Each run writes a dated directory containing a manifest with the full environment fingerprint, an
@@ -146,6 +156,27 @@ tolerance is zero rather than a guessed allowance.
 Both measured scenarios also **self-assert**: the recall scenario fails the run if it retrieves fewer
 items than the configured limits, and the ingestion scenario fails if extraction never ran. Those
 failures are otherwise silent and would produce a confident, wrong number.
+
+### Pull-request regression gate
+
+A dedicated GitHub Actions job runs the hermetic scale-S profile with both zero and remote-like
+provider latency. Each report is compared with
+[`eng/perf/baselines/hermetic-S.json`](../../eng/perf/baselines/hermetic-S.json). The gate rejects:
+
+- any increase in Neo4j transactions or queries, embedding requests, or model calls;
+- an estimated payload-byte increase above 5%, once that counter is available; and
+- any retrieval or extraction quality regression beyond the committed tolerance (currently zero).
+
+A deliberate structural-counter increase needs both the `perf-counter-change` pull-request label and
+a non-empty pull-request-body line in this exact form:
+
+```text
+Perf counter change justification: <why the extra work is intentional>
+```
+
+That acknowledgement cannot override payload or quality failures. Hermetic elapsed milliseconds are
+reported for diagnosis but are deliberately excluded from the CI decision because runner timings are
+not portable.
 
 ---
 

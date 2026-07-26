@@ -70,8 +70,11 @@ The cost counters are only accepted when deterministic quality remains at this c
 
 Every value above was identical across five fresh-container runs: maximum observed variance **0.000**.
 The derived tolerance is therefore **zero**, recorded in
-`eng/perf/baselines/quality.json`. The `perf` command gates by default and exits non-zero on a drop or
-forbidden retrieval. This guard is about deterministic pipeline behavior; it does not claim to score
+`eng/perf/baselines/quality.json`. The combined reviewable counter + quality snapshot used by pull
+request CI is [`eng/perf/baselines/hermetic-S.json`](../../eng/perf/baselines/hermetic-S.json).
+The `perf` command gates quality by default, while `perf gate` also rejects structural-counter
+regressions against that snapshot. Neither command grades hermetic elapsed milliseconds. This guard is
+about deterministic pipeline behavior; it does not claim to score
 the quality of a live model's prose.
 
 ---
