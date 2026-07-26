@@ -139,9 +139,10 @@ bootstrap unit, preserving the Docker/driver timing correlation instead of treat
 as independent. `--iterations` must therefore be a multiple of six and at least 12; 30 is the default.
 
 The initial configuration grammar accepts `default` plus `Recall.Max*` and
-`Recall.MinSimilarityScore` assignments. The default scenario is `PERF-R-04`. State-mutating
-scenarios such as `PERF-W-02` are rejected because shared write state would invalidate paired-sample
-independence.
+`Recall.MinSimilarityScore` assignments. `PERF-R-04` measures a full default recall, while
+`PERF-R-01` is a greeting-only control that locks the work performed by the shipped default recall
+policy. State-mutating scenarios such as `PERF-W-02` are rejected because shared write state would
+invalidate paired-sample independence.
 
 The rendered markdown reports exact counter ranges, retrieval and extraction quality, and the
 candidate/control bootstrap interval together. Only `iteration total` is the pre-registered timing
@@ -153,9 +154,10 @@ The harness uses a deterministic embedding function and a scripted model, so cou
 The judged quality fixtures had zero observed variance across five complete runs, which is why their
 tolerance is zero rather than a guessed allowance.
 
-Both measured scenarios also **self-assert**: the recall scenario fails the run if it retrieves fewer
-items than the configured limits, and the ingestion scenario fails if extraction never ran. Those
-failures are otherwise silent and would produce a confident, wrong number.
+All measured scenarios also **self-assert**. The full recall scenario fails if it retrieves fewer
+items than the configured limits, the greeting scenario locks its current default-policy item shape,
+and the ingestion scenario fails if extraction never ran. Those failures are otherwise silent and
+would produce a confident, wrong number.
 
 ### Pull-request regression gate
 

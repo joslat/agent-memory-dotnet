@@ -43,6 +43,24 @@ completion of *latency* but four completions of *spend*. The four embedding requ
 extracted memory. The 18 writes are the message plus the extracted entities, facts, preferences, and
 their provenance edges.
 
+### Greeting-only default-policy control
+
+`PERF-R-01` sends “thanks, that's great” through the shipped default recall policy. Even though the
+turn does not need memory, the policy still performs the recall pipeline:
+
+| Counter | Per greeting turn |
+|---|---:|
+| Neo4j read / write transactions | 6 / 1 |
+| Neo4j queries | 7 |
+| Embedding provider requests | 1 |
+| Items retrieved | 11 |
+| Access timestamps updated | 1 |
+
+The 11 items are 10 recent messages plus one deterministic preference-bucket match; no semantically
+relevant message is returned. This is a control for selective/task-aware recall: the optimization
+target is to drive all recall work to zero on a skipped greeting while the retrieval quality guard
+remains unchanged. Hermetic milliseconds are intentionally not used for this claim.
+
 ### How these scale
 
 Worth knowing before you tune anything:

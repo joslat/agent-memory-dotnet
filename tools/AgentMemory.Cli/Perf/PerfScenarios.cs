@@ -1,6 +1,7 @@
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -43,6 +44,10 @@ public static class PerfScenarios
 {
     public static IReadOnlyList<PerfScenario> All { get; } =
     [
+        new(
+            "PERF-R-01",
+            "Greeting-only turn at the shipped default recall policy",
+            GreetingRecallAsync),
         new("PERF-R-04", "Full multi-category recall at shipped defaults", RecallAsync),
         new(
             "PERF-W-02",
@@ -76,6 +81,57 @@ public static class PerfScenarios
     }
 
     /// <summary>
+    /// PERF-R-01 — a greeting/acknowledgement turn with no memory-retrieval intent. The shipped default
+    /// policy still recalls, so this captures the work that matrix rank 1 must eliminate.
+    /// </summary>
+    private static async Task GreetingRecallAsync(ScenarioContext ctx)
+    {
+        var identity = ctx.Variant is null
+            ? PerfFixture.DefaultIdentity
+            : PerfFixture.ForVariant(ctx.Variant);
+        var messages = new[]
+        {
+            new ChatMessage(ChatRole.User, "thanks, that's great"),
+        };
+
+        var context = await ctx.Provider.BuildContextAsync(
+            messages,
+            identity.SessionId,
+            identity.ConversationId,
+            ctx.CancellationToken,
+            identity.OwnerId).ConfigureAwait(false);
+
+        RecordContext(ctx.Turn, context);
+
+        // This scenario measures today's shipped policy, not a fixture-configured skipping policy.
+        // Ten recent messages are guaranteed by the scale-S fixture and are independent of semantic
+        // similarity, so they provide a robust proof that the recall path really ran.
+        var recent = ctx.Turn.Counter("items.recent");
+        var retrieved = ctx.Turn.Counter("items.retrieved");
+        var reads = ctx.Turn.Counter("neo4j.tx.read");
+        var embeddings = ctx.Turn.Counter("embed.requests");
+        var preferences = ctx.Turn.Counter("items.preferences");
+        var accessTracked = ctx.Turn.Counter("access_tracking.items");
+        var unexpectedSemantic =
+            ctx.Turn.Counter("items.relevant") +
+            ctx.Turn.Counter("items.entities") +
+            ctx.Turn.Counter("items.facts") +
+            ctx.Turn.Counter("items.traces");
+        if (recent != 10 || preferences != 1 || unexpectedSemantic != 0 ||
+            retrieved != 11 || accessTracked != 1 || reads == 0 || embeddings == 0)
+        {
+            throw new InvalidOperationException(
+                $"PERF-R-01 did not exercise shipped-default recall (items.recent={recent}/10, " +
+                $"items.preferences={preferences}/1, items.other_semantic={unexpectedSemantic}/0, " +
+                $"items.retrieved={retrieved}/11, access_tracking.items={accessTracked}/1, " +
+                $"neo4j.tx.read={reads}, embed.requests={embeddings}). The deterministic fixture's " +
+                "current hash-bucket overlap is part of this locked scenario shape. Do not configure " +
+                "a skipping policy inside this fixture: rank 1 must change product behavior and update " +
+                "this expectation explicitly.");
+        }
+    }
+
+    /// <summary>
     /// PERF-R-04 — the reference read turn: everything the MAF provider does before the model is called.
     /// </summary>
     private static async Task RecallAsync(ScenarioContext ctx)
@@ -92,11 +148,7 @@ public static class PerfScenarios
             ctx.CancellationToken,
             identity.OwnerId).ConfigureAwait(false);
 
-        // Materialized once: AIContext.Messages is an enumerable, so counting and summing it separately
-        // would enumerate it twice.
-        var contextMessages = context.Messages?.ToList() ?? [];
-        ctx.Turn.Add("context.messages", contextMessages.Count);
-        ctx.Turn.Add("context.chars", contextMessages.Sum(m => (long)(m.Text?.Length ?? 0)));
+        RecordContext(ctx.Turn, context);
 
         // Self-check, not decoration. A fixture whose vectors drift below MinSimilarityScore produces an
         // empty recall that still "succeeds" — and a baseline recorded from that would understate the
@@ -112,6 +164,15 @@ public static class PerfScenarios
                 $"({breakdown}). The fixture is not exercising the configured recall shape, so this " +
                 "measurement would be misleading. Check MinSimilarityScore and the seeded embeddings.");
         }
+    }
+
+    private static void RecordContext(TurnRecord turn, AIContext context)
+    {
+        // Materialized once: AIContext.Messages is an enumerable, so counting and summing it separately
+        // would enumerate it twice.
+        var contextMessages = context.Messages?.ToList() ?? [];
+        turn.Add("context.messages", contextMessages.Count);
+        turn.Add("context.chars", contextMessages.Sum(m => (long)(m.Text?.Length ?? 0)));
     }
 
     /// <summary>
