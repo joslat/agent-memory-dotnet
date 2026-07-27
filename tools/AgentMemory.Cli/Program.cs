@@ -86,6 +86,7 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             cli.Get("iterations"),
             cli.Get("warmup"),
             cli.Get("embedding-dimensions"),
+            cli.Get("scale"),
             cli.Get("latency"),
             cli.Get("output"),
             cli.Get("quality-gate"));

@@ -40,6 +40,7 @@ public sealed class PerfCommand
         string? iterationsValue,
         string? warmupValue,
         string? dimensionsValue,
+        string? scaleValue,
         string? latency,
         string? outputRoot,
         string? qualityGateValue,
@@ -49,6 +50,7 @@ public sealed class PerfCommand
         var iterations = ParsePositive(iterationsValue, 10, "iterations");
         var warmup = ParseNonNegative(warmupValue, 3, "warmup");
         var dimensions = ParsePositive(dimensionsValue, 384, "embedding-dimensions");
+        var scale = PerfScaleParser.Parse(scaleValue);
         var qualityGateEnabled = ParseDefaultTrue(qualityGateValue, "quality-gate");
         var qualityBaseline = qualityGateEnabled ? QualityGate.LoadBaseline() : null;
 
@@ -66,7 +68,8 @@ public sealed class PerfCommand
         }
 
         var startedAt = DateTimeOffset.UtcNow;
-        var runId = $"{startedAt:yyyyMMdd'T'HHmmss'Z'}__{runLabel}__hermetic-S-{LatencyName(latency)}";
+        var scaleName = scale.Name();
+        var runId = $"{startedAt:yyyyMMdd'T'HHmmss'Z'}__{runLabel}__hermetic-{scaleName}-{LatencyName(latency)}";
         // artifacts/ is the repository's existing home for generated reports (the `evaluate` verb writes
         // to artifacts/evaluation), and it is already gitignored. Run output is regenerable and must not
         // live beside the hand-written analysis documents.
@@ -76,7 +79,7 @@ public sealed class PerfCommand
         _output.WriteLine($"perf: run {runId}");
 
         using var trace = new TraceLogWriter(Path.Combine(runDir, "trace.ndjson"));
-        var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions,
+        var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions, scaleName,
             embeddingLatency, modelLatency, scenarios);
         trace.RunStart(runId, manifest);
         await File.WriteAllTextAsync(
@@ -92,7 +95,7 @@ public sealed class PerfCommand
         var scriptedRules = extractionFixture.ScriptedRules().Concat(PerfScenarios.ScriptedRules).ToList();
 
         await using var profile = await HermeticProfile
-            .StartAsync(dimensions, embeddingLatency, modelLatency, _output,
+            .StartAsync(dimensions, embeddingLatency, modelLatency, _output, scale,
                 scriptedRules, cancellationToken)
             .ConfigureAwait(false);
 
@@ -139,12 +142,14 @@ public sealed class PerfCommand
 
         var measured = collector.Records.Where(r => r.Phase == "measure").ToList();
         await WriteSamplesAsync(runDir, measured, cancellationToken).ConfigureAwait(false);
-        var summary = BuildSummary(manifest, measured, qualityGate, qualityResult, extractionQuality);
+        var summary = BuildSummary(
+            manifest, profile.ScaleDataset, measured, qualityGate, qualityResult, extractionQuality);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "summary.json"), JsonSerializer.Serialize(summary, Json), cancellationToken)
             .ConfigureAwait(false);
 
-        var report = RenderReport(runId, measured, qualityGate, qualityResult, extractionQuality);
+        var report = RenderReport(
+            runId, profile.ScaleDataset, measured, qualityGate, qualityResult, extractionQuality);
         await File.WriteAllTextAsync(Path.Combine(runDir, "report.md"), report, cancellationToken)
             .ConfigureAwait(false);
 
@@ -215,14 +220,14 @@ public sealed class PerfCommand
     }
 
     private static object BuildManifest(
-        string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions,
+        string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions, string scale,
         TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios) => new
         {
             runId,
             label,
             startedAtUtc = startedAt,
             profile = "hermetic",
-            scale = "S",
+            scale,
             scenarios = scenarios.Select(s => s.Id).ToArray(),
             scenarioDependencyLatency = scenarios
                 .Where(s => s.DependencyLatency is not null)
@@ -288,7 +293,7 @@ public sealed class PerfCommand
     }
 
     private static object BuildSummary(
-        object manifest, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
+        object manifest, ScaleDatasetInfo? scaleDataset, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
         QualityResult quality, ExtractionQualityResult extraction)
     {
         ValidateQueryFingerprintTotals(measured);
@@ -296,6 +301,7 @@ public sealed class PerfCommand
         return new
         {
             manifest,
+            scaleDataset,
             qualityGate = new
             {
                 enabled = qualityGate.Enabled,
@@ -469,7 +475,8 @@ public sealed class PerfCommand
     }
 
     private static string RenderReport(
-        string runId, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
+        string runId, ScaleDatasetInfo? scaleDataset, IReadOnlyList<TurnRecord> measured,
+        QualityGateResult qualityGate,
         QualityResult quality,
         ExtractionQualityResult extraction)
     {
@@ -498,6 +505,20 @@ public sealed class PerfCommand
             }
         }
         sb.AppendLine();
+
+        if (scaleDataset is not null)
+        {
+            sb.AppendLine("## Scale dataset");
+            sb.AppendLine();
+            sb.AppendLine(CultureInfo.InvariantCulture,
+                $"**{scaleDataset.MemoryNodeCount:N0} verified memory nodes** · " +
+                $"snapshot `{scaleDataset.Source}` · restore {scaleDataset.RestoreMilliseconds:F0} ms · " +
+                $"total preparation {scaleDataset.PreparationMilliseconds:F0} ms");
+            sb.AppendLine();
+            sb.AppendLine(CultureInfo.InvariantCulture,
+                $"Template volume: `{scaleDataset.SnapshotVolume}`; scenarios run only on a disposable clone.");
+            sb.AppendLine();
+        }
 
         sb.AppendLine("## Retrieval quality (deterministic — no model involved)");
         sb.AppendLine();

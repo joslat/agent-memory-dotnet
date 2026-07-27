@@ -102,8 +102,8 @@ public static class CliHelp
                                      Run deterministic memory-layer quality/performance scenarios and
                                      write a JSON report under artifacts/evaluation by default.
               perf [--label <name>] [--scenarios <ids|all>] [--iterations <n>] [--warmup <n>]
-                   [--latency <zero|remote>] [--embedding-dimensions <n>] [--output <dir>]
-                   [--quality-gate <true|false>]
+                   [--scale <S|M>] [--latency <zero|remote>] [--embedding-dimensions <n>]
+                   [--output <dir>] [--quality-gate <true|false>]
                                      Measure a complete agent TURN: database round trips, embedding
                                      requests, model calls, and per-stage timing. Provisions its own
                                      Neo4j via Testcontainers (Docker required) with deterministic
@@ -150,6 +150,7 @@ public static class CliHelp
               agentmemory history --type fact --owner user-42 --limit 20
               agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
               agentmemory perf --label baseline --iterations 10
+              agentmemory perf --label scale-m --scale M --scenarios PERF-R-04
               agentmemory perf --label feat-01-access-tracking --latency remote
               agentmemory perf ab --control default --candidate default --scenarios PERF-R-04
               agentmemory perf ab --control default --candidate Recall.MaxEntities=2

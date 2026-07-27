@@ -246,7 +246,31 @@ Worth knowing before you tune anything:
 | Enable another recall category | +1 read transaction | – |
 | Register another extractor | – | **+1 model completion per turn** |
 | Turn produces more memories | – | writes and embedding requests grow linearly |
-| Grow the graph | read cost grows with index behaviour (not yet characterised) | resolution cost grows |
+| Grow the graph | exact structural work held at Scale M; index-dependent selection can change near ties | resolution cost grows |
+
+#### Scale-M structural control
+
+The harness also validates `PERF-R-04` after restoring a reusable dataset containing exactly 250,000
+foreign-scope distractor memories (50,000 per memory kind). This is a scale control beside the
+small-graph 1.3.0 baseline, not a replacement deployment-performance baseline.
+
+| Counter or guard | Scale S | Scale M | Change |
+|---|---:|---:|---:|
+| Retrieved items | 43 | 43 | 0 |
+| Access-tracked items | 25 | 25 | 0 |
+| Queries | 9 | 9 | 0 |
+| Read / write transactions | 6 / 1 | 6 / 1 | 0 / 0 |
+| Materialized records | 43 | 43 | 0 |
+| Estimated payload bytes | 144,591 | 144,555 | −36 (−0.025%) |
+| Context characters | 3,906 | 3,886 | −20 (−0.512%) |
+| Retrieval Recall@K / MRR | 1.000 / 1.000 | 1.000 / 1.000 | 0 / 0 |
+| Extraction quality | 1.000 | 1.000 | 0 |
+
+The small payload/context difference repeated exactly across independent Scale-M restores. Neo4j's
+approximate vector index selected a different equally relevant near-tied fixture item; no category,
+item, query, transaction, record, access-tracking, or quality guard regressed. Warm restore plus the
+guarded run completed in 52–60 seconds locally, including a 3.2–3.3 second volume clone. Those setup
+figures establish that the tier is practical to run; they are not deployment latency.
 
 ### Quality guard applied beside this cost baseline
 

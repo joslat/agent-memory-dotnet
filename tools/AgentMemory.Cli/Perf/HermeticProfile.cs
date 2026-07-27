@@ -34,16 +34,28 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     private Neo4jContainer? _container;
     private ServiceProvider? _provider;
+    private readonly ScaleMRunVolume? _scaleRunVolume;
     private AsyncServiceScope _scope;
     private bool _scopeCreated;
 
-    private HermeticProfile(int dimensions) => Dimensions = dimensions;
+    private HermeticProfile(int dimensions, PerfScale scale, ScaleMRunVolume? scaleRunVolume)
+    {
+        Dimensions = dimensions;
+        Scale = scale;
+        _scaleRunVolume = scaleRunVolume;
+    }
 
     /// <summary>Embedding dimensionality. Small by design — vector width is not what is being measured.</summary>
     public int Dimensions { get; }
 
     /// <summary>Scoped service provider for resolving memory services.</summary>
     public IServiceProvider Services => _scope.ServiceProvider;
+
+    /// <summary>Dataset tier mounted into this profile.</summary>
+    public PerfScale Scale { get; }
+
+    /// <summary>Verified snapshot/restore metadata; null for the directly seeded scale-S tier.</summary>
+    public ScaleDatasetInfo? ScaleDataset { get; private set; }
 
     /// <summary>Raw driver, for bulk fixture seeding that would be pointlessly slow through the services.</summary>
     public IDriver Driver { get; private set; } = null!;
@@ -58,11 +70,39 @@ public sealed class HermeticProfile : IAsyncDisposable
         TextWriter log,
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
         CancellationToken cancellationToken = default)
+        => await StartAsync(
+            dimensions,
+            embeddingLatency,
+            modelLatency,
+            log,
+            PerfScale.Small,
+            scriptedRules,
+            cancellationToken).ConfigureAwait(false);
+
+    public static async Task<HermeticProfile> StartAsync(
+        int dimensions,
+        TimeSpan embeddingLatency,
+        TimeSpan modelLatency,
+        TextWriter log,
+        PerfScale scale,
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
+        CancellationToken cancellationToken = default)
     {
-        var profile = new HermeticProfile(dimensions);
-        await profile.InitializeAsync(embeddingLatency, modelLatency, log, scriptedRules, cancellationToken)
-            .ConfigureAwait(false);
-        return profile;
+        var scaleRunVolume = scale == PerfScale.Medium
+            ? await ScaleMDataset.PrepareRunVolumeAsync(dimensions, log, cancellationToken).ConfigureAwait(false)
+            : null;
+        var profile = new HermeticProfile(dimensions, scale, scaleRunVolume);
+        try
+        {
+            await profile.InitializeAsync(embeddingLatency, modelLatency, log, scriptedRules, cancellationToken)
+                .ConfigureAwait(false);
+            return profile;
+        }
+        catch
+        {
+            await profile.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async Task InitializeAsync(
@@ -70,9 +110,12 @@ public sealed class HermeticProfile : IAsyncDisposable
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, CancellationToken cancellationToken)
     {
         log.WriteLine($"perf: starting {Image} (Testcontainers)…");
-        _container = new Neo4jBuilder(Image)
-            .WithEnvironment("NEO4J_AUTH", $"{ContainerUser}/{ContainerPassword}")
-            .Build();
+        var builder = new Neo4jBuilder(Image)
+            .WithEnvironment("NEO4J_AUTH", $"{ContainerUser}/{ContainerPassword}");
+        if (_scaleRunVolume is not null)
+            builder = builder.WithVolumeMount(_scaleRunVolume.Volume, "/data");
+
+        _container = builder.Build();
         await _container.StartAsync(cancellationToken).ConfigureAwait(false);
 
         var uri = _container.GetConnectionString();
@@ -126,6 +169,14 @@ public sealed class HermeticProfile : IAsyncDisposable
 
         await using var session = Driver.AsyncSession();
         await session.RunAsync("CALL db.awaitIndexes(120)").ConfigureAwait(false);
+        if (_scaleRunVolume is not null)
+        {
+            var verified = await ScaleMDataset
+                .VerifyRestoredAsync(Driver, cancellationToken)
+                .ConfigureAwait(false);
+            ScaleDataset = _scaleRunVolume.Info with { MemoryNodeCount = verified };
+            log.WriteLine($"perf: verified {verified:N0} scale-M memory nodes after restore.");
+        }
         log.WriteLine("perf: schema ready.");
     }
 
@@ -135,6 +186,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         if (_provider is not null) await _provider.DisposeAsync().ConfigureAwait(false);
         if (Driver is not null) await Driver.DisposeAsync().ConfigureAwait(false);
         if (_container is not null) await _container.DisposeAsync().ConfigureAwait(false);
+        if (_scaleRunVolume is not null)
+            await _scaleRunVolume.Volume.DisposeAsync().ConfigureAwait(false);
     }
 
     private static void DecorateTransactionRunner(

@@ -99,10 +99,25 @@ Stated plainly rather than left for you to discover:
 
 - **Cold start** — every figure here is warm. First-call cost after process start, pool expiry, or a
   cache-cold database is not yet characterised.
-- **Scale** — the published baseline is a small graph (~5k memory nodes). Behaviour as the graph grows
-  is not yet published.
 - **Managed/hosted deployments** — no Aura or NAMS figures yet.
 - **Concurrency** — single-session only; no saturation or p99-under-load numbers.
+
+### Scale-M validation
+
+`--scale M` adds exactly 250,000 foreign-scope distractor memories: 50,000 each of entities, facts,
+preferences, messages, and reasoning traces. The first invocation creates and seals a reusable Docker
+volume; each measured run clones that template into a disposable volume and verifies the exact node
+counts after restore.
+
+On `PERF-R-04`, Scale S and Scale M performed the same structural work: 43 retrieved items, 25
+access-tracked items, 9 queries, 6 read transactions, 1 write transaction, and 43 materialized records.
+Recall@K, MRR, and every extraction-quality score remained 1.000. Estimated payload changed from
+144,591 to 144,555 bytes (−36; −0.025%) and context length from 3,906 to 3,886 characters because the
+approximate vector index selected a different equally relevant near-tied fixture item. A second
+independent Scale-M restore reproduced 144,555 bytes and 3,886 characters exactly.
+
+The warm restore path completed in 52–60 seconds on the development machine, including a 3.2–3.3
+second Docker volume clone. This is a harness-usability result, **not deployment latency**.
 
 ---
 
@@ -128,6 +143,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label graphrag \
 # Measures one whole-session extraction over 50 pre-seeded messages
 dotnet run --project tools/AgentMemory.Cli -- perf --label session-extraction \
   --scenarios PERF-W-05 --iterations 3
+
+# Restores the reusable 250k-node Scale-M dataset, then runs the same guarded scenario
+dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
+  --scale M --scenarios PERF-R-04 --iterations 1
 
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
