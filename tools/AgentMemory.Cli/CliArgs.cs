@@ -116,6 +116,10 @@ public static class CliHelp
                                      warm reference. Reports ordered cold samples, cold median, warm
                                      median, and the cold-penalty ratio. Records exactly which caches
                                      were and were not reset. Default scenario: PERF-R-04; samples: 5.
+              perf ledger add --run <dir> --compared-to <seq> --verdict <value>
+                              [--ledger <path>]
+                                     Append a summary-derived entry with automatic seq assignment.
+                                     Verdict: improvement, no-effect, or reverted.
               perf ab --control <spec> --candidate <spec> [--scenarios <ids|all>]
                       [--iterations <n>] [--warmup <n>] [--latency <zero|remote>]
                                      Run counterbalanced control/candidate pairs in one process/database.
@@ -158,6 +162,8 @@ public static class CliHelp
               agentmemory perf --label baseline --iterations 10
               agentmemory perf --label scale-m --scale M --scenarios PERF-R-04
               agentmemory perf cold --label cold-r04 --scenarios PERF-R-04 --samples 5
+              agentmemory perf ledger add --run artifacts/perf/run --compared-to 1 \
+                  --verdict improvement
               agentmemory perf --label feat-01-access-tracking --latency remote
               agentmemory perf ab --control default --candidate default --scenarios PERF-R-04
               agentmemory perf ab --control default --candidate Recall.MaxEntities=2
