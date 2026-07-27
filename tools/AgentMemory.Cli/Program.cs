@@ -72,11 +72,24 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
                 cli.Get("output"));
         }
 
+        if (string.Equals(cli.Subcommand, "cold", StringComparison.OrdinalIgnoreCase))
+        {
+            return await new AgentMemory.Cli.Commands.PerfColdCommand(Console.Out).ExecuteAsync(
+                cli.Get("label"),
+                cli.Get("scenarios"),
+                cli.Get("samples"),
+                cli.Get("warmup"),
+                cli.Get("embedding-dimensions"),
+                cli.Get("scale"),
+                cli.Get("latency"),
+                cli.Get("output"));
+        }
+
         if (cli.Subcommand is not null &&
             !string.Equals(cli.Subcommand, "run", StringComparison.OrdinalIgnoreCase))
         {
             Console.Error.WriteLine(
-                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'ab', 'baseline', or 'gate'.");
+                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'cold', 'ab', 'baseline', or 'gate'.");
             return 1;
         }
 
@@ -89,7 +102,10 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             cli.Get("scale"),
             cli.Get("latency"),
             cli.Get("output"),
-            cli.Get("quality-gate"));
+            cli.Get("quality-gate"),
+            cli.HasFlag("single-shot")
+                ? cli.Get("single-shot") ?? bool.TrueString
+                : null);
     }
     catch (Exception ex)
     {

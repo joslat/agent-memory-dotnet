@@ -110,6 +110,12 @@ public static class CliHelp
                                      embeddings and a scripted model, so counters are reproducible.
                                      Quality gate defaults on. Writes a dated run directory under
                                      artifacts/perf by default.
+              perf cold [--label <name>] [--scenarios <one-id>] [--samples <n>] [--warmup <n>]
+                        [--scale <S|M>] [--latency <zero|remote>]
+                                     Run each cold observation in a fresh process, then a separate
+                                     warm reference. Reports ordered cold samples, cold median, warm
+                                     median, and the cold-penalty ratio. Records exactly which caches
+                                     were and were not reset. Default scenario: PERF-R-04; samples: 5.
               perf ab --control <spec> --candidate <spec> [--scenarios <ids|all>]
                       [--iterations <n>] [--warmup <n>] [--latency <zero|remote>]
                                      Run counterbalanced control/candidate pairs in one process/database.
@@ -151,6 +157,7 @@ public static class CliHelp
               agentmemory evaluate --iterations 3 --output artifacts/evaluation/local.json
               agentmemory perf --label baseline --iterations 10
               agentmemory perf --label scale-m --scale M --scenarios PERF-R-04
+              agentmemory perf cold --label cold-r04 --scenarios PERF-R-04 --samples 5
               agentmemory perf --label feat-01-access-tracking --latency remote
               agentmemory perf ab --control default --candidate default --scenarios PERF-R-04
               agentmemory perf ab --control default --candidate Recall.MaxEntities=2

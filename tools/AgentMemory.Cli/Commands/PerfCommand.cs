@@ -44,6 +44,7 @@ public sealed class PerfCommand
         string? latency,
         string? outputRoot,
         string? qualityGateValue,
+        string? singleShotValue,
         CancellationToken cancellationToken = default)
     {
         var runLabel = Sanitize(label) ?? "baseline";
@@ -53,6 +54,7 @@ public sealed class PerfCommand
         var scale = PerfScaleParser.Parse(scaleValue);
         var qualityGateEnabled = ParseDefaultTrue(qualityGateValue, "quality-gate");
         var qualityBaseline = qualityGateEnabled ? QualityGate.LoadBaseline() : null;
+        var singleShot = ParseDefaultFalse(singleShotValue, "single-shot");
 
         var (embeddingLatency, modelLatency) = ResolveLatency(latency);
 
@@ -64,6 +66,15 @@ public sealed class PerfCommand
         catch (ArgumentException ex)
         {
             _output.WriteLine($"error: {ex.Message}");
+            return 1;
+        }
+
+        if (singleShot &&
+            (scenarios.Count != 1 || iterations != 1 || warmup != 0 || qualityGateEnabled))
+        {
+            _output.WriteLine(
+                "error: --single-shot is an internal cold-sampling mode and requires exactly one " +
+                "scenario, --iterations 1, --warmup 0, and --quality-gate false.");
             return 1;
         }
 
@@ -80,7 +91,7 @@ public sealed class PerfCommand
 
         using var trace = new TraceLogWriter(Path.Combine(runDir, "trace.ndjson"));
         var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions, scaleName,
-            embeddingLatency, modelLatency, scenarios);
+            embeddingLatency, modelLatency, scenarios, singleShot);
         trace.RunStart(runId, manifest);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "run.json"), JsonSerializer.Serialize(manifest, Json), cancellationToken)
@@ -101,13 +112,37 @@ public sealed class PerfCommand
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
 
+        var provider = PerfScenarios.CreateProvider(profile);
+        if (singleShot)
+        {
+            var scenario = scenarios.Single();
+            _output.WriteLine($"perf: {scenario.Id} — cold single-shot");
+            try
+            {
+                await RunColdSingleShotAsync(
+                    scenario, profile, provider, collector, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _output.WriteLine($"error: {scenario.Id} failed: {ex.Message}");
+                trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
+                return 1;
+            }
+
+            runStopwatch.Stop();
+            trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
+            await WriteSingleShotArtifactsAsync(
+                runDir, runId, manifest, profile.ScaleDataset, collector.Records.Single(),
+                cancellationToken).ConfigureAwait(false);
+            _output.WriteLine($"perf: wrote {runDir}");
+            return 0;
+        }
+
         // The quality guard shares the run so its scores sit beside the counters that were measured on
         // the same code, same data, same moment. Reporting speed and quality from separate runs is how
         // a regression gets attributed to the wrong change.
         var quality = new QualityEvaluator(QualityFixture.Load(), profile.Services, dimensions);
         await quality.SeedAsync(_output, cancellationToken).ConfigureAwait(false);
-
-        var provider = PerfScenarios.CreateProvider(profile);
 
         foreach (var scenario in scenarios)
         {
@@ -219,15 +254,47 @@ public sealed class PerfCommand
             profile, record, iteration, phase, null, cancellationToken)).ConfigureAwait(false);
     }
 
+    private static async Task RunColdSingleShotAsync(
+        PerfScenario scenario,
+        HermeticProfile profile,
+        AgentMemory.AgentFramework.Neo4jMemoryContextProvider provider,
+        PerfCollector collector,
+        CancellationToken cancellationToken)
+    {
+        await scenario.PrepareAsync(new ScenarioSetupContext(
+            profile, 0, "measure", null, cancellationToken)).ConfigureAwait(false);
+
+        await using (var session = profile.Driver.AsyncSession())
+        {
+            var cursor = await session.RunAsync("CALL db.clearQueryCaches()").ConfigureAwait(false);
+            await cursor.ConsumeAsync().ConfigureAwait(false);
+        }
+
+        TurnRecord record;
+        using (var turn = collector.BeginTurn(scenario.Id, 0, "measure"))
+        {
+            record = turn.Record;
+            await scenario.ExecuteAsync(new ScenarioContext(
+                profile, provider, record, 0, "measure", null,
+                AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
+        }
+
+        await scenario.ValidateAsync(new ScenarioVerificationContext(
+            profile, record, 0, "measure", null, cancellationToken)).ConfigureAwait(false);
+    }
+
     private static object BuildManifest(
         string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions, string scale,
-        TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios) => new
+        TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios,
+        bool singleShot) => new
         {
             runId,
             label,
             startedAtUtc = startedAt,
             profile = "hermetic",
             scale,
+            mode = singleShot ? "cold-single-shot" : "warm",
+            cacheReset = singleShot ? PerfCacheResetManifest.ColdSingleShot : null,
             scenarios = scenarios.Select(s => s.Id).ToArray(),
             scenarioDependencyLatency = scenarios
                 .Where(s => s.DependencyLatency is not null)
@@ -472,6 +539,56 @@ public sealed class PerfCommand
         }));
         await File.WriteAllLinesAsync(Path.Combine(runDir, "samples.ndjson"), lines, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static async Task WriteSingleShotArtifactsAsync(
+        string runDir,
+        string runId,
+        object manifest,
+        ScaleDatasetInfo? scaleDataset,
+        TurnRecord sample,
+        CancellationToken cancellationToken)
+    {
+        await WriteSamplesAsync(runDir, [sample], cancellationToken).ConfigureAwait(false);
+        var summary = new
+        {
+            manifest,
+            scaleDataset,
+            sample = new
+            {
+                scenario = sample.Scenario,
+                durationMs = sample.DurationMs,
+                counters = sample.Counters,
+                spansMs = sample.SpanMilliseconds,
+                queryFingerprints = sample.QueryFingerprints,
+            },
+        };
+        await File.WriteAllTextAsync(
+            Path.Combine(runDir, "summary.json"),
+            JsonSerializer.Serialize(summary, Json),
+            cancellationToken).ConfigureAwait(false);
+
+        var reset = PerfCacheResetManifest.ColdSingleShot;
+        var report = new StringBuilder()
+            .AppendLine(CultureInfo.InvariantCulture, $"# Cold single-shot — {runId}")
+            .AppendLine()
+            .AppendLine(CultureInfo.InvariantCulture,
+                $"**{sample.Scenario}: {sample.DurationMs:F3} ms**")
+            .AppendLine()
+            .AppendLine("This is one fresh-process sample for a parent `perf cold` run; it is not a percentile.")
+            .AppendLine()
+            .AppendLine("## Cache reset record")
+            .AppendLine()
+            .AppendLine($"- Process: {reset.Process}")
+            .AppendLine($"- JIT: {reset.Jit}")
+            .AppendLine($"- Service provider: {reset.ServiceProvider}")
+            .AppendLine($"- Driver pool: {reset.DriverConnectionPool}")
+            .AppendLine($"- Neo4j query-plan cache: {reset.Neo4jQueryPlanCache}")
+            .AppendLine($"- Neo4j page cache: {reset.Neo4jPageCache}")
+            .AppendLine($"- OS filesystem cache: {reset.OsFilesystemCache}")
+            .ToString();
+        await File.WriteAllTextAsync(
+            Path.Combine(runDir, "report.md"), report, cancellationToken).ConfigureAwait(false);
     }
 
     private static string RenderReport(
@@ -752,6 +869,17 @@ public sealed class PerfCommand
     private static bool ParseDefaultTrue(string? value, string name)
     {
         if (string.IsNullOrWhiteSpace(value)) return true;
+        return value.ToLowerInvariant() switch
+        {
+            "true" or "1" or "on" or "yes" => true,
+            "false" or "0" or "off" or "no" => false,
+            _ => throw new ArgumentException($"--{name} must be true or false."),
+        };
+    }
+
+    private static bool ParseDefaultFalse(string? value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
         return value.ToLowerInvariant() switch
         {
             "true" or "1" or "on" or "yes" => true,

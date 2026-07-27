@@ -333,6 +333,26 @@ Note the concurrency effect: four completions at ~908 ms each contribute **~908 
 not 3.6 s. Concurrency hides the cost in latency — but not in the bill, and not in your provider's rate
 limit.
 
+### Cold-start control
+
+Cold observations are measured in separate processes and kept out of the warm distributions above.
+For `PERF-R-04` under the zero-latency hermetic profile:
+
+| Population | Ordered samples (ms) | Median | Comparison |
+|---|---|---:|---:|
+| Cold, fresh process | 828.429, 1,044.650, 399.504, 442.386, 411.984 | 442.386 ms | 12.391× warm |
+| Warm, after 3 warm-ups | 35.701, 33.929, 36.054, 33.330, 43.167 | 35.701 ms | baseline |
+
+Every exact structural guard and safe query fingerprint matched across both populations: 43 records,
+9 queries, 6 reads, 1 write, 25 access-tracked items, and the same per-query distribution. The warm
+child retained the committed zero-tolerance quality gate.
+
+“Cold” is deliberately bounded: each observation resets the OS process, JIT state, service provider,
+and driver connection pool, and explicitly clears Neo4j's query-plan cache after scenario preparation.
+The harness does **not** claim to reset Neo4j's page cache or the host filesystem cache because setup
+may touch both. The 12.391× ratio demonstrates a first-scenario-call penalty in this controlled run;
+the milliseconds are not a deployment-performance claim.
+
 ---
 
 ## 3. Collecting these from your own deployment

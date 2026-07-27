@@ -93,12 +93,26 @@ Timings are published to show **proportions** — which phase, and which stage i
 absolute expectations. Where a figure is elapsed time and where it is a sum across concurrent work is
 always labelled, because the two differ by an order of magnitude in the recall phase.
 
+### Cold-versus-warm control
+
+`perf cold` measures each cold observation in a new OS process, then runs a separate normally warmed
+reference. For `PERF-R-04`, five ordered cold observations were 828.429, 1,044.650, 399.504, 442.386,
+and 411.984 ms: median **442.386 ms**. Five warm observations after three warm-ups had a median of
+**35.701 ms**, for a **12.391× cold penalty** on that machine and run.
+
+The two populations are never combined. Every structural counter and safe query fingerprint matched:
+43 retrieved records, 9 queries, 6 read transactions, 1 write transaction, and 25 access-tracked
+items. The warm child also retained the normal zero-tolerance quality gate.
+
+The manifest records exactly what “cold” means: a new process, JIT state, service provider, and driver
+connection pool, plus explicit Neo4j query-plan-cache clearing after scenario setup. It does **not**
+claim to reset the Neo4j page cache or host filesystem cache; fixture setup may touch both. These local
+hermetic milliseconds are useful as an in-run ratio, not as deployment latency.
+
 ### Not yet measured
 
 Stated plainly rather than left for you to discover:
 
-- **Cold start** — every figure here is warm. First-call cost after process start, pool expiry, or a
-  cache-cold database is not yet characterised.
 - **Managed/hosted deployments** — no Aura or NAMS figures yet.
 - **Concurrency** — single-session only; no saturation or p99-under-load numbers.
 
@@ -147,6 +161,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label session-extraction \
 # Restores the reusable 250k-node Scale-M dataset, then runs the same guarded scenario
 dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
   --scale M --scenarios PERF-R-04 --iterations 1
+
+# Five fresh-process cold samples plus a separate three-warm-up reference
+dotnet run --project tools/AgentMemory.Cli -- perf cold --label cold-r04 \
+  --scenarios PERF-R-04 --samples 5 --warmup 3
 
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
