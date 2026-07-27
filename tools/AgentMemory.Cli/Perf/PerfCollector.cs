@@ -96,6 +96,8 @@ public sealed class PerfCollector : IDisposable
 
             case "memory.db.query":
                 turn.Add("neo4j.queries");
+                turn.RecordQueryFingerprint(
+                    SafeQueryFingerprint(activity.GetTagItem("db.query.fingerprint")));
                 break;
 
             case "memory.recall.total":
@@ -139,6 +141,19 @@ public sealed class PerfCollector : IDisposable
         }
 
         _trace?.Span(turn, activity);
+    }
+
+    private static string SafeQueryFingerprint(object? value)
+    {
+        if (value is not string fingerprint || string.IsNullOrWhiteSpace(fingerprint))
+            return "unknown";
+
+        foreach (var character in fingerprint)
+        {
+            if (!char.IsAsciiLetterOrDigit(character) && character is not '.' and not '_' and not '-')
+                return "unknown";
+        }
+        return fingerprint;
     }
 
     private void EndTurn(TurnRecord record, double elapsedMs)

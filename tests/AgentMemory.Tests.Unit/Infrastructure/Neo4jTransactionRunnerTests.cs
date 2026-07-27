@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Cli.Perf;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 using NSubstitute;
 
@@ -117,5 +120,53 @@ public sealed class Neo4jTransactionRunnerTests
             var cursor = await tx.RunAsync("RETURN payload");
             cursor.Should().BeSameAs(driverCursor);
         });
+    }
+
+    [Fact]
+    public async Task ReadAsync_QuerySpansCarryKnownOrUnknownFingerprintWithoutCypherText()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var driverRunner = Substitute.For<IAsyncQueryRunner>();
+        var driverCursor = Substitute.For<IResultCursor>();
+        const string rawCypherSentinel = "RETURN 'm06-sensitive-sentinel' AS value";
+
+        driverRunner.RunAsync(EntityQueries.GetById).Returns(driverCursor);
+        driverRunner.RunAsync(rawCypherSentinel).Returns(driverCursor);
+        factory.OpenSession(AccessMode.Read).Returns(session);
+        session
+            .ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>())
+            .Returns(ci => ci.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(driverRunner));
+
+        var queryActivities = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "memory.db.query")
+                    queryActivities.Add(activity);
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        await runner.ReadAsync(async tx =>
+        {
+            await tx.RunAsync(EntityQueries.GetById);
+            await tx.RunAsync(rawCypherSentinel);
+        });
+
+        queryActivities.Should().HaveCount(2);
+        queryActivities.Select(activity => activity.GetTagItem("db.query.fingerprint"))
+            .Should().Equal("EntityQueries.GetById", "unknown");
+
+        foreach (var activity in queryActivities)
+        {
+            activity.Tags.Select(tag => tag.Value)
+                .Should().NotContain(rawCypherSentinel,
+                    because: "raw Cypher can contain parameters and must never enter telemetry artifacts");
+        }
     }
 }

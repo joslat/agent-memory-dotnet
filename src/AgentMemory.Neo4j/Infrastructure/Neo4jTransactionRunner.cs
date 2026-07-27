@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Diagnostics;
+using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Infrastructure;
@@ -151,21 +152,26 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
             _payload = payload;
         }
 
-        public Task<IResultCursor> RunAsync(string query) => TrackAsync(() => _inner.RunAsync(query));
+        public Task<IResultCursor> RunAsync(string query) =>
+            TrackAsync(query, () => _inner.RunAsync(query));
 
         public Task<IResultCursor> RunAsync(string query, object parameters) =>
-            TrackAsync(() => _inner.RunAsync(query, parameters));
+            TrackAsync(query, () => _inner.RunAsync(query, parameters));
 
         public Task<IResultCursor> RunAsync(string query, IDictionary<string, object> parameters) =>
-            TrackAsync(() => _inner.RunAsync(query, parameters));
+            TrackAsync(query, () => _inner.RunAsync(query, parameters));
 
-        public Task<IResultCursor> RunAsync(Query query) => TrackAsync(() => _inner.RunAsync(query));
+        public Task<IResultCursor> RunAsync(Query query) =>
+            TrackAsync(query.Text, () => _inner.RunAsync(query));
 
-        private async Task<IResultCursor> TrackAsync(Func<Task<IResultCursor>> run)
+        private async Task<IResultCursor> TrackAsync(
+            string queryText,
+            Func<Task<IResultCursor>> run)
         {
             using var activity = AgentMemoryDiagnostics.Source.StartActivity(
                 "memory.db.query", ActivityKind.Client, _parent);
             activity?.SetTag("db.mode", _mode);
+            activity?.SetTag("db.query.fingerprint", CypherQueryRegistry.FingerprintFor(queryText));
             var cursor = await run().ConfigureAwait(false);
             return new CountingResultCursor(cursor, _payload);
         }

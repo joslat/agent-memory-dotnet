@@ -28,7 +28,7 @@ on every one of these.
 | **Model completions** | 0 | **4** |
 | Model tokens (in / out) | – | 947 / 668 |
 | Memory items returned | 43 | – |
-| Prompt characters added | 3,901 (≈975 tokens) | – |
+| Prompt characters added | 3,906 (≈977 tokens) | – |
 
 ### What drives each number
 
@@ -68,6 +68,50 @@ entity recall map projection omitted the stored vectors:
 The 30,720-byte difference is exactly 10 returned entities × 384 vector values × 8 estimated bytes.
 Retrieved items, access tracking, queries, transactions, Recall@K, and MRR were unchanged. The
 projection was then reverted; it is the future rank-6 optimization, not part of this measurement change.
+
+### Round trips by query
+
+Two independent fresh-container runs produced the same distribution. The row totals are exactly the
+9 recall queries and 43 ingestion queries above. Values are stable source identifiers, never Cypher
+text.
+
+**Phase 1 — recall**
+
+| Query fingerprint | Round trips |
+|---|---:|
+| `DecayQueries.UpdateAccessTimestampBatch` | **3** |
+| `EntityQueries.SearchByVector` | 1 |
+| `FactQueries.SearchByVector` | 1 |
+| `MessageQueries.GetRecentBySession` | 1 |
+| `MessageQueries.SearchByVector` | 1 |
+| `PreferenceQueries.SearchByVector` | 1 |
+| `ReasoningQueries.SearchByTaskVector` | 1 |
+
+The three access-update queries are one per recalled long-term kind—entity, fact, and preference—but
+all run inside the single write transaction delivered by feat-01.
+
+**Phase 2 — ingestion**
+
+| Query fingerprint | Round trips |
+|---|---:|
+| `EntityQueries.CreateExtractedFrom` | 4 |
+| `EntityQueries.UpdateEmbedding` | 4 |
+| `EntityQueries.Upsert` | 4 |
+| `FactQueries.CreateExtractedFrom` | 4 |
+| `FactQueries.UpdateEmbedding` | 2 |
+| `FactQueries.Upsert` | 2 |
+| `MessageQueries.Add` | 1 |
+| `MessageQueries.CreateFirstMessageLink` | 1 |
+| `MessageQueries.LinkNextMessage` | 1 |
+| `PreferenceQueries.CreateExtractedFromMessages` | 1 |
+| `PreferenceQueries.CreateExtractedFromRelationship` | 2 |
+| `PreferenceQueries.SetEmbedding` | 1 |
+| `PreferenceQueries.Upsert` | 1 |
+| `unknown` | 15 |
+
+`unknown` is an explicit safe fallback for method-built or consumer-supplied queries not recognized by
+the stable registry. It preserves the exact total without exposing query text or assigning a misleading
+name.
 
 ### Greeting-only default-policy control
 
@@ -298,7 +342,7 @@ The instrumentation is in the product, not the harness. Subscribe to the `AgentM
 | Span | Covers |
 |---|---|
 | `memory.db.tx` | One per database transaction. Tags: `db.mode` = read / write, `db.records`, `db.bytes_est` |
-| `memory.db.query` | One per Cypher query. **Counts are exact; duration covers dispatch only**, since results stream after the span closes |
+| `memory.db.query` | One per Cypher query. Tag: safe `db.query.fingerprint`. **Counts are exact; duration covers dispatch only**, since results stream after the span closes |
 
 When nothing is listening, the original work delegate, query runner, and cursor pass through unchanged;
 the payload accumulator, cursor wrapper, and estimator are not allocated or executed.

@@ -124,6 +124,52 @@ public sealed class CypherQueryRegistryTests
         }
     }
 
+    [Fact]
+    public void FingerprintFor_KnownConstant_ReturnsStableSourceName()
+    {
+        CypherQueryRegistry.FingerprintFor(EntityQueries.GetById)
+            .Should().Be("EntityQueries.GetById");
+    }
+
+    [Fact]
+    public void FingerprintFor_CentralizedMethodBuiltQueries_ReturnsStableSourceNames()
+    {
+        var cases = new (string Cypher, string Fingerprint)[]
+        {
+            (MessageQueries.SearchByVector(true, topK: 10),
+                "MessageQueries.SearchByVector"),
+            (EntityQueries.SearchByVector(true, true, 50),
+                "EntityQueries.SearchByVector"),
+            (FactQueries.SearchByVector(true, true, 50),
+                "FactQueries.SearchByVector"),
+            (PreferenceQueries.SearchByVector(true, true, 50),
+                "PreferenceQueries.SearchByVector"),
+            (ReasoningQueries.SearchByTaskVector(false, true, true, 50),
+                "ReasoningQueries.SearchByTaskVector"),
+            (DecayQueries.UpdateAccessTimestampBatch("Entity"),
+                "DecayQueries.UpdateAccessTimestampBatch"),
+            (FactQueries.FindDuplicate(10),
+                "FactQueries.FindDuplicate"),
+            (PreferenceQueries.FindDuplicate(10, ownerIsShared: false),
+                "PreferenceQueries.FindDuplicate"),
+            (TemporalQueries.SearchEntitiesAsOf(true, true, 50),
+                "TemporalQueries.SearchEntitiesAsOf"),
+        };
+
+        foreach (var (cypher, fingerprint) in cases)
+            CypherQueryRegistry.FingerprintFor(cypher).Should().Be(fingerprint);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("RETURN 'consumer supplied'")]
+    public void FingerprintFor_UnregisteredText_ReturnsUnknown(string? cypher)
+    {
+        CypherQueryRegistry.FingerprintFor(cypher)
+            .Should().Be(CypherQueryRegistry.UnknownFingerprint);
+    }
+
     // ── All queries contain actual Cypher ──
 
     [Fact]

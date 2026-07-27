@@ -66,6 +66,12 @@ values = 8 bytes; lists/maps/nodes recursively sum their values) and is used for
 A temporary entity projection reduced its transaction by 91.0%, proving the counter sees stored
 vectors.
 
+Every `memory.db.query` span also carries a safe `db.query.fingerprint`. Centralized constants use
+their stable source name; recognized method-built shapes use a stable method name; anything else is
+`unknown`. Reports group round trips by this value. Raw Cypher is never recorded because it can contain
+embedded parameters. Two independent fresh-container runs produced the same query distributions and
+the per-fingerprint totals exactly matched `neo4j.queries`.
+
 ### Quality guards — deterministic and enforced
 
 Every performance run also executes 19 judged retrieval cases and 20 judged extraction cases. Retrieval
@@ -141,7 +147,8 @@ dotnet run --project tools/AgentMemory.Cli -- perf baseline --update \
 
 Each run writes a dated directory containing a manifest with the full environment fingerprint, an
 append-only trace log, per-iteration samples, a machine-readable summary, and a rendered report. The
-quality gate is on by default; `--quality-gate=false` is available for diagnostic runs, and the report
+report includes exact round trips grouped by safe query fingerprint. The quality gate is on by default;
+`--quality-gate=false` is available for diagnostic runs, and the report
 marks those scores as report-only.
 
 Run it at both latency settings. A change that improves only the `remote` shape is an ordering or

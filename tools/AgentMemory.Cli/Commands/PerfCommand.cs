@@ -289,44 +289,47 @@ public sealed class PerfCommand
 
     private static object BuildSummary(
         object manifest, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
-        QualityResult quality,
-        ExtractionQualityResult extraction) => new
+        QualityResult quality, ExtractionQualityResult extraction)
     {
-        manifest,
-        qualityGate = new
+        ValidateQueryFingerprintTotals(measured);
+
+        return new
         {
-            enabled = qualityGate.Enabled,
-            passed = qualityGate.Passed,
-            baseline = qualityGate.BaselinePath,
-            tolerance = qualityGate.Tolerance,
-            violations = qualityGate.Violations,
-        },
-        extractionQuality = new
-        {
-            entityPrecision = extraction.EntityPrecision,
-            entityRecall = extraction.EntityRecall,
-            factPrecision = extraction.FactPrecision,
-            factRecall = extraction.FactRecall,
-            preferencePrecision = extraction.PreferencePrecision,
-            preferenceRecall = extraction.PreferenceRecall,
-            cases = extraction.Cases,
-            expectNothingCases = extraction.ExpectNothingCases,
-            falsePositives = extraction.FalsePositives,
-            falsePositiveRate = extraction.FalsePositiveRate,
-            clean = extraction.Clean,
-            caseResults = extraction.CaseResults,
-        },
-        quality = new
-        {
-            recallAtK = quality.RecallAtK,
-            mrr = quality.Mrr,
-            cases = quality.Cases,
-            casesWithViolations = quality.CasesWithViolations,
-            clean = quality.Clean,
-            recallByCategory = quality.RecallByCategory,
-            caseResults = quality.CaseResults,
-        },
-        scenarios = measured
+            manifest,
+            qualityGate = new
+            {
+                enabled = qualityGate.Enabled,
+                passed = qualityGate.Passed,
+                baseline = qualityGate.BaselinePath,
+                tolerance = qualityGate.Tolerance,
+                violations = qualityGate.Violations,
+            },
+            extractionQuality = new
+            {
+                entityPrecision = extraction.EntityPrecision,
+                entityRecall = extraction.EntityRecall,
+                factPrecision = extraction.FactPrecision,
+                factRecall = extraction.FactRecall,
+                preferencePrecision = extraction.PreferencePrecision,
+                preferenceRecall = extraction.PreferenceRecall,
+                cases = extraction.Cases,
+                expectNothingCases = extraction.ExpectNothingCases,
+                falsePositives = extraction.FalsePositives,
+                falsePositiveRate = extraction.FalsePositiveRate,
+                clean = extraction.Clean,
+                caseResults = extraction.CaseResults,
+            },
+            quality = new
+            {
+                recallAtK = quality.RecallAtK,
+                mrr = quality.Mrr,
+                cases = quality.Cases,
+                casesWithViolations = quality.CasesWithViolations,
+                clean = quality.Clean,
+                recallByCategory = quality.RecallByCategory,
+                caseResults = quality.CaseResults,
+            },
+            scenarios = measured
             .GroupBy(r => r.Scenario, StringComparer.Ordinal)
             .Select(g => new
             {
@@ -344,6 +347,18 @@ public sealed class PerfCommand
                         deterministic = g.Min(r => r.Counter(key)) == g.Max(r => r.Counter(key)),
                     },
                     StringComparer.Ordinal),
+                queryFingerprints = AllQueryFingerprints(g).ToDictionary(
+                    fingerprint => fingerprint,
+                    fingerprint => new
+                    {
+                        median = Median(g.Select(r =>
+                            (double)r.QueryFingerprints.GetValueOrDefault(fingerprint)).ToList()),
+                        min = g.Min(r => r.QueryFingerprints.GetValueOrDefault(fingerprint)),
+                        max = g.Max(r => r.QueryFingerprints.GetValueOrDefault(fingerprint)),
+                        deterministic = g.Min(r => r.QueryFingerprints.GetValueOrDefault(fingerprint)) ==
+                                        g.Max(r => r.QueryFingerprints.GetValueOrDefault(fingerprint)),
+                    },
+                    StringComparer.Ordinal),
                 durationMs = Percentiles(g.Select(r => r.DurationMs).ToList()),
                 spansMs = AllSpans(g).ToDictionary(
                     name => name,
@@ -352,7 +367,8 @@ public sealed class PerfCommand
                     StringComparer.Ordinal),
             })
             .ToList(),
-    };
+        };
+    }
 
     /// <summary>
     /// The unit a counter is expressed in. Stated explicitly on every row because the single most
@@ -412,8 +428,26 @@ public sealed class PerfCommand
         return (total, occurrences > 0 ? total / occurrences : null);
     }
 
+    private static void ValidateQueryFingerprintTotals(IEnumerable<TurnRecord> records)
+    {
+        foreach (var record in records)
+        {
+            var fingerprintTotal = record.QueryFingerprints.Values.Sum();
+            var queryTotal = record.Counter("neo4j.queries");
+            if (fingerprintTotal != queryTotal)
+            {
+                throw new InvalidOperationException(
+                    $"Query fingerprint total {fingerprintTotal} does not match neo4j.queries " +
+                    $"{queryTotal} for {record.Scenario} iteration {record.Iteration}.");
+            }
+        }
+    }
+
     private static IEnumerable<string> AllKeys(IEnumerable<TurnRecord> records) =>
         records.SelectMany(r => r.Counters.Keys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
+
+    private static IEnumerable<string> AllQueryFingerprints(IEnumerable<TurnRecord> records) =>
+        records.SelectMany(r => r.QueryFingerprints.Keys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
 
     private static IEnumerable<string> AllSpans(IEnumerable<TurnRecord> records) =>
         records.SelectMany(r => r.SpanMilliseconds.Keys).Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
@@ -428,6 +462,7 @@ public sealed class PerfCommand
             durMs = r.DurationMs,
             counters = r.Counters,
             spansMs = r.SpanMilliseconds,
+            queryFingerprints = r.QueryFingerprints,
         }));
         await File.WriteAllLinesAsync(Path.Combine(runDir, "samples.ndjson"), lines, cancellationToken)
             .ConfigureAwait(false);
@@ -566,6 +601,25 @@ public sealed class PerfCommand
                 "**Mean ms each** are for all transactions combined, not for that access mode alone. " +
                 "Totals are summed across concurrent work — see the timing note below.");
 
+            sb.AppendLine();
+            sb.AppendLine("### Round trips by query (exact)");
+            sb.AppendLine();
+            sb.AppendLine("Only stable source identifiers are emitted. Unrecognized method-built or");
+            sb.AppendLine("consumer-supplied Cypher is `unknown`; raw query text never enters an artifact.");
+            sb.AppendLine();
+            sb.AppendLine("| Query fingerprint | Round trips | Deterministic |");
+            sb.AppendLine("|---|---:|---|");
+            foreach (var fingerprint in AllQueryFingerprints(group))
+            {
+                var min = group.Min(record =>
+                    record.QueryFingerprints.GetValueOrDefault(fingerprint));
+                var max = group.Max(record =>
+                    record.QueryFingerprints.GetValueOrDefault(fingerprint));
+                var stable = min == max;
+                var value = stable ? min.ToString(CultureInfo.InvariantCulture) : $"{min}–{max}";
+                sb.AppendLine(CultureInfo.InvariantCulture,
+                    $"| `{fingerprint}` | {value} | {(stable ? "yes" : "**NO**")} |");
+            }
             sb.AppendLine();
             sb.AppendLine("### Timings (comparable only within this run)");
             sb.AppendLine();

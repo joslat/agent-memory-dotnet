@@ -13,6 +13,7 @@ public sealed class TurnRecord
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, long> _counters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _queryFingerprints = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _spanMs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _spanCount = new(StringComparer.Ordinal);
 
@@ -45,6 +46,17 @@ public sealed class TurnRecord
         }
     }
 
+    /// <summary>Records one query round trip under its safe, stable fingerprint.</summary>
+    public void RecordQueryFingerprint(string fingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        lock (_gate)
+        {
+            _queryFingerprints.TryGetValue(fingerprint, out var current);
+            _queryFingerprints[fingerprint] = current + 1;
+        }
+    }
+
     /// <summary>Records one completed span: total time and occurrence count are both kept.</summary>
     public void RecordSpan(string name, double milliseconds)
     {
@@ -66,6 +78,11 @@ public sealed class TurnRecord
     public IReadOnlyDictionary<string, long> Counters
     {
         get { lock (_gate) return new Dictionary<string, long>(_counters, StringComparer.Ordinal); }
+    }
+
+    public IReadOnlyDictionary<string, long> QueryFingerprints
+    {
+        get { lock (_gate) return new Dictionary<string, long>(_queryFingerprints, StringComparer.Ordinal); }
     }
 
     public IReadOnlyDictionary<string, double> SpanMilliseconds
