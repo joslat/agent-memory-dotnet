@@ -187,6 +187,23 @@ second Docker volume clone. This is a harness-usability result, **not deployment
 
 ---
 
+## Matched `feat-01` before/after characterization
+
+The exact pre-`feat-01` harness commit (`b1d924e9929b`) and post-`feat-01` commit (`0455c584ce`) were
+rerun back-to-back on the same machine with zero provider latency, 10 measured iterations, and 3
+warm-ups. “Full phase” is the elapsed time for the complete recall or ingestion harness phase.
+
+| Full phase | Before p50 / p95 | After p50 / p95 | Movement | Interpretation |
+|---|---:|---:|---:|---|
+| Recall | **313.03 / 641.45 ms** | **50.59 / 113.11 ms** | **−262.44 ms (−83.8%) p50; −528.34 ms (−82.4%) p95** | Attributable to batching 25 access-tracking write transactions into 1; 43 retrieved and 25 tracked items held |
+| Ingestion | **336.83 / 2,859.29 ms** | **221.92 / 352.90 ms** | −114.91 ms (−34.1%) p50 | Control variance only: `feat-01` did not change ingestion |
+
+These are local hermetic characterization timings, not deployment latency. The portable causal result
+is recall write transactions **25 → 1**, queries **31 → 9**, and total database round trips **31 → 7**,
+with retrieved and access-tracked item guards unchanged.
+
+---
+
 ## Measured improvements after the 1.3.0 baseline
 
 | Improvement | Scenario | Portable counter | Before | After | Change |
