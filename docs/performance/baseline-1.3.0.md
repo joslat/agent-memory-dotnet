@@ -9,6 +9,8 @@ What one agent turn costs at shipped defaults, measured per phase.
 
 > Read [README.md](README.md) first if you have not. In particular: the counters below are portable and
 > reproducible; the timings are proportions from a local container, **not** deployment performance.
+> This file remains the immutable 1.3.0 reference. Measured post-baseline changes are listed in
+> [README.md](README.md#measured-improvements-after-the-130-baseline).
 
 ---
 

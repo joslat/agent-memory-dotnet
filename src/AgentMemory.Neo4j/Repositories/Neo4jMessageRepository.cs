@@ -39,30 +39,20 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
                 ["content"]        = message.Content,
                 ["timestamp"]      = message.TimestampUtc.ToString("O"),
                 ["toolCallIds"]    = message.ToolCallIds?.ToList() ?? new List<string>(),
-                ["metadata"]       = SerializeMetadata(message.Metadata)
+                ["metadata"]       = SerializeMetadata(message.Metadata),
+                ["embedding"]      = message.Embedding is { Length: > 0 }
+                    ? message.Embedding.ToList()
+                    : null
             };
 
             var cursor = await runner.RunAsync(MessageQueries.Add, createParams).ConfigureAwait(false);
             var record = await cursor.SingleAsync().ConfigureAwait(false);
-            var node = record["m"].As<INode>();
+            var returned = record["m"];
+            var properties = returned is INode node
+                ? node.Properties
+                : returned.As<IReadOnlyDictionary<string, object>>();
 
-            // Only persist a real (non-empty) vector; a degraded empty embedding leaves `embedding` NULL.
-            if (message.Embedding is { Length: > 0 })
-            {
-                await runner.RunAsync(
-                    SharedFragments.SetMessageEmbedding,
-                    new { id = message.MessageId, embedding = message.Embedding.ToList() }).ConfigureAwait(false);
-            }
-
-            // Create FIRST_MESSAGE if this is the first message in the conversation
-            await runner.RunAsync(
-                MessageQueries.CreateFirstMessageLink,
-                new { conversationId = message.ConversationId, id = message.MessageId }).ConfigureAwait(false);
-
-            // Establish NEXT_MESSAGE link from the previous last message
-            await runner.RunAsync(MessageQueries.LinkNextMessage, new { conversationId = message.ConversationId, id = message.MessageId }).ConfigureAwait(false);
-
-            return MapToMessage(node, message.Embedding);
+            return MapToMessage(properties, message.Embedding);
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -289,19 +279,22 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     }
 
     private static Message MapToMessage(INode node, float[]? embedding) =>
+        MapToMessage(node.Properties, embedding);
+
+    private static Message MapToMessage(IReadOnlyDictionary<string, object> properties, float[]? embedding) =>
         new()
         {
-            MessageId      = node["id"].As<string>(),
-            ConversationId = node["conversation_id"].As<string>(),
-            SessionId      = node["session_id"].As<string>(),
-            Role           = node["role"].As<string>(),
-            Content        = node["content"].As<string>(),
-            TimestampUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["timestamp"]),
+            MessageId      = properties["id"].As<string>(),
+            ConversationId = properties["conversation_id"].As<string>(),
+            SessionId      = properties["session_id"].As<string>(),
+            Role           = properties["role"].As<string>(),
+            Content        = properties["content"].As<string>(),
+            TimestampUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["timestamp"]),
             Embedding      = embedding,
-            ToolCallIds    = node.Properties.TryGetValue("tool_call_ids", out var tc)
+            ToolCallIds    = properties.TryGetValue("tool_call_ids", out var tc)
                                 ? tc.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : [],
-            Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            Metadata       = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
     private static float[]? ReadEmbedding(INode node)

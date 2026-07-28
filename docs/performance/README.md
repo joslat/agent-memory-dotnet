@@ -187,6 +187,21 @@ second Docker volume clone. This is a harness-usability result, **not deployment
 
 ---
 
+## Measured improvements after the 1.3.0 baseline
+
+| Improvement | Scenario | Portable counter | Before | After | Change |
+|---|---|---|---:|---:|---:|
+| Combined single-message Neo4j persistence | `PERF-W-02` | queries per turn | 43 | **40** | **−3 (−7.0%)** |
+| Combined single-message Neo4j persistence | `PERF-W-03` | queries per turn | 88 | **70** | **−18 (−20.5%)** |
+
+Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
+maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
+message counts remain 1 / 6, and estimated payload remains 102,960 / 108,964 bytes. Deterministic
+retrieval and extraction quality guards remain unchanged at 1.000, with a 0% extraction false-positive
+rate. Local-container milliseconds are intentionally omitted because they are not deployment timings.
+
+---
+
 ## Reproduce it yourself
 
 Requires Docker. The harness provisions its own pinned Neo4j, so it does not touch your database.

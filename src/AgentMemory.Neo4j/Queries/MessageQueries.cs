@@ -11,7 +11,8 @@ internal static class MessageQueries
 {
     // ── AddAsync ───────────────────────────────────────────────────────
 
-    /// <summary>Create a message and link it to its conversation via HAS_MESSAGE. The conversation
+    /// <summary>Create a message, persist its optional embedding, and maintain its conversation/order
+    /// links in one query. The conversation
     /// is MERGE-d so persisting a message never silently no-ops when the conversation was not
     /// explicitly created first (e.g. from the MAF context/history providers); a thin conversation
     /// is created and later enriched by ConversationQueries.Upsert.
@@ -36,8 +37,26 @@ internal static class MessageQueries
                 m.timestamp       = datetime($timestamp),
                 m.tool_call_ids   = $toolCallIds,
                 m.metadata        = $metadata
+            WITH conv, m, m { .* } AS persisted
+            SET m.embedding = CASE
+                WHEN $embedding IS NOT NULL THEN $embedding
+                ELSE m.embedding
+            END
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m";
+            WITH conv, m, persisted
+            OPTIONAL MATCH (conv)-[:FIRST_MESSAGE]->(first:Message)
+            FOREACH (_ IN CASE WHEN first IS NULL THEN [1] ELSE [] END |
+                MERGE (conv)-[:FIRST_MESSAGE]->(m)
+            )
+            WITH conv, m, persisted
+            OPTIONAL MATCH (conv)-[:HAS_MESSAGE]->(prev:Message)
+            WHERE prev.id <> $id
+            WITH m, persisted, prev ORDER BY prev.timestamp DESC
+            WITH m, persisted, head(collect(prev)) AS prev
+            FOREACH (_ IN CASE WHEN prev IS NULL THEN [] ELSE [1] END |
+                MERGE (prev)-[:NEXT_MESSAGE]->(m)
+            )
+            RETURN persisted AS m";
 
     /// <summary>Link the first message in a conversation via FIRST_MESSAGE.</summary>
     public const string CreateFirstMessageLink = @"

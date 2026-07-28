@@ -367,8 +367,26 @@ MERGE (conv:Conversation {id: $conversationId})
                 m.timestamp       = datetime($timestamp),
                 m.tool_call_ids   = $toolCallIds,
                 m.metadata        = $metadata
+            WITH conv, m, m { .* } AS persisted
+            SET m.embedding = CASE
+                WHEN $embedding IS NOT NULL THEN $embedding
+                ELSE m.embedding
+            END
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m
+            WITH conv, m, persisted
+            OPTIONAL MATCH (conv)-[:FIRST_MESSAGE]->(first:Message)
+            FOREACH (_ IN CASE WHEN first IS NULL THEN [1] ELSE [] END |
+                MERGE (conv)-[:FIRST_MESSAGE]->(m)
+            )
+            WITH conv, m, persisted
+            OPTIONAL MATCH (conv)-[:HAS_MESSAGE]->(prev:Message)
+            WHERE prev.id <> $id
+            WITH m, persisted, prev ORDER BY prev.timestamp DESC
+            WITH m, persisted, head(collect(prev)) AS prev
+            FOREACH (_ IN CASE WHEN prev IS NULL THEN [] ELSE [1] END |
+                MERGE (prev)-[:NEXT_MESSAGE]->(m)
+            )
+            RETURN persisted AS m
 
 ## MessageQueries.AddBatch
 UNWIND $messages AS msg
