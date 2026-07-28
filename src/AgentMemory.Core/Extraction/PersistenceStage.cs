@@ -23,6 +23,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
+    private readonly IMemoryPersistenceTransaction _persistenceTransaction;
     private readonly ILogger<PersistenceStage> _logger;
 
     public PersistenceStage(
@@ -34,6 +35,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<PersistenceStage> logger,
+        IMemoryPersistenceTransaction persistenceTransaction,
         IOptions<ExtractionOptions>? extractionOptions = null)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
@@ -44,6 +46,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         _clock = clock;
         _idGenerator = idGenerator;
         _logger = logger;
+        _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
     }
 
@@ -53,11 +56,9 @@ internal sealed class PersistenceStage : IPersistenceStage
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
     {
-        // Spans the whole persistence stage. The four per-kind blocks below are sequential loops that
-        // embed and upsert one item at a time, so the stage's cost grows with how much the turn produced
-        // -- the candidate counts are tagged here so that growth is attributable without needing four
-        // more spans. (Per-kind TIMING would mean restructuring those loops; the counts plus the stage
-        // total answer "is persistence expensive, and because of how many of what" already.)
+        // External embedding work is deliberately completed before the storage transaction opens.
+        // Holding a database transaction while waiting on a model/provider would amplify contention
+        // and make provider latency part of the database failure surface.
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.persist.total");
         if (activity is not null)
         {
@@ -67,13 +68,31 @@ internal sealed class PersistenceStage : IPersistenceStage
             activity.SetTag("memory.persist.relationships", extraction.FilteredRelationships.Count);
         }
 
+        var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
+        if (_options.FailureMode != IngestionFailureMode.FailFast)
+            return await PersistPreparedAsync(
+                extraction, ownerId, trustLevel, prepared, cancellationToken).ConfigureAwait(false);
+
+        return await _persistenceTransaction.ExecuteAsync(
+            ct => PersistPreparedAsync(extraction, ownerId, trustLevel, prepared, ct),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<PersistenceResult> PersistPreparedAsync(
+        ExtractionStageResult extraction,
+        string? ownerId,
+        MemoryTrustLevel trustLevel,
+        PreparedEmbeddings prepared,
+        CancellationToken cancellationToken)
+    {
         var sourceMessageIds = extraction.SourceMessageIds;
         var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
         var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
+        outcomes.AddRange(prepared.Outcomes);
 
         // 1. Embed + upsert entities; build a name→persisted Entity map for relationship resolution.
         var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, entity) in extraction.ResolvedEntityMap)
+        foreach (var (name, entity) in prepared.Entities)
         {
             // Trust is monotonic, never silently downgraded: when entity resolution (auto-merge/SAME_AS)
             // resolves this mention onto an EXISTING, previously-persisted entity, `entity` already carries
@@ -82,25 +101,6 @@ internal sealed class PersistenceStage : IPersistenceStage
             // from a curated ApplicationTrusted import) -- take whichever of the two is higher.
             var effectiveTrustLevel = MaxTrustLevel(entity.Metadata.GetTrustLevel(), trustLevel);
             var entityToSave = entity with { OwnerId = ownerId, Metadata = entity.Metadata.WithTrustLevel(effectiveTrustLevel) };
-
-            if (entityToSave.Embedding is null)
-            {
-                try
-                {
-                    var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
-                        entityToSave.Name, cancellationToken).ConfigureAwait(false);
-                    entityToSave = entityToSave with { Embedding = embedding };
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
-                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
-                        MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
-                        $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
-                    continue; // no embedding — nothing to persist for this entity
-                }
-            }
 
             try
             {
@@ -142,8 +142,10 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         // 2. Embed + upsert facts.
         var persistedFactCount = 0;
-        foreach (var extracted in extraction.FilteredFacts)
+        foreach (var preparedFact in prepared.Facts)
         {
+            var extracted = preparedFact.Item;
+            var factEmbedding = preparedFact.Embedding;
             // factSourceKey (outcome/log identification) and the embedding below are both computed from the
             // freshly-extracted casing, even though the fact ultimately persisted may use an existing
             // record's casing instead when the #92 Phase 5 pre-fetch finds a case-insensitive match (see
@@ -153,22 +155,6 @@ internal sealed class PersistenceStage : IPersistenceStage
             // casings of the same triple. Embeddings are semantically robust to case, so this hasn't been
             // observed to affect retrieval quality; not fixed here to keep this phase's blast radius narrow.
             var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
-
-            float[] factEmbedding;
-            try
-            {
-                factEmbedding = await _embeddingOrchestrator.EmbedFactAsync(
-                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", factSourceKey);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, factSourceKey, null, ex,
-                    $"Ingestion failed fast: embedding generation failed for fact '{factSourceKey}'.");
-                continue;
-            }
 
             try
             {
@@ -285,24 +271,10 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         // 3. Embed + upsert preferences.
         var persistedPrefCount = 0;
-        foreach (var extracted in extraction.FilteredPreferences)
+        foreach (var preparedPreference in prepared.Preferences)
         {
-            float[] prefEmbedding;
-            try
-            {
-                prefEmbedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
-                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
-                    "Ingestion failed fast: embedding generation failed for a preference.");
-                continue;
-            }
-
+            var extracted = preparedPreference.Item;
+            var prefEmbedding = preparedPreference.Embedding;
             try
             {
                 var preference = new Preference
@@ -441,6 +413,90 @@ internal sealed class PersistenceStage : IPersistenceStage
             Outcomes = outcomes
         };
     }
+
+    private async Task<PreparedEmbeddings> PrepareEmbeddingsAsync(
+        ExtractionStageResult extraction,
+        CancellationToken cancellationToken)
+    {
+        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
+        var outcomes = new List<IngestionItemOutcome>();
+        var entities = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
+        var facts = new List<PreparedFact>(extraction.FilteredFacts.Count);
+        var preferences = new List<PreparedPreference>(extraction.FilteredPreferences.Count);
+
+        foreach (var (name, entity) in extraction.ResolvedEntityMap)
+        {
+            if (entity.Embedding is not null)
+            {
+                entities[name] = entity;
+                continue;
+            }
+
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
+                    entity.Name, cancellationToken).ConfigureAwait(false);
+                entities[name] = entity with { Embedding = embedding };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
+            }
+        }
+
+        foreach (var extracted in extraction.FilteredFacts)
+        {
+            var sourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedFactAsync(
+                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
+                facts.Add(new PreparedFact(extracted, embedding));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", sourceKey);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, sourceKey, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for fact '{sourceKey}'.");
+            }
+        }
+
+        foreach (var extracted in extraction.FilteredPreferences)
+        {
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
+                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
+                preferences.Add(new PreparedPreference(extracted, embedding));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
+                    "Ingestion failed fast: embedding generation failed for a preference.");
+            }
+        }
+
+        return new PreparedEmbeddings(entities, facts, preferences, outcomes);
+    }
+
+    private sealed record PreparedEmbeddings(
+        IReadOnlyDictionary<string, Entity> Entities,
+        IReadOnlyList<PreparedFact> Facts,
+        IReadOnlyList<PreparedPreference> Preferences,
+        IReadOnlyList<IngestionItemOutcome> Outcomes);
+
+    private sealed record PreparedFact(ExtractedFact Item, float[] Embedding);
+
+    private sealed record PreparedPreference(ExtractedPreference Item, float[] Embedding);
 
     /// <summary>
     /// Trust is monotonic (#92 Phase 3): re-touching an already-persisted entity must never silently lower

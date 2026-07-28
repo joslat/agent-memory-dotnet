@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction.MergeStrategies;
+using AgentMemory.Core.Resolution;
 using AgentMemory.Core.Validation;
 
 namespace AgentMemory.Core.Extraction;
@@ -144,8 +145,11 @@ internal sealed class ExtractionStage : IExtractionStage
 
             try
             {
-                var entity = await _entityResolver.ResolveEntityAsync(
-                    extracted, sourceMessageIds, scope, cancellationToken).ConfigureAwait(false);
+                var entity = failFast && _entityResolver is IExtractionEntityResolver deferredResolver
+                    ? await deferredResolver.ResolveForPersistenceAsync(
+                        extracted, sourceMessageIds, scope, cancellationToken).ConfigureAwait(false)
+                    : await _entityResolver.ResolveEntityAsync(
+                        extracted, sourceMessageIds, scope, cancellationToken).ConfigureAwait(false);
                 resolvedEntityMap[extracted.Name] = entity;
                 _logger.LogDebug("Resolved entity '{Name}' (id={Id}).", entity.Name, entity.EntityId);
             }

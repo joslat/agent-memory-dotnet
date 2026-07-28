@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Services;
 using AgentMemory.Core.Extraction;
 using NSubstitute;
 
@@ -49,9 +50,11 @@ public sealed class PersistenceStageTests
             .Returns(ci => Task.FromResult(ci.Arg<Relationship>()));
     }
 
-    private PersistenceStage CreateSut(ExtractionOptions? options = null) =>
+    private PersistenceStage CreateSut(
+        ExtractionOptions? options = null, IMemoryPersistenceTransaction? transaction = null) =>
         new(_orchestrator, _entityRepo, _factRepo, _prefRepo, _relRepo, _clock, _idGen,
-            NullLogger<PersistenceStage>.Instance, Options.Create(options ?? new ExtractionOptions()));
+            NullLogger<PersistenceStage>.Instance,
+            transaction ?? new PassThroughMemoryPersistenceTransaction(), Options.Create(options ?? new ExtractionOptions()));
 
     private static ExtractionStageResult EmptyResult(IReadOnlyList<string>? sourceIds = null) =>
         new()
@@ -1145,9 +1148,89 @@ public sealed class PersistenceStageTests
             ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase) { ["Alice"] = entity }
         };
 
-        var sut = CreateSut(); // default options — BestEffort
+        var transaction = new RecordingPersistenceTransaction();
+        var sut = CreateSut(transaction: transaction); // default options — BestEffort
         var act = () => sut.PersistAsync(extraction);
 
         await act.Should().NotThrowAsync();
+        transaction.ExecutionCount.Should().Be(0, "BestEffort preserves its independent-write behavior");
+    }
+
+    [Fact]
+    public async Task PersistAsync_PreparesEveryEmbeddingBeforeOpeningPersistenceTransaction()
+    {
+        var transaction = new RecordingPersistenceTransaction();
+        _orchestrator
+            .When(x => x.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()))
+            .Do(_ => transaction.IsOpen.Should().BeFalse(
+                "external embedding providers must never run while the database transaction is open"));
+        _entityRepo
+            .When(x => x.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()))
+            .Do(_ => transaction.IsOpen.Should().BeTrue());
+        _factRepo
+            .When(x => x.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()))
+            .Do(_ => transaction.IsOpen.Should().BeTrue());
+        _prefRepo
+            .When(x => x.UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>()))
+            .Do(_ => transaction.IsOpen.Should().BeTrue());
+
+        var extraction = EmptyResult(Array.Empty<string>()) with
+        {
+            ResolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Alice"] = new Entity
+                {
+                    EntityId = "e-1",
+                    Name = "Alice",
+                    Type = "Person",
+                    Confidence = 0.9,
+                    CreatedAtUtc = DateTimeOffset.UtcNow,
+                },
+            },
+            FilteredFacts =
+            [
+                new ExtractedFact
+                {
+                    Subject = "Alice",
+                    Predicate = "works_at",
+                    Object = "Contoso",
+                },
+            ],
+            FilteredPreferences =
+            [
+                new ExtractedPreference
+                {
+                    Category = "style",
+                    PreferenceText = "Prefers concise answers",
+                },
+            ],
+        };
+
+        var result = await CreateSut(
+            new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast }, transaction)
+            .PersistAsync(extraction, ownerId: "owner-a");
+
+        result.EntityCount.Should().Be(1);
+        result.FactCount.Should().Be(1);
+        result.PreferenceCount.Should().Be(1);
+        transaction.ExecutionCount.Should().Be(1);
+        transaction.IsOpen.Should().BeFalse();
+        await _orchestrator.Received(3).EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    private sealed class RecordingPersistenceTransaction : IMemoryPersistenceTransaction
+    {
+        public bool IsOpen { get; private set; }
+        public int ExecutionCount { get; private set; }
+
+        public async Task<T> ExecuteAsync<T>(
+            Func<CancellationToken, Task<T>> work,
+            CancellationToken cancellationToken = default)
+        {
+            ExecutionCount++;
+            IsOpen = true;
+            try { return await work(cancellationToken); }
+            finally { IsOpen = false; }
+        }
     }
 }

@@ -150,6 +150,21 @@ upper-bound estimate: it includes connection acquisition, routing, and transacti
 pool queue time. The correctness claim covers concurrent sessions inside one application process;
 distributed dedup coordination across multiple application instances is not yet measured.
 
+### Fail-fast torn-write rollback
+
+Fail-fast extraction persistence prepares all external embeddings before opening one explicit Neo4j
+transaction. Entity, fact, preference, relationship, provenance, temporal, and supersession repository
+operations then join that transaction. Default best-effort mode retains its independent-write behavior.
+
+A dedicated live-Neo4j integration test kills the Neo4j JVM after the first repository write returns
+inside the transaction, verifies from a fresh driver that the database is unreachable, restarts the
+same container, and compares an isolated-owner graph snapshot with its pre-turn state. The red-first
+run without the atomic boundary left 1 entity and 1 provenance edge. With the boundary enabled, the
+post-failure snapshot was empty; one exact retry produced 2 entities, 1 fact, 1 preference,
+1 relationship, and 4 provenance edges, with no duplicates, invalidation, valid-time closure, or
+supersession artifacts. The test also self-asserts that model/embedding calls finish before the
+transaction opens and that the Neo4j coordinator and repositories share the same runner instance.
+
 ### Not yet measured
 
 - **Managed/hosted deployments** — no Aura or NAMS figures yet.

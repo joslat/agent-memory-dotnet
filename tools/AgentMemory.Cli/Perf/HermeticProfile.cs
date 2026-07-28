@@ -287,10 +287,11 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// Inserts deterministic waiting inside the real transaction span. The original work delegate still
     /// receives the product's instrumented query runner, so query counting and behavior are unchanged.
     /// </summary>
-    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner
+    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner
     {
         private readonly INeo4jTransactionRunner _inner;
         private readonly PerfDependencyLatency _dependencyLatency;
+        private readonly INeo4jAtomicTransactionRunner _atomicInner;
 
         public LatencyInjectingTransactionRunner(
             INeo4jTransactionRunner inner,
@@ -298,6 +299,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         {
             _inner = inner;
             _dependencyLatency = dependencyLatency;
+            _atomicInner = inner as INeo4jAtomicTransactionRunner
+                ?? throw new InvalidOperationException("The decorated Neo4j runner must support atomic write units.");
         }
 
         public Task<T> ReadAsync<T>(
@@ -343,6 +346,11 @@ public sealed class HermeticProfile : IAsyncDisposable
                     await work(runner).ConfigureAwait(false);
                 },
                 cancellationToken);
+
+        public Task<T> ExecuteAtomicWriteAsync<T>(
+            Func<CancellationToken, Task<T>> work,
+            CancellationToken cancellationToken = default) =>
+            _atomicInner.ExecuteAtomicWriteAsync(work, cancellationToken);
 
         private async Task DelayAsync(CancellationToken cancellationToken)
         {

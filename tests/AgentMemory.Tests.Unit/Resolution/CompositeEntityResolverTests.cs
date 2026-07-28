@@ -205,6 +205,23 @@ public sealed class CompositeEntityResolverTests
     }
 
     [Fact]
+    public async Task ResolveForPersistenceAsync_CreateNew_ReturnsCandidateWithoutUpsert()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = (IExtractionEntityResolver)CreateSut();
+        var result = await sut.ResolveForPersistenceAsync(
+            MakeCandidate("Alice"), ["message-1"], MemoryScope.For("alice"));
+
+        result.EntityId.Should().Be(NewEntityId);
+        result.OwnerId.Should().Be("alice");
+        result.SourceMessageIds.Should().Equal("message-1");
+        await _entityRepo.DidNotReceive().UpsertAsync(
+            Arg.Any<Entity>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ResolveEntityAsync_CreateNew_StampsOwnerFromScope()
     {
         // leak-7: the created entity must carry the scope's owner (defense-in-depth, not just the

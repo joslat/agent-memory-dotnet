@@ -205,4 +205,62 @@ public sealed class Neo4jTransactionRunnerTests
         transaction!.GetTagItem("db.transaction_entry_ms_est")
             .Should().BeOfType<double>().Which.Should().BeGreaterThan(10);
     }
+
+    [Fact]
+    public async Task ExecuteAtomicWriteAsync_RepositoryCallsJoinOneExplicitTransaction()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var transaction = Substitute.For<IAsyncTransaction>();
+        factory.OpenSession(AccessMode.Write).Returns(session);
+        session.BeginTransactionAsync().Returns(transaction);
+
+        var result = await runner.ExecuteAtomicWriteAsync(async cancellationToken =>
+        {
+            var writeResult = await runner.WriteAsync(queryRunner =>
+            {
+                queryRunner.Should().BeSameAs(transaction);
+                return Task.FromResult(20);
+            }, cancellationToken);
+            var readResult = await runner.ReadAsync(queryRunner =>
+            {
+                queryRunner.Should().BeSameAs(transaction);
+                return Task.FromResult(22);
+            }, cancellationToken);
+            return writeResult + readResult;
+        });
+
+        result.Should().Be(42);
+        factory.Received(1).OpenSession(AccessMode.Write);
+        await session.Received(1).BeginTransactionAsync();
+        await transaction.Received(1).CommitAsync();
+        await transaction.DidNotReceive().RollbackAsync();
+        await session.DidNotReceive().ExecuteWriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>());
+        await session.DidNotReceive().ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>());
+    }
+
+    [Fact]
+    public async Task ExecuteAtomicWriteAsync_CallbackFailure_RollsBackAndDoesNotCommit()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var transaction = Substitute.For<IAsyncTransaction>();
+        factory.OpenSession(AccessMode.Write).Returns(session);
+        session.BeginTransactionAsync().Returns(transaction);
+
+        var act = async () => await runner.ExecuteAtomicWriteAsync<int>(async cancellationToken =>
+        {
+            await runner.WriteAsync(queryRunner =>
+            {
+                queryRunner.Should().BeSameAs(transaction);
+                return Task.CompletedTask;
+            }, cancellationToken);
+            throw new InvalidOperationException("injected persistence failure");
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("injected persistence failure");
+        await transaction.Received(1).RollbackAsync();
+        await transaction.DidNotReceive().CommitAsync();
+    }
 }

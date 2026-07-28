@@ -168,6 +168,7 @@ public static class ServiceCollectionExtensions
 
         // Extraction pipeline stages.
         // IExtractionStage receives IEnumerable<IExtractor> — all registered extractor implementations.
+        services.TryAddSingleton<IMemoryPersistenceTransaction, PassThroughMemoryPersistenceTransaction>();
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
         services.TryAddScoped<IPersistenceStage, PersistenceStage>();
 

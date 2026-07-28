@@ -21,7 +21,7 @@ namespace AgentMemory.Core.Resolution;
 /// entity — this is intentional "shared knowledge grows collaboratively" behavior, not a cross-owner
 /// leak (a future opt-in option could make shared knowledge read-only per owner if a deployment needs it).
 /// </remarks>
-internal sealed class CompositeEntityResolver : IEntityResolver
+internal sealed class CompositeEntityResolver : IEntityResolver, IExtractionEntityResolver
 {
     private readonly IEntityRepository _entityRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
@@ -49,12 +49,33 @@ internal sealed class CompositeEntityResolver : IEntityResolver
         _logger = logger;
     }
 
-    /// <inheritdoc/>
-    public async Task<Entity> ResolveEntityAsync(
+    public Task<Entity> ResolveEntityAsync(
         ExtractedEntity extractedEntity,
         IReadOnlyList<string> sourceMessageIds,
         MemoryScope? scope = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ResolveEntityCoreAsync(
+            extractedEntity, sourceMessageIds, scope, persistResolution: true, cancellationToken);
+
+    public Task<Entity> ResolveForPersistenceAsync(
+        ExtractedEntity extractedEntity,
+        IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        ResolveEntityCoreAsync(
+            extractedEntity, sourceMessageIds, scope, persistResolution: false, cancellationToken);
+
+    /// <summary>
+    /// Resolves an entity either for a direct caller (preserving the historical persist-on-resolve
+    /// behavior) or for fail-fast ExtractionStage, which must remain side-effect free until
+    /// PersistenceStage opens the logical transaction.
+    /// </summary>
+    private async Task<Entity> ResolveEntityCoreAsync(
+        ExtractedEntity extractedEntity,
+        IReadOnlyList<string> sourceMessageIds,
+        MemoryScope? scope,
+        bool persistResolution,
+        CancellationToken cancellationToken)
     {
         var candidates = await GetCandidatesAsync(extractedEntity.Type, scope, cancellationToken)
             .ConfigureAwait(false);
@@ -77,7 +98,7 @@ internal sealed class CompositeEntityResolver : IEntityResolver
         }
 
         if (resolutionResult is null)
-            return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, cancellationToken)
+            return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, persistResolution, cancellationToken)
                 .ConfigureAwait(false);
 
         var matched = resolutionResult.ResolvedEntity;
@@ -117,8 +138,9 @@ internal sealed class CompositeEntityResolver : IEntityResolver
                 mergedEntity = mergedEntity with { Embedding = freshEmbedding };
             }
 
-            return await _entityRepository.UpsertAsync(mergedEntity, cancellationToken)
-                .ConfigureAwait(false);
+            return persistResolution
+                ? await _entityRepository.UpsertAsync(mergedEntity, cancellationToken).ConfigureAwait(false)
+                : mergedEntity;
         }
 
         // >= SameAsThreshold and < AutoMergeThreshold: flag for SAME_AS — caller handles relationship
@@ -136,7 +158,7 @@ internal sealed class CompositeEntityResolver : IEntityResolver
             "No match above SameAs threshold for '{Name}' — creating new entity.",
             extractedEntity.Name);
 
-        return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, cancellationToken)
+        return await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, persistResolution, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -202,6 +224,7 @@ internal sealed class CompositeEntityResolver : IEntityResolver
         ExtractedEntity extracted,
         IReadOnlyList<string> sourceMessageIds,
         MemoryScope? scope,
+        bool persistResolution,
         CancellationToken cancellationToken)
     {
         var entity = new Entity
@@ -223,6 +246,8 @@ internal sealed class CompositeEntityResolver : IEntityResolver
             CreatedAtUtc = _clock.UtcNow
         };
 
-        return await _entityRepository.UpsertAsync(entity, cancellationToken).ConfigureAwait(false);
+        return persistResolution
+            ? await _entityRepository.UpsertAsync(entity, cancellationToken).ConfigureAwait(false)
+            : entity;
     }
 }
