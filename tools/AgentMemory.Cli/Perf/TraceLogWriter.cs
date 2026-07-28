@@ -34,6 +34,7 @@ public sealed class TraceLogWriter : IDisposable
         "db.query.fingerprint",
         "db.records",
         "db.bytes_est",
+        "db.transaction_entry_ms_est",
         "memory.access_tracking.items",
         "memory.store.message_count",
         "memory.extract.source_messages",
@@ -86,6 +87,7 @@ public sealed class TraceLogWriter : IDisposable
             phase = turn.Phase,
             durUs = (long)(turn.DurationMs * 1000),
             counters = turn.Counters,
+            samples = turn.Samples,
         });
 
     public void RunEnd(int turns, double durationMs) =>

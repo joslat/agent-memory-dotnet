@@ -169,4 +169,40 @@ public sealed class Neo4jTransactionRunnerTests
                     because: "raw Cypher can contain parameters and must never enter telemetry artifacts");
         }
     }
+
+    [Fact]
+    public async Task ReadAsync_TransactionSpanReportsLabelledEntryDelayEstimate()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var driverRunner = Substitute.For<IAsyncQueryRunner>();
+        factory.OpenSession(AccessMode.Read).Returns(session);
+        session
+            .ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>())
+            .Returns(async call =>
+            {
+                await Task.Delay(25);
+                return await call.Arg<Func<IAsyncQueryRunner, Task<int>>>()(driverRunner);
+            });
+
+        Activity? transaction = null;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "memory.db.tx")
+                    transaction = activity;
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        await runner.ReadAsync(_ => Task.FromResult(42));
+
+        transaction.Should().NotBeNull();
+        transaction!.GetTagItem("db.transaction_entry_ms_est")
+            .Should().BeOfType<double>().Which.Should().BeGreaterThan(10);
+    }
 }

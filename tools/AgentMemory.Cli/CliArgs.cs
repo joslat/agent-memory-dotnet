@@ -116,6 +116,13 @@ public static class CliHelp
                                      warm reference. Reports ordered cold samples, cold median, warm
                                      median, and the cold-penalty ratio. Records exactly which caches
                                      were and were not reset. Default scenario: PERF-R-04; samples: 5.
+              perf concurrency [--label <name>] [--levels <1,10,100>] [--pool-size <n>]
+                               [--embedding-dimensions <n>] [--output <dir>]
+                                     Opt-in concurrent correctness and local saturation characterization.
+                                     Proves owner isolation, dedup-on-create, and non-destructive
+                                     supersession while reporting request p50/p95/p99, operations/s,
+                                     error rate, and transaction-entry-delay estimates. Timings are not
+                                     deployment performance. Default fixed product-driver pool: 16.
               perf ledger add --run <dir> --compared-to <seq> --verdict <value>
                               [--ledger <path>]
                                      Append a summary-derived entry with automatic seq assignment.
@@ -162,6 +169,7 @@ public static class CliHelp
               agentmemory perf --label baseline --iterations 10
               agentmemory perf --label scale-m --scale M --scenarios PERF-R-04
               agentmemory perf cold --label cold-r04 --scenarios PERF-R-04 --samples 5
+              agentmemory perf concurrency --label m18 --levels 1,10,100 --pool-size 16
               agentmemory perf ledger add --run artifacts/perf/run --compared-to 1 \
                   --verdict improvement
               agentmemory perf --label feat-01-access-tracking --latency remote

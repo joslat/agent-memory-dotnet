@@ -16,6 +16,7 @@ public sealed class TurnRecord
     private readonly Dictionary<string, long> _queryFingerprints = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _spanMs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _spanCount = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<double>> _samples = new(StringComparer.Ordinal);
 
     public TurnRecord(string scenario, int iteration, string phase)
     {
@@ -69,6 +70,17 @@ public sealed class TurnRecord
         }
     }
 
+    /// <summary>Records one raw numeric sample for a distribution derived after the turn.</summary>
+    public void RecordSample(string name, double value)
+    {
+        lock (_gate)
+        {
+            if (!_samples.TryGetValue(name, out var values))
+                _samples[name] = values = [];
+            values.Add(value);
+        }
+    }
+
     /// <summary>Reads a counter, or 0 when it never fired. Used by scenario self-assertions.</summary>
     public long Counter(string name)
     {
@@ -93,5 +105,19 @@ public sealed class TurnRecord
     public IReadOnlyDictionary<string, long> SpanCounts
     {
         get { lock (_gate) return new Dictionary<string, long>(_spanCount, StringComparer.Ordinal); }
+    }
+
+    public IReadOnlyDictionary<string, IReadOnlyList<double>> Samples
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _samples.ToDictionary(
+                    pair => pair.Key,
+                    pair => (IReadOnlyList<double>)pair.Value.ToArray(),
+                    StringComparer.Ordinal);
+            }
+        }
     }
 }

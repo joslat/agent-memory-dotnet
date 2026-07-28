@@ -101,11 +101,22 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
                 cli.Get("output"));
         }
 
+        if (string.Equals(cli.Subcommand, "concurrency", StringComparison.OrdinalIgnoreCase))
+        {
+            return await new AgentMemory.Cli.Commands.PerfConcurrencyCommand(Console.Out).ExecuteAsync(
+                cli.Get("label"),
+                cli.Get("levels"),
+                cli.Get("pool-size"),
+                cli.Get("embedding-dimensions"),
+                cli.Get("output"));
+        }
+
+
         if (cli.Subcommand is not null &&
             !string.Equals(cli.Subcommand, "run", StringComparison.OrdinalIgnoreCase))
         {
             Console.Error.WriteLine(
-                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'cold', 'ab', 'ledger', 'baseline', or 'gate'.");
+                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'cold', 'concurrency', 'ab', 'ledger', 'baseline', or 'gate'.");
             return 1;
         }
 

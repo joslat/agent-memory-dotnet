@@ -38,15 +38,23 @@ public sealed class HermeticProfile : IAsyncDisposable
     private AsyncServiceScope _scope;
     private bool _scopeCreated;
 
-    private HermeticProfile(int dimensions, PerfScale scale, ScaleMRunVolume? scaleRunVolume)
+    private HermeticProfile(
+        int dimensions,
+        PerfScale scale,
+        ScaleMRunVolume? scaleRunVolume,
+        int maxConnectionPoolSize)
     {
         Dimensions = dimensions;
         Scale = scale;
         _scaleRunVolume = scaleRunVolume;
+        MaxConnectionPoolSize = maxConnectionPoolSize;
     }
 
     /// <summary>Embedding dimensionality. Small by design — vector width is not what is being measured.</summary>
     public int Dimensions { get; }
+
+    /// <summary>Fixed product-driver pool size fingerprinted by concurrency artifacts.</summary>
+    public int MaxConnectionPoolSize { get; }
 
     /// <summary>Scoped service provider for resolving memory services.</summary>
     public IServiceProvider Services => _scope.ServiceProvider;
@@ -86,12 +94,14 @@ public sealed class HermeticProfile : IAsyncDisposable
         TextWriter log,
         PerfScale scale,
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int maxConnectionPoolSize = 100)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
             ? await ScaleMDataset.PrepareRunVolumeAsync(dimensions, log, cancellationToken).ConfigureAwait(false)
             : null;
-        var profile = new HermeticProfile(dimensions, scale, scaleRunVolume);
+        var profile = new HermeticProfile(dimensions, scale, scaleRunVolume, maxConnectionPoolSize);
         try
         {
             await profile.InitializeAsync(embeddingLatency, modelLatency, log, scriptedRules, cancellationToken)
@@ -133,6 +143,7 @@ public sealed class HermeticProfile : IAsyncDisposable
                 neo4j.Password = ContainerPassword;
                 neo4j.Database = "neo4j";
                 neo4j.EmbeddingDimensions = Dimensions;
+                neo4j.MaxConnectionPoolSize = MaxConnectionPoolSize;
             },
             // A non-null delegate is what opts the LLM extractors in; without it the Core no-op stubs
             // stay registered and a post-turn scenario would measure extraction that never happens.

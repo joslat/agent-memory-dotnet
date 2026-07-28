@@ -44,12 +44,14 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
         activity?.SetTag("db.mode", "read");
         var payload = activity is null ? null : new PayloadAccumulator();
+        var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
 
         var session = _sessionFactory.OpenSession(AccessMode.Read);
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteReadAsync(Instrument(work, "read", activity, payload)).ConfigureAwait(false);
+            return await session.ExecuteReadAsync(
+                Instrument(work, "read", activity, payload, transactionEntryStartedAt)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -78,12 +80,14 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
         activity?.SetTag("db.mode", "write");
         var payload = activity is null ? null : new PayloadAccumulator();
+        var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
 
         var session = _sessionFactory.OpenSession(AccessMode.Write);
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteWriteAsync(Instrument(work, "write", activity, payload)).ConfigureAwait(false);
+            return await session.ExecuteWriteAsync(
+                Instrument(work, "write", activity, payload, transactionEntryStartedAt)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -116,13 +120,25 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         Func<IAsyncQueryRunner, Task<T>> work,
         string mode,
         Activity? transaction,
-        PayloadAccumulator? payload) =>
+        PayloadAccumulator? payload,
+        long transactionEntryStartedAt) =>
         transaction is null
             ? work
-            : runner => work(new CountingQueryRunner(runner, mode, transaction, payload!));
+            : runner =>
+            {
+                // The driver's public API exposes acquisition counts and a timeout, but not wait duration.
+                // This upper-bound estimate starts immediately before ExecuteRead/WriteAsync and stops when
+                // its transaction callback begins. It therefore includes connection acquisition, routing,
+                // and transaction begin; the `_est` suffix is permanent and prevents a pure-pool-wait claim.
+                transaction.SetTag(
+                    "db.transaction_entry_ms_est",
+                    Stopwatch.GetElapsedTime(transactionEntryStartedAt).TotalMilliseconds);
+                return work(new CountingQueryRunner(runner, mode, transaction, payload!));
+            };
 
     private static void TagPayload(Activity? activity, PayloadAccumulator? payload)
     {
+
         if (activity is null || payload is null) return;
         activity.SetTag("db.records", payload.RecordCount);
         activity.SetTag("db.bytes_est", payload.BytesEstimate);
