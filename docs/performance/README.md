@@ -116,13 +116,43 @@ connection pool, plus explicit Neo4j query-plan-cache clearing after scenario se
 claim to reset the Neo4j page cache or host filesystem cache; fixture setup may touch both. These local
 hermetic milliseconds are useful as an in-run ratio, not as deployment latency.
 
+### Concurrent correctness and local saturation
+
+`perf concurrency` is an opt-in reliability characterization against one fixed, fingerprinted product
+driver pool (16 connections by default). It self-asserts owner-isolated reads, concurrent fact
+dedup-on-create, and non-destructive owner-scoped supersession at 1, 10, and 100 logical sessions.
+
+The first red probe proved the command was capable of finding a real defect: 10 concurrent same-owner
+near-duplicate fact creates left 10 live facts. After serializing that process-local dedup decision and
+scoping exact cosine comparison before ranking, the unchanged test left exactly 1 live fact. Every
+other correctness guard stayed exact:
+
+| Sessions | Errors | Owner leaks / misses | Live near-duplicates | Losers present / closed | Edges / live winners | Cross-owner edges |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0 | 0 / 0 | 1 | 1 / 1 | 1 / 1 | 0 |
+| 10 | 0 | 0 / 0 | 1 | 10 / 10 | 10 / 10 | 0 |
+| 100 | 0 | 0 / 0 | 1 | 100 / 100 | 100 / 100 | 0 |
+
+The same accepted local run reported request p50/p99 and throughput as follows. These numbers describe
+that one hermetic run only; they are not deployment latency:
+
+| Workload | Sessions | p50 ms | p99 ms | operations/s |
+|---|---:|---:|---:|---:|
+| owner-isolation read | 10 | 14.342 | 14.613 | 662.17 |
+| dedup-on-create race | 10 | 202.582 | 255.409 | 38.92 |
+| owner-scoped supersession | 10 | 22.076 | 22.167 | 442.39 |
+| owner-isolation read | 100 | 1,537.608 | 3,060.237 | 32.65 |
+| dedup-on-create race | 100 | 527.468 | 1,295.569 | 76.23 |
+| owner-scoped supersession | 100 | 1,533.084 | 3,067.458 | 32.59 |
+
+The artifact also reports `transaction_entry_ms_est` percentiles. This is permanently labelled an
+upper-bound estimate: it includes connection acquisition, routing, and transaction begin, not exact
+pool queue time. The correctness claim covers concurrent sessions inside one application process;
+distributed dedup coordination across multiple application instances is not yet measured.
+
 ### Not yet measured
 
-Stated plainly rather than left for you to discover:
-
 - **Managed/hosted deployments** — no Aura or NAMS figures yet.
-- **Concurrency** — single-session only; no saturation or p99-under-load numbers.
-
 ### Scale-M validation
 
 `--scale M` adds exactly 250,000 foreign-scope distractor memories: 50,000 each of entities, facts,
@@ -172,6 +202,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
 # Five fresh-process cold samples plus a separate three-warm-up reference
 dotnet run --project tools/AgentMemory.Cli -- perf cold --label cold-r04 \
   --scenarios PERF-R-04 --samples 5 --warmup 3
+
+# Opt-in concurrent correctness + local saturation (fixed 16-connection product pool)
+dotnet run --project tools/AgentMemory.Cli -- perf concurrency --label concurrency \
+  --levels 1,10,100 --pool-size 16
 
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
