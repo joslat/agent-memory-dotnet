@@ -10,6 +10,10 @@ namespace AgentMemory.Neo4j.Repositories;
 
 internal sealed class Neo4jMessageRepository : IMessageRepository
 {
+    // Metadata-only filters run after the global vector candidate pool, so those searches must
+    // over-fetch before filtering. Session-scoped searches use an exact in-session query instead.
+    private const int ScopedOverFetchFactor = 5;
+    private const int ScopedOverFetchFloor = 50;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jMessageRepository> _logger;
 
@@ -208,13 +212,17 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         _logger.LogDebug("Vector search messages, sessionId={SessionId}, limit={Limit}", sessionId, limit);
 
         var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
-
-        var cypher = MessageQueries.SearchByVector(sessionId is not null, filterClause, limit);
+        var hasMetadataFilter = !string.IsNullOrWhiteSpace(filterClause);
+        var topK = sessionId is null && hasMetadataFilter
+            ? Math.Max(limit * ScopedOverFetchFactor, limit + ScopedOverFetchFloor)
+            : limit;
+        var cypher = MessageQueries.SearchByVector(sessionId is not null, filterClause, topK);
 
         var parameters = new Dictionary<string, object>
         {
             ["embedding"] = queryEmbedding.ToList(),
-            ["minScore"]  = minScore
+            ["minScore"]  = minScore,
+            ["limit"]     = limit
         };
         if (sessionId is not null) parameters["sessionId"] = sessionId;
         foreach (var (k, v) in filterParams) parameters[k] = v;

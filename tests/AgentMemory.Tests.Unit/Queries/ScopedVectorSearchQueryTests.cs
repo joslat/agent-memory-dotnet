@@ -82,6 +82,26 @@ public sealed class ScopedVectorSearchQueryTests
             $"{label} must over-fetch topK candidates from its vector index before filtering");
     }
 
+    [Fact]
+    public void MessageSessionScope_PrefiltersBeforeExactCosine()
+    {
+        var scoped = MessageQueries.SearchByVector(hasSessionFilter: true, topK: 123);
+
+        scoped.Should().Contain("MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)");
+        scoped.Should().Contain("vector.similarity.cosine(node.embedding, $embedding)");
+        scoped.Should().NotContain("db.index.vector.queryNodes");
+        var matchIndex = scoped.IndexOf("session_id: $sessionId", StringComparison.Ordinal);
+        var cosineIndex = scoped.IndexOf("vector.similarity.cosine", StringComparison.Ordinal);
+        var limitIndex = scoped.IndexOf("LIMIT $limit", StringComparison.Ordinal);
+        matchIndex.Should().BeLessThan(cosineIndex, "session filtering must precede similarity work");
+        cosineIndex.Should().BeLessThan(limitIndex, "the requested limit must apply after scoring");
+
+        var unscoped = MessageQueries.SearchByVector(hasSessionFilter: false, topK: 5);
+        unscoped.Should().Contain("db.index.vector.queryNodes('message_embedding_idx', 5");
+        unscoped.Should().NotContain("vector.similarity.cosine");
+        unscoped.Should().NotContain("LIMIT $limit", "the unfiltered query shape must remain unchanged");
+    }
+
     // ── D1 recency re-rank (opt-in) ───────────────────────────────────────────
 
     [Theory]

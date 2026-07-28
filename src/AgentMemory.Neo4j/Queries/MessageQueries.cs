@@ -142,22 +142,39 @@ internal static class MessageQueries
 
     /// <summary>
     /// Builds a vector similarity search query for messages with optional session and metadata filters.
-    /// The <paramref name="topK"/> value is embedded in the CALL as a literal integer.
+    /// Session-scoped search uses the indexed Conversation session id, traverses HAS_MESSAGE, and
+    /// calculates exact cosine inside that session; unscoped search uses the global vector index.
     /// </summary>
-    /// <param name="hasSessionFilter">When true, adds an AND clause for <c>node.session_id = $sessionId</c>.</param>
+    /// <param name="hasSessionFilter">When true, scopes traversal through <c>Conversation.session_id</c>.</param>
     /// <param name="metadataFilterFragment">
     /// Optional pre-formatted AND condition lines from <see cref="MetadataFilterBuilder.Build"/>.
     /// </param>
-    /// <param name="topK">Number of candidates to retrieve from the vector index.</param>
-    public static string SearchByVector(bool hasSessionFilter, string? metadataFilterFragment = null, int topK = 10) =>
-        new CypherBuilder()
+    /// <param name="topK">Number of candidates to retrieve from the unscoped vector index.</param>
+    public static string SearchByVector(bool hasSessionFilter, string? metadataFilterFragment = null, int topK = 10)
+    {
+        if (hasSessionFilter)
+        {
+            return $$"""
+                MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)
+                WHERE node.embedding IS NOT NULL
+                {{metadataFilterFragment}}
+                WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
+                WHERE score >= $minScore
+                RETURN node, score
+                ORDER BY score DESC
+                LIMIT $limit
+                """;
+        }
+
+        return new CypherBuilder()
             .WithVectorSearch("message_embedding_idx", "$embedding", "node", topK)
             .Where("score >= $minScore")
-            .And("node.session_id = $sessionId", when: hasSessionFilter)
             .AndRawFragment(metadataFilterFragment)
             .Return("node, score")
             .OrderBy("score DESC")
+            .Limit("$limit", when: !string.IsNullOrWhiteSpace(metadataFilterFragment))
             .Build();
+    }
 
     // ── DeleteBySessionAsync ───────────────────────────────────────────
 

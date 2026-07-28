@@ -39,7 +39,11 @@ internal static class CypherQueryRegistry
                 : "DecayQueries.UpdateAccessTimestamp";
         }
 
-        if (Has("CALL db.index.vector.queryNodes('message_embedding_idx'") &&
+        var isMessageVectorSearch =
+            Has("CALL db.index.vector.queryNodes('message_embedding_idx'") ||
+            (Has("MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)") &&
+             Has("vector.similarity.cosine(node.embedding, $embedding)"));
+        if (isMessageVectorSearch &&
             Has("RETURN node, score"))
         {
             return "MessageQueries.SearchByVector";
