@@ -493,8 +493,8 @@ public sealed class PerfAbCommand
         sb.AppendLine();
         sb.AppendLine("| Metric | Control | Candidate | Delta |");
         sb.AppendLine("|---|---:|---:|---:|");
-        QualityRow(sb, "Retrieval Recall@K", controlQuality.RecallAtK, candidateQuality.RecallAtK);
-        QualityRow(sb, "Retrieval MRR", controlQuality.Mrr, candidateQuality.Mrr);
+        QualityRow(sb, "Deterministic-plumbing Recall@K", controlQuality.RecallAtK, candidateQuality.RecallAtK);
+        QualityRow(sb, "Deterministic-plumbing MRR", controlQuality.Mrr, candidateQuality.Mrr);
         sb.AppendLine(CultureInfo.InvariantCulture,
             $"| Forbidden-retrieval cases | {controlQuality.CasesWithViolations} " +
             $"| {candidateQuality.CasesWithViolations} " +

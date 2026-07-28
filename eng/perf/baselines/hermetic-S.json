@@ -170,6 +170,8 @@
     }
   },
   "quality": {
+    "retrievalMeasurement": "deterministic-plumbing",
+    "semanticQualityClaim": false,
     "recallAtK": 1,
     "mrr": 1,
     "casesWithViolations": 0,

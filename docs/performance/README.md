@@ -75,8 +75,15 @@ the per-fingerprint totals exactly matched `neo4j.queries`.
 ### Quality guards — deterministic and enforced
 
 Every performance run also executes 19 judged retrieval cases and 20 judged extraction cases. Retrieval
-is scored with Recall@K, MRR, and forbidden-result checks; extraction is scored with precision and
-recall per memory kind plus false positives on six turns that should teach the system nothing.
+is scored with **deterministic-plumbing Recall@K/MRR** and forbidden-result checks; extraction is
+scored with precision and recall per memory kind plus false positives on six turns that should teach
+the system nothing.
+
+That label is permanent, like `bytes_est`. The fixture uses the deterministic FNV-1a test embedder and
+deliberately disjoint vocabulary, so 1.000 / 1.000 proves that retrieval wiring, ranking, scoping and
+guard enforcement still behave exactly—not that a production embedding model has perfect semantic
+quality. Sampled real-embedding/real-model quality belongs to M-27 (LongMemEval), with its model,
+dataset, seed and retrieval configuration fingerprinted.
 
 Five fresh-container runs produced identical values for every guarded metric, so the committed
 tolerance is the observed variance: **zero**. The gate is on by default and returns a non-zero exit when
@@ -125,7 +132,7 @@ counts after restore.
 
 On `PERF-R-04`, Scale S and Scale M performed the same structural work: 43 retrieved items, 25
 access-tracked items, 9 queries, 6 read transactions, 1 write transaction, and 43 materialized records.
-Recall@K, MRR, and every extraction-quality score remained 1.000. Estimated payload changed from
+Deterministic-plumbing Recall@K, MRR, and every extraction-quality score remained 1.000. Estimated payload changed from
 144,591 to 144,555 bytes (−36; −0.025%) and context length from 3,906 to 3,886 characters because the
 approximate vector index selected a different equally relevant near-tied fixture item. A second
 independent Scale-M restore reproduced 144,555 bytes and 3,886 characters exactly.

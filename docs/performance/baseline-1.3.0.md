@@ -66,7 +66,7 @@ entity recall map projection omitted the stored vectors:
 | Complete 43-item recall turn | 144,591 bytes | 113,871 bytes | **−21.2%** |
 
 The 30,720-byte difference is exactly 10 returned entities × 384 vector values × 8 estimated bytes.
-Retrieved items, access tracking, queries, transactions, Recall@K, and MRR were unchanged. The
+Retrieved items, access tracking, queries, transactions, deterministic-plumbing Recall@K, and MRR were unchanged. The
 projection was then reverted; it is the future rank-6 optimization, not part of this measurement change.
 
 ### Round trips by query
@@ -263,7 +263,7 @@ small-graph 1.3.0 baseline, not a replacement deployment-performance baseline.
 | Materialized records | 43 | 43 | 0 |
 | Estimated payload bytes | 144,591 | 144,555 | −36 (−0.025%) |
 | Context characters | 3,906 | 3,886 | −20 (−0.512%) |
-| Retrieval Recall@K / MRR | 1.000 / 1.000 | 1.000 / 1.000 | 0 / 0 |
+| Deterministic-plumbing Recall@K / MRR | 1.000 / 1.000 | 1.000 / 1.000 | 0 / 0 |
 | Extraction quality | 1.000 | 1.000 | 0 |
 
 The small payload/context difference repeated exactly across independent Scale-M restores. Neo4j's
@@ -274,16 +274,22 @@ figures establish that the tier is practical to run; they are not deployment lat
 
 ### Quality guard applied beside this cost baseline
 
-The cost counters are only accepted when deterministic quality remains at this committed baseline:
+The cost counters are only accepted when deterministic regression guards remain at this committed baseline:
 
 | Guard | Baseline |
 |---|---:|
-| Retrieval Recall@K / MRR | 1.000 / 1.000 |
+| Deterministic-plumbing Recall@K / MRR | 1.000 / 1.000 |
 | Retrieval cases with forbidden results | 0 of 19 |
 | Entity precision / recall | 1.000 / 1.000 |
 | Fact precision / recall | 1.000 / 1.000 |
 | Preference precision / recall | 1.000 / 1.000 |
 | Extraction false positives on learn-nothing turns | 0 of 6 (20 total cases) |
+
+“Deterministic-plumbing” is a permanent scope label, not a footnote. The FNV-1a test embedder and
+deliberately disjoint fixture vocabulary make expected neighbors construction-stable; these scores
+prove retrieval wiring, ranking, scoping and forbidden-result enforcement. They do **not** claim
+perfect semantic quality from a production embedding model. Sampled real-embedding/real-model quality
+belongs to M-27 (LongMemEval).
 
 Every value above was identical across five fresh-container runs: maximum observed variance **0.000**.
 The derived tolerance is therefore **zero**, recorded in

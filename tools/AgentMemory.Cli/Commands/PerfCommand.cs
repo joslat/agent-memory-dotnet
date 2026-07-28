@@ -394,6 +394,8 @@ public sealed class PerfCommand
             },
             quality = new
             {
+                retrievalMeasurement = QualityGate.DeterministicPlumbingMeasurement,
+                semanticQualityClaim = false,
                 recallAtK = quality.RecallAtK,
                 mrr = quality.Mrr,
                 cases = quality.Cases,
@@ -637,14 +639,18 @@ public sealed class PerfCommand
             sb.AppendLine();
         }
 
-        sb.AppendLine("## Retrieval quality (deterministic — no model involved)");
+        sb.AppendLine("## Retrieval guard (deterministic plumbing — FNV-1a embedder, not semantic quality)");
+        sb.AppendLine();
+        sb.AppendLine(
+            "**Scope:** these scores self-assert retrieval wiring, ranking and forbidden-result handling. " +
+            "They are not a real-embedding semantic-retrieval claim; sampled real-model quality belongs to M-27.");
         sb.AppendLine();
         sb.AppendLine(CultureInfo.InvariantCulture,
-            $"**Recall@K {quality.RecallAtK:F3}** · **MRR {quality.Mrr:F3}** · {quality.Cases} judged cases · " +
+            $"**Deterministic-plumbing Recall@K {quality.RecallAtK:F3}** · **deterministic-plumbing MRR {quality.Mrr:F3}** · {quality.Cases} judged cases · " +
             $"{quality.CasesWithViolations} with forbidden retrievals · " +
             $"{(quality.Clean ? "✅ clean" : "⚠️ **see failures below**")}");
         sb.AppendLine();
-        sb.AppendLine("| Category | Recall@K |");
+        sb.AppendLine("| Category | Deterministic-plumbing Recall@K |");
         sb.AppendLine("|---|---:|");
         foreach (var (category, recall) in quality.RecallByCategory.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             sb.AppendLine(CultureInfo.InvariantCulture, $"| {category} | {recall:F3} |");
@@ -657,7 +663,7 @@ public sealed class PerfCommand
         {
             sb.AppendLine("Cases not scoring perfectly — these are the rows a quality-risk change moves:");
             sb.AppendLine();
-            sb.AppendLine("| Case | Kind | Recall@K | 1/rank | Retrieved | Forbidden retrieved |");
+            sb.AppendLine("| Case | Kind | Deterministic-plumbing Recall@K | 1/rank | Retrieved | Forbidden retrieved |");
             sb.AppendLine("|---|---|---:|---:|---:|---|");
             foreach (var c in imperfect)
             {
