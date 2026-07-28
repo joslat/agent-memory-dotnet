@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -11,7 +12,7 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jFactRepository : IFactRepository
+internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance
 {
     // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
     // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).

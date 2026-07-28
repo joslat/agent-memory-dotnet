@@ -108,7 +108,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 persistedEntityMap[name] = entityToSave;
                 RecordSuccess(outcomes, MemoryItemKind.Entity, name, entityToSave.EntityId);
 
-                foreach (var msgId in sourceMessageIds)
+                foreach (var msgId in ExplicitProvenanceMessageIds(_entityRepository, sourceMessageIds))
                 {
                     try
                     {
@@ -236,7 +236,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 fact = await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
                 RecordSuccess(outcomes, MemoryItemKind.Fact, factSourceKey, fact.FactId);
 
-                foreach (var msgId in sourceMessageIds)
+                foreach (var msgId in ExplicitProvenanceMessageIds(_factRepository, sourceMessageIds))
                 {
                     try
                     {
@@ -294,7 +294,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 await _preferenceRepository.UpsertAsync(preference, cancellationToken).ConfigureAwait(false);
                 RecordSuccess(outcomes, MemoryItemKind.Preference, extracted.PreferenceText, preference.PreferenceId);
 
-                foreach (var msgId in sourceMessageIds)
+                foreach (var msgId in ExplicitProvenanceMessageIds(_preferenceRepository, sourceMessageIds))
                 {
                     try
                     {
@@ -503,6 +503,10 @@ internal sealed class PersistenceStage : IPersistenceStage
     /// its trust level below whatever it already had.
     /// </summary>
     private static MemoryTrustLevel MaxTrustLevel(MemoryTrustLevel a, MemoryTrustLevel b) => a > b ? a : b;
+
+    private static IEnumerable<string> ExplicitProvenanceMessageIds(
+        object repository, IReadOnlyList<string> sourceMessageIds) =>
+        repository is IUpsertPersistsProvenance ? Array.Empty<string>() : sourceMessageIds;
 
     /// <summary>Appends a <see cref="IngestionItemStatus.Succeeded"/> outcome (#101).</summary>
     private static void RecordSuccess(

@@ -193,12 +193,23 @@ second Docker volume clone. This is a harness-usability result, **not deployment
 |---|---|---|---:|---:|---:|
 | Combined single-message Neo4j persistence | `PERF-W-02` | queries per turn | 43 | **40** | **−3 (−7.0%)** |
 | Combined single-message Neo4j persistence | `PERF-W-03` | queries per turn | 88 | **70** | **−18 (−20.5%)** |
+| Skip redundant provenance re-writes | `PERF-W-02` | write transactions per turn | 18 | **8** | **−10 (−55.6%)** |
+| Skip redundant provenance re-writes | `PERF-W-02` | queries per turn | 40 | **30** | **−10 (−25.0%)** |
+| Skip redundant provenance re-writes | `PERF-W-03` | write transactions per turn | 48 | **13** | **−35 (−72.9%)** |
+| Skip redundant provenance re-writes | `PERF-W-03` | queries per turn | 70 | **35** | **−35 (−50.0%)** |
 
 Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
 maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
 message counts remain 1 / 6, and estimated payload remains 102,960 / 108,964 bytes. Deterministic
 retrieval and extraction quality guards remain unchanged at 1.000, with a 0% extraction false-positive
 rate. Local-container milliseconds are intentionally omitted because they are not deployment timings.
+
+Neo4j entity, fact, and preference upserts already create every `EXTRACTED_FROM` edge from the
+memory's source-message IDs. The core persistence stage now recognizes that internal capability and
+does not issue the same `MERGE` again in a separate transaction per memory/message pair. Repositories
+without the capability retain the existing explicit provenance behavior. The 50-message whole-session
+guard still reads back exactly 250 provenance edges (5 learned memories × 50 source messages), while
+payload, records, learned items, and deterministic quality stay unchanged.
 
 ---
 
