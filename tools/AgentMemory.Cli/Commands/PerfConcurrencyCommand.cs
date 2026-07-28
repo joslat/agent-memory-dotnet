@@ -638,21 +638,29 @@ public sealed class PerfConcurrencyCommand
     {
         try
         {
-            using var process = Process.Start(new ProcessStartInfo("git", "rev-parse HEAD")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            });
-            if (process is null) return null;
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(5_000);
-            return process.ExitCode == 0 ? output.Trim() : null;
+            var sha = RunGit("rev-parse HEAD");
+            if (sha is null) return null;
+            var dirty = !string.IsNullOrWhiteSpace(RunGit("status --porcelain"));
+            return dirty ? $"{sha}-dirty" : sha;
         }
         catch
         {
             return null;
         }
+    }
+
+    private static string? RunGit(string arguments)
+    {
+        using var process = Process.Start(new ProcessStartInfo("git", arguments)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        });
+        if (process is null) return null;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit(5_000);
+        return process.ExitCode == 0 ? output.Trim() : null;
     }
 
     private static string Owner(int index) => $"m18-owner-{index}";
