@@ -148,7 +148,7 @@ public sealed class CypherQueryRegistryTests
                 "ReasoningQueries.SearchByTaskVector"),
             (DecayQueries.UpdateAccessTimestampBatch("Entity"),
                 "DecayQueries.UpdateAccessTimestampBatch"),
-            (FactQueries.FindDuplicate(10),
+            (FactQueries.FindDuplicate(),
                 "FactQueries.FindDuplicate"),
             (PreferenceQueries.FindDuplicate(10, ownerIsShared: false),
                 "PreferenceQueries.FindDuplicate"),

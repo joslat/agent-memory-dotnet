@@ -12,6 +12,10 @@ namespace AgentMemory.Core.Services;
 /// </summary>
 internal sealed class LongTermMemoryService : ILongTermMemoryService
 {
+    private const int FactDedupLockStripeCount = 256;
+    private static readonly SemaphoreSlim[] FactDedupLockStripes =
+        Enumerable.Range(0, FactDedupLockStripeCount).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
     private readonly IEntityRepository _entityRepo;
     private readonly IFactRepository _factRepo;
     private readonly IPreferenceRepository _prefRepo;
@@ -232,7 +236,17 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         // (zero-dimension) vector, which would otherwise be handed to db.index.vector.queryNodes and throw a
         // dimension mismatch — aborting the whole add. An empty embedding has no semantic signal, so skip
         // dedup and fall through to a plain create (the node persists with a NULL, re-queueable embedding).
-        if (_options.DeduplicateOnCreate && embedding is { Length: > 0 })
+        var toSave = embedding is null ? fact : fact with { Embedding = embedding };
+        if (!_options.DeduplicateOnCreate || embedding is not { Length: > 0 })
+            return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+
+        // Find + reinforce/create is otherwise a TOCTOU race across concurrent request scopes. A bounded
+        // process-wide stripe set serializes the same owner + case-insensitive subject/predicate key without
+        // retaining one lock per memory forever. This deliberately provides in-process session correctness;
+        // it does not claim distributed coordination between separate application instances.
+        var dedupLock = FactDedupLock(toSave);
+        await dedupLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             var dup = await _factRepo.FindDuplicateAsync(
                 fact.Subject, fact.Predicate, embedding, fact.OwnerId,
@@ -251,10 +265,22 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
                 // create the new node instead of failing the add.
                 _logger.LogDebug("Dedup target fact {Id} vanished before reinforce; creating new node.", dup.FactId);
             }
-        }
 
-        var toSave = embedding is null ? fact : fact with { Embedding = embedding };
-        return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+            return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            dedupLock.Release();
+        }
+    }
+
+    private static SemaphoreSlim FactDedupLock(Fact fact)
+    {
+        var hash = new HashCode();
+        hash.Add(fact.OwnerId, StringComparer.Ordinal);
+        hash.Add(fact.Subject, StringComparer.OrdinalIgnoreCase);
+        hash.Add(fact.Predicate, StringComparer.OrdinalIgnoreCase);
+        return FactDedupLockStripes[(uint)hash.ToHashCode() % FactDedupLockStripeCount];
     }
 
     /// <summary>Reinforced confidence on a dedup hit: max(existing, incoming) + configured bump, capped at 1.0.</summary>

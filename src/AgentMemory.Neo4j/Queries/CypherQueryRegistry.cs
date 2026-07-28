@@ -59,6 +59,12 @@ internal static class CypherQueryRegistry
                 return "EntityQueries.SearchByVector";
         }
 
+        if (Has("MATCH (node:Fact)") &&
+            Has("vector.similarity.cosine(node.embedding, $embedding)") &&
+            Has("toLower(node.subject) = toLower($subject)") &&
+            Has("toLower(node.predicate) = toLower($predicate)"))
+            return "FactQueries.FindDuplicate";
+
         if (Has("CALL db.index.vector.queryNodes('fact_embedding_idx'"))
         {
             if (Has("node.created_at <= datetime($systemAsOf)"))

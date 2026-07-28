@@ -90,18 +90,19 @@ internal static class FactQueries
     // ── Dedup-on-create ────────────────────────────────────────────────
 
     /// <summary>
-    /// Finds the most-similar existing fact with the same subject+predicate within the same owner
-    /// (matched by <c>owner_key</c>) whose cosine score ≥ <c>$threshold</c> — used to reinforce instead
-    /// of creating a near-duplicate node. Over-fetches <paramref name="topK"/> candidates, returns top 1.
+    /// Scopes live candidates to the same owner + case-insensitive subject/predicate before exact cosine
+    /// scoring, then returns the best match above <c>$threshold</c>. Scoped exact scoring gives a caller
+    /// holding the process-local dedup lock read-after-commit behavior without vector-index refresh lag.
     /// </summary>
-    public static string FindDuplicate(int topK) => $@"
-            CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
-            YIELD node, score
-            WHERE score >= $threshold
-              AND node.invalidated_at IS NULL
+    public static string FindDuplicate() => @"
+            MATCH (node:Fact)
+            WHERE node.invalidated_at IS NULL
+              AND node.owner_key = $ownerKey
               AND toLower(node.subject) = toLower($subject)
               AND toLower(node.predicate) = toLower($predicate)
-              AND node.owner_key = $ownerKey
+              AND node.embedding IS NOT NULL
+            WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
+            WHERE score >= $threshold
             RETURN node, score
             ORDER BY score DESC
             LIMIT 1";

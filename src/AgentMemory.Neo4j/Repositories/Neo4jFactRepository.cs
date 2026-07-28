@@ -262,10 +262,6 @@ internal sealed class Neo4jFactRepository : IFactRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    // Small candidate set for dedup lookups: a near-duplicate by subject+predicate is rare, so a
-    // modest over-fetch is enough to find the best match above the (high) similarity threshold.
-    private const int DedupOverFetch = 10;
-
     public async Task<Fact?> FindDuplicateAsync(
         string subject, string predicate, float[] embedding, string? ownerId, double threshold,
         CancellationToken cancellationToken = default)
@@ -273,7 +269,7 @@ internal sealed class Neo4jFactRepository : IFactRepository
         // Boundary invariant: a zero-dimension (empty/degraded) embedding can't address the vector index;
         // there is no duplicate to find, so short-circuit (caller then creates a new node).
         if (embedding is not { Length: > 0 }) return null;
-        var cypher = FactQueries.FindDuplicate(DedupOverFetch);
+        var cypher = FactQueries.FindDuplicate();
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"]  = embedding.ToList(),
