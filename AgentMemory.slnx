@@ -32,6 +32,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/AgentMemory.Cli/AgentMemory.Cli.csproj" />
+    <Project Path="tools/AgentMemory.LongMemEval/AgentMemory.LongMemEval.csproj" />
     <Project Path="tools/AgentMemory.TckBridge/AgentMemory.TckBridge.csproj" />
     <Project Path="tools/AgentMemory.TckBridge.Nams/AgentMemory.TckBridge.Nams.csproj" />
   </Folder>
@@ -39,6 +40,7 @@
     <Project Path="tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj" />
     <Project Path="tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj" />
+    <Project Path="tests/AgentMemory.Tests.Unit.LongMemEval/AgentMemory.Tests.Unit.LongMemEval.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj" />
   </Folder>
 </Solution>
