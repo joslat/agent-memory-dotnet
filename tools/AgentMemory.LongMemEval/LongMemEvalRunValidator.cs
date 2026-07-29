@@ -12,7 +12,11 @@ internal static class LongMemEvalRunValidator
         int questionCount,
         int llmCalls,
         IReadOnlyList<LongMemEvalQuestionTelemetry> telemetry,
-        IReadOnlyList<QuestionResult> questionResults)
+        IReadOnlyList<QuestionResult> questionResults,
+        LongMemEvalChatCallSnapshot? answerCalls = null,
+        LongMemEvalChatCallSnapshot? judgeCalls = null,
+        LongMemEvalChatCallSnapshot? extractionCalls = null,
+        long expectedInitialExtractionCalls = 0)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -40,7 +44,70 @@ internal static class LongMemEvalRunValidator
                 $"AgentMemory recorded {telemetry.Count} question telemetry entries for {questionCount} AgentEval results.");
         }
 
-        if (telemetry.Any(item => item.MessagesStored == 0 || item.ItemsRetrieved == 0))
+        if (answerCalls is not null && answerCalls.Calls != questionCount)
+        {
+            issues.Add(
+                $"Observed {answerCalls.Calls} answer calls for {questionCount} questions; expected exactly {questionCount}.");
+        }
+
+        if (judgeCalls is not null && judgeCalls.Calls != questionCount)
+        {
+            issues.Add(
+                $"Observed {judgeCalls.Calls} judge calls for {questionCount} questions; expected exactly {questionCount}.");
+        }
+
+        if (answerCalls is not null && judgeCalls is not null &&
+            answerCalls.Calls + judgeCalls.Calls != llmCalls)
+        {
+            issues.Add(
+                $"Observed answer and judge calls total {answerCalls.Calls + judgeCalls.Calls}, but AgentEval reported {llmCalls}.");
+        }
+
+        if (extractionCalls is not null && extractionCalls.Calls < expectedInitialExtractionCalls)
+        {
+            issues.Add(
+                $"Observed {extractionCalls.Calls} extraction calls; expected at least {expectedInitialExtractionCalls} initial calls.");
+        }
+
+        var providerFailures =
+            (answerCalls?.Failures ?? 0) +
+            (judgeCalls?.Failures ?? 0) +
+            (extractionCalls?.Failures ?? 0);
+        if (providerFailures != 0)
+        {
+            issues.Add(
+                $"Observed {providerFailures} failed answer, judge, or extraction provider calls.");
+        }
+
+
+        var preparedQuestions = telemetry.Count(item => item.PreparedMemory);
+        if (preparedQuestions != 0 && preparedQuestions != telemetry.Count)
+        {
+            issues.Add(
+                "Prepared and independently ingested LongMemEval questions cannot be mixed in one arm.");
+        }
+
+        if (preparedQuestions == telemetry.Count && telemetry.Count != 0)
+        {
+            if (telemetry.Any(item =>
+                    item.MessagesStored != 0 ||
+                    item.MessagesPrepared <= 0 ||
+                    item.ExtractionUnits != 0 ||
+                    item.ExtractionUnitsPrepared <= 0 ||
+                    item.ItemsRetrieved == 0))
+            {
+                issues.Add(
+                    "At least one prepared LongMemEval question wrote during evaluation, lacks sealed preparation work, or retrieved no items.");
+            }
+
+            if (extractionCalls is not null && extractionCalls.Calls != 0)
+            {
+                issues.Add(
+                    $"Observed {extractionCalls.Calls} extraction calls during prepared evaluation; expected zero.");
+            }
+        }
+        else if (telemetry.Any(item =>
+                     item.MessagesStored == 0 || item.ItemsRetrieved == 0))
         {
             issues.Add(
                 "At least one LongMemEval question bypassed AgentMemory storage or retrieved no items.");
@@ -127,10 +194,12 @@ internal static class LongMemEvalRunValidator
         if (string.IsNullOrWhiteSpace(explanation))
             return false;
 
-        const string prefix = "Judge said:";
         var value = explanation.Trim();
-        if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            value = value[prefix.Length..].Trim();
+        foreach (var prefix in new[] { "Judge said:", "Judge outcome:" })
+        {
+            if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                value = value[prefix.Length..].Trim();
+        }
 
         var tokenLength = value.TakeWhile(char.IsLetter).Count();
         if (tokenLength == 0)

@@ -24,6 +24,12 @@ internal static class LongMemEvalProgram
             PrintHelp();
             return 0;
         }
+        if (args.Contains("--prepared-pair", StringComparer.Ordinal))
+        {
+            return await LongMemEvalPreparedPairProgram.RunAsync(args)
+                .ConfigureAwait(false);
+        }
+
 
         try
         {
@@ -40,13 +46,22 @@ internal static class LongMemEvalProgram
             var deployment = RequiredEnvironment("AZURE_OPENAI_DEPLOYMENT");
             var embeddingDeployment =
                 RequiredEnvironment("AZURE_OPENAI_EMBEDDING_DEPLOYMENT");
+            var extractionDeployment =
+                Environment.GetEnvironmentVariable("AZURE_OPENAI_EXTRACTION_DEPLOYMENT")
+                ?? deployment;
             var azureClient = new AzureOpenAIClient(
                 new Uri(endpoint),
                 new AzureKeyCredential(apiKey));
-            using var chatClient = LongMemEvalRuntime.CreateCompatibleChatClient(
-                azureClient
-                .GetChatClient(deployment)
-                .AsIChatClient());
+            using var answerChatClient = new LongMemEvalChatCallMeter(
+                azureClient.GetChatClient(deployment).AsIChatClient());
+            using var judgeChatClient = new LongMemEvalChatCallMeter(
+                azureClient.GetChatClient(deployment).AsIChatClient());
+            using var diagnosticChatClient = new LongMemEvalChatCallMeter(
+                azureClient.GetChatClient(deployment).AsIChatClient());
+            using var extractionChatClient = options.MemoryMode.UsesExtraction()
+                ? new LongMemEvalChatCallMeter(new ProviderCompatibleExtractionChatClient(
+                    azureClient.GetChatClient(extractionDeployment).AsIChatClient()))
+                : null;
             var embeddingGenerator = azureClient
                 .GetEmbeddingClient(embeddingDeployment)
                 .AsIEmbeddingGenerator();
@@ -54,54 +69,65 @@ internal static class LongMemEvalProgram
                 .ProbeEmbeddingDimensionsAsync(embeddingGenerator)
                 .ConfigureAwait(false);
 
-            var benchmarkOptions = new ExternalBenchmarkOptions
-            {
-                DatasetPath = options.DatasetPath,
-                MaxQuestions = options.Questions,
-                StratifiedSampling = true,
-                RandomSeed = options.Seed,
-                PreserveSessionBoundaries = true,
-                IncludeTimestamps = true,
-                HistoryInjectionMode = HistoryInjectionMode.StructuredChatHistory,
-                DatasetMode = "S"
-            };
+            var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
+                options.DatasetPath,
+                options.Questions,
+                options.Seed,
+                options.JudgeRetryAttempts,
+                options.EvidenceDetail,
+                options.MaxRelevantMessages);
             var evidenceIndex = LongMemEvalEvidenceIndex.Load(
                 options.DatasetPath, benchmarkOptions);
 
             var runId = $"longmemeval-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
             await using var profile = await LongMemEvalMemoryProfile
                 .StartAsync(
-                    embeddingGenerator, embeddingDimensions, Console.Out, CancellationToken.None)
+                    embeddingGenerator,
+                    extractionChatClient,
+                    options.MemoryMode,
+                    extractionDeployment,
+                    embeddingDimensions,
+                    Console.Out,
+                    CancellationToken.None)
                 .ConfigureAwait(false);
             var adapter = new AgentMemoryLongMemEvalAdapter(
                 profile.Services.GetRequiredService<IMemoryService>(),
-                chatClient,
+                answerChatClient,
                 runId,
                 new LongMemEvalAdapterOptions
                 {
                     MaxRelevantMessages = options.MaxRelevantMessages,
+                    MemoryMode = options.MemoryMode,
                     MinSimilarityScore = 0,
                     ModelId = deployment,
                     EvidenceIndex = evidenceIndex,
-                    EvidenceDetail = options.EvidenceDetail
+                    EvidenceDetail = options.EvidenceDetail,
+                    RequireGraphReadBack = options.MemoryMode.UsesExtraction(),
+                    GraphProbe = options.MemoryMode.UsesExtraction()
+                        ? new Neo4jLongMemEvalGraphProbe(
+                            profile.Services.GetRequiredService<Neo4j.Driver.IDriver>())
+                        : null,
+                    ExtractionProgress = (completed, total) => Console.WriteLine(
+                        $"longmemeval: extraction units {completed}/{total}.")
                 });
 
-            var runner = LongMemEvalBenchmarkRunner.Create(chatClient, options.DatasetPath);
+            var runner = LongMemEvalBenchmarkRunner.Create(
+                judgeChatClient, options.DatasetPath);
             var benchmarkConfig = new AgentBenchmarkConfig
             {
                 AgentName = adapter.Name,
                 ModelId = deployment,
-                ReducerStrategy = "AgentMemory vector recall",
+                ReducerStrategy = $"AgentMemory {options.MemoryMode.ToString().ToLowerInvariant()} recall",
                 MemoryProvider = "AgentMemory .NET / Neo4j 5.26"
             };
 
             Console.WriteLine(
-                $"longmemeval: running {options.Questions} stratified questions, seed {options.Seed}, retrieval cap {options.MaxRelevantMessages}.");
+                $"longmemeval: running {options.Questions} stratified questions, seed {options.Seed}, mode {options.MemoryMode.ToString().ToLowerInvariant()}, context cap {options.MaxRelevantMessages}.");
             var result = await runner
                 .RunAsync(adapter, benchmarkConfig, benchmarkOptions)
                 .ConfigureAwait(false);
             var postRunDiagnostics = await LongMemEvalPostRunDiagnostics.RunAsync(
-                chatClient,
+                diagnosticChatClient,
                 evidenceIndex,
                 result.QuestionResults,
                 adapter.QuestionTelemetry,
@@ -109,12 +135,23 @@ internal static class LongMemEvalProgram
                 options.JudgeRetryAttempts,
                 retainContent: options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
                 .ConfigureAwait(false);
+            var answerCalls = answerChatClient.Snapshot();
+            var judgeCalls = judgeChatClient.Snapshot();
+            var diagnosticCalls = diagnosticChatClient.Snapshot();
+            var extractionCalls = extractionChatClient?.Snapshot() ?? LongMemEvalChatCallSnapshot.Zero;
+            var initialExtractionCalls =
+                adapter.QuestionTelemetry.Sum(item => item.ExtractionUnits) * 4L;
+
 
             var validation = LongMemEvalRunValidator.Validate(
                 options.Questions,
                 result.TotalLlmCalls,
                 adapter.QuestionTelemetry,
-                result.QuestionResults);
+                result.QuestionResults,
+                answerCalls,
+                judgeCalls,
+                extractionCalls,
+                initialExtractionCalls);
             var destination = ResolveOutput(options.OutputPath, runId);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             var report = new
@@ -136,7 +173,12 @@ internal static class LongMemEvalProgram
                     answerModel = deployment,
                     judgeModel = deployment,
                     maxRelevantMessages = options.MaxRelevantMessages,
-                    operatingMode = "raw-message-vector-control",
+                    operatingMode = options.MemoryMode.Fingerprint(),
+                    extractionModel = options.MemoryMode.UsesExtraction() ? extractionDeployment : null,
+                    extractionTemperatureCompatibility = options.MemoryMode.UsesExtraction()
+                        ? "explicit-zero-to-provider-default" : null,
+                    extractionSourceTime = options.MemoryMode.UsesExtraction()
+                        ? "metadata-only-not-in-extraction-prompt" : null,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
@@ -146,16 +188,22 @@ internal static class LongMemEvalProgram
                         deployment = embeddingDeployment,
                         dimensions = embeddingDimensions
                     },
-                    judgeTemperatureCompatibility = "explicit-zero-to-provider-default",
-                    judgeOutputTokenCompatibility = "explicit-zero-and-30-to-512",
+                    judgeRequest = "AgentEval-source-native-null-temperature-256-tokens",
                     neo4jImage = "neo4j:5.26",
-                    agentEval = "0.16.0-beta"
+                    agentEval = typeof(ExternalBenchmarkOptions).Assembly.GetName().Version?.ToString(),
+                    agentEvalDependency = "source-project:AgentEval.Memory"
                 },
                 agentMemory = new
                 {
                     questions = adapter.QuestionTelemetry,
                     totalMessagesStored = adapter.QuestionTelemetry.Sum(item => item.MessagesStored),
                     totalItemsRetrieved = adapter.QuestionTelemetry.Sum(item => item.ItemsRetrieved),
+                    totalExtractionUnits = adapter.QuestionTelemetry.Sum(item => item.ExtractionUnits),
+                    totalRawMessagesRetrieved = adapter.QuestionTelemetry.Sum(item => item.RawMessagesRetrieved),
+                    totalEntitiesRetrieved = adapter.QuestionTelemetry.Sum(item => item.EntitiesRetrieved),
+                    totalFactsRetrieved = adapter.QuestionTelemetry.Sum(item => item.FactsRetrieved),
+                    totalPreferencesRetrieved = adapter.QuestionTelemetry.Sum(item => item.PreferencesRetrieved),
+                    graphRagQuestions = adapter.QuestionTelemetry.Count(item => item.GraphRagIncluded),
                     zeroStoreQuestions = adapter.QuestionTelemetry.Count(item => item.MessagesStored == 0),
                     zeroRecallQuestions = adapter.QuestionTelemetry.Count(item => item.ItemsRetrieved == 0)
                 },
@@ -164,7 +212,17 @@ internal static class LongMemEvalProgram
                     benchmarkLlmCalls = result.TotalLlmCalls,
                     diagnosticLlmCalls = postRunDiagnostics.DiagnosticLlmCalls,
                     totalLlmCalls = result.TotalLlmCalls + postRunDiagnostics.DiagnosticLlmCalls,
-                    diagnosticCallsAffectScore = false
+                    diagnosticCallsAffectScore = false,
+                    observed = new
+                    {
+                        answer = Project(answerCalls),
+                        judge = Project(judgeCalls),
+                        extraction = Project(extractionCalls),
+                        diagnostics = Project(diagnosticCalls)
+                    },
+                    extractionInitialExpectedCalls = initialExtractionCalls,
+                    extractionRetryCalls = Math.Max(
+                        0, extractionCalls.Calls - initialExtractionCalls)
                 },
                 postRunDiagnostics,
                 result = validation.Accepted
@@ -246,9 +304,18 @@ internal static class LongMemEvalProgram
             ParsePositive(Value("--max-relevant"), DefaultMaxRelevant, "--max-relevant"),
             ParseEvidenceDetail(Value("--evidence-detail")),
             ParseOracleMode(Value("--oracle")),
+            ParseMemoryMode(Value("--memory-mode")),
             ParseNonNegative(Value("--judge-retries"), 2, "--judge-retries"),
             Value("--output"));
     }
+
+    private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
+    {
+        snapshot.Calls,
+        snapshot.Failures,
+        durationMs = snapshot.Duration.TotalMilliseconds
+    };
+
 
     private static int ParsePositive(string? value, int defaultValue, string option)
     {
@@ -275,6 +342,16 @@ internal static class LongMemEvalProgram
             "failed" => LongMemEvalOracleMode.Failed,
             "all" => LongMemEvalOracleMode.All,
             _ => throw new ArgumentException("--oracle must be one of: none, failed, all.")
+        };
+
+    private static LongMemEvalMemoryMode ParseMemoryMode(string? value) =>
+        value?.ToLowerInvariant() switch
+        {
+            null or "raw" => LongMemEvalMemoryMode.Raw,
+            "structured" => LongMemEvalMemoryMode.Structured,
+            "hybrid" => LongMemEvalMemoryMode.Hybrid,
+            _ => throw new ArgumentException(
+                "--memory-mode must be one of: raw, structured, hybrid.")
         };
 
     private static int ParseNonNegative(string? value, int defaultValue, string option)
@@ -305,17 +382,22 @@ internal static class LongMemEvalProgram
 
     private static void PrintHelp() => Console.WriteLine(
         """
-        AgentMemory LongMemEval (AgentEval 0.16.0-beta)
+        AgentMemory LongMemEval (AgentEval.Memory local source)
 
         dotnet run --project tools/AgentMemory.LongMemEval -- \
           --dataset <longmemeval_s_cleaned.json> [--questions 10] [--seed 42] \
-          [--max-relevant 30] [--evidence-detail none|identifiers|content] \
+          [--max-relevant 30] [--memory-mode raw|structured|hybrid] \
+          [--prepared-pair] \
+          [--evidence-detail none|identifiers|content] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
+
+        --prepared-pair prepares structured memory once, freezes it, clones it, and evaluates isolated Structured and Hybrid arms.
 
         Requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT,
         and AZURE_OPENAI_EMBEDDING_DEPLOYMENT.
         Uses real LongMemEval data, a pinned Neo4j 5.26 container, real Azure OpenAI embeddings,
         and the same Azure deployment for answers and AgentEval's type-specific judge.
+        Structured/hybrid extraction may use AZURE_OPENAI_EXTRACTION_DEPLOYMENT; it defaults to the answer deployment.
         """);
 
     private sealed record Options(
@@ -325,6 +407,7 @@ internal static class LongMemEvalProgram
         int MaxRelevantMessages,
         LongMemEvalEvidenceDetail EvidenceDetail,
         LongMemEvalOracleMode OracleMode,
+        LongMemEvalMemoryMode MemoryMode,
         int JudgeRetryAttempts,
         string? OutputPath);
 }

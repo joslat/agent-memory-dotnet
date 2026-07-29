@@ -40,6 +40,40 @@ public sealed class LongMemEvalRuntimeTests
             (0.25f, 30),
             (0f, 128));
     }
+
+    [Fact]
+    public async Task ChatCallMeter_RecordsCallsFailuresAndElapsedTimeWithoutContent()
+    {
+        var invocation = 0;
+        var inner = Substitute.For<IChatClient>();
+        inner.GetResponseAsync(
+                Arg.Any<IEnumerable<ChatMessage>>(),
+                Arg.Any<ChatOptions?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                invocation++;
+                return invocation == 1
+                    ? Task.FromResult(new ChatResponse(
+                        new ChatMessage(ChatRole.Assistant, "sensitive response")))
+                    : Task.FromException<ChatResponse>(
+                        new InvalidOperationException("sensitive provider failure"));
+            });
+        using var meter = new LongMemEvalChatCallMeter(inner);
+
+        await meter.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "sensitive request")]);
+        Func<Task> fail = async () => await meter.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "another sensitive request")]);
+        await fail.Should().ThrowAsync<InvalidOperationException>();
+
+        var snapshot = meter.Snapshot();
+        snapshot.Calls.Should().Be(2);
+        snapshot.Failures.Should().Be(1);
+        snapshot.Duration.Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
+        snapshot.ToString().Should().NotContain("sensitive");
+    }
+
     [Fact]
     public async Task ProbeEmbeddingDimensionsAsync_ReturnsRealProviderVectorLength()
     {

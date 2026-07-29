@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
 using AgentMemory.Abstractions.Domain;
@@ -22,14 +23,19 @@ internal sealed class LongMemEvalEvidenceIndex
     private readonly object _gate = new();
     private readonly Dictionary<string, List<LongMemEvalEvidenceQuestion>> _questionsByHistory;
     private readonly IReadOnlyDictionary<string, LongMemEvalEvidenceQuestion> _questionsById;
+    private readonly IReadOnlyList<LongMemEvalEvidenceQuestion> _questions;
 
     private LongMemEvalEvidenceIndex(
         Dictionary<string, List<LongMemEvalEvidenceQuestion>> questionsByHistory,
-        IReadOnlyDictionary<string, LongMemEvalEvidenceQuestion> questionsById)
+        IReadOnlyDictionary<string, LongMemEvalEvidenceQuestion> questionsById,
+        IReadOnlyList<LongMemEvalEvidenceQuestion> questions)
     {
         _questionsByHistory = questionsByHistory;
         _questionsById = questionsById;
+        _questions = questions;
     }
+
+    public IReadOnlyList<LongMemEvalEvidenceQuestion> Questions => _questions;
 
     public static LongMemEvalEvidenceIndex Load(
         string datasetPath,
@@ -45,6 +51,7 @@ internal sealed class LongMemEvalEvidenceIndex
 
         var byHistory = new Dictionary<string, List<LongMemEvalEvidenceQuestion>>(StringComparer.Ordinal);
         var byId = new Dictionary<string, LongMemEvalEvidenceQuestion>(StringComparer.Ordinal);
+        var questions = new List<LongMemEvalEvidenceQuestion>(entries.Count);
         foreach (var entry in entries)
         {
             var formatted = LongMemEvalHistoryFormatter.Format(entry, options);
@@ -62,9 +69,10 @@ internal sealed class LongMemEvalEvidenceIndex
                 throw new InvalidOperationException(
                     $"LongMemEval evidence contains duplicate question id {question.QuestionId}.");
             }
+            questions.Add(question);
         }
 
-        return new LongMemEvalEvidenceIndex(byHistory, byId);
+        return new LongMemEvalEvidenceIndex(byHistory, byId, questions.AsReadOnly());
     }
 
     public LongMemEvalEvidenceQuestion Resolve(
@@ -251,7 +259,7 @@ internal sealed class LongMemEvalEvidenceIndex
     private static InvalidOperationException AlignmentFailure(string questionId) => new(
         $"AgentEval formatted history could not be aligned to source turns for LongMemEval question {questionId}.");
 
-    private static string Fingerprint(
+    internal static string Fingerprint(
         IReadOnlyList<(string UserMessage, string AssistantResponse)> history)
     {
         var builder = new StringBuilder();
@@ -306,6 +314,7 @@ public sealed record LongMemEvalRankedEvidence(
     bool IsSyntheticFormatterPadding,
     bool GoldSessionHit,
     bool GoldTurnHit,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? Content);
 
 public sealed record LongMemEvalRetrievalEvidence(

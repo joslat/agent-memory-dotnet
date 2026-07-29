@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Extraction.Llm;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -24,18 +25,35 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
 
     public static async Task<LongMemEvalMemoryProfile> StartAsync(
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IChatClient? extractionChatClient,
+        LongMemEvalMemoryMode memoryMode,
+        string? extractionModelId,
         int embeddingDimensions,
         TextWriter log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? volumeName = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
 
+        if (memoryMode.UsesExtraction() && extractionChatClient is null)
+        {
+            throw new ArgumentNullException(
+                nameof(extractionChatClient), "Structured and hybrid modes require a real extraction chat client.");
+        }
         var profile = new LongMemEvalMemoryProfile();
         try
         {
             await profile.InitializeAsync(
-                embeddingGenerator, embeddingDimensions, log, cancellationToken).ConfigureAwait(false);
+                    embeddingGenerator,
+                    extractionChatClient,
+                    memoryMode,
+                    extractionModelId,
+                    embeddingDimensions,
+                    log,
+                    volumeName,
+                    cancellationToken)
+                .ConfigureAwait(false);
             return profile;
         }
         catch
@@ -47,18 +65,33 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
 
     private async Task InitializeAsync(
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IChatClient? extractionChatClient,
+        LongMemEvalMemoryMode memoryMode,
+        string? extractionModelId,
         int embeddingDimensions,
         TextWriter log,
+        string? volumeName,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
-        _container = new Neo4jBuilder(Image)
-            .WithEnvironment("NEO4J_AUTH", $"{User}/{Password}")
-            .Build();
+        var builder = new Neo4jBuilder(Image)
+            .WithEnvironment("NEO4J_AUTH", $"{User}/{Password}");
+        if (!string.IsNullOrWhiteSpace(volumeName))
+            builder = builder.WithVolumeMount(volumeName, "/data");
+
+        _container = builder.Build();
         await _container.StartAsync(cancellationToken).ConfigureAwait(false);
 
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+        Action<LlmExtractionOptions>? configureLlm = memoryMode.UsesExtraction()
+            ? options =>
+            {
+                options.ModelId = extractionModelId;
+                options.Temperature = 0;
+                options.MaxRetries = 2;
+            }
+            : null;
         services.AddNeo4jAgentMemory(
             memory => { },
             neo4j =>
@@ -68,12 +101,14 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 neo4j.Password = Password;
                 neo4j.Database = "neo4j";
                 neo4j.EmbeddingDimensions = embeddingDimensions;
-            });
+            }, configureLlm);
 
         services.RemoveAll<IEmbeddingGenerator<string, Embedding<float>>>();
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
             embeddingGenerator);
 
+        if (extractionChatClient is not null)
+            services.AddSingleton(extractionChatClient);
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
         _scopeCreated = true;

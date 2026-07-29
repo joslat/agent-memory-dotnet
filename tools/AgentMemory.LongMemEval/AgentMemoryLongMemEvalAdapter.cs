@@ -47,6 +47,40 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         _chatClient = chatClient;
         _runId = Sanitize(runId);
         _options = options ?? new LongMemEvalAdapterOptions();
+        if (_options.PreparedMemory &&
+            (!_options.MemoryMode.UsesExtraction() ||
+             !_options.RequireGraphReadBack ||
+             _options.GraphProbe is null ||
+             _options.EvidenceIndex is null ||
+             _options.PreparedState is null))
+        {
+            throw new ArgumentException(
+                "Prepared LongMemEval evaluation requires structured memory, sealed state, evidence, and graph read-back verification.",
+                nameof(options));
+        }
+        if (_options.PreparedMemory &&
+            (!string.Equals(
+                 _options.PreparedState!.Manifest.AnswerModelId,
+                 _options.ModelId,
+                 StringComparison.Ordinal) ||
+             _options.PreparedState.Manifest.MaxRelevantMessages != _options.MaxRelevantMessages))
+        {
+            throw new ArgumentException(
+                "Prepared LongMemEval adapter configuration does not match the sealed manifest.",
+                nameof(options));
+        }
+        if (_options.PreparationOnly &&
+            (!_options.MemoryMode.UsesExtraction() ||
+             !_options.RequireGraphReadBack ||
+             _options.GraphProbe is null ||
+             _options.EvidenceIndex is null ||
+             _options.PreparedMemory))
+        {
+            throw new ArgumentException(
+                "LongMemEval preparation requires unprepared structured memory, evidence, and graph read-back verification.",
+                nameof(options));
+        }
+
         _sessionId = ScopeId("session", 0);
         _ownerId = ScopeId("owner", 0);
     }
@@ -98,6 +132,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        var timings = new LongMemEvalStageTimingCollector();
 
         IReadOnlyList<(string UserMessage, string AssistantResponse)> history;
         string sessionId;
@@ -134,45 +169,210 @@ public sealed class AgentMemoryLongMemEvalAdapter :
 
         var originsByMessageId = new Dictionary<string, LongMemEvalMessageOrigin>(StringComparer.Ordinal);
         var messages = BuildMessages(
-            history, sessionId, ownerId, questionNumber, evidenceQuestion, originsByMessageId);
-        try
+            _runId, history, sessionId, ownerId, questionNumber, evidenceQuestion, originsByMessageId);
+
+        LongMemEvalPreparedQuestion? preparedQuestion = null;
+        if (_options.PreparedMemory)
         {
-            _ = await LongMemEvalRuntime.ExecuteStageAsync(
-                "storage",
-                () => _memory.AddMessagesAsync(messages, cancellationToken)).ConfigureAwait(false);
+            try
+            {
+                preparedQuestion = _options.PreparedState!.ValidateQuestion(
+                    questionNumber, evidenceQuestion!, history, sessionId, ownerId);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                RecordTelemetry(
+                    questionNumber, 0, 0, false, "prepared-manifest-mismatch",
+                    evidenceQuestion?.QuestionId);
+                throw;
+            }
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+
+        var messagesStored = 0;
+        if (!_options.PreparedMemory)
         {
-            RecordTelemetry(questionNumber, 0, 0, false, "storage-error");
-            throw;
+            try
+            {
+                _ = await timings.MeasureAsync(
+                    LongMemEvalStage.Storage,
+                    () => LongMemEvalRuntime.ExecuteStageAsync(
+                        "storage",
+                        () => _memory.AddMessagesAsync(messages, cancellationToken))).ConfigureAwait(false);
+                messagesStored = messages.Count;
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                RecordTelemetry(questionNumber, 0, 0, false, "storage-error");
+                throw;
+            }
+        }
+
+        var extractionUnits = 0;
+        LongMemEvalGraphSnapshot? graphSnapshot = null;
+        if (_options.MemoryMode.UsesExtraction())
+        {
+            if (evidenceQuestion is null)
+            {
+                RecordTelemetry(
+                    questionNumber, messages.Count, 0, false, "extraction-provenance-missing");
+                throw new InvalidOperationException(
+                    "Structured LongMemEval modes require source-session provenance.");
+            }
+
+            if (!_options.PreparedMemory)
+            {
+                var extractionGroups = messages
+                .Select((message, index) => (Message: message, Origin: evidenceQuestion.Messages[index]))
+                .Where(item =>
+                    !item.Origin.IsSyntheticBoundary &&
+                    !item.Origin.IsSyntheticFormatterPadding)
+                .GroupBy(item => item.Origin.SourceSessionOrdinal)
+                .OrderBy(group => group.Key)
+                .ToArray();
+                _options.ExtractionProgress?.Invoke(0, extractionGroups.Length);
+
+
+                foreach (var group in extractionGroups)
+                {
+                    var sourceMessages = group.Select(item => item.Message).ToArray();
+                    if (sourceMessages.Length == 0)
+                        continue;
+
+                    try
+                    {
+                        var extraction = await timings.MeasureAsync(
+                            LongMemEvalStage.ExtractionPersistence,
+                            () => LongMemEvalRuntime.ExecuteStageAsync(
+                                "extraction",
+                                () => _memory.ExtractAndPersistAsync(
+                                    new ExtractionRequest
+                                    {
+                                        Messages = sourceMessages,
+                                        SessionId = $"{sessionId}-source-{group.Key:D4}",
+                                        UserId = ownerId
+                                    },
+                                    cancellationToken))).ConfigureAwait(false);
+                        extractionUnits++;
+                        _options.ExtractionProgress?.Invoke(extractionUnits, extractionGroups.Length);
+                        if (extraction.Status != IngestionStatus.Succeeded)
+                        {
+                            RecordTelemetry(
+                                questionNumber,
+                                messages.Count,
+                                0,
+                                false,
+                                "extraction-incomplete",
+                                evidenceQuestion.QuestionId,
+                                extractionUnits: extractionUnits);
+                            throw new InvalidOperationException(
+                                $"LongMemEval extraction unit {group.Key} did not complete successfully.");
+                        }
+                    }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        RecordTelemetry(
+                            questionNumber,
+                            messages.Count,
+                            0,
+                            false,
+                            "extraction-error",
+                            evidenceQuestion.QuestionId,
+                            extractionUnits: extractionUnits);
+                        throw;
+                    }
+                }
+            }
+
+            if (_options.RequireGraphReadBack)
+            {
+                if (_options.GraphProbe is null)
+                {
+                    throw new InvalidOperationException(
+                        "Structured LongMemEval modes require a graph read-back probe.");
+                }
+
+                graphSnapshot = await timings.MeasureAsync(
+                    LongMemEvalStage.GraphReadBack,
+                    () => LongMemEvalRuntime.ExecuteStageAsync(
+                        "graph read-back",
+                        () => _options.GraphProbe.ReadAsync(ownerId, cancellationToken)))
+                    .ConfigureAwait(false);
+                if (graphSnapshot.TotalLearned == 0 || !graphSnapshot.CompleteProvenance)
+                {
+                    RecordTelemetry(
+                        questionNumber,
+                        messages.Count,
+                        0,
+                        false,
+                        graphSnapshot.TotalLearned == 0
+                            ? "graph-readback-empty"
+                            : "graph-provenance-incomplete",
+                        evidenceQuestion.QuestionId,
+                        extractionUnits: extractionUnits,
+                        graphSnapshot: graphSnapshot);
+                    throw new InvalidOperationException(
+                        "LongMemEval graph read-back did not prove non-empty learned memory with complete provenance.");
+                }
+
+                if (preparedQuestion is not null &&
+                    !Equals(graphSnapshot, preparedQuestion.GraphSnapshot))
+                {
+                    RecordTelemetry(
+                        questionNumber,
+                        0,
+                        0,
+                        false,
+                        "prepared-graph-mismatch",
+                        evidenceQuestion.QuestionId,
+                        graphSnapshot: graphSnapshot,
+                        messagesPrepared: preparedQuestion.MessagesPrepared,
+                        extractionUnitsPrepared: preparedQuestion.ExtractionUnitsPrepared,
+                        preparedMemory: true);
+                    throw new InvalidOperationException(
+                        $"Prepared LongMemEval graph state does not match the sealed snapshot for question {questionNumber}.");
+                }
+            }
+        }
+
+        if (_options.PreparationOnly)
+        {
+            RecordTelemetry(
+                questionNumber, messagesStored, 0, false, "prepared",
+                evidenceQuestion!.QuestionId, extractionUnits: extractionUnits,
+                graphSnapshot: graphSnapshot, stageTimings: timings.Snapshot());
+            return new AgentResponse { Text = string.Empty, ModelId = _options.ModelId };
         }
 
         RecallResult recall;
         try
         {
-            recall = await LongMemEvalRuntime.ExecuteStageAsync(
-                "retrieval",
-                () => _memory.RecallAsync(
-            new RecallRequest
-            {
-                SessionId = sessionId,
-                UserId = ownerId,
-                Query = prompt,
-                Options = new RecallOptions
-                {
-                    MaxRecentMessages = 0,
-                    MaxRelevantMessages = _options.MaxRelevantMessages,
-                    MaxEntities = 0,
-                    MaxPreferences = 0,
-                    MaxFacts = 0,
-                    MaxTraces = 0,
-                    MaxGraphRagItems = 0,
-                    MinSimilarityScore = _options.MinSimilarityScore,
-                    BlendMode = RetrievalBlendMode.MemoryOnly,
-                    IncludeDiagnostics = evidenceQuestion is not null
-                }
-            },
-            cancellationToken)).ConfigureAwait(false);
+            var budget = LongMemEvalRecallBudget.For(
+                _options.MemoryMode, _options.MaxRelevantMessages);
+            recall = await timings.MeasureAsync(
+                LongMemEvalStage.Retrieval,
+                () => LongMemEvalRuntime.ExecuteStageAsync(
+                    "retrieval",
+                    () => _memory.RecallAsync(
+                        new RecallRequest
+                        {
+                            SessionId = sessionId,
+                            UserId = ownerId,
+                            Query = prompt,
+                            Options = new RecallOptions
+                            {
+                                MaxRecentMessages = 0,
+                                MaxRelevantMessages = budget.Messages,
+                                MaxEntities = budget.Entities,
+                                MaxPreferences = budget.Preferences,
+                                MaxFacts = budget.Facts,
+                                MaxTraces = 0,
+                                MaxGraphRagItems = budget.GraphRag,
+                                MinSimilarityScore = _options.MinSimilarityScore,
+                                BlendMode = RetrievalBlendMode.MemoryOnly,
+                                IncludeDiagnostics = evidenceQuestion is not null
+                            }
+                        },
+                        cancellationToken))).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -188,17 +388,34 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         }
 
         var recalled = recall.Context.RelevantMessages.Items;
-        if (recalled.Count == 0)
+        var structuredItems =
+            recall.Context.RelevantEntities.Items.Count +
+            recall.Context.RelevantFacts.Items.Count +
+            recall.Context.RelevantPreferences.Items.Count;
+        if (_options.MemoryMode == LongMemEvalMemoryMode.Raw && recalled.Count == 0)
         {
             RecordTelemetry(questionNumber, messages.Count, recall.TotalItemsRetrieved, recall.Truncated, "retrieval-messages-empty");
             throw new InvalidOperationException(
                 $"AgentMemory reported recalled items but no relevant messages for LongMemEval question {questionNumber}.");
         }
 
-        var answerPrompt = BuildAnswerPrompt(
-            recalled.Select(message => (message.Role, message.Content)),
-            prompt);
+        if (_options.MemoryMode == LongMemEvalMemoryMode.Structured && structuredItems == 0)
+        {
+            RecordTelemetry(
+                questionNumber,
+                messages.Count,
+                recall.TotalItemsRetrieved,
+                recall.Truncated,
+                "retrieval-structured-empty",
+                evidenceQuestion?.QuestionId,
+                extractionUnits: extractionUnits);
+            throw new InvalidOperationException(
+                $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}.");
+        }
+
+        var answerPrompt = BuildAnswerPrompt(recall.Context, prompt);
         LongMemEvalRetrievalEvidence? retrievalEvidence = null;
+        AgentEval.Memory.External.Models.QuestionEvidenceEnvelope? normalizedEvidence = null;
         if (evidenceQuestion is not null)
         {
             try
@@ -210,6 +427,11 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                     originsByMessageId,
                     _options.EvidenceDetail,
                     answerPrompt.Length);
+                if (_options.EvidenceDetail != LongMemEvalEvidenceDetail.None)
+                {
+                    normalizedEvidence = LongMemEvalAgentEvalEvidence.Build(
+                        recall.Context, originsByMessageId, _options.EvidenceDetail);
+                }
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -227,14 +449,16 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         ChatResponse response;
         try
         {
-            response = await LongMemEvalRuntime.ExecuteStageAsync(
-                "answer",
-                () => _chatClient.GetResponseAsync(
-            [
-                new ChatMessage(ChatRole.System, SystemPrompt),
-                new ChatMessage(ChatRole.User, answerPrompt)
-            ],
-            cancellationToken: cancellationToken)).ConfigureAwait(false);
+            response = await timings.MeasureAsync(
+                LongMemEvalStage.Answer,
+                () => LongMemEvalRuntime.ExecuteStageAsync(
+                    "answer",
+                    () => _chatClient.GetResponseAsync(
+                        [
+                            new ChatMessage(ChatRole.System, SystemPrompt),
+                            new ChatMessage(ChatRole.User, answerPrompt)
+                        ],
+                        cancellationToken: cancellationToken))).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -244,25 +468,37 @@ public sealed class AgentMemoryLongMemEvalAdapter :
 
         RecordTelemetry(
             questionNumber,
-            messages.Count,
+            messagesStored,
             recall.TotalItemsRetrieved,
             recall.Truncated,
             "completed",
             evidenceQuestion?.QuestionId,
-            retrievalEvidence);
+            retrievalEvidence,
+            extractionUnits,
+            recall.Context,
+            graphSnapshot,
+            timings.Snapshot(),
+            preparedQuestion?.MessagesPrepared ?? 0,
+            preparedQuestion?.ExtractionUnitsPrepared ?? 0,
+            preparedQuestion is not null);
+
+        var additionalProperties = new Dictionary<string, object?>
+        {
+            ["agentMemory.sessionId"] = sessionId,
+            ["agentMemory.ownerId"] = ownerId,
+            ["agentMemory.messagesStored"] = messagesStored,
+            ["agentMemory.itemsRetrieved"] = recall.TotalItemsRetrieved,
+            ["agentMemory.truncated"] = recall.Truncated
+        };
+        if (normalizedEvidence is not null)
+            additionalProperties[AgentEval.Memory.External.Models.QuestionEvidenceEnvelope.AdditionalPropertiesKey] =
+                normalizedEvidence;
 
         return new AgentResponse
         {
             Text = response.Text ?? string.Empty,
             ModelId = _options.ModelId,
-            AdditionalProperties = new Dictionary<string, object?>
-            {
-                ["agentMemory.sessionId"] = sessionId,
-                ["agentMemory.ownerId"] = ownerId,
-                ["agentMemory.messagesStored"] = messages.Count,
-                ["agentMemory.itemsRetrieved"] = recall.TotalItemsRetrieved,
-                ["agentMemory.truncated"] = recall.Truncated
-            }
+            AdditionalProperties = additionalProperties
         };
     }
 
@@ -273,7 +509,14 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         bool recallTruncated,
         string status,
         string? questionId = null,
-        LongMemEvalRetrievalEvidence? retrievalEvidence = null)
+        LongMemEvalRetrievalEvidence? retrievalEvidence = null,
+        int extractionUnits = 0,
+        MemoryContext? context = null,
+        LongMemEvalGraphSnapshot? graphSnapshot = null,
+        LongMemEvalStageTimings? stageTimings = null,
+        int messagesPrepared = 0,
+        int extractionUnitsPrepared = 0,
+        bool preparedMemory = false)
     {
         lock (_stateLock)
         {
@@ -281,12 +524,24 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                 questionNumber, messagesStored, itemsRetrieved, recallTruncated, status)
             {
                 QuestionId = questionId,
-                RetrievalEvidence = retrievalEvidence
+                RetrievalEvidence = retrievalEvidence,
+                ExtractionUnits = extractionUnits,
+                MessagesPrepared = messagesPrepared,
+                ExtractionUnitsPrepared = extractionUnitsPrepared,
+                PreparedMemory = preparedMemory,
+                RawMessagesRetrieved = context?.RelevantMessages.Items.Count ?? 0,
+                EntitiesRetrieved = context?.RelevantEntities.Items.Count ?? 0,
+                FactsRetrieved = context?.RelevantFacts.Items.Count ?? 0,
+                PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
+                GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
+                GraphReadBack = graphSnapshot,
+                StageTimings = stageTimings
             });
         }
     }
 
-    private List<Message> BuildMessages(
+    internal static List<Message> BuildMessages(
+        string runId,
         IReadOnlyList<(string UserMessage, string AssistantResponse)> history,
         string sessionId,
         string ownerId,
@@ -314,7 +569,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         Message Message(string role, string content)
         {
             var current = ordinal++;
-            var messageId = $"{_runId}-q{questionNumber:D4}-m{current:D6}";
+            var messageId = $"{runId}-q{questionNumber:D4}-m{current:D6}";
             var metadata = new Dictionary<string, object>
             {
                 ["ownerId"] = ownerId,
@@ -371,6 +626,50 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         return builder.ToString();
     }
 
+    internal static string BuildAnswerPrompt(MemoryContext context, string question)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(question);
+
+        var builder = new StringBuilder("Retrieved memory:\n");
+        foreach (var message in context.RelevantMessages.Items)
+            builder.Append('[').Append(message.Role).Append("] ").AppendLine(message.Content);
+        foreach (var entity in context.RelevantEntities.Items)
+        {
+            builder.Append("[entity] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
+            if (!string.IsNullOrWhiteSpace(entity.Description))
+                builder.Append(": ").Append(entity.Description);
+            builder.AppendLine();
+        }
+        foreach (var fact in context.RelevantFacts.Items)
+        {
+            builder.Append("[fact] ")
+                .Append(fact.Subject).Append(' ')
+                .Append(fact.Predicate).Append(' ')
+                .Append(fact.Object);
+            if (fact.ValidFrom is not null || fact.ValidUntil is not null)
+            {
+                builder.Append(" [valid ")
+                    .Append(fact.ValidFrom?.ToString("O") ?? "?")
+                    .Append(" to ")
+                    .Append(fact.ValidUntil?.ToString("O") ?? "?")
+                    .Append(']');
+            }
+            builder.AppendLine();
+        }
+        foreach (var preference in context.RelevantPreferences.Items)
+        {
+            builder.Append("[preference] ").Append(preference.PreferenceText);
+            if (!string.IsNullOrWhiteSpace(preference.Context))
+                builder.Append(" (").Append(preference.Context).Append(')');
+            builder.AppendLine();
+        }
+        if (!string.IsNullOrWhiteSpace(context.GraphRagContext))
+            builder.Append("[graphrag]\n").AppendLine(context.GraphRagContext);
+        builder.Append("\nQuestion: ").Append(question).Append("\nAnswer:");
+        return builder.ToString();
+    }
+
     private string ScopeId(string kind, int question) => $"{_runId}-{kind}-{question:D4}";
 
     private static string Sanitize(string value) =>
@@ -380,6 +679,20 @@ public sealed class AgentMemoryLongMemEvalAdapter :
 
 public sealed record LongMemEvalAdapterOptions
 {
+    public LongMemEvalMemoryMode MemoryMode { get; init; } = LongMemEvalMemoryMode.Raw;
+
+    public bool PreparedMemory { get; init; }
+
+    public LongMemEvalPreparedState? PreparedState { get; init; }
+
+    internal bool PreparationOnly { get; init; }
+
+    /// <summary>
+    /// Total non-GraphRAG answer-context item budget. Raw uses it entirely for messages; Structured
+    /// divides it across entities/facts/preferences; Hybrid gives half to messages and divides the
+    /// remainder across structured categories.
+    /// </summary>
+
     public int MaxRelevantMessages { get; init; } = 30;
 
     public double MinSimilarityScore { get; init; } = 0;
@@ -390,6 +703,13 @@ public sealed record LongMemEvalAdapterOptions
 
     internal LongMemEvalEvidenceDetail EvidenceDetail { get; init; } =
         LongMemEvalEvidenceDetail.Identifiers;
+
+
+    internal Action<int, int>? ExtractionProgress { get; init; }
+
+    internal bool RequireGraphReadBack { get; init; }
+
+    internal ILongMemEvalGraphProbe? GraphProbe { get; init; }
 }
 
 public sealed record LongMemEvalQuestionTelemetry(
@@ -402,4 +722,60 @@ public sealed record LongMemEvalQuestionTelemetry(
     public string? QuestionId { get; init; }
 
     public LongMemEvalRetrievalEvidence? RetrievalEvidence { get; init; }
+
+    public int ExtractionUnits { get; init; }
+
+    public int MessagesPrepared { get; init; }
+
+    public int ExtractionUnitsPrepared { get; init; }
+
+    public bool PreparedMemory { get; init; }
+
+    public int RawMessagesRetrieved { get; init; }
+
+    public int EntitiesRetrieved { get; init; }
+
+    public int FactsRetrieved { get; init; }
+
+    public int PreferencesRetrieved { get; init; }
+
+    public bool GraphRagIncluded { get; init; }
+
+    public LongMemEvalGraphSnapshot? GraphReadBack { get; init; }
+
+    public LongMemEvalStageTimings? StageTimings { get; init; }
+}
+
+internal sealed record LongMemEvalRecallBudget(
+    int Messages,
+    int Entities,
+    int Facts,
+    int Preferences,
+    int GraphRag)
+{
+    internal static LongMemEvalRecallBudget For(LongMemEvalMemoryMode mode, int total)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(total);
+        return mode switch
+        {
+            LongMemEvalMemoryMode.Raw => new(total, 0, 0, 0, 0),
+            LongMemEvalMemoryMode.Structured => Structured(total),
+            LongMemEvalMemoryMode.Hybrid => Hybrid(total),
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+        };
+    }
+
+    private static LongMemEvalRecallBudget Structured(int total)
+    {
+        var each = total / 3;
+        return new(0, each, total - each * 2, each, 0);
+    }
+
+    private static LongMemEvalRecallBudget Hybrid(int total)
+    {
+        var messages = total / 2;
+        var remaining = total - messages;
+        var each = remaining / 3;
+        return new(messages, each, remaining - each * 2, each, 0);
+    }
 }

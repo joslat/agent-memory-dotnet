@@ -80,6 +80,105 @@ public sealed class LongMemEvalRunValidatorTests
         validation.Issues.Should().ContainSingle()
             .Which.Should().Contain("q-empty-judge");
     }
+    [Fact]
+    public void Validate_RejectsObservedPurposeAndExtractionCallMismatches()
+    {
+        var validation = LongMemEvalRunValidator.Validate(
+            questionCount: 1,
+            llmCalls: 2,
+            telemetry: [new LongMemEvalQuestionTelemetry(1, 20, 10, false)],
+            questionResults: [Result("q-meter")],
+            answerCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 0,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            judgeCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 1,
+                Failures: 1,
+                Duration: TimeSpan.Zero),
+            extractionCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 3,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            expectedInitialExtractionCalls: 4);
+
+        validation.Accepted.Should().BeFalse();
+        validation.Issues.Should().Contain(issue => issue.Contains(
+            "answer calls", StringComparison.Ordinal));
+        validation.Issues.Should().Contain(issue => issue.Contains(
+            "extraction calls", StringComparison.Ordinal));
+        validation.Issues.Should().Contain(issue => issue.Contains(
+            "failed", StringComparison.Ordinal));
+    }
+
+
+    [Fact]
+    public void Validate_AcceptsSealedPreparedRunWithZeroEvaluationWrites()
+    {
+        var validation = LongMemEvalRunValidator.Validate(
+            questionCount: 1,
+            llmCalls: 2,
+            telemetry:
+            [
+                new LongMemEvalQuestionTelemetry(1, 0, 10, false)
+                {
+                    PreparedMemory = true,
+                    MessagesPrepared = 614,
+                    ExtractionUnitsPrepared = 52,
+                    ExtractionUnits = 0
+                }
+            ],
+            questionResults: [Result("q-prepared")],
+            answerCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 1,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            judgeCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 1,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            extractionCalls: LongMemEvalChatCallSnapshot.Zero,
+            expectedInitialExtractionCalls: 0);
+
+        validation.Accepted.Should().BeTrue();
+        validation.Issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Validate_RejectsPreparedRunThatWritesOrExtractsDuringEvaluation()
+    {
+        var validation = LongMemEvalRunValidator.Validate(
+            questionCount: 1,
+            llmCalls: 2,
+            telemetry:
+            [
+                new LongMemEvalQuestionTelemetry(1, 1, 10, false)
+                {
+                    PreparedMemory = true,
+                    MessagesPrepared = 614,
+                    ExtractionUnitsPrepared = 52,
+                    ExtractionUnits = 1
+                }
+            ],
+            questionResults: [Result("q-mutated-prepared")],
+            answerCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 1,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            judgeCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 1,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            extractionCalls: new LongMemEvalChatCallSnapshot(
+                Calls: 4,
+                Failures: 0,
+                Duration: TimeSpan.Zero),
+            expectedInitialExtractionCalls: 0);
+
+        validation.Accepted.Should().BeFalse();
+        validation.Issues.Should().Contain(issue =>
+            issue.Contains("prepared", StringComparison.OrdinalIgnoreCase));
+    }
 
     [Fact]
     public void Classify_ReportsSanitizedAdapterStage()

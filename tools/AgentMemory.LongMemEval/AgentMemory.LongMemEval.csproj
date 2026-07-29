@@ -6,8 +6,11 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <AgentEvalSourceRoot Condition="'$(AgentEvalSourceRoot)' == ''">C:\git\joslat\AgentEval</AgentEvalSourceRoot>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="AgentEval" Version="0.16.0-beta" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
@@ -16,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <ProjectReference Include="$(AgentEvalSourceRoot)\src\AgentEval.Memory\AgentEval.Memory.csproj"
+                      AdditionalProperties="NoWarn=CS1574%3BCS1591" />
   </ItemGroup>
 
   <ItemGroup>

@@ -138,9 +138,11 @@ internal static class LongMemEvalPostRunDiagnostics
             return "judge-invalid";
         }
 
-        if (question.Correct && baseVerdict)
+        if (question.Correct is true && baseVerdict)
             return "passed";
-        if (question.Correct != baseVerdict)
+        if (question.Correct is null)
+            return "judge-inconclusive";
+        if (question.Correct.Value != baseVerdict)
             return "judge-result-mismatch";
         if (oracle is null)
             return "incorrect-needs-oracle";
@@ -167,7 +169,7 @@ internal static class LongMemEvalPostRunDiagnostics
         !IsAgentFailure(question) && oracleMode switch
         {
             LongMemEvalOracleMode.All => true,
-            LongMemEvalOracleMode.Failed => !question.Correct ||
+            LongMemEvalOracleMode.Failed => question.Correct is not true ||
                 !LongMemEvalRunValidator.TryParseJudgeVerdict(question.JudgeExplanation, out _),
             _ => false
         };
