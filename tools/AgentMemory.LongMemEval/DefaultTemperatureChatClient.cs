@@ -4,8 +4,9 @@ using Microsoft.Extensions.AI;
 namespace AgentMemory.LongMemEval;
 
 /// <summary>
-/// Compatibility adapter for reasoning deployments that reject an explicit temperature of zero.
-/// AgentEval 0.16 hard-codes zero in LongMemEvalJudge; these deployments only accept their default.
+/// Narrow compatibility adapter for AgentEval 0.16's reasoning-model judge request. It removes the
+/// unsupported explicit zero temperature and raises only the exact 30-token judge ceiling so hidden
+/// reasoning cannot consume the entire allowance before emitting the required yes/no verdict.
 /// </summary>
 internal sealed class DefaultTemperatureChatClient(IChatClient inner) : IChatClient
 {
@@ -42,7 +43,10 @@ internal sealed class DefaultTemperatureChatClient(IChatClient inner) : IChatCli
 
     private static void Normalize(ChatOptions? options)
     {
-        if (options?.Temperature == 0)
-            options.Temperature = null;
+        if (options?.Temperature != 0 || options.MaxOutputTokens != 30)
+            return;
+
+        options.Temperature = null;
+        options.MaxOutputTokens = 512;
     }
 }

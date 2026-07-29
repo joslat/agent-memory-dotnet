@@ -70,6 +70,20 @@ internal static class LongMemEvalRunValidator
             {
                 issues.Add(
                     $"AgentEval judge failed for question {question.QuestionId}.");
+                continue;
+            }
+
+            if (!TryParseJudgeVerdict(explanation, out var judgedCorrect))
+            {
+                issues.Add(
+                    $"AgentEval judge returned no valid yes/no verdict for question {question.QuestionId}.");
+                continue;
+            }
+
+            if (question.Correct != judgedCorrect)
+            {
+                issues.Add(
+                    $"AgentEval judge verdict and recorded correctness disagree for question {question.QuestionId}.");
             }
         }
 
@@ -102,6 +116,32 @@ internal static class LongMemEvalRunValidator
             return "agent-error";
         if (explanation.StartsWith("Judge error:", StringComparison.OrdinalIgnoreCase))
             return "judge-error";
+        if (!TryParseJudgeVerdict(explanation, out _))
+            return "judge-invalid";
         return "completed";
+    }
+
+    internal static bool TryParseJudgeVerdict(string? explanation, out bool correct)
+    {
+        correct = false;
+        if (string.IsNullOrWhiteSpace(explanation))
+            return false;
+
+        const string prefix = "Judge said:";
+        var value = explanation.Trim();
+        if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            value = value[prefix.Length..].Trim();
+
+        var tokenLength = value.TakeWhile(char.IsLetter).Count();
+        if (tokenLength == 0)
+            return false;
+        var token = value[..tokenLength];
+        if (string.Equals(token, "yes", StringComparison.OrdinalIgnoreCase))
+        {
+            correct = true;
+            return true;
+        }
+
+        return string.Equals(token, "no", StringComparison.OrdinalIgnoreCase);
     }
 }

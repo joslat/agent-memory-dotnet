@@ -9,9 +9,9 @@ namespace AgentMemory.Tests.Unit.LongMemEval;
 public sealed class LongMemEvalRuntimeTests
 {
     [Fact]
-    public async Task CreateCompatibleChatClient_RemovesOnlyExplicitZeroTemperature()
+    public async Task CreateCompatibleChatClient_NormalizesOnlyTheExactAgentEvalJudgeOptions()
     {
-        var seen = new List<float?>();
+        var seen = new List<(float? Temperature, int? MaxOutputTokens)>();
         var inner = Substitute.For<IChatClient>();
         inner.GetResponseAsync(
                 Arg.Any<IEnumerable<ChatMessage>>(),
@@ -19,21 +19,27 @@ public sealed class LongMemEvalRuntimeTests
                 Arg.Any<CancellationToken>())
             .Returns(call =>
             {
-                seen.Add(call.Arg<ChatOptions?>()?.Temperature);
+                var options = call.Arg<ChatOptions?>();
+                seen.Add((options?.Temperature, options?.MaxOutputTokens));
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok"));
             });
         var client = LongMemEvalRuntime.CreateCompatibleChatClient(inner);
 
         await client.GetResponseAsync(
-            [new ChatMessage(ChatRole.User, "judge")],
-            new ChatOptions { Temperature = 0 });
+            [new ChatMessage(ChatRole.User, "AgentEval judge")],
+            new ChatOptions { Temperature = 0, MaxOutputTokens = 30 });
         await client.GetResponseAsync(
-            [new ChatMessage(ChatRole.User, "answer")],
-            new ChatOptions { Temperature = 0.25f });
+            [new ChatMessage(ChatRole.User, "non-judge request")],
+            new ChatOptions { Temperature = 0.25f, MaxOutputTokens = 30 });
+        await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "different zero-temperature request")],
+            new ChatOptions { Temperature = 0, MaxOutputTokens = 128 });
 
-        seen.Should().Equal(null, 0.25f);
+        seen.Should().Equal(
+            (null, 512),
+            (0.25f, 30),
+            (0f, 128));
     }
-
     [Fact]
     public async Task ProbeEmbeddingDimensionsAsync_ReturnsRealProviderVectorLength()
     {

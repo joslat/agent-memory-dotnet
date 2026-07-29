@@ -243,6 +243,110 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
             });
     }
 
+    [Fact]
+    public async Task InvokeAsync_RecordsEvidenceResolutionFailureBeforeStorage()
+    {
+        var entry = LongMemEvalEvidenceIndexTests.Entry();
+        var options = LongMemEvalEvidenceIndexTests.Options();
+        var history = AgentEval.Memory.External.LongMemEval.LongMemEvalHistoryFormatter.Format(entry, options);
+        var memory = Substitute.For<IMemoryService>();
+        var adapter = new AgentMemoryLongMemEvalAdapter(
+            memory,
+            Substitute.For<IChatClient>(),
+            "evidence-error-run",
+            new LongMemEvalAdapterOptions
+            {
+                EvidenceIndex = LongMemEvalEvidenceIndex.Create([entry], options)
+            });
+        await adapter.ResetSessionAsync();
+        adapter.InjectConversationHistory(history);
+
+        var act = () => adapter.InvokeAsync("wrong prompt");
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        adapter.QuestionTelemetry.Should().ContainSingle().Which.Status.Should()
+            .Be("evidence-resolution-error");
+        await memory.DidNotReceive()
+            .AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task InvokeAsync_EmitsRankedSourceEvidenceWithoutPersistingGoldLabels()
+    {
+        var entry = LongMemEvalEvidenceIndexTests.Entry();
+        var benchmarkOptions = LongMemEvalEvidenceIndexTests.Options();
+        var history = AgentEval.Memory.External.LongMemEval.LongMemEvalHistoryFormatter
+            .Format(entry, benchmarkOptions);
+        var evidenceIndex = LongMemEvalEvidenceIndex.Create([entry], benchmarkOptions);
+        var memory = Substitute.For<IMemoryService>();
+        IReadOnlyList<Message>? stored = null;
+        RecallRequest? recallRequest = null;
+        memory.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                stored = call.Arg<IEnumerable<Message>>().ToArray();
+                return stored;
+            });
+        memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                recallRequest = call.Arg<RecallRequest>();
+                var items = stored!;
+                return new RecallResult
+                {
+                    Context = new MemoryContext
+                    {
+                        SessionId = recallRequest.SessionId,
+                        AssembledAtUtc = DateTimeOffset.UnixEpoch,
+                        RelevantMessages = new MemoryContextSection<Message>
+                        {
+                            Items = items,
+                            RankedItems = items.Select((message, index) =>
+                                new MemoryContextRankedItem(
+                                    message.MessageId,
+                                    0.99 - index / 100d,
+                                    index + 1,
+                                    index + 1)).ToArray()
+                        }
+                    },
+                    TotalItemsRetrieved = items.Count
+                };
+            });
+        var chat = Substitute.For<IChatClient>();
+        chat.GetResponseAsync(
+                Arg.Any<IEnumerable<ChatMessage>>(),
+                Arg.Any<ChatOptions?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new ChatResponse(new ChatMessage(ChatRole.Assistant, "two weeks")));
+        var adapter = new AgentMemoryLongMemEvalAdapter(
+            memory,
+            chat,
+            "evidence-run",
+            new LongMemEvalAdapterOptions
+            {
+                EvidenceIndex = evidenceIndex,
+                EvidenceDetail = LongMemEvalEvidenceDetail.Identifiers
+            });
+        await adapter.ResetSessionAsync();
+        adapter.InjectConversationHistory(history);
+
+        await adapter.InvokeAsync(LongMemEvalEvidenceIndexTests.InvocationPrompt(entry));
+
+        recallRequest!.Options.IncludeDiagnostics.Should().BeTrue();
+        stored.Should().HaveCount(4);
+        stored!.Should().OnlyContain(message =>
+            message.Metadata.ContainsKey("sourceSessionId") &&
+            !message.Metadata.ContainsKey("hasAnswer") &&
+            !message.Metadata.ContainsKey("answerSessionIds"));
+        var telemetry = adapter.QuestionTelemetry.Should().ContainSingle().Subject;
+        telemetry.QuestionId.Should().Be("q-1");
+        telemetry.RetrievalEvidence.Should().NotBeNull();
+        telemetry.RetrievalEvidence!.GoldSessionRecallAtK.Should().Be(1);
+        telemetry.RetrievalEvidence.GoldTurnHitAtK.Should().BeTrue();
+        telemetry.RetrievalEvidence.RankedItems.Should()
+            .OnlyContain(item => item.Content == null);
+    }
+
     private static Message Message(string sessionId, string role, string content) => new()
     {
         MessageId = Guid.NewGuid().ToString("N"),

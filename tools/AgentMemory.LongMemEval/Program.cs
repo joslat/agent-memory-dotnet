@@ -29,6 +29,11 @@ internal static class LongMemEvalProgram
         {
             var options = Parse(args);
             ValidateInputs(options);
+            if (options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
+            {
+                Console.Error.WriteLine(
+                    "longmemeval: warning: content evidence retains public dataset questions, recalled text, and model answers; keep the output gitignored.");
+            }
 
             var endpoint = RequiredEnvironment("AZURE_OPENAI_ENDPOINT");
             var apiKey = RequiredEnvironment("AZURE_OPENAI_API_KEY");
@@ -49,6 +54,20 @@ internal static class LongMemEvalProgram
                 .ProbeEmbeddingDimensionsAsync(embeddingGenerator)
                 .ConfigureAwait(false);
 
+            var benchmarkOptions = new ExternalBenchmarkOptions
+            {
+                DatasetPath = options.DatasetPath,
+                MaxQuestions = options.Questions,
+                StratifiedSampling = true,
+                RandomSeed = options.Seed,
+                PreserveSessionBoundaries = true,
+                IncludeTimestamps = true,
+                HistoryInjectionMode = HistoryInjectionMode.StructuredChatHistory,
+                DatasetMode = "S"
+            };
+            var evidenceIndex = LongMemEvalEvidenceIndex.Load(
+                options.DatasetPath, benchmarkOptions);
+
             var runId = $"longmemeval-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
             await using var profile = await LongMemEvalMemoryProfile
                 .StartAsync(
@@ -62,7 +81,9 @@ internal static class LongMemEvalProgram
                 {
                     MaxRelevantMessages = options.MaxRelevantMessages,
                     MinSimilarityScore = 0,
-                    ModelId = deployment
+                    ModelId = deployment,
+                    EvidenceIndex = evidenceIndex,
+                    EvidenceDetail = options.EvidenceDetail
                 });
 
             var runner = LongMemEvalBenchmarkRunner.Create(chatClient, options.DatasetPath);
@@ -73,22 +94,20 @@ internal static class LongMemEvalProgram
                 ReducerStrategy = "AgentMemory vector recall",
                 MemoryProvider = "AgentMemory .NET / Neo4j 5.26"
             };
-            var benchmarkOptions = new ExternalBenchmarkOptions
-            {
-                DatasetPath = options.DatasetPath,
-                MaxQuestions = options.Questions,
-                StratifiedSampling = true,
-                RandomSeed = options.Seed,
-                PreserveSessionBoundaries = true,
-                IncludeTimestamps = true,
-                HistoryInjectionMode = HistoryInjectionMode.StructuredChatHistory,
-                DatasetMode = "S"
-            };
 
             Console.WriteLine(
                 $"longmemeval: running {options.Questions} stratified questions, seed {options.Seed}, retrieval cap {options.MaxRelevantMessages}.");
             var result = await runner
                 .RunAsync(adapter, benchmarkConfig, benchmarkOptions)
+                .ConfigureAwait(false);
+            var postRunDiagnostics = await LongMemEvalPostRunDiagnostics.RunAsync(
+                chatClient,
+                evidenceIndex,
+                result.QuestionResults,
+                adapter.QuestionTelemetry,
+                options.OracleMode,
+                options.JudgeRetryAttempts,
+                retainContent: options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
                 .ConfigureAwait(false);
 
             var validation = LongMemEvalRunValidator.Validate(
@@ -100,7 +119,7 @@ internal static class LongMemEvalProgram
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             var report = new
             {
-                schemaVersion = 1,
+                schemaVersion = 2,
                 runId,
                 generatedAtUtc = DateTimeOffset.UtcNow,
                 accepted = validation.Accepted,
@@ -117,6 +136,10 @@ internal static class LongMemEvalProgram
                     answerModel = deployment,
                     judgeModel = deployment,
                     maxRelevantMessages = options.MaxRelevantMessages,
+                    operatingMode = "raw-message-vector-control",
+                    evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
+                    oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
+                    judgeRetryAttempts = options.JudgeRetryAttempts,
                     embedding = new
                     {
                         provider = "Azure OpenAI",
@@ -124,6 +147,7 @@ internal static class LongMemEvalProgram
                         dimensions = embeddingDimensions
                     },
                     judgeTemperatureCompatibility = "explicit-zero-to-provider-default",
+                    judgeOutputTokenCompatibility = "explicit-zero-and-30-to-512",
                     neo4jImage = "neo4j:5.26",
                     agentEval = "0.16.0-beta"
                 },
@@ -135,7 +159,18 @@ internal static class LongMemEvalProgram
                     zeroStoreQuestions = adapter.QuestionTelemetry.Count(item => item.MessagesStored == 0),
                     zeroRecallQuestions = adapter.QuestionTelemetry.Count(item => item.ItemsRetrieved == 0)
                 },
-                result = validation.Accepted ? result : null,
+                callAccounting = new
+                {
+                    benchmarkLlmCalls = result.TotalLlmCalls,
+                    diagnosticLlmCalls = postRunDiagnostics.DiagnosticLlmCalls,
+                    totalLlmCalls = result.TotalLlmCalls + postRunDiagnostics.DiagnosticLlmCalls,
+                    diagnosticCallsAffectScore = false
+                },
+                postRunDiagnostics,
+                result = validation.Accepted
+                    ? LongMemEvalReportProjection.CreateAcceptedResult(
+                        result, options.EvidenceDetail)
+                    : null,
                 diagnostic = validation.Accepted ? null : new
                 {
                     result.BenchmarkId,
@@ -146,6 +181,20 @@ internal static class LongMemEvalProgram
                     {
                         question.QuestionId,
                         question.QuestionType,
+                        question = options.EvidenceDetail == LongMemEvalEvidenceDetail.Content
+                            ? question.Question
+                            : null,
+                        goldAnswer = options.EvidenceDetail == LongMemEvalEvidenceDetail.Content
+                            ? question.GoldAnswer
+                            : null,
+                        agentResponse = options.EvidenceDetail == LongMemEvalEvidenceDetail.Content
+                            ? question.AgentResponse
+                            : null,
+                        question.Correct,
+                        question.RawScore,
+                        judgeExplanation = options.EvidenceDetail == LongMemEvalEvidenceDetail.Content
+                            ? question.JudgeExplanation
+                            : null,
                         status = LongMemEvalRunValidator.Classify(
                             question,
                             adapter.QuestionTelemetry.FirstOrDefault(item =>
@@ -195,6 +244,9 @@ internal static class LongMemEvalProgram
             ParsePositive(Value("--questions"), DefaultQuestions, "--questions"),
             ParsePositive(Value("--seed"), DefaultSeed, "--seed"),
             ParsePositive(Value("--max-relevant"), DefaultMaxRelevant, "--max-relevant"),
+            ParseEvidenceDetail(Value("--evidence-detail")),
+            ParseOracleMode(Value("--oracle")),
+            ParseNonNegative(Value("--judge-retries"), 2, "--judge-retries"),
             Value("--output"));
     }
 
@@ -203,6 +255,33 @@ internal static class LongMemEvalProgram
         if (value is null) return defaultValue;
         if (!int.TryParse(value, out var parsed) || parsed <= 0)
             throw new ArgumentException($"{option} must be a positive integer.");
+        return parsed;
+    }
+
+    private static LongMemEvalEvidenceDetail ParseEvidenceDetail(string? value) =>
+        value?.ToLowerInvariant() switch
+        {
+            null or "identifiers" => LongMemEvalEvidenceDetail.Identifiers,
+            "none" => LongMemEvalEvidenceDetail.None,
+            "content" => LongMemEvalEvidenceDetail.Content,
+            _ => throw new ArgumentException(
+                "--evidence-detail must be one of: none, identifiers, content.")
+        };
+
+    private static LongMemEvalOracleMode ParseOracleMode(string? value) =>
+        value?.ToLowerInvariant() switch
+        {
+            null or "none" => LongMemEvalOracleMode.None,
+            "failed" => LongMemEvalOracleMode.Failed,
+            "all" => LongMemEvalOracleMode.All,
+            _ => throw new ArgumentException("--oracle must be one of: none, failed, all.")
+        };
+
+    private static int ParseNonNegative(string? value, int defaultValue, string option)
+    {
+        if (value is null) return defaultValue;
+        if (!int.TryParse(value, out var parsed) || parsed < 0)
+            throw new ArgumentException($"{option} must be a non-negative integer.");
         return parsed;
     }
 
@@ -230,7 +309,8 @@ internal static class LongMemEvalProgram
 
         dotnet run --project tools/AgentMemory.LongMemEval -- \
           --dataset <longmemeval_s_cleaned.json> [--questions 10] [--seed 42] \
-          [--max-relevant 30] [--output <report.json>]
+          [--max-relevant 30] [--evidence-detail none|identifiers|content] \
+          [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
 
         Requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT,
         and AZURE_OPENAI_EMBEDDING_DEPLOYMENT.
@@ -243,5 +323,8 @@ internal static class LongMemEvalProgram
         int Questions,
         int Seed,
         int MaxRelevantMessages,
+        LongMemEvalEvidenceDetail EvidenceDetail,
+        LongMemEvalOracleMode OracleMode,
+        int JudgeRetryAttempts,
         string? OutputPath);
 }

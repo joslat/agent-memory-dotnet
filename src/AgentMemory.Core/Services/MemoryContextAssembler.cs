@@ -156,6 +156,8 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
         IReadOnlyList<Message> recentMessages = Array.Empty<Message>();
         IReadOnlyList<Message> relevantMessages = Array.Empty<Message>();
+        IReadOnlyList<(Message Message, double Score)> relevantMessageScores =
+            Array.Empty<(Message, double)>();
         IReadOnlyList<Entity> entities = Array.Empty<Entity>();
         IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
@@ -193,8 +195,14 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             var relevantTask = hasEmbedding && recallOpts.MaxRelevantMessages > 0
                 ? TimedAsync("memory.recall.messages",
-                    () => _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken))
-                : Empty<Message>();
+                    () => SearchRelevantMessagesAsync(
+                        request.SessionId,
+                        queryEmbedding,
+                        recallOpts.MaxRelevantMessages,
+                        minScore,
+                        recallOpts.IncludeDiagnostics,
+                        cancellationToken))
+                : Task.FromResult(RelevantMessageSearchResult.Empty);
 
             // D3 — apply the per-request query intent (latest/analog) as an ambient ranking override for
             // the long-term vector searches below. The long-term repositories read it synchronously while
@@ -230,7 +238,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 preferencesTask, factsTask, tracesTask).ConfigureAwait(false);
 
             recentMessages = await recentTask.ConfigureAwait(false);
-            relevantMessages = await relevantTask.ConfigureAwait(false);
+            var relevantResult = await relevantTask.ConfigureAwait(false);
+            relevantMessages = relevantResult.Messages;
+            relevantMessageScores = relevantResult.ScoredMessages;
             entities = await entitiesTask.ConfigureAwait(false);
             preferences = await preferencesTask.ConfigureAwait(false);
             facts = await factsTask.ConfigureAwait(false);
@@ -266,12 +276,20 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
+        var rankedRelevantItems = recallOpts.IncludeDiagnostics
+            ? BuildRankedItems(relevantMessages, relevantMessageScores)
+            : Array.Empty<MemoryContextRankedItem>();
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
-            RelevantMessages = new MemoryContextSection<Message> { Items = relevantMessages },
+            RelevantMessages = new MemoryContextSection<Message>
+            {
+                Items = relevantMessages,
+                RankedItems = rankedRelevantItems
+            },
             RelevantEntities = new MemoryContextSection<Entity> { Items = entities },
             RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
@@ -461,6 +479,69 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             _logger.LogWarning(ex, "GraphRAG retrieval failed for session {SessionId}", request.SessionId);
             return null;
         }
+    }
+
+    private async Task<RelevantMessageSearchResult> SearchRelevantMessagesAsync(
+        string sessionId,
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        bool includeDiagnostics,
+        CancellationToken cancellationToken)
+    {
+        if (includeDiagnostics && _shortTerm is IScoredMessageSearch scoredSearch)
+        {
+            var scoredMessages = await scoredSearch.SearchMessagesWithScoresAsync(
+                sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
+            return new RelevantMessageSearchResult(
+                scoredMessages.Select(result => result.Message).ToArray(),
+                scoredMessages);
+        }
+
+        var messages = await _shortTerm.SearchMessagesAsync(
+            sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
+        return new RelevantMessageSearchResult(messages, Array.Empty<(Message, double)>());
+    }
+
+    internal static IReadOnlyList<MemoryContextRankedItem> BuildRankedItems(
+        IReadOnlyList<Message> contextMessages,
+        IReadOnlyList<(Message Message, double Score)> retrievedMessages)
+    {
+        if (contextMessages.Count == 0 || retrievedMessages.Count == 0)
+            return Array.Empty<MemoryContextRankedItem>();
+
+        var retrievedById = retrievedMessages
+            .Select((result, index) => new
+            {
+                result.Message.MessageId,
+                result.Score,
+                RetrievalRank = index + 1
+            })
+            .ToDictionary(result => result.MessageId, StringComparer.Ordinal);
+
+        var ranked = new List<MemoryContextRankedItem>(contextMessages.Count);
+        for (var index = 0; index < contextMessages.Count; index++)
+        {
+            var message = contextMessages[index];
+            if (!retrievedById.TryGetValue(message.MessageId, out var retrieved))
+                continue;
+            ranked.Add(new MemoryContextRankedItem(
+                message.MessageId,
+                retrieved.Score,
+                retrieved.RetrievalRank,
+                ContextRank: index + 1));
+        }
+
+        return ranked.AsReadOnly();
+    }
+
+    private sealed record RelevantMessageSearchResult(
+        IReadOnlyList<Message> Messages,
+        IReadOnlyList<(Message Message, double Score)> ScoredMessages)
+    {
+        public static RelevantMessageSearchResult Empty { get; } = new(
+            Array.Empty<Message>(),
+            Array.Empty<(Message, double)>());
     }
 
     private sealed record AssembledSections(

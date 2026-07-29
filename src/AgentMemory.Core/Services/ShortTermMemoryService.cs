@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for short-term (conversational) memory operations.
 /// </summary>
-internal sealed class ShortTermMemoryService : IShortTermMemoryService
+internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredMessageSearch
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;
@@ -147,10 +147,24 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService
         double minScore = 0.0,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _messageRepo.SearchByVectorAsync(
-            queryEmbedding, sessionId, limit, minScore, null, cancellationToken).ConfigureAwait(false);
-        return scored.Select(r => r.Message).ToList();
+        var scored = await SearchMessagesWithScoresAsync(
+            sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
+        return scored.Select(result => result.Message).ToList();
     }
+
+    /// <summary>
+    /// Returns the repository's existing ranked message results without a second query. This internal
+    /// contract is used only when a recall explicitly requests diagnostics; the public short-term service
+    /// remains source-compatible for custom implementations.
+    /// </summary>
+    public Task<IReadOnlyList<(Message Message, double Score)>> SearchMessagesWithScoresAsync(
+        string? sessionId,
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        CancellationToken cancellationToken) =>
+        _messageRepo.SearchByVectorAsync(
+            queryEmbedding, sessionId, limit, minScore, null, cancellationToken);
 
     /// <inheritdoc/>
     public async Task ClearSessionAsync(
@@ -176,4 +190,18 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService
         var cappedLimit = Math.Min(limit, _options.MaxMessagesPerQuery);
         return await _messageRepo.GetRecentBySessionAsOfAsync(sessionId, asOf, cappedLimit, cancellationToken).ConfigureAwait(false);
     }
+}
+
+/// <summary>
+/// Internal scored-search capability implemented by the built-in short-term memory service. Keeping this
+/// separate from <see cref="IShortTermMemoryService"/> avoids a breaking interface addition for providers.
+/// </summary>
+internal interface IScoredMessageSearch
+{
+    Task<IReadOnlyList<(Message Message, double Score)>> SearchMessagesWithScoresAsync(
+        string? sessionId,
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        CancellationToken cancellationToken);
 }

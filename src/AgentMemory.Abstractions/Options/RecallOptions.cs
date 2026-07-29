@@ -46,6 +46,13 @@ public sealed record RecallOptions
     /// </summary>
     public RankingIntent Intent { get; init; } = RankingIntent.Default;
 
+    /// <summary>
+    /// Includes ranked retrieval diagnostics in returned memory-context sections when the selected
+    /// provider supports them. Disabled by default so ordinary recalls retain their current payload
+    /// and allocation profile.
+    /// </summary>
+    public bool IncludeDiagnostics { get; init; }
+
     /// <summary>Default singleton instance.</summary>
     public static RecallOptions Default { get; } = new();
 }

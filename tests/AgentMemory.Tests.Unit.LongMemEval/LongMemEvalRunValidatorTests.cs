@@ -62,6 +62,26 @@ public sealed class LongMemEvalRunValidatorTests
     }
 
     [Fact]
+    public void Validate_RejectsEmptyJudgeVerdictInsteadOfCountingItIncorrect()
+    {
+        var result = Result(
+            "q-empty-judge",
+            judgeExplanation: "Judge said: ",
+            correct: false,
+            rawScore: 0);
+
+        var validation = LongMemEvalRunValidator.Validate(
+            questionCount: 1,
+            llmCalls: 2,
+            telemetry: [new LongMemEvalQuestionTelemetry(1, 20, 10, false)],
+            questionResults: [result]);
+
+        validation.Accepted.Should().BeFalse();
+        validation.Issues.Should().ContainSingle()
+            .Which.Should().Contain("q-empty-judge");
+    }
+
+    [Fact]
     public void Classify_ReportsSanitizedAdapterStage()
     {
         var result = Result("q-stage", "[ERROR: LongMemEval storage stage failed.]");
@@ -79,15 +99,17 @@ public sealed class LongMemEvalRunValidatorTests
     private static QuestionResult Result(
         string questionId,
         string agentResponse = "answer",
-        string judgeExplanation = "Judge said: yes") => new()
+        string judgeExplanation = "Judge said: yes",
+        bool correct = true,
+        double rawScore = 100) => new()
         {
             QuestionId = questionId,
             QuestionType = "multi-session",
             Question = "question",
             GoldAnswer = "answer",
             AgentResponse = agentResponse,
-            Correct = true,
-            RawScore = 100,
+            Correct = correct,
+            RawScore = rawScore,
             JudgeExplanation = judgeExplanation,
             Duration = TimeSpan.FromSeconds(1)
         };

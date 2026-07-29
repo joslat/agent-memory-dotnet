@@ -91,4 +91,14 @@ public class RecallOptionsTests
         options.MaxTraces.Should().BePositive();
         options.MaxGraphRagItems.Should().BePositive();
     }
+
+    [Fact]
+    public void DiagnosticsContract_IsAvailableAndDefaultOff()
+    {
+        var property = typeof(RecallOptions).GetProperty("IncludeDiagnostics");
+
+        property.Should().NotBeNull(
+            "ranked retrieval evidence must be explicitly opt-in on each recall");
+        property!.GetValue(new RecallOptions()).Should().Be(false);
+    }
 }

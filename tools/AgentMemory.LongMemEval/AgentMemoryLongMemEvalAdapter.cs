@@ -18,7 +18,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
     IHistoryInjectableAgent,
     ISessionResettableAgent
 {
-    private const string SystemPrompt =
+    internal const string SystemPrompt =
         "Answer the question using only the retrieved memory below. " +
         "Be concise and do not claim information that is absent from memory.";
 
@@ -120,7 +120,21 @@ public sealed class AgentMemoryLongMemEvalAdapter :
             questionNumber = _questionNumber;
         }
 
-        var messages = BuildMessages(history, sessionId, ownerId, questionNumber);
+        LongMemEvalEvidenceQuestion? evidenceQuestion = null;
+        try
+        {
+            if (_options.EvidenceIndex is not null)
+                evidenceQuestion = _options.EvidenceIndex.Resolve(history, prompt);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            RecordTelemetry(questionNumber, 0, 0, false, "evidence-resolution-error");
+            throw;
+        }
+
+        var originsByMessageId = new Dictionary<string, LongMemEvalMessageOrigin>(StringComparer.Ordinal);
+        var messages = BuildMessages(
+            history, sessionId, ownerId, questionNumber, evidenceQuestion, originsByMessageId);
         try
         {
             _ = await LongMemEvalRuntime.ExecuteStageAsync(
@@ -154,7 +168,8 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                     MaxTraces = 0,
                     MaxGraphRagItems = 0,
                     MinSimilarityScore = _options.MinSimilarityScore,
-                    BlendMode = RetrievalBlendMode.MemoryOnly
+                    BlendMode = RetrievalBlendMode.MemoryOnly,
+                    IncludeDiagnostics = evidenceQuestion is not null
                 }
             },
             cancellationToken)).ConfigureAwait(false);
@@ -180,6 +195,35 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                 $"AgentMemory reported recalled items but no relevant messages for LongMemEval question {questionNumber}.");
         }
 
+        var answerPrompt = BuildAnswerPrompt(
+            recalled.Select(message => (message.Role, message.Content)),
+            prompt);
+        LongMemEvalRetrievalEvidence? retrievalEvidence = null;
+        if (evidenceQuestion is not null)
+        {
+            try
+            {
+                retrievalEvidence = LongMemEvalRetrievalEvidence.Build(
+                    evidenceQuestion,
+                    recalled,
+                    recall.Context.RelevantMessages.RankedItems,
+                    originsByMessageId,
+                    _options.EvidenceDetail,
+                    answerPrompt.Length);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                RecordTelemetry(
+                    questionNumber,
+                    messages.Count,
+                    recall.TotalItemsRetrieved,
+                    recall.Truncated,
+                    "retrieval-diagnostics-error",
+                    evidenceQuestion.QuestionId);
+                throw;
+            }
+        }
+
         ChatResponse response;
         try
         {
@@ -188,7 +232,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                 () => _chatClient.GetResponseAsync(
             [
                 new ChatMessage(ChatRole.System, SystemPrompt),
-                new ChatMessage(ChatRole.User, BuildAnswerPrompt(recalled, prompt))
+                new ChatMessage(ChatRole.User, answerPrompt)
             ],
             cancellationToken: cancellationToken)).ConfigureAwait(false);
         }
@@ -199,7 +243,13 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         }
 
         RecordTelemetry(
-            questionNumber, messages.Count, recall.TotalItemsRetrieved, recall.Truncated, "completed");
+            questionNumber,
+            messages.Count,
+            recall.TotalItemsRetrieved,
+            recall.Truncated,
+            "completed",
+            evidenceQuestion?.QuestionId,
+            retrievalEvidence);
 
         return new AgentResponse
         {
@@ -221,12 +271,18 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         int messagesStored,
         int itemsRetrieved,
         bool recallTruncated,
-        string status)
+        string status,
+        string? questionId = null,
+        LongMemEvalRetrievalEvidence? retrievalEvidence = null)
     {
         lock (_stateLock)
         {
             _telemetry.Add(new LongMemEvalQuestionTelemetry(
-                questionNumber, messagesStored, itemsRetrieved, recallTruncated, status));
+                questionNumber, messagesStored, itemsRetrieved, recallTruncated, status)
+            {
+                QuestionId = questionId,
+                RetrievalEvidence = retrievalEvidence
+            });
         }
     }
 
@@ -234,9 +290,18 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         IReadOnlyList<(string UserMessage, string AssistantResponse)> history,
         string sessionId,
         string ownerId,
-        int questionNumber)
+        int questionNumber,
+        LongMemEvalEvidenceQuestion? evidenceQuestion,
+        IDictionary<string, LongMemEvalMessageOrigin> originsByMessageId)
     {
-        var result = new List<Message>(history.Count * 2);
+        var expectedCount = history.Count * 2;
+        if (evidenceQuestion is not null && evidenceQuestion.Messages.Count != expectedCount)
+        {
+            throw new InvalidOperationException(
+                $"LongMemEval evidence contained {evidenceQuestion.Messages.Count} origins for {expectedCount} injected messages.");
+        }
+
+        var result = new List<Message>(expectedCount);
         var ordinal = 0;
         foreach (var (user, assistant) in history)
         {
@@ -249,29 +314,59 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         Message Message(string role, string content)
         {
             var current = ordinal++;
+            var messageId = $"{_runId}-q{questionNumber:D4}-m{current:D6}";
+            var metadata = new Dictionary<string, object>
+            {
+                ["ownerId"] = ownerId,
+                ["longMemEval"] = true,
+                ["questionNumber"] = questionNumber
+            };
+
+            if (evidenceQuestion is not null)
+            {
+                var origin = evidenceQuestion.Messages[current];
+                if (!string.Equals(origin.Role, role, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(origin.FormattedContent, content, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"LongMemEval source provenance did not align at message ordinal {current}.");
+                }
+
+                // These are source coordinates, not evaluation labels. In particular, HasAnswer and
+                // AnswerSessionIds remain evaluator-side and are never persisted or sent to the answer model.
+                metadata["sourceSessionId"] = origin.SourceSessionId;
+                metadata["sourceSessionOrdinal"] = origin.SourceSessionOrdinal;
+                metadata["sourceTimestamp"] = origin.SourceTimestamp;
+                metadata["sourceSyntheticBoundary"] = origin.IsSyntheticBoundary;
+                metadata["sourceSyntheticFormatterPadding"] = origin.IsSyntheticFormatterPadding;
+                if (origin.SourceTurnOrdinal is int sourceTurnOrdinal)
+                    metadata["sourceTurnOrdinal"] = sourceTurnOrdinal;
+                originsByMessageId.Add(messageId, origin);
+            }
+
             return new Message
             {
-                MessageId = $"{_runId}-q{questionNumber:D4}-m{current:D6}",
+                MessageId = messageId,
                 SessionId = sessionId,
                 ConversationId = sessionId,
                 Role = role,
                 Content = content,
                 TimestampUtc = DateTimeOffset.UnixEpoch.AddSeconds(current),
-                Metadata = new Dictionary<string, object>
-                {
-                    ["ownerId"] = ownerId,
-                    ["longMemEval"] = true,
-                    ["questionNumber"] = questionNumber
-                }
+                Metadata = metadata
             };
         }
     }
 
-    private static string BuildAnswerPrompt(IReadOnlyList<Message> recalled, string question)
+    internal static string BuildAnswerPrompt(
+        IEnumerable<(string Role, string Content)> recalled,
+        string question)
     {
+        ArgumentNullException.ThrowIfNull(recalled);
+        ArgumentException.ThrowIfNullOrWhiteSpace(question);
+
         var builder = new StringBuilder("Retrieved memory:\n");
-        foreach (var message in recalled)
-            builder.Append('[').Append(message.Role).Append("] ").AppendLine(message.Content);
+        foreach (var (role, content) in recalled)
+            builder.Append('[').Append(role).Append("] ").AppendLine(content);
         builder.Append("\nQuestion: ").Append(question).Append("\nAnswer:");
         return builder.ToString();
     }
@@ -290,6 +385,11 @@ public sealed record LongMemEvalAdapterOptions
     public double MinSimilarityScore { get; init; } = 0;
 
     public string? ModelId { get; init; }
+
+    internal LongMemEvalEvidenceIndex? EvidenceIndex { get; init; }
+
+    internal LongMemEvalEvidenceDetail EvidenceDetail { get; init; } =
+        LongMemEvalEvidenceDetail.Identifiers;
 }
 
 public sealed record LongMemEvalQuestionTelemetry(
@@ -297,4 +397,9 @@ public sealed record LongMemEvalQuestionTelemetry(
     int MessagesStored,
     int ItemsRetrieved,
     bool RecallTruncated,
-    string Status = "completed");
+    string Status = "completed")
+{
+    public string? QuestionId { get; init; }
+
+    public LongMemEvalRetrievalEvidence? RetrievalEvidence { get; init; }
+}

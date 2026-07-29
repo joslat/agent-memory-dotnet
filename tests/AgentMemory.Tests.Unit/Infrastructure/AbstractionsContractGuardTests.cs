@@ -18,7 +18,7 @@ public sealed class AbstractionsContractGuardTests
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
     private const int DocumentedServiceInterfaces = 39; // R1b store + IC8 owner contexts, +IConsolidationService (PR#113), +IConflictDetectionService, +IMemoryRankingContext/+IWritable (D3), +IMemoryIsolationPolicy (#100)
     private const int DocumentedRepositoryInterfaces = 11;
-    private const int DocumentedDomainRecords = 49; // +ToolCallStats (PR2), +IngestionItemOutcome (#101)
+    private const int DocumentedDomainRecords = 50; // +ToolCallStats (PR2), +IngestionItemOutcome (#101), +MemoryContextRankedItem (M-27-V2 G1)
     private const int DocumentedEnums = 24; // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType, +MemoryNodeKind, +MemoryOperationAccess, +MemoryIsolationMode (#100); +IngestionStatus, +IngestionStage, +IngestionItemStatus, +MemoryItemKind, +IngestionFailureMode (#101); +MemoryTrustLevel (#92 Phase 3)
 
     private static IEnumerable<Type> PublicTypes() =>
