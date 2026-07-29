@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -9,7 +10,7 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jRelationshipRepository : IRelationshipRepository
+internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBatchMemoryRepository<Relationship>
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jRelationshipRepository> _logger;
@@ -29,20 +30,20 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository
         {
             var parameters = new Dictionary<string, object?>
             {
-                ["id"]               = relationship.RelationshipId,
-                ["sourceEntityId"]   = relationship.SourceEntityId,
-                ["targetEntityId"]   = relationship.TargetEntityId,
-                ["relationType"]     = relationship.RelationshipType,
-                ["ownerId"]          = (object?)relationship.OwnerId,
-                ["confidence"]       = relationship.Confidence,
-                ["description"]      = (object?)relationship.Description,
-                ["validFrom"]        = (object?)(relationship.ValidFrom?.ToString("O")),
-                ["validUntil"]       = (object?)(relationship.ValidUntil?.ToString("O")),
-                ["attributes"]       = SerializeMetadata(relationship.Attributes),
+                ["id"] = relationship.RelationshipId,
+                ["sourceEntityId"] = relationship.SourceEntityId,
+                ["targetEntityId"] = relationship.TargetEntityId,
+                ["relationType"] = relationship.RelationshipType,
+                ["ownerId"] = (object?)relationship.OwnerId,
+                ["confidence"] = relationship.Confidence,
+                ["description"] = (object?)relationship.Description,
+                ["validFrom"] = (object?)(relationship.ValidFrom?.ToString("O")),
+                ["validUntil"] = (object?)(relationship.ValidUntil?.ToString("O")),
+                ["attributes"] = SerializeMetadata(relationship.Attributes),
                 ["sourceMessageIds"] = relationship.SourceMessageIds.ToList(),
-                ["createdAt"]        = relationship.CreatedAtUtc.ToString("O"),
-                ["updatedAt"]        = DateTimeOffset.UtcNow.ToString("O"),
-                ["metadata"]         = SerializeMetadata(relationship.Metadata)
+                ["createdAt"] = relationship.CreatedAtUtc.ToString("O"),
+                ["updatedAt"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["metadata"] = SerializeMetadata(relationship.Metadata)
             };
 
             var cursor = await runner.RunAsync(RelationshipQueries.Upsert, parameters).ConfigureAwait(false);
@@ -51,6 +52,39 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<Relationship>> UpsertBatchAsync(
+        IReadOnlyList<Relationship> relationships,
+        CancellationToken cancellationToken = default)
+    {
+        if (relationships.Count == 0) return Array.Empty<Relationship>();
+
+        _logger.LogDebug("Batch upserting {Count} relationships", relationships.Count);
+        var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+        var items = relationships.Select(relationship => new Dictionary<string, object?>
+        {
+            ["id"] = relationship.RelationshipId,
+            ["source_entity_id"] = relationship.SourceEntityId,
+            ["target_entity_id"] = relationship.TargetEntityId,
+            ["relation_type"] = relationship.RelationshipType,
+            ["owner_id"] = relationship.OwnerId,
+            ["confidence"] = relationship.Confidence,
+            ["description"] = relationship.Description,
+            ["valid_from"] = relationship.ValidFrom?.ToString("O"),
+            ["valid_until"] = relationship.ValidUntil?.ToString("O"),
+            ["attributes"] = SerializeMetadata(relationship.Attributes),
+            ["source_message_ids"] = relationship.SourceMessageIds.ToList(),
+            ["created_at"] = relationship.CreatedAtUtc.ToString("O"),
+            ["updated_at"] = updatedAt,
+            ["metadata"] = SerializeMetadata(relationship.Metadata)
+        }).ToList();
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(RelationshipQueries.UpsertBatch, new { items }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(record => MapToRelationship(record["r"].As<IRelationship>())).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
     public async Task<Relationship?> GetByIdAsync(string relationshipId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting relationship {Id}", relationshipId);
@@ -124,24 +158,24 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository
     private static Relationship MapToRelationship(IRelationship r) =>
         new()
         {
-            RelationshipId   = r["id"].As<string>(),
-            SourceEntityId   = r["source_entity_id"].As<string>(),
-            TargetEntityId   = r["target_entity_id"].As<string>(),
+            RelationshipId = r["id"].As<string>(),
+            SourceEntityId = r["source_entity_id"].As<string>(),
+            TargetEntityId = r["target_entity_id"].As<string>(),
             RelationshipType = r["relation_type"].As<string>(),
-            OwnerId          = r.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string?>() : null,
-            Confidence       = r["confidence"].As<double>(),
-            Description      = r.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
-            ValidFrom        = r.Properties.TryGetValue("valid_from", out var vf)
+            OwnerId = r.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string?>() : null,
+            Confidence = r["confidence"].As<double>(),
+            Description = r.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
+            ValidFrom = r.Properties.TryGetValue("valid_from", out var vf)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil       = r.Properties.TryGetValue("valid_until", out var vu)
+            ValidUntil = r.Properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
-            Attributes       = DeserializeMetadata(r.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
+            Attributes = DeserializeMetadata(r.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
             SourceMessageIds = r.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(r["created_at"]),
-            Metadata         = DeserializeMetadata(r.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(r["created_at"]),
+            Metadata = DeserializeMetadata(r.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 }

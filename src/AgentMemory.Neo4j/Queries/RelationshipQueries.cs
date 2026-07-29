@@ -40,6 +40,37 @@ internal static class RelationshipQueries
                 r.metadata           = $metadata
             RETURN r";
 
+    /// <summary>Batch merge RELATED_TO relationships by id via UNWIND.</summary>
+    public const string UpsertBatch = @"
+            UNWIND $items AS item
+            MERGE (s:Entity {id: item.source_entity_id})
+            MERGE (t:Entity {id: item.target_entity_id})
+            MERGE (s)-[r:RELATED_TO {id: item.id}]->(t)
+            ON CREATE SET
+                r.relation_type      = item.relation_type,
+                r.owner_id           = item.owner_id,
+                r.source_entity_id   = item.source_entity_id,
+                r.target_entity_id   = item.target_entity_id,
+                r.confidence         = item.confidence,
+                r.description        = item.description,
+                r.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
+                r.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
+                r.attributes         = item.attributes,
+                r.source_message_ids = item.source_message_ids,
+                r.created_at         = datetime(item.created_at),
+                r.updated_at         = datetime(item.updated_at),
+                r.metadata           = item.metadata
+            ON MATCH SET
+                r.relation_type      = item.relation_type,
+                r.confidence         = item.confidence,
+                r.description        = item.description,
+                r.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
+                r.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
+                r.attributes         = item.attributes,
+                r.source_message_ids = item.source_message_ids,
+                r.updated_at         = datetime(item.updated_at),
+                r.metadata           = item.metadata
+            RETURN r";
     // ── GetByIdAsync ───────────────────────────────────────────────────
 
     /// <summary>Get a single RELATED_TO relationship by id.</summary>

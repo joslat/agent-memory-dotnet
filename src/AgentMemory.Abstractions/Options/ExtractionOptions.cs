@@ -30,6 +30,14 @@ public sealed class ExtractionOptions
     public IngestionFailureMode FailureMode { get; set; } = IngestionFailureMode.BestEffort;
 
     /// <summary>
+    /// Uses atomic repository batch upserts when the configured repository explicitly advertises
+    /// support. Best-effort mode falls back to the existing item path if a batch fails, preserving
+    /// per-item outcomes. Fail-fast mode retains item upserts inside its outer atomic transaction so
+    /// the exception can still identify the exact failing item. Defaults to <see langword="true"/>.
+    /// </summary>
+    public bool EnableBatchMemoryUpserts { get; set; } = true;
+
+    /// <summary>
     /// The trust level stamped on every entity/fact/preference persisted, unless a specific
     /// <c>ExtractionRequest.TrustLevel</c> overrides it for that call (#92 Phase 3). Defaults to
     /// <see cref="MemoryTrustLevel.UserProvided"/> -- everything extracted through the normal pipeline is

@@ -214,6 +214,12 @@ with retrieved and access-tracked item guards unchanged.
 | Skip redundant provenance re-writes | `PERF-W-02` | queries per turn | 40 | **30** | **−10 (−25.0%)** |
 | Skip redundant provenance re-writes | `PERF-W-03` | write transactions per turn | 48 | **13** | **−35 (−72.9%)** |
 | Skip redundant provenance re-writes | `PERF-W-03` | queries per turn | 70 | **35** | **−35 (−50.0%)** |
+| Batch memory upserts | `PERF-W-02` | write transactions per turn | 8 | **6** | **−2 (−25.0%)** |
+| Batch memory upserts | `PERF-W-02` | queries per turn | 30 | **28** | **−2 (−6.7%)** |
+| Batch memory upserts | `PERF-W-03` | write transactions per turn | 13 | **11** | **−2 (−15.4%)** |
+| Batch memory upserts | `PERF-W-03` | queries per turn | 35 | **33** | **−2 (−5.7%)** |
+| Batch memory upserts | `PERF-W-05` | write transactions per extraction | 7 | **5** | **−2 (−28.6%)** |
+| Batch memory upserts | `PERF-W-05` | queries per extraction | 28 | **26** | **−2 (−7.1%)** |
 
 Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
 maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
@@ -227,6 +233,16 @@ does not issue the same `MERGE` again in a separate transaction per memory/messa
 without the capability retain the existing explicit provenance behavior. The 50-message whole-session
 guard still reads back exactly 250 provenance edges (5 learned memories × 50 source messages), while
 payload, records, learned items, and deterministic quality stay unchanged.
+
+The remaining entity and fact writes now use one atomic `UNWIND` upsert per memory kind when the
+repository advertises batch support. The same opt-in capability also covers preferences and graph
+relationships when a turn contains more than one; live Neo4j tests verify their owner, temporal,
+embedding, metadata, and provenance fields. `ExtractionOptions.EnableBatchMemoryUpserts` can disable
+the optimization. Default best-effort mode rolls a failed atomic batch back and replays the existing
+item path so per-item outcomes are preserved; fail-fast mode intentionally keeps item writes inside
+its whole-turn transaction so an error still identifies the exact failing item. Two fresh-container
+runs reproduced every counter above exactly. Records, estimated bytes, learned items, and both
+zero-tolerance quality guards were unchanged.
 
 ---
 

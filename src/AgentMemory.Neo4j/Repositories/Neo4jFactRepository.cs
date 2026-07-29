@@ -12,7 +12,7 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance
+internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance, IBatchMemoryRepository<Fact>
 {
     // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
     // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).
@@ -51,20 +51,20 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
         {
             var parameters = new Dictionary<string, object?>
             {
-                ["id"]               = fact.FactId,
-                ["subject"]          = fact.Subject,
-                ["predicate"]        = fact.Predicate,
-                ["object"]           = fact.Object,
-                ["ownerId"]          = fact.OwnerId,
-                ["ownerKey"]         = fact.OwnerId ?? OwnerKeyShared,
-                ["category"]         = fact.Category,
-                ["confidence"]       = fact.Confidence,
-                ["validFrom"]        = (object?)(fact.ValidFrom?.ToString("O")),
-                ["validUntil"]       = (object?)(fact.ValidUntil?.ToString("O")),
+                ["id"] = fact.FactId,
+                ["subject"] = fact.Subject,
+                ["predicate"] = fact.Predicate,
+                ["object"] = fact.Object,
+                ["ownerId"] = fact.OwnerId,
+                ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
+                ["category"] = fact.Category,
+                ["confidence"] = fact.Confidence,
+                ["validFrom"] = (object?)(fact.ValidFrom?.ToString("O")),
+                ["validUntil"] = (object?)(fact.ValidUntil?.ToString("O")),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
-                ["createdAtUtc"]     = fact.CreatedAtUtc.ToString("O"),
-                ["updatedAtUtc"]     = DateTimeOffset.UtcNow.ToString("O"),
-                ["metadata"]         = SerializeMetadata(fact.Metadata)
+                ["createdAtUtc"] = fact.CreatedAtUtc.ToString("O"),
+                ["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["metadata"] = SerializeMetadata(fact.Metadata)
             };
 
             var cursor = await runner.RunAsync(FactQueries.Upsert, parameters).ConfigureAwait(false);
@@ -117,20 +117,20 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
         var updatedAt = DateTimeOffset.UtcNow.ToString("O");
         var items = deduped.Select(f => new Dictionary<string, object?>
         {
-            ["id"]                = f.FactId,
-            ["subject"]           = f.Subject,
-            ["predicate"]         = f.Predicate,
-            ["object"]            = f.Object,
-            ["owner_id"]          = f.OwnerId,
-            ["owner_key"]         = f.OwnerId ?? OwnerKeyShared,
-            ["category"]          = f.Category,
-            ["confidence"]        = f.Confidence,
-            ["valid_from"]        = (object?)(f.ValidFrom?.ToString("O")),
-            ["valid_until"]       = (object?)(f.ValidUntil?.ToString("O")),
+            ["id"] = f.FactId,
+            ["subject"] = f.Subject,
+            ["predicate"] = f.Predicate,
+            ["object"] = f.Object,
+            ["owner_id"] = f.OwnerId,
+            ["owner_key"] = f.OwnerId ?? OwnerKeyShared,
+            ["category"] = f.Category,
+            ["confidence"] = f.Confidence,
+            ["valid_from"] = (object?)(f.ValidFrom?.ToString("O")),
+            ["valid_until"] = (object?)(f.ValidUntil?.ToString("O")),
             ["source_message_ids"] = f.SourceMessageIds.ToList(),
-            ["created_at"]        = f.CreatedAtUtc.ToString("O"),
-            ["updated_at"]        = updatedAt,
-            ["metadata"]          = SerializeMetadata(f.Metadata)
+            ["created_at"] = f.CreatedAtUtc.ToString("O"),
+            ["updated_at"] = updatedAt,
+            ["metadata"] = SerializeMetadata(f.Metadata)
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
@@ -179,7 +179,7 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
             return records.Select(r =>
             {
                 var node = r["f"].As<INode>();
-                var key  = TripleKey(node["subject"].As<string>(), node["predicate"].As<string>(),
+                var key = TripleKey(node["subject"].As<string>(), node["predicate"].As<string>(),
                                      node["object"].As<string>(), node["owner_key"].As<string>());
                 return MapToFact(node, embeddingByTriple.TryGetValue(key, out var emb) ? emb : null);
             }).ToList();
@@ -256,7 +256,7 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
@@ -273,11 +273,11 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
         var cypher = FactQueries.FindDuplicate();
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"]  = embedding.ToList(),
-            ["threshold"]  = threshold,
-            ["subject"]    = subject,
-            ["predicate"]  = predicate,
-            ["ownerKey"]   = ownerId ?? OwnerKeyShared,
+            ["embedding"] = embedding.ToList(),
+            ["threshold"] = threshold,
+            ["subject"] = subject,
+            ["predicate"] = predicate,
+            ["ownerKey"] = ownerId ?? OwnerKeyShared,
         };
 
         return await _tx.ReadAsync(async runner =>
@@ -351,25 +351,25 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
     private static Fact MapToFact(INode node, float[]? embedding) =>
         new()
         {
-            FactId           = node["id"].As<string>(),
-            Subject          = node["subject"].As<string>(),
-            Predicate        = node["predicate"].As<string>(),
-            Object           = node["object"].As<string>(),
-            OwnerId          = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Category         = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
-            Confidence       = node["confidence"].As<double>(),
-            ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf)
+            FactId = node["id"].As<string>(),
+            Subject = node["subject"].As<string>(),
+            Predicate = node["predicate"].As<string>(),
+            Object = node["object"].As<string>(),
+            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Category = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
+            Confidence = node["confidence"].As<double>(),
+            ValidFrom = node.Properties.TryGetValue("valid_from", out var vf)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil       = node.Properties.TryGetValue("valid_until", out var vu)
+            ValidUntil = node.Properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
-            Embedding        = embedding,
+            Embedding = embedding,
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
+            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
     private static float[]? ReadEmbedding(INode node)
@@ -515,10 +515,10 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
         var cypher = TemporalQueries.SearchFactsAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"]  = queryEmbedding.ToList(),
-            ["limit"]      = limit,
-            ["minScore"]   = minScore,
-            ["validAsOf"]  = asOf.UtcDateTime.ToString("O"),
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
+            ["validAsOf"] = asOf.UtcDateTime.ToString("O"),
             ["systemAsOf"] = (systemAsOf ?? asOf).UtcDateTime.ToString("O")
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
@@ -529,7 +529,7 @@ internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProv
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
