@@ -26,8 +26,8 @@ entity, fact, preference, or relationship extraction prompts. Its score characte
 message recall plus answer quality. It is not, by itself, a sampled extraction-prompt quality test.
 
 The raw arm was chosen first as a bounded control, not as the predicted highest-quality configuration.
-The fixed 10-question seed-42 sample contains 478 source sessions and 4,958 source turns. Extracting
-all four categories once per source session with today's fan-out would add 1,912 LLM completions before
+The fixed 10-question seed-42 sample contains 474 source sessions and 4,958 source turns. Extracting
+all four categories once per source session with today's fan-out would add 1,896 LLM completions before
 retries; flattening each roughly 500-turn question into one extraction request would instead risk
 context overflow and erase the session/time boundaries under test. The planned explicit hybrid arm
 will preserve raw evidence and add derived memory, then measure whether the added cost improves score.
