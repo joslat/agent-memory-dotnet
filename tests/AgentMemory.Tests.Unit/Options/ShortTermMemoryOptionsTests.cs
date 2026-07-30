@@ -20,6 +20,13 @@ public class ShortTermMemoryOptionsTests
     }
 
     [Fact]
+    public void Default_UseBatchEmbeddingRequestsIsTrue()
+    {
+        var options = new ShortTermMemoryOptions();
+        options.UseBatchEmbeddingRequests.Should().BeTrue();
+    }
+
+    [Fact]
     public void Default_DefaultRecentMessageLimitIs10()
     {
         var options = new ShortTermMemoryOptions();

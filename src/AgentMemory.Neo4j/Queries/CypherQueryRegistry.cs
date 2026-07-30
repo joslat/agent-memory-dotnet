@@ -39,6 +39,13 @@ internal static class CypherQueryRegistry
                 : "DecayQueries.UpdateAccessTimestamp";
         }
 
+        if (Has("WITH $messages AS messages") &&
+            Has("[msg IN $messages | msg.id] AS batchIds") &&
+            Has("WITH DISTINCT msg.id AS id"))
+        {
+            return "MessageQueries.AddBatchOptimized";
+        }
+
         var isMessageVectorSearch =
             Has("CALL db.index.vector.queryNodes('message_embedding_idx'") ||
             (Has("MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)") &&

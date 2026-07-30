@@ -90,21 +90,60 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredM
         CancellationToken cancellationToken = default)
     {
         var messageList = messages.ToList();
-        var results = new List<Message>(messageList.Count);
-
-        foreach (var message in messageList)
+        if (!_options.GenerateEmbeddings)
         {
-            var finalMessage = message;
-            if (_options.GenerateEmbeddings && message.Embedding is null)
-            {
-                var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken).ConfigureAwait(false);
-                finalMessage = message with { Embedding = embedding };
-            }
-            results.Add(finalMessage);
+            _logger.LogDebug("Batch adding {Count} messages", messageList.Count);
+            return await _messageRepo.AddBatchAsync(messageList, cancellationToken).ConfigureAwait(false);
         }
 
-        _logger.LogDebug("Batch adding {Count} messages", results.Count);
-        return await _messageRepo.AddBatchAsync(results, cancellationToken).ConfigureAwait(false);
+        if (!_options.UseBatchEmbeddingRequests)
+        {
+            var legacyResults = new List<Message>(messageList.Count);
+            foreach (var message in messageList)
+            {
+                var finalMessage = message;
+                if (message.Embedding is null)
+                {
+                    var embedding = await _embeddingOrchestrator
+                        .EmbedMessageAsync(message.Content, cancellationToken)
+                        .ConfigureAwait(false);
+                    finalMessage = message with { Embedding = embedding };
+                }
+                legacyResults.Add(finalMessage);
+            }
+
+            _logger.LogDebug("Batch adding {Count} messages", legacyResults.Count);
+            return await _messageRepo.AddBatchAsync(legacyResults, cancellationToken).ConfigureAwait(false);
+        }
+
+        var missingIndices = Enumerable.Range(0, messageList.Count)
+            .Where(index => messageList[index].Embedding is null)
+            .ToArray();
+        if (missingIndices.Length > 0)
+        {
+            var texts = missingIndices.Select(index => messageList[index].Content).ToArray();
+            var embeddings = await _embeddingOrchestrator
+                .EmbedBatchAsync(texts, cancellationToken)
+                .ConfigureAwait(false);
+            if (embeddings.Count != missingIndices.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Batch embedding returned {embeddings.Count} vectors for " +
+                    $"{missingIndices.Length} messages; positional alignment cannot be guaranteed.");
+            }
+
+            for (var index = 0; index < missingIndices.Length; index++)
+            {
+                var messageIndex = missingIndices[index];
+                messageList[messageIndex] = messageList[messageIndex] with
+                {
+                    Embedding = embeddings[index],
+                };
+            }
+        }
+
+        _logger.LogDebug("Batch adding {Count} messages", messageList.Count);
+        return await _messageRepo.AddBatchAsync(messageList, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

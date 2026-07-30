@@ -17,6 +17,13 @@ public class Neo4jOptions
     public int EmbeddingDimensions { get; set; } = 1536;
 
     /// <summary>
+    /// Persists a message batch, its embeddings, ordering links, and read-back in one Cypher query.
+    /// Enabled by default; disable only for compatibility diagnosis or controlled A/B measurement.
+    /// The legacy path remains available and preserves its original multi-query behavior.
+    /// </summary>
+    public bool UseOptimizedMessageBatchWrites { get; set; } = true;
+
+    /// <summary>
     /// When <see langword="true"/> (the default), schema bootstrap verifies that every existing vector
     /// index was created with <see cref="EmbeddingDimensions"/> and throws
     /// <see cref="AgentMemory.Abstractions.Exceptions.EmbeddingDimensionMismatchException"/> if any

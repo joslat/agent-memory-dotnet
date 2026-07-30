@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
@@ -16,11 +17,16 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     private const int ScopedOverFetchFloor = 50;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jMessageRepository> _logger;
+    private readonly bool _useOptimizedMessageBatchWrites;
 
-    public Neo4jMessageRepository(INeo4jTransactionRunner tx, ILogger<Neo4jMessageRepository> logger)
+    public Neo4jMessageRepository(
+        INeo4jTransactionRunner tx,
+        ILogger<Neo4jMessageRepository> logger,
+        IOptions<Neo4jOptions>? options = null)
     {
         _tx = tx;
         _logger = logger;
+        _useOptimizedMessageBatchWrites = options?.Value.UseOptimizedMessageBatchWrites ?? true;
     }
 
     public async Task<Message> AddAsync(Message message, CancellationToken cancellationToken = default)
@@ -72,8 +78,31 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
             ["content"]         = m.Content,
             ["timestamp"]       = m.TimestampUtc.ToString("O"),
             ["tool_call_ids"]   = m.ToolCallIds?.ToList() ?? new List<string>(),
-            ["metadata"]        = SerializeMetadata(m.Metadata)
+            ["metadata"]        = SerializeMetadata(m.Metadata),
+            ["embedding"]       = m.Embedding is { Length: > 0 }
+                ? m.Embedding.ToList()
+                : null
         }).ToList();
+
+        var embeddingMap = ordered.ToDictionary(m => m.MessageId, m => m.Embedding);
+        if (_useOptimizedMessageBatchWrites)
+        {
+            return await _tx.WriteAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(
+                    MessageQueries.AddBatchOptimized,
+                    new { messages = msgParams }).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(record =>
+                {
+                    var node = record["m"].As<INode>();
+                    var id = node["id"].As<string>();
+                    return MapToMessage(
+                        node,
+                        embeddingMap.TryGetValue(id, out var embedding) ? embedding : null);
+                }).ToList();
+            }, cancellationToken).ConfigureAwait(false);
+        }
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -116,7 +145,6 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
                 new { ids = ordered.Select(m => m.MessageId).ToList() }).ConfigureAwait(false);
             var records = await readCursor.ToListAsync().ConfigureAwait(false);
 
-            var embeddingMap = ordered.ToDictionary(m => m.MessageId, m => m.Embedding);
             return records.Select(r =>
             {
                 var node = r["m"].As<INode>();

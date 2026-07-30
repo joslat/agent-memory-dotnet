@@ -402,6 +402,12 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void Neo4jOptions_Default_UseOptimizedMessageBatchWritesIsTrue()
+    {
+        new Neo4jOptions().UseOptimizedMessageBatchWrites.Should().BeTrue();
+    }
+
+    [Fact]
     public void GraphRagOptions_Default_TopKIsPositive()
     {
         var o = new GraphRagOptions { IndexName = "test-index" };

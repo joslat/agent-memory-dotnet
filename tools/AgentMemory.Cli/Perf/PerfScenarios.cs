@@ -615,20 +615,25 @@ public static class PerfScenarios
         var embeddingRequests = ctx.Turn.Counter("embed.requests");
         var embeddedItems = ctx.Turn.Counter("embed.items");
         var modelCalls = ctx.Turn.Counter("llm.calls");
+        var queries = ctx.Turn.Counter("neo4j.queries");
+        var writeTransactions = ctx.Turn.Counter("neo4j.tx.write");
 
         if (stored.Count != RawBatchMessageCount ||
             !idsInOrder ||
             !embeddingsComplete ||
-            embeddingRequests != RawBatchMessageCount ||
+            embeddingRequests != 1 ||
             embeddedItems != RawBatchMessageCount ||
-            modelCalls != 0)
+            modelCalls != 0 ||
+            queries != 1 ||
+            writeTransactions != 1)
         {
             throw new InvalidOperationException(
                 $"PERF-W-06 did not exercise its raw-storage contract (stored={stored.Count}/" +
                 $"{RawBatchMessageCount}, ids_in_order={idsInOrder}, " +
                 $"embeddings_complete={embeddingsComplete}, embed.requests/items=" +
-                $"{embeddingRequests}/{embeddedItems}, expected {RawBatchMessageCount}/" +
-                $"{RawBatchMessageCount}; llm.calls={modelCalls}/0). This scenario must measure " +
+                $"{embeddingRequests}/{embeddedItems}, expected 1/{RawBatchMessageCount}; " +
+                $"llm.calls={modelCalls}/0, neo4j.queries/write tx={queries}/{writeTransactions}, " +
+                "expected 1/1). This scenario must measure " +
                 "message embedding and persistence without extraction.");
         }
     }

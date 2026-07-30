@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
@@ -66,6 +67,81 @@ public sealed class Neo4jMessageRepositoryAddTests
         var parameters = calls[0].Parameters.Should()
             .BeAssignableTo<IDictionary<string, object?>>().Subject;
         parameters["embedding"].Should().BeEquivalentTo(message.Embedding);
+    }
+
+    [Fact]
+    public async Task AddBatchAsync_UsesOneQueryForMessagesEmbeddingsLinksAndReadBack()
+    {
+        var calls = new List<(string Cypher, object? Parameters)>();
+        var transactionRunner = Substitute.For<INeo4jTransactionRunner>();
+        var messages = Enumerable.Range(0, 3)
+            .Select(index => new Message
+            {
+                MessageId = $"message-{index}",
+                ConversationId = "conversation-1",
+                SessionId = "session-1",
+                Role = index % 2 == 0 ? "user" : "assistant",
+                Content = $"Stored {index}.",
+                TimestampUtc = new DateTimeOffset(2026, 7, 28, 12, 0, index, TimeSpan.Zero),
+                Embedding = [index + 0.1f, index + 0.2f],
+            })
+            .ToArray();
+        var records = messages.Select(BatchMessageRecord).ToArray();
+
+        transactionRunner
+            .WriteAsync(
+                Arg.Any<Func<IAsyncQueryRunner, Task<List<Message>>>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner
+                    .RunAsync(Arg.Any<string>(), Arg.Any<object>())
+                    .Returns(query =>
+                    {
+                        calls.Add((query.Arg<string>(), query.ArgAt<object>(1)));
+                        return Task.FromResult((IResultCursor)new FakeResultCursor(records));
+                    });
+                return call.Arg<Func<IAsyncQueryRunner, Task<List<Message>>>>()(runner);
+            });
+
+        var repository = new Neo4jMessageRepository(
+            transactionRunner, NullLogger<Neo4jMessageRepository>.Instance);
+
+        var result = await repository.AddBatchAsync(messages);
+
+        result.Select(message => message.MessageId)
+            .Should().Equal(messages.Select(message => message.MessageId));
+        result.Select(message => message.Embedding)
+            .Should().BeEquivalentTo(messages.Select(message => message.Embedding));
+        calls.Should().ContainSingle(
+            "one UNWIND query must persist messages and embeddings, link their order, and return them");
+        calls[0].Cypher.Should().Contain("msg.embedding");
+        calls[0].Cypher.Should().Contain("NEXT_MESSAGE");
+        calls[0].Cypher.Should().Contain("RETURN m");
+        calls[0].Cypher.Should().Contain("WITH DISTINCT msg.id AS id");
+    }
+
+    private static IRecord BatchMessageRecord(Message message)
+    {
+        var properties = new Dictionary<string, object>
+        {
+            ["id"] = message.MessageId,
+            ["conversation_id"] = message.ConversationId,
+            ["session_id"] = message.SessionId,
+            ["role"] = message.Role,
+            ["content"] = message.Content,
+            ["timestamp"] = message.TimestampUtc.ToString("O"),
+            ["metadata"] = "{}",
+        };
+        var node = Substitute.For<INode>();
+        foreach (var (key, value) in properties)
+            node[key].Returns(value);
+        node.Properties.Returns(properties);
+
+        var record = Substitute.For<IRecord>();
+        record["m"].Returns(node);
+        return record;
     }
 
     private static IRecord MessageRecord()
