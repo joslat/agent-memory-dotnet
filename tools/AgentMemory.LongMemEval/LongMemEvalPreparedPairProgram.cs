@@ -26,6 +26,7 @@ internal static class LongMemEvalPreparedPairProgram
         {
             var options = Parse(args);
             Validate(options);
+            var diagnosticEvidenceIndex = PreflightDiagnosticSelection(options);
             if (options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
             {
                 Console.Error.WriteLine(
@@ -100,9 +101,9 @@ internal static class LongMemEvalPreparedPairProgram
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
-                var evidenceIndex = LongMemEvalEvidenceIndex.Load(
-                    options.DatasetPath,
-                    benchmarkOptions);
+                var evidenceIndex = diagnosticEvidenceIndex ??
+                    LongMemEvalEvidenceIndex.Load(
+                        options.DatasetPath, benchmarkOptions);
                 var questions = evidenceIndex.Questions.ToArray();
                 if (questions.Length != options.Questions)
                 {
@@ -126,11 +127,15 @@ internal static class LongMemEvalPreparedPairProgram
                         RequireGraphReadBack = true,
                         GraphProbe = new Neo4jLongMemEvalGraphProbe(driver),
                         PreparationOnly = true,
+                        DiagnosticSourceSessionOrdinal = options.DiagnosticSourceSessionOrdinal,
                         ExtractionProgress = (completed, total) => Console.WriteLine(
                             $"longmemeval: preparation extraction units {completed}/{total}.")
                     });
 
-                for (var index = 0; index < questions.Length; index++)
+                var questionIndexes = options.IsDiagnostic
+                    ? new[] { options.DiagnosticQuestionPosition!.Value - 1 }
+                    : Enumerable.Range(0, questions.Length).ToArray();
+                foreach (var index in questionIndexes)
                 {
                     var question = questions[index];
                     await adapter.ResetSessionAsync().ConfigureAwait(false);
@@ -142,6 +147,31 @@ internal static class LongMemEvalPreparedPairProgram
                         $"longmemeval: prepared question {index + 1}/{questions.Length}.");
                 }
 
+                if (options.IsDiagnostic)
+                {
+                    var diagnosticSnapshot = extractionCalls.Snapshot();
+                    if (diagnosticSnapshot.Calls != 4 ||
+                        diagnosticSnapshot.Failures != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Diagnostic extraction accounting mismatch: observed " +
+                            $"{diagnosticSnapshot.Calls} calls and " +
+                            $"{diagnosticSnapshot.Failures} failures; expected exactly " +
+                            "4 calls and zero failures.");
+                    }
+                    var purposes = string.Join(
+                        ", ",
+                        diagnosticSnapshot.CallDetails
+                            .GroupBy(detail => detail.Purpose)
+                            .OrderBy(group => group.Key, StringComparer.Ordinal)
+                            .Select(group => $"{group.Key}={group.Count()}"));
+                    Console.WriteLine(
+                        $"longmemeval: diagnostic-only extraction completed for question " +
+                        $"{options.DiagnosticQuestionPosition}, source session " +
+                        $"{options.DiagnosticSourceSessionOrdinal}: 4 calls / 0 failures; " +
+                        $"purposes {purposes}; no report, clone, recall, answer, or judge executed.");
+                    return 0;
+                }
                 preparationTelemetry = adapter.QuestionTelemetry;
                 ValidatePreparationTelemetry(preparationTelemetry, questions.Length);
                 var initialExtractionCalls =
@@ -614,7 +644,10 @@ internal static class LongMemEvalPreparedPairProgram
             ParseEvidenceDetail(Value("--evidence-detail")),
             ParseOracleMode(Value("--oracle")),
             ParseNonNegative(Value("--judge-retries"), 2, "--judge-retries"),
-            Value("--output"));
+            Value("--output"),
+            ParseOptionalPositive(Value("--diagnostic-question"), "--diagnostic-question"),
+            ParseOptionalNonNegative(
+                Value("--diagnostic-source-session"), "--diagnostic-source-session"));
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -623,6 +656,24 @@ internal static class LongMemEvalPreparedPairProgram
             throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required.");
         if (!File.Exists(options.DatasetPath))
             throw new FileNotFoundException("LongMemEval dataset not found.", options.DatasetPath);
+        if ((options.DiagnosticQuestionPosition is null) !=
+            (options.DiagnosticSourceSessionOrdinal is null))
+        {
+            throw new ArgumentException(
+                "--diagnostic-question and --diagnostic-source-session must be supplied together.");
+        }
+        if (options.DiagnosticQuestionPosition > options.Questions)
+            throw new ArgumentException(
+                "--diagnostic-question must be within the frozen selected-question count.");
+        if (options.IsDiagnostic && options.OutputPath is not null)
+            throw new ArgumentException(
+                "--output is forbidden for diagnostic-only extraction because it cannot emit an accepted report.");
+        if (options.IsDiagnostic &&
+            options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
+        {
+            throw new ArgumentException(
+                "Content evidence is forbidden for diagnostic-only extraction.");
+        }
     }
 
     private static int ParsePositive(string? value, int defaultValue, string option)
@@ -639,6 +690,55 @@ internal static class LongMemEvalPreparedPairProgram
         if (!int.TryParse(value, out var parsed) || parsed < 0)
             throw new ArgumentException($"{option} must be a non-negative integer.");
         return parsed;
+    }
+
+    private static int? ParseOptionalPositive(string? value, string option)
+    {
+        if (value is null) return null;
+        if (!int.TryParse(value, out var parsed) || parsed <= 0)
+            throw new ArgumentException($"{option} must be a positive integer.");
+        return parsed;
+    }
+
+    private static int? ParseOptionalNonNegative(string? value, string option)
+    {
+        if (value is null) return null;
+        if (!int.TryParse(value, out var parsed) || parsed < 0)
+            throw new ArgumentException($"{option} must be a non-negative integer.");
+        return parsed;
+    }
+
+    private static LongMemEvalEvidenceIndex? PreflightDiagnosticSelection(
+        PreparedPairOptions options)
+    {
+        if (!options.IsDiagnostic)
+            return null;
+
+        var benchmarkOptions = LongMemEvalBenchmarkProtocol.CreateOptions(
+            options.DatasetPath,
+            options.Questions,
+            options.Seed,
+            options.JudgeRetryAttempts,
+            options.EvidenceDetail,
+            options.MaxRelevantMessages);
+        var evidenceIndex = LongMemEvalEvidenceIndex.Load(
+            options.DatasetPath,
+            benchmarkOptions);
+        var questions = evidenceIndex.Questions.ToArray();
+        var questionIndex = options.DiagnosticQuestionPosition!.Value - 1;
+        if (questionIndex >= questions.Length)
+            throw new ArgumentException(
+                "The diagnostic question position does not exist in the frozen sample.");
+        var sourceSessionExists = questions[questionIndex].Messages
+            .Where(message =>
+                !message.IsSyntheticBoundary &&
+                !message.IsSyntheticFormatterPadding)
+            .Select(message => message.SourceSessionOrdinal)
+            .Contains(options.DiagnosticSourceSessionOrdinal!.Value);
+        if (!sourceSessionExists)
+            throw new ArgumentException(
+                "The diagnostic source-session ordinal does not exist in the selected question.");
+        return evidenceIndex;
     }
 
     private static LongMemEvalEvidenceDetail ParseEvidenceDetail(string? value) =>
@@ -674,7 +774,7 @@ internal static class LongMemEvalPreparedPairProgram
                 runId,
                 "prepared-pair-report.json"));
 
-    private sealed record PreparedPairOptions(
+    internal sealed record PreparedPairOptions(
         string DatasetPath,
         int Questions,
         int Seed,
@@ -682,7 +782,14 @@ internal static class LongMemEvalPreparedPairProgram
         LongMemEvalEvidenceDetail EvidenceDetail,
         LongMemEvalOracleMode OracleMode,
         int JudgeRetryAttempts,
-        string? OutputPath);
+        string? OutputPath,
+        int? DiagnosticQuestionPosition,
+        int? DiagnosticSourceSessionOrdinal)
+    {
+        internal bool IsDiagnostic =>
+            DiagnosticQuestionPosition is not null &&
+            DiagnosticSourceSessionOrdinal is not null;
+    }
 
     private sealed record PreparedArmTimings(
         double ProfileStartupMs,

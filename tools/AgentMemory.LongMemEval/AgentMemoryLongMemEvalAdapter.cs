@@ -81,6 +81,19 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                 nameof(options));
         }
 
+        if (_options.DiagnosticSourceSessionOrdinal is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "The diagnostic source-session ordinal must be non-negative.");
+        }
+        if (_options.DiagnosticSourceSessionOrdinal is not null &&
+            !_options.PreparationOnly)
+        {
+            throw new ArgumentException(
+                "A diagnostic source-session selector is valid only for preparation-only execution.",
+                nameof(options));
+        }
         _sessionId = ScopeId("session", 0);
         _ownerId = ScopeId("owner", 0);
     }
@@ -221,14 +234,25 @@ public sealed class AgentMemoryLongMemEvalAdapter :
 
             if (!_options.PreparedMemory)
             {
-                var extractionGroups = messages
-                .Select((message, index) => (Message: message, Origin: evidenceQuestion.Messages[index]))
-                .Where(item =>
-                    !item.Origin.IsSyntheticBoundary &&
-                    !item.Origin.IsSyntheticFormatterPadding)
-                .GroupBy(item => item.Origin.SourceSessionOrdinal)
-                .OrderBy(group => group.Key)
-                .ToArray();
+                var allExtractionGroups = messages
+                    .Select((message, index) =>
+                        (Message: message, Origin: evidenceQuestion.Messages[index]))
+                    .Where(item =>
+                        !item.Origin.IsSyntheticBoundary &&
+                        !item.Origin.IsSyntheticFormatterPadding)
+                    .GroupBy(item => item.Origin.SourceSessionOrdinal)
+                    .OrderBy(group => group.Key)
+                    .ToArray();
+                var extractionGroups =
+                    _options.DiagnosticSourceSessionOrdinal is { } selected
+                        ? allExtractionGroups
+                            .Where(group => group.Key == selected)
+                            .ToArray()
+                        : allExtractionGroups;
+                if (_options.DiagnosticSourceSessionOrdinal is not null &&
+                    extractionGroups.Length != 1)
+                    throw new InvalidOperationException(
+                        "The diagnostic source-session ordinal does not exist in the selected question.");
                 _options.ExtractionProgress?.Invoke(0, extractionGroups.Length);
 
 
@@ -265,6 +289,20 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                             var failureDelta = callsAfter.Failures - callsBefore.Failures;
                             if (callDelta != 4 || failureDelta != 0)
                             {
+                                var callDetails = callsAfter.CallDetails
+                                    .Where(detail => detail.CallOrdinal > callsBefore.Calls)
+                                    .ToArray();
+                                var purposeSummary = string.Join(
+                                    ", ",
+                                    callDetails
+                                        .GroupBy(detail => detail.Purpose)
+                                        .OrderBy(group => group.Key, StringComparer.Ordinal)
+                                        .Select(group => $"{group.Key}={group.Count()}"));
+                                var callDetailSuffix = purposeSummary.Length == 0
+                                    ? string.Empty
+                                    : $" Call purposes: {purposeSummary}.";
+                                var missingCallDetails =
+                                    Math.Max(0, callDelta - callDetails.LongLength);
                                 var failureDetails = callsAfter.FailureDetails
                                     .Where(detail => detail.CallOrdinal > callsBefore.Calls)
                                     .Select(detail =>
@@ -290,7 +328,9 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                                     $"LongMemEval extraction provider accounting mismatch at " +
                                     $"question {questionNumber}, source session {group.Key}: " +
                                     $"observed {callDelta} calls and {failureDelta} failures; " +
-                                    $"expected exactly 4 calls and zero failures.{detailSuffix} " +
+                                    $"expected exactly 4 calls and zero failures.{callDetailSuffix}" +
+                                    $"{detailSuffix} Missing unit call details: {missingCallDetails}. " +
+                                    $"Dropped call details total: {callsAfter.DroppedCallDetails}. " +
                                     $"Dropped failure details: {droppedDelta}.");
                             }
                         }
@@ -740,6 +780,8 @@ public sealed record LongMemEvalAdapterOptions
 
     internal bool PreparationOnly { get; init; }
 
+
+    internal int? DiagnosticSourceSessionOrdinal { get; init; }
     /// <summary>
     /// Total non-GraphRAG answer-context item budget. Raw uses it entirely for messages; Structured
     /// divides it across entities/facts/preferences; Hybrid gives half to messages and divides the

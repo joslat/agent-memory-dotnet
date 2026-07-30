@@ -388,10 +388,13 @@ internal static class LongMemEvalProgram
           --dataset <longmemeval_s_cleaned.json> [--questions 10] [--seed 42] \
           [--max-relevant 30] [--memory-mode raw|structured|hybrid] \
           [--prepared-pair] \
+          [--diagnostic-question N --diagnostic-source-session N] \
           [--evidence-detail none|identifiers|content] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
 
         --prepared-pair prepares structured memory once, freezes it, clones it, and evaluates isolated Structured and Hybrid arms.
+        Supplying both diagnostic selectors with --prepared-pair runs exactly one extraction unit and can never emit a report or execute recall/judging.
+
 
         Requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT,
         and AZURE_OPENAI_EMBEDDING_DEPLOYMENT.

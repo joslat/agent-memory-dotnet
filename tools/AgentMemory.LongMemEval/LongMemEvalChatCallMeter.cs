@@ -12,12 +12,15 @@ namespace AgentMemory.LongMemEval;
 internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
 {
     private const int MaxFailureDetails = 32;
+    private const int MaxCallDetails = 64;
     private readonly ConcurrentQueue<LongMemEvalChatCallFailure> _failureDetails = new();
+    private readonly ConcurrentQueue<LongMemEvalChatCallDetail> _callDetails = new();
     private long _calls;
     private long _failures;
     private long _elapsedTimestampTicks;
     private long _failureDetailSlots;
     private long _droppedFailureDetails;
+    private long _droppedCallDetails;
 
     public LongMemEvalChatCallSnapshot Snapshot()
     {
@@ -29,7 +32,9 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
                 (double)elapsedTicks / Stopwatch.Frequency))
         {
             FailureDetails = _failureDetails.ToArray(),
-            DroppedFailureDetails = Interlocked.Read(ref _droppedFailureDetails)
+            DroppedFailureDetails = Interlocked.Read(ref _droppedFailureDetails),
+            CallDetails = _callDetails.OrderBy(detail => detail.CallOrdinal).ToArray(),
+            DroppedCallDetails = Interlocked.Read(ref _droppedCallDetails)
         };
     }
 
@@ -43,6 +48,7 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         var purpose = ClassifyPurpose(materializedMessages);
         var callOrdinal = Interlocked.Increment(ref _calls);
         var started = Stopwatch.GetTimestamp();
+        Exception? failure = null;
         try
         {
             return await inner.GetResponseAsync(
@@ -51,6 +57,7 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         }
         catch (Exception exception)
         {
+            failure = exception;
             Interlocked.Increment(ref _failures);
             RecordFailure(callOrdinal, purpose, exception);
             throw;
@@ -60,6 +67,7 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             Interlocked.Add(
                 ref _elapsedTimestampTicks,
                 Stopwatch.GetTimestamp() - started);
+            RecordCall(callOrdinal, purpose, failure);
         }
     }
 
@@ -105,6 +113,23 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             purpose,
             exception.GetType().FullName ?? exception.GetType().Name,
             ProviderStatus(exception)));
+    }
+
+    private void RecordCall(
+        long callOrdinal,
+        string purpose,
+        Exception? exception)
+    {
+        _callDetails.Enqueue(new LongMemEvalChatCallDetail(
+            callOrdinal,
+            purpose,
+            exception?.GetType().FullName ?? exception?.GetType().Name,
+            exception is null ? null : ProviderStatus(exception)));
+        while (_callDetails.Count > MaxCallDetails &&
+               _callDetails.TryDequeue(out _))
+        {
+            Interlocked.Increment(ref _droppedCallDetails);
+        }
     }
 
     private static int? ProviderStatus(Exception exception) =>
@@ -163,6 +188,11 @@ public sealed record LongMemEvalChatCallSnapshot(
 
     public long DroppedFailureDetails { get; init; }
 
+    public IReadOnlyList<LongMemEvalChatCallDetail> CallDetails { get; init; } =
+        Array.Empty<LongMemEvalChatCallDetail>();
+
+    public long DroppedCallDetails { get; init; }
+
     public static LongMemEvalChatCallSnapshot Zero { get; } =
         new(0, 0, TimeSpan.Zero);
 }
@@ -171,4 +201,10 @@ public sealed record LongMemEvalChatCallFailure(
     long CallOrdinal,
     string Purpose,
     string ExceptionType,
+    int? ProviderStatus);
+
+public sealed record LongMemEvalChatCallDetail(
+    long CallOrdinal,
+    string Purpose,
+    string? ExceptionType,
     int? ProviderStatus);
