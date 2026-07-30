@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -119,10 +120,21 @@ public static class PerfScenarios
             StoreRawBatchAsync,
             SupportsInterleavedAb: false,
             VerifyAsync: VerifyRawBatchAsync),
+        new(
+            "PERF-W-07",
+            "Four category extraction calls over one fixed session with no persistence",
+            ExtractOnlyAsync),
     ];
 
     internal const string StoreProbeUserMessage =
         "Alice Martin just moved to the Acme Corporation platform team and prefers concise updates.";
+    internal const string ExtractionOnlyProbeMessage =
+        "LAB-E0 source: Alice Martin works at Acme Corporation and prefers concise written summaries.";
+
+    private const string ExtractionOnlyEntityPayload = """{"entities":[{"name":"Acme Corporation","type":"ORGANIZATION","confidence":0.92},{"name":"Alice Martin","type":"PERSON","confidence":0.95}]}""";
+    private const string ExtractionOnlyFactPayload = """{"facts":[{"subject":"Alice Martin","predicate":"works_at","object":"Acme Corporation","confidence":0.9},{"subject":"Alice Martin","predicate":"leads","object":"platform team","confidence":0.85}]}""";
+    private const string ExtractionOnlyPreferencePayload = """{"preferences":[{"category":"communication","preference":"prefers concise written summaries","confidence":0.88}]}""";
+    private const string ExtractionOnlyRelationshipPayload = """{"relations":[{"source":"Alice Martin","target":"Acme Corporation","relation_type":"WORKS_AT","confidence":0.9}]}""";
 
     private const int SessionExtractionMessageCount = 50;
     private const int RawBatchMessageCount = 50;
@@ -133,7 +145,13 @@ public static class PerfScenarios
     /// into a no-op that its self-assertion rejects.
     /// </summary>
     internal static IReadOnlyList<ScriptedChatClient.Rule> ScriptedRules { get; } =
-        [new(StoreProbeUserMessage, ScriptedChatClient.ExtractionPayload)];
+        [
+            new("entity extraction assistant", ExtractionOnlyEntityPayload, ExtractionOnlyProbeMessage),
+            new("fact extraction assistant", ExtractionOnlyFactPayload, ExtractionOnlyProbeMessage),
+            new("preference extraction assistant", ExtractionOnlyPreferencePayload, ExtractionOnlyProbeMessage),
+            new("relationship extraction assistant", ExtractionOnlyRelationshipPayload, ExtractionOnlyProbeMessage),
+            new(StoreProbeUserMessage, ScriptedChatClient.ExtractionPayload),
+        ];
 
     public static IReadOnlyList<PerfScenario> Select(string? filter)
     {
@@ -661,6 +679,129 @@ public static class PerfScenarios
                 $"{shape.MessagesWithExpectedEmbedding}/{RawBatchMessageCount}, distinct ids=" +
                 $"{shape.DistinctIds}/{RawBatchMessageCount}, ids_in_order={idsInOrder}). Counters " +
                 "alone cannot prove that the raw messages and embeddings were persisted.");
+        }
+    }
+
+    /// <summary>
+    /// PERF-W-07 — isolates the four shipped LLM category extractors over one fixed in-memory source
+    /// session. It deliberately bypasses resolution, embeddings, persistence, recall, answer, and judge.
+    /// </summary>
+    private static async Task ExtractOnlyAsync(ScenarioContext ctx)
+    {
+        var messages = new[]
+        {
+            new Message
+            {
+                MessageId = "perf-w07-source-00",
+                ConversationId = "perf-w07-conversation",
+                SessionId = "perf-w07-session",
+                Role = "user",
+                Content = ExtractionOnlyProbeMessage,
+                TimestampUtc = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero),
+            },
+        };
+
+        var entityExtractor = ctx.Profile.Services.GetRequiredService<IEntityExtractor>();
+        var factExtractor = ctx.Profile.Services.GetRequiredService<IFactExtractor>();
+        var preferenceExtractor = ctx.Profile.Services.GetRequiredService<IPreferenceExtractor>();
+        var relationshipExtractor = ctx.Profile.Services.GetRequiredService<IRelationshipExtractor>();
+
+        var entityTask = MeasureExtractorAsync("entity",
+            () => entityExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+        var factTask = MeasureExtractorAsync("fact",
+            () => factExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+        var preferenceTask = MeasureExtractorAsync("preference",
+            () => preferenceExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+        var relationshipTask = MeasureExtractorAsync("relationship",
+            () => relationshipExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+
+        await Task.WhenAll(entityTask, factTask, preferenceTask, relationshipTask).ConfigureAwait(false);
+
+        var entities = await entityTask.ConfigureAwait(false);
+        var facts = await factTask.ConfigureAwait(false);
+        var preferences = await preferenceTask.ConfigureAwait(false);
+        var relationships = await relationshipTask.ConfigureAwait(false);
+
+        ctx.Turn.Add("extract.input_messages", messages.Length);
+        ctx.Turn.Add("extract.entities", entities.Count);
+        ctx.Turn.Add("extract.facts", facts.Count);
+        ctx.Turn.Add("extract.preferences", preferences.Count);
+        ctx.Turn.Add("extract.relationships", relationships.Count);
+
+        var purposeMetricsComplete = true;
+        foreach (var purpose in new[] { "entity", "fact", "preference", "relationship" })
+        {
+            var calls = ctx.Turn.Counter($"llm.{purpose}.calls");
+            ctx.Turn.Add($"llm.{purpose}.retries", Math.Max(0, calls - 1));
+            purposeMetricsComplete &=
+                calls == 1 &&
+                ctx.Turn.Counter($"llm.{purpose}.tokens_in") > 0 &&
+                ctx.Turn.Counter($"llm.{purpose}.tokens_out") > 0 &&
+                ctx.Turn.SpanCounts.GetValueOrDefault($"provider.llm.{purpose}") == 1;
+        }
+
+        var outputsExact =
+            entities.Count == 2 &&
+            entities[0].Name == "Acme Corporation" &&
+            entities[1].Name == "Alice Martin" &&
+            facts.Count == 2 &&
+            facts[0].Predicate == "works_at" &&
+            facts[1].Predicate == "leads" &&
+            preferences.Count == 1 &&
+            preferences[0].Category == "communication" &&
+            relationships.Count == 1 &&
+            relationships[0].RelationshipType == "WORKS_AT";
+
+        var extractionSpansExact =
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.entity") == 1 &&
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.fact") == 1 &&
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.preference") == 1 &&
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.relationship") == 1;
+
+        var excludedWork =
+            ctx.Turn.Counter("embed.requests") +
+            ctx.Turn.Counter("embed.items") +
+            ctx.Turn.Counter("neo4j.queries") +
+            ctx.Turn.Counter("neo4j.tx.read") +
+            ctx.Turn.Counter("neo4j.tx.write") +
+            ctx.Turn.Counter("store.messages") +
+            ctx.Turn.Counter("persist.entities") +
+            ctx.Turn.Counter("persist.facts") +
+            ctx.Turn.Counter("persist.preferences") +
+            ctx.Turn.Counter("persist.relationships") +
+            ctx.Turn.Counter("items.retrieved");
+
+        if (ctx.Turn.Counter("llm.calls") != 4 ||
+            !purposeMetricsComplete ||
+            !outputsExact ||
+            !extractionSpansExact ||
+            excludedWork != 0)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-07 extraction-only contract failed (llm.calls={ctx.Turn.Counter("llm.calls")}/4, " +
+                $"purpose_metrics_complete={purposeMetricsComplete}, outputs=" +
+                $"{entities.Count}/{facts.Count}/{preferences.Count}/{relationships.Count}, expected 2/2/1/1, " +
+                $"extraction_spans_exact={extractionSpansExact}, excluded_work={excludedWork}/0). " +
+                "This arm must measure four non-empty category calls without storage, resolution, " +
+                "embedding, persistence, recall, answer, or judge work.");
+        }
+    }
+
+    private static async Task<IReadOnlyList<T>> MeasureExtractorAsync<T>(
+        string purpose,
+        Func<Task<IReadOnlyList<T>>> extractAsync,
+        TurnRecord turn)
+    {
+        using var activity = new Activity($"lab.extraction.{purpose}").Start();
+        var startedAt = Stopwatch.GetTimestamp();
+        try
+        {
+            return await extractAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            turn.RecordSpan($"lab.extractor.{purpose}",
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         }
     }
 

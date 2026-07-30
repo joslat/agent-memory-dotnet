@@ -45,9 +45,9 @@ public sealed class ScriptedChatClient : IChatClient
         }
         """;
 
-    /// <summary>A per-input scripted answer: when <see cref="MatchOn"/> appears in the prompt, return
-    /// <see cref="Payload"/>.</summary>
-    public sealed record Rule(string MatchOn, string Payload);
+    /// <summary>A scripted answer selected when <see cref="MatchOn"/> and, when supplied,
+    /// <see cref="MatchAlsoOn"/> both appear in the prompt.</summary>
+    public sealed record Rule(string MatchOn, string Payload, string? MatchAlsoOn = null);
 
     private readonly TimeSpan _delay;
     private readonly string _payload;
@@ -101,7 +101,9 @@ public sealed class ScriptedChatClient : IChatClient
         var prompt = string.Join("\n", messages.Select(m => m.Text ?? string.Empty));
         foreach (var rule in _rules)
         {
-            if (prompt.Contains(rule.MatchOn, StringComparison.OrdinalIgnoreCase))
+            if (prompt.Contains(rule.MatchOn, StringComparison.OrdinalIgnoreCase) &&
+                (rule.MatchAlsoOn is null ||
+                 prompt.Contains(rule.MatchAlsoOn, StringComparison.OrdinalIgnoreCase)))
                 return rule.Payload;
         }
 
