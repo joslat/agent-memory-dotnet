@@ -106,4 +106,29 @@ public sealed class PerfScenarioCatalogTests
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-W-05");
     }
+
+    [Fact]
+    public void Catalog_ContainsRawBatchStorageScenario_WithStableContract()
+    {
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-W-06");
+
+        scenario.Description.Should().ContainEquivalentOf("50");
+        scenario.Description.Should().ContainEquivalentOf("raw");
+        scenario.Description.Should().ContainEquivalentOf("embedding");
+        scenario.SupportsInterleavedAb.Should().BeFalse(
+            "the scenario persists messages and cannot share mutable state between A/B arms");
+        scenario.SetupAsync.Should().BeNull(
+            "the measured operation must include raw message embedding and persistence");
+        scenario.VerifyAsync.Should().NotBeNull(
+            "the scenario must read the stored messages back outside the measured turn");
+    }
+
+    [Fact]
+    public void Select_RawBatchStorageScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-W-06");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-W-06");
+    }
 }

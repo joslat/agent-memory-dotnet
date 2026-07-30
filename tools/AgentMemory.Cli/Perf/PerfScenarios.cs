@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -112,12 +113,19 @@ public static class PerfScenarios
             SupportsInterleavedAb: false,
             SetupAsync: PrepareWholeSessionAsync,
             VerifyAsync: VerifyWholeSessionAsync),
+        new(
+            "PERF-W-06",
+            "50-message raw storage with message embedding and extraction disabled",
+            StoreRawBatchAsync,
+            SupportsInterleavedAb: false,
+            VerifyAsync: VerifyRawBatchAsync),
     ];
 
     internal const string StoreProbeUserMessage =
         "Alice Martin just moved to the Acme Corporation platform team and prefers concise updates.";
 
     private const int SessionExtractionMessageCount = 50;
+    private const int RawBatchMessageCount = 50;
 
     /// <summary>
     /// Input-keyed model responses required by cost scenarios. Kept separate from judged fixture rules:
@@ -571,6 +579,88 @@ public static class PerfScenarios
 
     private static string SessionExtractionOwnerId(string phase, int iteration) =>
         $"{SessionExtractionSessionId(phase, iteration)}-owner";
+
+    /// <summary>
+    /// PERF-W-06 — isolates the raw message-storage path that LongMemEval preparation pays before any
+    /// extraction. The product API embeds each message and persists the batch; extraction is not invoked.
+    /// </summary>
+    private static async Task StoreRawBatchAsync(ScenarioContext ctx)
+    {
+        var sessionId = RawBatchSessionId(ctx.Phase, ctx.Iteration);
+        var conversationId = $"{sessionId}-conv";
+        var startedAt = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var messages = Enumerable.Range(0, RawBatchMessageCount)
+            .Select(index => new Message
+            {
+                MessageId = $"{sessionId}-msg-{index:D2}",
+                ConversationId = conversationId,
+                SessionId = sessionId,
+                Role = index % 2 == 0 ? "user" : "assistant",
+                Content = $"Raw storage fixture message {index:D2}: Alice Martin works on the " +
+                          "Acme Corporation platform team and prefers concise written updates.",
+                TimestampUtc = startedAt.AddSeconds(index),
+            })
+            .ToList();
+
+        var memory = ctx.Profile.Services.GetRequiredService<IMemoryService>();
+        var stored = await memory.AddMessagesAsync(messages, ctx.CancellationToken).ConfigureAwait(false);
+        ctx.Turn.Add("store.messages", stored.Count);
+
+        var storedIds = stored.Select(message => message.MessageId).ToArray();
+        var expectedIds = messages.Select(message => message.MessageId).ToArray();
+        var embeddingsComplete = stored.All(message =>
+            message.Embedding is { Length: > 0 } embedding &&
+            embedding.Length == ctx.Profile.Dimensions);
+        var idsInOrder = storedIds.SequenceEqual(expectedIds, StringComparer.Ordinal);
+        var embeddingRequests = ctx.Turn.Counter("embed.requests");
+        var embeddedItems = ctx.Turn.Counter("embed.items");
+        var modelCalls = ctx.Turn.Counter("llm.calls");
+
+        if (stored.Count != RawBatchMessageCount ||
+            !idsInOrder ||
+            !embeddingsComplete ||
+            embeddingRequests != RawBatchMessageCount ||
+            embeddedItems != RawBatchMessageCount ||
+            modelCalls != 0)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-06 did not exercise its raw-storage contract (stored={stored.Count}/" +
+                $"{RawBatchMessageCount}, ids_in_order={idsInOrder}, " +
+                $"embeddings_complete={embeddingsComplete}, embed.requests/items=" +
+                $"{embeddingRequests}/{embeddedItems}, expected {RawBatchMessageCount}/" +
+                $"{RawBatchMessageCount}; llm.calls={modelCalls}/0). This scenario must measure " +
+                "message embedding and persistence without extraction.");
+        }
+    }
+
+    private static async Task VerifyRawBatchAsync(ScenarioVerificationContext ctx)
+    {
+        var sessionId = RawBatchSessionId(ctx.Phase, ctx.Iteration);
+        var expectedIds = Enumerable.Range(0, RawBatchMessageCount)
+            .Select(index => $"{sessionId}-msg-{index:D2}")
+            .ToArray();
+        var shape = await PerfFixture.InspectRawBatchStorageAsync(
+            ctx.Profile,
+            sessionId,
+            ctx.Profile.Dimensions).ConfigureAwait(false);
+        var idsInOrder = shape.Ids.SequenceEqual(expectedIds, StringComparer.Ordinal);
+
+        if (shape.Messages != RawBatchMessageCount ||
+            shape.MessagesWithExpectedEmbedding != RawBatchMessageCount ||
+            shape.DistinctIds != RawBatchMessageCount ||
+            !idsInOrder)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-06 graph read-back failed (messages={shape.Messages}/" +
+                $"{RawBatchMessageCount}, expected-dimension embeddings=" +
+                $"{shape.MessagesWithExpectedEmbedding}/{RawBatchMessageCount}, distinct ids=" +
+                $"{shape.DistinctIds}/{RawBatchMessageCount}, ids_in_order={idsInOrder}). Counters " +
+                "alone cannot prove that the raw messages and embeddings were persisted.");
+        }
+    }
+
+    private static string RawBatchSessionId(string phase, int iteration) =>
+        $"perf-w06-{phase}-{iteration}";
 
     private static void AssertScriptedExtraction(ScenarioContext ctx, string scenarioId)
     {
