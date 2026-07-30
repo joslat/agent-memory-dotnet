@@ -71,6 +71,49 @@ public sealed class LongMemEvalRuntimeTests
         snapshot.Calls.Should().Be(2);
         snapshot.Failures.Should().Be(1);
         snapshot.Duration.Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
+        snapshot.FailureDetails.Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            CallOrdinal = 2,
+            Purpose = "other",
+            ExceptionType = typeof(InvalidOperationException).FullName,
+            ProviderStatus = (int?)null
+        });
+        snapshot.DroppedFailureDetails.Should().Be(0);
+        snapshot.ToString().Should().NotContain("sensitive");
+    }
+
+    [Fact]
+    public async Task ChatCallMeter_CapsContentFreeFailureDetails()
+    {
+        var inner = Substitute.For<IChatClient>();
+        inner.GetResponseAsync(
+                Arg.Any<IEnumerable<ChatMessage>>(),
+                Arg.Any<ChatOptions?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<ChatResponse>(
+                new InvalidOperationException("sensitive provider failure")));
+        using var meter = new LongMemEvalChatCallMeter(inner);
+
+        for (var index = 0; index < 33; index++)
+        {
+            Func<Task> fail = async () => await meter.GetResponseAsync(
+            [
+                new ChatMessage(
+                    ChatRole.System,
+                    "You are an entity extraction assistant. sensitive prompt")
+            ]);
+            await fail.Should().ThrowAsync<InvalidOperationException>();
+        }
+
+        var snapshot = meter.Snapshot();
+        snapshot.Calls.Should().Be(33);
+        snapshot.Failures.Should().Be(33);
+        snapshot.FailureDetails.Should().HaveCount(32);
+        snapshot.FailureDetails.Should().OnlyContain(detail =>
+            detail.Purpose == "entity" &&
+            detail.ExceptionType == typeof(InvalidOperationException).FullName &&
+            detail.ProviderStatus == null);
+        snapshot.DroppedFailureDetails.Should().Be(1);
         snapshot.ToString().Should().NotContain("sensitive");
     }
 

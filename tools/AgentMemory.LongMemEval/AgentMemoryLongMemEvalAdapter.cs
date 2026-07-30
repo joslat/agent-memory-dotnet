@@ -238,6 +238,9 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                     if (sourceMessages.Length == 0)
                         continue;
 
+                    var callsBefore = _options.PreparationOnly &&
+                        _chatClient is LongMemEvalChatCallMeter callMeter
+                            ? callMeter.Snapshot() : null;
                     try
                     {
                         var extraction = await timings.MeasureAsync(
@@ -254,6 +257,43 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                                     cancellationToken))).ConfigureAwait(false);
                         extractionUnits++;
                         _options.ExtractionProgress?.Invoke(extractionUnits, extractionGroups.Length);
+                        if (callsBefore is not null &&
+                            _chatClient is LongMemEvalChatCallMeter extractionCallMeter)
+                        {
+                            var callsAfter = extractionCallMeter.Snapshot();
+                            var callDelta = callsAfter.Calls - callsBefore.Calls;
+                            var failureDelta = callsAfter.Failures - callsBefore.Failures;
+                            if (callDelta != 4 || failureDelta != 0)
+                            {
+                                var failureDetails = callsAfter.FailureDetails
+                                    .Where(detail => detail.CallOrdinal > callsBefore.Calls)
+                                    .Select(detail =>
+                                        $"call {detail.CallOrdinal}, purpose {detail.Purpose}, " +
+                                        $"exception {detail.ExceptionType}, status " +
+                                        $"{detail.ProviderStatus?.ToString() ?? "none"}")
+                                    .ToArray();
+                                var detailSuffix = failureDetails.Length == 0
+                                    ? string.Empty
+                                    : $" Failure details: {string.Join("; ", failureDetails)}.";
+                                var droppedDelta =
+                                    callsAfter.DroppedFailureDetails -
+                                    callsBefore.DroppedFailureDetails;
+                                RecordTelemetry(
+                                    questionNumber,
+                                    messages.Count,
+                                    0,
+                                    false,
+                                    "extraction-provider-accounting-error",
+                                    evidenceQuestion.QuestionId,
+                                    extractionUnits: extractionUnits);
+                                throw new LongMemEvalExtractionAccountingException(
+                                    $"LongMemEval extraction provider accounting mismatch at " +
+                                    $"question {questionNumber}, source session {group.Key}: " +
+                                    $"observed {callDelta} calls and {failureDelta} failures; " +
+                                    $"expected exactly 4 calls and zero failures.{detailSuffix} " +
+                                    $"Dropped failure details: {droppedDelta}.");
+                            }
+                        }
                         if (extraction.Status != IngestionStatus.Succeeded)
                         {
                             RecordTelemetry(
@@ -267,6 +307,10 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                             throw new InvalidOperationException(
                                 $"LongMemEval extraction unit {group.Key} did not complete successfully.");
                         }
+                    }
+                    catch (LongMemEvalExtractionAccountingException)
+                    {
+                        throw;
                     }
                     catch (Exception) when (!cancellationToken.IsCancellationRequested)
                     {
@@ -675,6 +719,15 @@ public sealed class AgentMemoryLongMemEvalAdapter :
     private static string Sanitize(string value) =>
         string.Concat(value.Select(character =>
             char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
+}
+
+internal sealed class LongMemEvalExtractionAccountingException
+    : InvalidOperationException
+{
+    public LongMemEvalExtractionAccountingException(string message)
+        : base(message)
+    {
+    }
 }
 
 public sealed record LongMemEvalAdapterOptions
