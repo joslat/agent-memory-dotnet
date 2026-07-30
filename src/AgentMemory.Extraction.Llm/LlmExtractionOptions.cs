@@ -16,6 +16,12 @@ public sealed class LlmExtractionOptions
     public int MaxRetries { get; set; } = 2;
 
     /// <summary>
+    /// Whether extraction requests should ask the chat provider for a JSON response.
+    /// Disable only for providers that do not support the portable response-format hint.
+    /// </summary>
+    public bool UseJsonResponseFormat { get; set; } = true;
+
+    /// <summary>
     /// Model identifier to use. <c>null</c> (the default) means use the <c>IChatClient</c> default.
     /// </summary>
     public string? ModelId { get; set; }

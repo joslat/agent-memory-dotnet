@@ -342,6 +342,7 @@ internal static class LongMemEvalPreparedPairProgram
                         LongMemEvalMemoryMode.Hybrid.Fingerprint()
                     },
                     extractionSourceTime = expectation.ExtractionSourceTime,
+                    extractionResponseFormat = expectation.UseJsonResponseFormat ? "json-object" : "unspecified",
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,

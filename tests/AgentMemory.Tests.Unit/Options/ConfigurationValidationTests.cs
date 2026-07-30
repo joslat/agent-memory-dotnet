@@ -323,6 +323,12 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void LlmExtractionOptions_Default_UseJsonResponseFormatIsTrue()
+    {
+        new LlmExtractionOptions().UseJsonResponseFormat.Should().BeTrue();
+    }
+
+    [Fact]
     public void LlmExtractionOptions_Default_ModelIdIsNull()
     {
         new LlmExtractionOptions().ModelId.Should().BeNull();

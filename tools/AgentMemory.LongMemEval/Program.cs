@@ -177,6 +177,8 @@ internal static class LongMemEvalProgram
                     extractionModel = options.MemoryMode.UsesExtraction() ? extractionDeployment : null,
                     extractionTemperatureCompatibility = options.MemoryMode.UsesExtraction()
                         ? "explicit-zero-to-provider-default" : null,
+                    extractionResponseFormat = options.MemoryMode.UsesExtraction()
+                        ? "json-object" : null,
                     extractionSourceTime = options.MemoryMode.UsesExtraction()
                         ? "metadata-only-not-in-extraction-prompt" : null,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),

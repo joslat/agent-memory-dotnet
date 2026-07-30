@@ -90,6 +90,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.ModelId = extractionModelId;
                 options.Temperature = 0;
                 options.MaxRetries = 2;
+                options.UseJsonResponseFormat = true;
             }
             : null;
         services.AddNeo4jAgentMemory(

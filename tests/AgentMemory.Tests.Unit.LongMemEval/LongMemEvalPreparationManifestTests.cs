@@ -40,6 +40,7 @@ public sealed class LongMemEvalPreparationManifestTests
     [InlineData("dataset")]
     [InlineData("model")]
     [InlineData("budget")]
+    [InlineData("response-format")]
     public void PreparedState_RejectsChangedConfiguration(string field)
     {
         var manifest = Manifest();
@@ -49,6 +50,7 @@ public sealed class LongMemEvalPreparationManifestTests
             "dataset" => expected with { DatasetSha256 = "different-dataset" },
             "model" => expected with { ExtractionModelId = "different-model" },
             "budget" => expected with { MaxRelevantMessages = 31 },
+            "response-format" => expected with { UseJsonResponseFormat = false },
             _ => throw new ArgumentOutOfRangeException(nameof(field))
         };
 

@@ -28,11 +28,12 @@ internal sealed record LongMemEvalPreparationManifest(
     int EmbeddingDimensions,
     int MaxRelevantMessages,
     string ExtractionSourceTime,
+    bool UseJsonResponseFormat,
     IReadOnlyList<LongMemEvalPreparedQuestion> Questions,
     long InitialExtractionCalls,
     string Fingerprint)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     internal int MessagesPrepared => Questions.Sum(question => question.MessagesPrepared);
 
@@ -52,7 +53,8 @@ internal sealed record LongMemEvalPreparationManifest(
         int maxRelevantMessages,
         string extractionSourceTime,
         IReadOnlyList<LongMemEvalPreparedQuestion> questions,
-        long initialExtractionCalls)
+        long initialExtractionCalls,
+        bool useJsonResponseFormat = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preparationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetSha256);
@@ -92,6 +94,7 @@ internal sealed record LongMemEvalPreparationManifest(
             embeddingDimensions,
             maxRelevantMessages,
             extractionSourceTime,
+            useJsonResponseFormat,
             materialized,
             initialExtractionCalls,
             Fingerprint: string.Empty);
@@ -128,6 +131,7 @@ internal sealed record LongMemEvalPreparationManifest(
             manifest.EmbeddingDimensions,
             manifest.MaxRelevantMessages,
             manifest.ExtractionSourceTime,
+            manifest.UseJsonResponseFormat,
             Questions = manifest.Questions.Select(question => new
             {
                 question.QuestionNumber,
@@ -162,7 +166,8 @@ internal sealed record LongMemEvalPreparationExpectation(
     string EmbeddingModelId,
     int EmbeddingDimensions,
     int MaxRelevantMessages,
-    string ExtractionSourceTime)
+    string ExtractionSourceTime,
+    bool UseJsonResponseFormat = true)
 {
     internal void Validate(LongMemEvalPreparationManifest manifest)
     {
@@ -175,6 +180,7 @@ internal sealed record LongMemEvalPreparationExpectation(
             !string.Equals(manifest.EmbeddingModelId, EmbeddingModelId, StringComparison.Ordinal) ||
             manifest.EmbeddingDimensions != EmbeddingDimensions ||
             manifest.MaxRelevantMessages != MaxRelevantMessages ||
+            manifest.UseJsonResponseFormat != UseJsonResponseFormat ||
             !string.Equals(
                 manifest.ExtractionSourceTime,
                 ExtractionSourceTime,
@@ -196,7 +202,8 @@ internal static class LongMemEvalPreparationFingerprint
         string extractionModelId,
         string embeddingModelId,
         int embeddingDimensions,
-        int maxRelevantMessages) =>
+        int maxRelevantMessages,
+        bool useJsonResponseFormat = true) =>
         new(
             datasetSha256,
             agentEvalRevision,
@@ -206,7 +213,8 @@ internal static class LongMemEvalPreparationFingerprint
             embeddingModelId,
             embeddingDimensions,
             maxRelevantMessages,
-            "metadata-only-not-in-extraction-prompt");
+            "metadata-only-not-in-extraction-prompt",
+            useJsonResponseFormat);
 }
 public sealed class LongMemEvalPreparedState
 {

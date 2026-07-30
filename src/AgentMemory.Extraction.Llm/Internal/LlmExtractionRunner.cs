@@ -81,6 +81,8 @@ internal sealed class LlmExtractionRunner
         var opts = new ChatOptions { Temperature = _options.Temperature };
         if (!string.IsNullOrEmpty(_options.ModelId))
             opts.ModelId = _options.ModelId;
+        if (_options.UseJsonResponseFormat)
+            opts.ResponseFormat = ChatResponseFormat.Json;
         return opts;
     }
 
