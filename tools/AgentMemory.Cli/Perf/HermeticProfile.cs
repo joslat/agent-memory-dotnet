@@ -149,6 +149,10 @@ public sealed class HermeticProfile : IAsyncDisposable
             // stay registered and a post-turn scenario would measure extraction that never happens.
             llm => { });
 
+        // LAB-P0 intercepts only its explicit source marker and delegates every other extraction.
+        // Register before the provider is built so the real pipeline still owns resolution/persistence.
+        FrozenExtractionOverrides.Decorate(services);
+
         // Registered exactly as a host source would be, but the shared MemoryOptions keep GraphRAG
         // disabled. PERF-R-08 builds an isolated production assembler with EnableGraphRag=true; every
         // other scenario continues to exercise shipped defaults and cannot call this source.

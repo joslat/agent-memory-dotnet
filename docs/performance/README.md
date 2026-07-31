@@ -269,6 +269,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label graphrag \
 dotnet run --project tools/AgentMemory.Cli -- perf --label session-extraction \
   --scenarios PERF-W-05 --iterations 3
 
+
+# Isolates resolution, learned-memory embeddings, persistence, provenance, and owner isolation
+dotnet run --project tools/AgentMemory.Cli -- perf --label frozen-persistence \
+  --scenarios PERF-W-08 --iterations 10
 # Restores the reusable 250k-node Scale-M dataset, then runs the same guarded scenario
 dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
   --scale M --scenarios PERF-R-04 --iterations 1
@@ -338,6 +342,11 @@ the per-turn ingestion scenarios verify message persistence and extraction outco
 extraction additionally requires exactly 50 source messages and reads the graph back after the measured
 turn to prove that two entities, two facts, one preference, and 250 provenance relationships were
 actually stored. Fixture setup and graph verification are outside the measured scope. Those failures
+`PERF-W-08` separately bypasses model extraction for one harness-only marker, then exercises the real
+resolution-to-persistence product path. It requires zero model/storage/recall work inside the measured
+turn, exact 2/2/1/1 learned graph output, all supported source provenance, and zero cross-owner edges.
+Its deterministic embedding request count includes both semantic entity-resolution probes and
+learned-memory embeddings.
 are otherwise silent and would produce a confident, wrong number.
 
 ### Pull-request regression gate

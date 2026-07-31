@@ -156,4 +156,28 @@ public sealed class PerfScenarioCatalogTests
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-W-07");
     }
+
+    [Fact]
+    public void Catalog_ContainsFrozenPersistenceScenario_WithStableContract()
+    {
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-W-08");
+
+        scenario.Description.Should().ContainEquivalentOf("frozen");
+        scenario.Description.Should().ContainEquivalentOf("persistence");
+        scenario.SupportsInterleavedAb.Should().BeFalse(
+            "the arm persists learned graph state under a unique owner/session");
+        scenario.SetupAsync.Should().NotBeNull(
+            "the one source message must be stored outside the measured turn");
+        scenario.VerifyAsync.Should().NotBeNull(
+            "learned graph shape and provenance must be read back outside the measured turn");
+    }
+
+    [Fact]
+    public void Select_FrozenPersistenceScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-W-08");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-W-08");
+    }
 }

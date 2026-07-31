@@ -77,7 +77,7 @@ public sealed record ScenarioVerificationContext(
 /// defaults. Together they replace estimates with facts about recall cost before the model runs and
 /// ingestion cost after it, including turns that exercise policy and workload extremes.
 /// </summary>
-public static class PerfScenarios
+public static partial class PerfScenarios
 {
     public static IReadOnlyList<PerfScenario> All { get; } =
     [
@@ -124,6 +124,13 @@ public static class PerfScenarios
             "PERF-W-07",
             "Four category extraction calls over one fixed session with no persistence",
             ExtractOnlyAsync),
+        new(
+            "PERF-W-08",
+            "Frozen extraction output through resolution, embeddings, and learned-memory persistence",
+            PersistFrozenExtractionAsync,
+            SupportsInterleavedAb: false,
+            SetupAsync: PrepareFrozenPersistenceAsync,
+            VerifyAsync: VerifyFrozenPersistenceAsync),
     ];
 
     internal const string StoreProbeUserMessage =

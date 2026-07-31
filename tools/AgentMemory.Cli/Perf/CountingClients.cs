@@ -17,7 +17,7 @@ public sealed class CountingEmbeddingGenerator : IEmbeddingGenerator<string, Emb
 
     public CountingEmbeddingGenerator(IEmbeddingGenerator<string, Embedding<float>> inner) => _inner = inner;
 
-    public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+    public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
         IEnumerable<string> values,
         EmbeddingGenerationOptions? options = null,
         CancellationToken cancellationToken = default)
@@ -34,7 +34,13 @@ public sealed class CountingEmbeddingGenerator : IEmbeddingGenerator<string, Emb
             turn.Add("embed.chars", materialized.Sum(v => (long)(v?.Length ?? 0)));
         }
 
-        return _inner.GenerateAsync(materialized, options, cancellationToken);
+        var startedAt = Stopwatch.GetTimestamp();
+        var response = await _inner.GenerateAsync(materialized, options, cancellationToken)
+            .ConfigureAwait(false);
+        turn?.RecordSpan(
+            "provider.embedding",
+            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        return response;
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) =>
