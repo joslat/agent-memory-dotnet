@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Scoped<IFactExtractor, LlmFactExtractor>());
         services.Replace(ServiceDescriptor.Scoped<IPreferenceExtractor, LlmPreferenceExtractor>());
         services.Replace(ServiceDescriptor.Scoped<IRelationshipExtractor, LlmRelationshipExtractor>());
+        services.TryAddScoped<IUnifiedMemoryExtractor, LlmUnifiedMemoryExtractor>();
 
         return services;
     }

@@ -22,6 +22,13 @@ public sealed class LlmExtractionOptions
     public bool UseJsonResponseFormat { get; set; } = true;
 
     /// <summary>
+    /// Uses one typed model response for entities, facts, preferences, and relationships.
+    /// Disabled by default until the unified path passes live extraction-quality acceptance;
+    /// the existing four-category extraction path remains the compatibility control.
+    /// </summary>
+    public bool UseUnifiedExtraction { get; set; }
+
+    /// <summary>
     /// Model identifier to use. <c>null</c> (the default) means use the <c>IChatClient</c> default.
     /// </summary>
     public string? ModelId { get; set; }

@@ -22,6 +22,7 @@ internal sealed class ExtractionStage : IExtractionStage
     private readonly IReadOnlyList<IFactExtractor> _factExtractors;
     private readonly IReadOnlyList<IPreferenceExtractor> _preferenceExtractors;
     private readonly IReadOnlyList<IRelationshipExtractor> _relationshipExtractors;
+    private readonly IReadOnlyList<IUnifiedMemoryExtractor> _unifiedExtractors;
     private readonly IEntityResolver _entityResolver;
     private readonly ExtractionOptions _options;
     private readonly ILogger<ExtractionStage> _logger;
@@ -31,6 +32,7 @@ internal sealed class ExtractionStage : IExtractionStage
         IEnumerable<IFactExtractor> factExtractors,
         IEnumerable<IPreferenceExtractor> preferenceExtractors,
         IEnumerable<IRelationshipExtractor> relationshipExtractors,
+        IEnumerable<IUnifiedMemoryExtractor> unifiedExtractors,
         IEntityResolver entityResolver,
         IOptions<ExtractionOptions> extractionOptions,
         ILogger<ExtractionStage> logger)
@@ -39,6 +41,7 @@ internal sealed class ExtractionStage : IExtractionStage
         _factExtractors = factExtractors.ToList().AsReadOnly();
         _preferenceExtractors = preferenceExtractors.ToList().AsReadOnly();
         _relationshipExtractors = relationshipExtractors.ToList().AsReadOnly();
+        _unifiedExtractors = unifiedExtractors.ToList().AsReadOnly();
         _entityResolver = entityResolver;
         _options = extractionOptions.Value;
         _logger = logger;
@@ -59,30 +62,48 @@ internal sealed class ExtractionStage : IExtractionStage
             _entityExtractors.Count, _factExtractors.Count,
             _preferenceExtractors.Count, _relationshipExtractors.Count, strategy);
 
-        // 1. Run all enabled extractor types in parallel.
-        var entityRun = typesToExtract.HasFlag(ExtractionTypes.Entities)
-            ? RunExtractorsAsync(_entityExtractors, e => e.ExtractAsync(messages, cancellationToken),
-                strategy, MergeStrategyFactory.CreateEntityStrategy, "entity",
-                MemoryItemKind.Entity, MemoryErrorCodes.EntityExtractionFailed, cancellationToken)
-            : EmptyRun<ExtractedEntity>();
-
-        var factRun = typesToExtract.HasFlag(ExtractionTypes.Facts)
-            ? RunExtractorsAsync(_factExtractors, f => f.ExtractAsync(messages, cancellationToken),
-                strategy, MergeStrategyFactory.CreateFactStrategy, "fact",
-                MemoryItemKind.Fact, MemoryErrorCodes.FactExtractionFailed, cancellationToken)
-            : EmptyRun<ExtractedFact>();
-
-        var prefRun = typesToExtract.HasFlag(ExtractionTypes.Preferences)
-            ? RunExtractorsAsync(_preferenceExtractors, p => p.ExtractAsync(messages, cancellationToken),
-                strategy, MergeStrategyFactory.CreatePreferenceStrategy, "preference",
-                MemoryItemKind.Preference, MemoryErrorCodes.PreferenceExtractionFailed, cancellationToken)
-            : EmptyRun<ExtractedPreference>();
-
-        var relRun = typesToExtract.HasFlag(ExtractionTypes.Relationships)
-            ? RunExtractorsAsync(_relationshipExtractors, r => r.ExtractAsync(messages, cancellationToken),
-                strategy, MergeStrategyFactory.CreateRelationshipStrategy, "relationship",
-                MemoryItemKind.Relationship, MemoryErrorCodes.RelationshipExtractionFailed, cancellationToken)
-            : EmptyRun<ExtractedRelationship>();
+        Task<(IReadOnlyList<ExtractedEntity> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> entityRun;
+        Task<(IReadOnlyList<ExtractedFact> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> factRun;
+        Task<(IReadOnlyList<ExtractedPreference> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> prefRun;
+        Task<(IReadOnlyList<ExtractedRelationship> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> relRun;
+        IReadOnlyList<IngestionItemOutcome> unifiedOutcomes = Array.Empty<IngestionItemOutcome>();
+        var unifiedExtractor = typesToExtract != ExtractionTypes.None
+            ? _unifiedExtractors.FirstOrDefault(extractor => extractor.IsEnabled)
+            : null;
+        if (unifiedExtractor is not null)
+        {
+            var unifiedRun = await ExtractUnifiedSafeAsync(
+                unifiedExtractor, messages, typesToExtract, cancellationToken).ConfigureAwait(false);
+            var unified = unifiedRun.Result;
+            unifiedOutcomes = unifiedRun.Outcomes;
+            entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? unified.Entities : []);
+            factRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Facts) ? unified.Facts : []);
+            prefRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Preferences) ? unified.Preferences : []);
+            relRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Relationships) ? unified.Relationships : []);
+        }
+        else
+        {
+            entityRun = typesToExtract.HasFlag(ExtractionTypes.Entities)
+                ? RunExtractorsAsync(_entityExtractors, e => e.ExtractAsync(messages, cancellationToken),
+                    strategy, MergeStrategyFactory.CreateEntityStrategy, "entity",
+                    MemoryItemKind.Entity, MemoryErrorCodes.EntityExtractionFailed, cancellationToken)
+                : EmptyRun<ExtractedEntity>();
+            factRun = typesToExtract.HasFlag(ExtractionTypes.Facts)
+                ? RunExtractorsAsync(_factExtractors, f => f.ExtractAsync(messages, cancellationToken),
+                    strategy, MergeStrategyFactory.CreateFactStrategy, "fact",
+                    MemoryItemKind.Fact, MemoryErrorCodes.FactExtractionFailed, cancellationToken)
+                : EmptyRun<ExtractedFact>();
+            prefRun = typesToExtract.HasFlag(ExtractionTypes.Preferences)
+                ? RunExtractorsAsync(_preferenceExtractors, p => p.ExtractAsync(messages, cancellationToken),
+                    strategy, MergeStrategyFactory.CreatePreferenceStrategy, "preference",
+                    MemoryItemKind.Preference, MemoryErrorCodes.PreferenceExtractionFailed, cancellationToken)
+                : EmptyRun<ExtractedPreference>();
+            relRun = typesToExtract.HasFlag(ExtractionTypes.Relationships)
+                ? RunExtractorsAsync(_relationshipExtractors, r => r.ExtractAsync(messages, cancellationToken),
+                    strategy, MergeStrategyFactory.CreateRelationshipStrategy, "relationship",
+                    MemoryItemKind.Relationship, MemoryErrorCodes.RelationshipExtractionFailed, cancellationToken)
+                : EmptyRun<ExtractedRelationship>();
+        }
 
         await Task.WhenAll(entityRun, factRun, prefRun, relRun).ConfigureAwait(false);
 
@@ -92,6 +113,7 @@ internal sealed class ExtractionStage : IExtractionStage
         var (rawRelationships, relOutcomes) = await relRun.ConfigureAwait(false);
 
         var outcomes = new List<IngestionItemOutcome>();
+        outcomes.AddRange(unifiedOutcomes);
         outcomes.AddRange(entityOutcomes);
         outcomes.AddRange(factOutcomes);
         outcomes.AddRange(prefOutcomes);
@@ -281,6 +303,65 @@ internal sealed class ExtractionStage : IExtractionStage
     private static Task<(IReadOnlyList<T> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> EmptyRun<T>() where T : class =>
         Task.FromResult<(IReadOnlyList<T>, IReadOnlyList<IngestionItemOutcome>)>(
             (Array.Empty<T>(), Array.Empty<IngestionItemOutcome>()));
+
+    private static Task<(IReadOnlyList<T> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> CompletedRun<T>(
+        IReadOnlyList<T> items) where T : class =>
+        Task.FromResult((items, (IReadOnlyList<IngestionItemOutcome>)Array.Empty<IngestionItemOutcome>()));
+
+    private async Task<(UnifiedExtractionResult Result, IReadOnlyList<IngestionItemOutcome> Outcomes)> ExtractUnifiedSafeAsync(
+        IUnifiedMemoryExtractor extractor,
+        IReadOnlyList<Message> messages,
+        ExtractionTypes typesToExtract,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await extractor.ExtractAsync(messages, cancellationToken).ConfigureAwait(false),
+                Array.Empty<IngestionItemOutcome>());
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unified memory extraction threw — continuing with empty results.");
+            var outcomes = new List<IngestionItemOutcome>(4);
+            AddUnifiedFailure(outcomes, typesToExtract, ExtractionTypes.Entities,
+                MemoryItemKind.Entity, "entity", MemoryErrorCodes.EntityExtractionFailed, ex);
+            AddUnifiedFailure(outcomes, typesToExtract, ExtractionTypes.Facts,
+                MemoryItemKind.Fact, "fact", MemoryErrorCodes.FactExtractionFailed, ex);
+            AddUnifiedFailure(outcomes, typesToExtract, ExtractionTypes.Preferences,
+                MemoryItemKind.Preference, "preference", MemoryErrorCodes.PreferenceExtractionFailed, ex);
+            AddUnifiedFailure(outcomes, typesToExtract, ExtractionTypes.Relationships,
+                MemoryItemKind.Relationship, "relationship", MemoryErrorCodes.RelationshipExtractionFailed, ex);
+            return (new UnifiedExtractionResult(), outcomes);
+        }
+    }
+
+    private static void AddUnifiedFailure(
+        ICollection<IngestionItemOutcome> outcomes,
+        ExtractionTypes typesToExtract,
+        ExtractionTypes requiredType,
+        MemoryItemKind kind,
+        string sourceKey,
+        string errorCode,
+        Exception exception)
+    {
+        if (!typesToExtract.HasFlag(requiredType))
+            return;
+
+        outcomes.Add(new IngestionItemOutcome
+        {
+            Kind = kind,
+            Stage = IngestionStage.Extraction,
+            Status = IngestionItemStatus.Failed,
+            SourceKey = $"unified:{sourceKey}",
+            ErrorCode = errorCode,
+            ErrorMessage = exception.Message,
+            Retryable = true,
+        });
+    }
 
     private async Task<(IReadOnlyList<T> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> RunExtractorsAsync<TExtractor, T>(
         IReadOnlyList<TExtractor> extractors,

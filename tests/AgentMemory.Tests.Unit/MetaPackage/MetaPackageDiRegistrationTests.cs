@@ -203,6 +203,7 @@ public sealed class MetaPackageDiRegistrationTests
         services.Should().Contain(d => d.ServiceType == typeof(IPreferenceExtractor) && d.ImplementationType == typeof(LlmPreferenceExtractor));
         services.Should().Contain(d => d.ServiceType == typeof(IRelationshipExtractor) && d.ImplementationType == typeof(LlmRelationshipExtractor));
 
+        services.Should().Contain(d => d.ServiceType == typeof(IUnifiedMemoryExtractor) && d.ImplementationType == typeof(LlmUnifiedMemoryExtractor));
         // The stub must NOT remain registered: Replace removed it, so the IEnumerable<IEntityExtractor>
         // the ExtractionStage receives contains only the real extractor, not the empty-returning stub.
         services.Should().NotContain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(AgentMemory.Core.Stubs.StubEntityExtractor));

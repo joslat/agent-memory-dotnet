@@ -180,4 +180,30 @@ public sealed class PerfScenarioCatalogTests
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-W-08");
     }
+
+    [Fact]
+    public void Catalog_ContainsUnifiedExtractionScenario_WithStableContract()
+    {
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-W-09");
+
+        scenario.Description.Should().ContainEquivalentOf("one");
+        scenario.Description.Should().ContainEquivalentOf("unified");
+        scenario.Description.Should().ContainEquivalentOf("extraction");
+        scenario.Description.Should().ContainEquivalentOf("persistence");
+        scenario.SupportsInterleavedAb.Should().BeTrue(
+            "the arm invokes one pure extractor call and creates no mutable graph state");
+        scenario.SetupAsync.Should().BeNull(
+            "the fixed source session is in-memory and must not add setup storage");
+        scenario.VerifyAsync.Should().BeNull(
+            "the measured body self-asserts exact results and every excluded dependency");
+    }
+
+    [Fact]
+    public void Select_UnifiedExtractionScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-W-09");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-W-09");
+}
 }

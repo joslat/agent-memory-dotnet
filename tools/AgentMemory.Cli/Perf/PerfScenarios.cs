@@ -131,6 +131,10 @@ public static partial class PerfScenarios
             SupportsInterleavedAb: false,
             SetupAsync: PrepareFrozenPersistenceAsync,
             VerifyAsync: VerifyFrozenPersistenceAsync),
+        new(
+            "PERF-W-09",
+            "One typed unified extraction call over one fixed session with no persistence",
+            ExtractUnifiedOnlyAsync),
     ];
 
     internal const string StoreProbeUserMessage =
@@ -153,6 +157,7 @@ public static partial class PerfScenarios
     /// </summary>
     internal static IReadOnlyList<ScriptedChatClient.Rule> ScriptedRules { get; } =
         [
+            new("structured long-term memory", UnifiedExtractionPayload, UnifiedExtractionProbeMessage),
             new("entity extraction assistant", ExtractionOnlyEntityPayload, ExtractionOnlyProbeMessage),
             new("fact extraction assistant", ExtractionOnlyFactPayload, ExtractionOnlyProbeMessage),
             new("preference extraction assistant", ExtractionOnlyPreferencePayload, ExtractionOnlyProbeMessage),

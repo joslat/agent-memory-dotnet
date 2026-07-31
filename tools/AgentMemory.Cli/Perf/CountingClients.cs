@@ -122,6 +122,7 @@ public sealed class CountingChatClient : IChatClient
         "memory.extraction.facts" or "lab.extraction.fact" => "fact",
         "memory.extraction.preferences" or "lab.extraction.preference" => "preference",
         "memory.extraction.relationships" or "lab.extraction.relationship" => "relationship",
+        "memory.extract.unified" or "lab.extraction.unified" => "unified",
         _ => null,
     };
 

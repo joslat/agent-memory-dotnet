@@ -38,7 +38,8 @@ internal sealed class LlmExtractionRunner
         string userInstruction,
         string conversationText,
         Func<LlmExtractionResponse, IReadOnlyList<T>> project,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool failOnParseExhaustion = false)
     {
         var chatMessages = new List<ChatMessage>
         {
@@ -72,6 +73,9 @@ internal sealed class LlmExtractionRunner
                     "That response was not valid JSON. Reply with ONLY the JSON object — no markdown fences, no prose."));
             }
         }
+        if (failOnParseExhaustion)
+            throw new FormatException("LLM extraction exhausted its parse retries without valid JSON.");
+
 
         return Array.Empty<T>();
     }
