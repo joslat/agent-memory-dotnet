@@ -205,5 +205,33 @@ public sealed class PerfScenarioCatalogTests
 
         selected.Should().ContainSingle();
         selected[0].Id.Should().Be("PERF-W-09");
-}
+    }
+
+    [Fact]
+    public void Catalog_ContainsFullPathColdBuildConcurrencyArms_WithStableContracts()
+    {
+        var expected = new[]
+        {
+            ("PERF-W-10-C01", 1),
+            ("PERF-W-10-C05", 5),
+            ("PERF-W-10-C10", 10),
+        };
+
+        foreach (var (id, workers) in expected)
+        {
+            var scenario = PerfScenarios.All.Single(item => item.Id == id);
+
+            scenario.Description.Should().ContainEquivalentOf("cold-build");
+            scenario.Description.Should().ContainEquivalentOf($"{workers} worker");
+            scenario.SupportsInterleavedAb.Should().BeFalse(
+                "each arm persists ten owner-isolated full-path units");
+            scenario.SetupAsync.Should().BeNull();
+            scenario.VerifyAsync.Should().NotBeNull(
+                "graph shape, provenance, and owner isolation must be read back after the measured wave");
+            scenario.IncludeInDefaultRun.Should().BeFalse(
+                "lab-only full-path waves must not alter the committed default scenario catalog");
+            scenario.RequiresUnifiedExtraction.Should().BeTrue(
+                "the full-path lab measures the accepted one-call extraction candidate");
+        }
+    }
 }

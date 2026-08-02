@@ -69,6 +69,20 @@ public sealed class PerfCommand
             return 1;
         }
 
+        var extractionModes = scenarios
+            .Select(scenario => scenario.RequiresUnifiedExtraction)
+            .Distinct()
+            .ToArray();
+        if (extractionModes.Length != 1)
+        {
+            _output.WriteLine(
+                "error: unified-extraction cold-build labs cannot share one perf run with default-path " +
+                "scenarios. Select only PERF-W-10-C01/C05/C10, or run the default catalog separately.");
+            return 1;
+        }
+        var useUnifiedExtraction = extractionModes[0];
+        var maxConnectionPoolSize = useUnifiedExtraction ? 16 : 100;
+
         if (singleShot &&
             (scenarios.Count != 1 || iterations != 1 || warmup != 0 || qualityGateEnabled))
         {
@@ -91,7 +105,8 @@ public sealed class PerfCommand
 
         using var trace = new TraceLogWriter(Path.Combine(runDir, "trace.ndjson"));
         var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions, scaleName,
-            embeddingLatency, modelLatency, scenarios, singleShot);
+            embeddingLatency, modelLatency, scenarios, singleShot, useUnifiedExtraction,
+            maxConnectionPoolSize);
         trace.RunStart(runId, manifest);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "run.json"), JsonSerializer.Serialize(manifest, Json), cancellationToken)
@@ -107,7 +122,8 @@ public sealed class PerfCommand
 
         await using var profile = await HermeticProfile
             .StartAsync(dimensions, embeddingLatency, modelLatency, _output, scale,
-                scriptedRules, cancellationToken)
+                scriptedRules, cancellationToken, maxConnectionPoolSize,
+                useUnifiedExtraction)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
@@ -286,7 +302,7 @@ public sealed class PerfCommand
     private static object BuildManifest(
         string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions, string scale,
         TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios,
-        bool singleShot) => new
+        bool singleShot, bool useUnifiedExtraction, int maxConnectionPoolSize) => new
         {
             runId,
             label,
@@ -316,6 +332,8 @@ public sealed class PerfCommand
                 embeddingDimensions = dimensions,
                 embeddingLatencyMs = embeddingLatency.TotalMilliseconds,
                 modelLatencyMs = modelLatency.TotalMilliseconds,
+                unifiedExtraction = useUnifiedExtraction,
+                neo4jMaxConnectionPoolSize = maxConnectionPoolSize,
                 neo4jImage = "neo4j:5.26",
                 os = Environment.OSVersion.ToString(),
                 processorCount = Environment.ProcessorCount,
@@ -538,6 +556,7 @@ public sealed class PerfCommand
             counters = r.Counters,
             spansMs = r.SpanMilliseconds,
             queryFingerprints = r.QueryFingerprints,
+            samples = r.Samples,
         }));
         await File.WriteAllLinesAsync(Path.Combine(runDir, "samples.ndjson"), lines, cancellationToken)
             .ConfigureAwait(false);
@@ -563,6 +582,7 @@ public sealed class PerfCommand
                 counters = sample.Counters,
                 spansMs = sample.SpanMilliseconds,
                 queryFingerprints = sample.QueryFingerprints,
+                samples = sample.Samples,
             },
         };
         await File.WriteAllTextAsync(

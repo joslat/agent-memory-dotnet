@@ -25,7 +25,9 @@ public sealed record PerfScenario(
     bool SupportsInterleavedAb = true,
     PerfDependencyLatencyPreset? DependencyLatency = null,
     Func<ScenarioSetupContext, Task>? SetupAsync = null,
-    Func<ScenarioVerificationContext, Task>? VerifyAsync = null)
+    Func<ScenarioVerificationContext, Task>? VerifyAsync = null,
+    bool IncludeInDefaultRun = true,
+    bool RequiresUnifiedExtraction = false)
 {
     public async Task ExecuteAsync(ScenarioContext context)
     {
@@ -135,6 +137,30 @@ public static partial class PerfScenarios
             "PERF-W-09",
             "One typed unified extraction call over one fixed session with no persistence",
             ExtractUnifiedOnlyAsync),
+        new(
+            "PERF-W-10-C01",
+            "Full cold-build wave over ten isolated owners with 1 worker",
+            ctx => RunConcurrentColdBuildAsync(ctx, 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-10-C05",
+            "Full cold-build wave over ten isolated owners with 5 workers",
+            ctx => RunConcurrentColdBuildAsync(ctx, 5),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 5),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-10-C10",
+            "Full cold-build wave over ten isolated owners with 10 workers",
+            ctx => RunConcurrentColdBuildAsync(ctx, 10),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 10),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
     ];
 
     internal const string StoreProbeUserMessage =
@@ -167,8 +193,11 @@ public static partial class PerfScenarios
 
     public static IReadOnlyList<PerfScenario> Select(string? filter)
     {
-        if (string.IsNullOrWhiteSpace(filter) || filter.Equals("all", StringComparison.OrdinalIgnoreCase))
-            return All;
+        if (string.IsNullOrWhiteSpace(filter) ||
+            filter.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            return All.Where(scenario => scenario.IncludeInDefaultRun).ToList();
+        }
 
         var wanted = filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var selected = All.Where(s => wanted.Contains(s.Id, StringComparer.OrdinalIgnoreCase)).ToList();

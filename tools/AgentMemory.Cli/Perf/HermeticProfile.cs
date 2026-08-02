@@ -1,4 +1,5 @@
 using AgentMemory;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using Microsoft.Extensions.AI;
@@ -95,7 +96,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         PerfScale scale,
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
         CancellationToken cancellationToken = default,
-        int maxConnectionPoolSize = 100)
+        int maxConnectionPoolSize = 100,
+        bool useUnifiedExtraction = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
@@ -104,7 +106,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         var profile = new HermeticProfile(dimensions, scale, scaleRunVolume, maxConnectionPoolSize);
         try
         {
-            await profile.InitializeAsync(embeddingLatency, modelLatency, log, scriptedRules, cancellationToken)
+            await profile.InitializeAsync(
+                    embeddingLatency, modelLatency, log, scriptedRules, useUnifiedExtraction, cancellationToken)
                 .ConfigureAwait(false);
             return profile;
         }
@@ -117,7 +120,8 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     private async Task InitializeAsync(
         TimeSpan embeddingLatency, TimeSpan modelLatency, TextWriter log,
-        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, CancellationToken cancellationToken)
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, bool useUnifiedExtraction,
+        CancellationToken cancellationToken)
     {
         log.WriteLine($"perf: starting {Image} (Testcontainers)…");
         var builder = new Neo4jBuilder(Image)
@@ -147,7 +151,10 @@ public sealed class HermeticProfile : IAsyncDisposable
             },
             // A non-null delegate is what opts the LLM extractors in; without it the Core no-op stubs
             // stay registered and a post-turn scenario would measure extraction that never happens.
-            llm => { });
+            llm =>
+            {
+                llm.UseUnifiedExtraction = useUnifiedExtraction;
+            });
 
         // LAB-P0 intercepts only its explicit source marker and delegates every other extraction.
         // Register before the provider is built so the real pipeline still owns resolution/persistence.

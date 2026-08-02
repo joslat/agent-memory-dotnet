@@ -244,6 +244,22 @@ its whole-turn transaction so an error still identifies the exact failing item. 
 runs reproduced every counter above exactly. Records, estimated bytes, learned items, and both
 zero-tolerance quality guards were unchanged.
 
+### Cold structured-memory build laboratory
+
+These opt-in laboratory arms measure preparation-workflow candidates; they are not yet shipped
+AgentMemory defaults and their controlled-host milliseconds are not deployment latency.
+
+| Candidate | Controlled comparison | Before p50 / p95 | After p50 / p95 | Movement | Correctness guards |
+|---|---|---:|---:|---:|---|
+| Batch 50 raw-message embeddings + writes | `PERF-W-06` control/candidate | 167.84 / 323.08 ms | 60.24 / 86.03 ms | **−64.1% / −73.4%** | 50 messages/vectors; requests 50 → 1; queries 102 → 1; quality 1.000 |
+| One typed extraction response | `PERF-W-07` → `PERF-W-09` | 903.66 / 909.96 ms | 908.79 / 916.96 ms | +0.6% / +0.8% wall; calls **4 → 1**; total tokens **979 → 353** | Exact 2/2/1/1 output; zero retries/failures; quality 1.000 |
+| Bounded independent-owner cold build | `PERF-W-10-C01` → `PERF-W-10-C10` | 34,202.82 / 47,516.61 ms | 3,195.68 / 4,732.44 ms | **10.70× / 10.04× faster** | Exact 10 calls, 10 messages, 20/20/10/10 learned graph, 80 embeddings, 40/70/270 reads/writes/queries, provenance/isolation, quality 1.000 |
+
+The unified response reduces provider capacity and token cost, but not one-unit wall time because the
+four original category calls already overlap. The wall-time lever is bounded concurrency across
+independent owners. The next gate integrates that evidence into the prepared LongMemEval cold-build
+path and must project the fixed ten-question build below 15 minutes before another full build is run.
+
 ---
 
 ## Reproduce it yourself
@@ -277,6 +293,11 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label frozen-persistence \
 # Compares the shipped four-call extractor with one typed unified extraction call
 dotnet run --project tools/AgentMemory.Cli -- perf --label unified-extraction \
   --scenarios PERF-W-07,PERF-W-09 --latency remote --iterations 10
+
+# Measures ten complete owner-isolated cold-build units at 1, 5, and 10 workers
+dotnet run --project tools/AgentMemory.Cli -- perf --label cold-build-concurrency \
+  --scenarios PERF-W-10-C01,PERF-W-10-C05,PERF-W-10-C10 \
+  --latency remote --iterations 3
 
 # Restores the reusable 250k-node Scale-M dataset, then runs the same guarded scenario
 dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
