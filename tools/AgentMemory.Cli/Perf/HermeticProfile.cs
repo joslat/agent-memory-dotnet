@@ -154,6 +154,7 @@ public sealed class HermeticProfile : IAsyncDisposable
             llm =>
             {
                 llm.UseUnifiedExtraction = useUnifiedExtraction;
+                llm.UseMultiSessionBatchExtraction = useUnifiedExtraction;
             });
 
         // LAB-P0 intercepts only its explicit source marker and delegates every other extraction.

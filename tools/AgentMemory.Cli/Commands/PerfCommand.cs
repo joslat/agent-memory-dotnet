@@ -870,7 +870,10 @@ public sealed class PerfCommand
             // Reproduces the shape of a same-region remote deployment, so ordering and overlap
             // optimizations are measurable without a network dependency.
             "remote" => (TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(900)),
-            _ => throw new ArgumentException($"unknown --latency '{latency}'. Use 'zero' or 'remote'."),
+            // Isolates model fan-out changes from an unchanged embedding/persistence path.
+            "model-remote" => (TimeSpan.Zero, TimeSpan.FromMilliseconds(900)),
+            _ => throw new ArgumentException(
+                $"unknown --latency '{latency}'. Use 'zero', 'model-remote', or 'remote'."),
         };
 
     private static string LatencyName(string? latency) =>

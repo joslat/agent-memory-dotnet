@@ -29,6 +29,13 @@ public sealed class LlmExtractionOptions
     public bool UseUnifiedExtraction { get; set; }
 
     /// <summary>
+    /// Enables token-bounded multi-session unified extraction through
+    /// <c>IMemoryExtractionPipeline.ExtractBatchAsync</c>. Disabled by default; single-session
+    /// extraction behavior is unchanged.
+    /// </summary>
+    public bool UseMultiSessionBatchExtraction { get; set; }
+
+    /// <summary>
     /// Model identifier to use. <c>null</c> (the default) means use the <c>IChatClient</c> default.
     /// </summary>
     public string? ModelId { get; set; }

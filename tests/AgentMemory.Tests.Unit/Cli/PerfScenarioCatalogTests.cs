@@ -234,4 +234,31 @@ public sealed class PerfScenarioCatalogTests
                 "the full-path lab measures the accepted one-call extraction candidate");
         }
     }
+
+    [Fact]
+    public void Catalog_ContainsTokenBoundedMultiSessionBatchArms_WithStableContracts()
+    {
+        var expected = new[]
+        {
+            ("PERF-W-11-B01", 1),
+            ("PERF-W-11-B02", 2),
+            ("PERF-W-11-B04", 4),
+        };
+
+        foreach (var (id, batchSize) in expected)
+        {
+            var scenario = PerfScenarios.All.Single(item => item.Id == id);
+
+            scenario.Description.Should().ContainEquivalentOf("multi-session");
+            scenario.Description.Should().ContainEquivalentOf($"batch size {batchSize}");
+            scenario.SupportsInterleavedAb.Should().BeFalse(
+                "each arm persists eight owner-isolated source sessions");
+            scenario.SetupAsync.Should().BeNull();
+            scenario.VerifyAsync.Should().NotBeNull(
+                "graph shape, per-session provenance, ordering, and isolation must be read back");
+            scenario.IncludeInDefaultRun.Should().BeFalse(
+                "lab-only batching arms must not alter the committed default scenario catalog");
+            scenario.RequiresUnifiedExtraction.Should().BeTrue();
+        }
+    }
 }

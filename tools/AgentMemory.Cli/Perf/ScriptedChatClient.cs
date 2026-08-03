@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.Cli.Perf;
@@ -99,6 +101,9 @@ public sealed class ScriptedChatClient : IChatClient
         if (_rules.Count == 0) return _payload;
 
         var prompt = string.Join("\n", messages.Select(m => m.Text ?? string.Empty));
+        if (prompt.Contains("LAB-B1 source", StringComparison.Ordinal))
+            return MultiSessionPayload(prompt);
+
         foreach (var rule in _rules)
         {
             if (prompt.Contains(rule.MatchOn, StringComparison.OrdinalIgnoreCase) &&
@@ -116,6 +121,48 @@ public sealed class ScriptedChatClient : IChatClient
     /// <summary>A well-formed response that extracts nothing.</summary>
     public const string EmptyPayload =
         """{"entities": [], "facts": [], "preferences": [], "relations": []}""";
+
+    private static string MultiSessionPayload(string prompt)
+    {
+        var keys = Regex.Matches(prompt, "<source_session key=\\\"([^\\\"]+)\\\">")
+            .Select(match => match.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            processed_source_sessions = keys,
+            entities = keys.SelectMany(key =>
+            {
+                var unit = key[^2..];
+                return new[]
+                {
+                    new { source_session = key, name = $"Person {unit}", type = "PERSON", confidence = 0.95 },
+                    new { source_session = key, name = $"Company {unit}", type = "ORGANIZATION", confidence = 0.95 },
+                };
+            }),
+            facts = keys.Select(key =>
+            {
+                var unit = key[^2..];
+                return new
+                {
+                    source_session = key,
+                    subject = $"Person {unit}",
+                    predicate = "works_at",
+                    @object = $"Company {unit}",
+                    confidence = 0.9,
+                };
+            }),
+            preferences = keys.Select(key => new
+            {
+                source_session = key, category = "drink", preference = "prefers tea", confidence = 0.9,
+            }),
+            relations = keys.Select(key =>
+            {
+                var unit = key[^2..];
+                return new { source_session = key, source = $"Person {unit}", target = $"Company {unit}", relation_type = "WORKS_AT", confidence = 0.9 };
+            }),
+        });
+    }
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,

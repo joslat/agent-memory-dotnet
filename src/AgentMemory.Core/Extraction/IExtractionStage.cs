@@ -19,4 +19,15 @@ internal interface IExtractionStage
         ExtractionTypes typesToExtract,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies the normal validation, owner-scoped resolution, and filtering stages to a unified
+    /// result that was already extracted by a validated multi-session batch.
+    /// </summary>
+    Task<ExtractionStageResult> ProcessUnifiedAsync(
+        IReadOnlyList<Message> messages,
+        UnifiedExtractionResult extracted,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
 }

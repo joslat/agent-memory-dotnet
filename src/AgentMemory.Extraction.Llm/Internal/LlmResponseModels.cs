@@ -4,6 +4,9 @@ namespace AgentMemory.Extraction.Llm.Internal;
 
 internal sealed class LlmEntityDto
 {
+    [JsonPropertyName("source_session")]
+    public string? SourceSession { get; set; }
+
     [JsonPropertyName("name")]
     public string Name { get; set; } = "";
 
@@ -25,6 +28,9 @@ internal sealed class LlmEntityDto
 
 internal sealed class LlmFactDto
 {
+    [JsonPropertyName("source_session")]
+    public string? SourceSession { get; set; }
+
     [JsonPropertyName("subject")]
     public string Subject { get; set; } = "";
 
@@ -40,6 +46,9 @@ internal sealed class LlmFactDto
 
 internal sealed class LlmPreferenceDto
 {
+    [JsonPropertyName("source_session")]
+    public string? SourceSession { get; set; }
+
     [JsonPropertyName("category")]
     public string Category { get; set; } = "";
 
@@ -55,6 +64,9 @@ internal sealed class LlmPreferenceDto
 
 internal sealed class LlmRelationshipDto
 {
+    [JsonPropertyName("source_session")]
+    public string? SourceSession { get; set; }
+
     [JsonPropertyName("source")]
     public string Source { get; set; } = "";
 
@@ -73,6 +85,9 @@ internal sealed class LlmRelationshipDto
 
 internal sealed class LlmExtractionResponse
 {
+    [JsonPropertyName("processed_source_sessions")]
+    public List<string>? ProcessedSourceSessions { get; set; }
+
     [JsonPropertyName("entities")]
     public List<LlmEntityDto> Entities { get; set; } = new();
 

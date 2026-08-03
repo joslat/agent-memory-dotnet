@@ -13,13 +13,14 @@ namespace AgentMemory.Core.Services;
 /// merge, filter, validate, resolve) followed by <see cref="IPersistenceStage"/> (embed, upsert,
 /// wire provenance).  Implements the public <see cref="IMemoryExtractionPipeline"/> interface.
 /// </summary>
-internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
+internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeline
 {
     private readonly IExtractionStage _extractionStage;
     private readonly IPersistenceStage _persistenceStage;
     private readonly ILogger<MemoryExtractionPipeline> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
     private readonly ExtractionOptions _options;
+    private readonly IReadOnlyList<IMultiSessionUnifiedMemoryExtractor> _multiSessionExtractors;
 
     // Internal ctor: the stage interfaces are internal to Core, so this type is activated by an
     // explicit factory in AddAgentMemoryCore (the default DI activator only selects public ctors).
@@ -28,13 +29,16 @@ internal sealed class MemoryExtractionPipeline : IMemoryExtractionPipeline
         IPersistenceStage persistenceStage,
         ILogger<MemoryExtractionPipeline> logger,
         IMemoryIsolationPolicy isolationPolicy,
-        IOptions<ExtractionOptions>? extractionOptions = null)
+        IOptions<ExtractionOptions>? extractionOptions = null,
+        IEnumerable<IMultiSessionUnifiedMemoryExtractor>? multiSessionExtractors = null)
     {
         _extractionStage = extractionStage;
         _persistenceStage = persistenceStage;
         _logger = logger;
         _isolationPolicy = isolationPolicy;
         _options = extractionOptions?.Value ?? new ExtractionOptions();
+        _multiSessionExtractors = (multiSessionExtractors ?? [])
+            .ToList().AsReadOnly();
     }
 
     /// <inheritdoc/>

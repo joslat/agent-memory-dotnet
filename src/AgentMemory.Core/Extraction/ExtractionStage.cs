@@ -47,11 +47,30 @@ internal sealed class ExtractionStage : IExtractionStage
         _logger = logger;
     }
 
-    public async Task<ExtractionStageResult> ExtractAsync(
+    public Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
         ExtractionTypes typesToExtract,
         MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        ExtractCoreAsync(messages, typesToExtract, scope, preExtracted: null, cancellationToken);
+
+    public Task<ExtractionStageResult> ProcessUnifiedAsync(
+        IReadOnlyList<Message> messages,
+        UnifiedExtractionResult extracted,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(extracted);
+        return ExtractCoreAsync(messages, typesToExtract, scope, extracted, cancellationToken);
+    }
+
+    private async Task<ExtractionStageResult> ExtractCoreAsync(
+        IReadOnlyList<Message> messages,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope,
+        UnifiedExtractionResult? preExtracted,
+        CancellationToken cancellationToken)
     {
         var sourceMessageIds = messages.Select(m => m.MessageId).ToList();
         var strategy = _options.MergeStrategy;
@@ -70,7 +89,14 @@ internal sealed class ExtractionStage : IExtractionStage
         var unifiedExtractor = typesToExtract != ExtractionTypes.None
             ? _unifiedExtractors.FirstOrDefault(extractor => extractor.IsEnabled)
             : null;
-        if (unifiedExtractor is not null)
+        if (preExtracted is not null)
+        {
+            entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? preExtracted.Entities : []);
+            factRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Facts) ? preExtracted.Facts : []);
+            prefRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Preferences) ? preExtracted.Preferences : []);
+            relRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Relationships) ? preExtracted.Relationships : []);
+        }
+        else if (unifiedExtractor is not null)
         {
             var unifiedRun = await ExtractUnifiedSafeAsync(
                 unifiedExtractor, messages, typesToExtract, cancellationToken).ConfigureAwait(false);

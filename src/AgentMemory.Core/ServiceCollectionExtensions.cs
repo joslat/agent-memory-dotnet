@@ -186,7 +186,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IPersistenceStage>(),
             sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>(),
             sp.GetRequiredService<IMemoryIsolationPolicy>(),
-            sp.GetService<IOptions<ExtractionOptions>>()));
+            sp.GetService<IOptions<ExtractionOptions>>(),
+            sp.GetServices<IMultiSessionUnifiedMemoryExtractor>()));
 
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();

@@ -161,6 +161,30 @@ public static partial class PerfScenarios
             VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 10),
             IncludeInDefaultRun: false,
             RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-11-B01",
+            "Full cold-build over eight multi-session sources at batch size 1",
+            ctx => RunMultiSessionBatchAsync(ctx, 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyMultiSessionBatchAsync(ctx, 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-11-B02",
+            "Full cold-build over eight multi-session sources at batch size 2",
+            ctx => RunMultiSessionBatchAsync(ctx, 2),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyMultiSessionBatchAsync(ctx, 2),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-11-B04",
+            "Full cold-build over eight multi-session sources at batch size 4",
+            ctx => RunMultiSessionBatchAsync(ctx, 4),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyMultiSessionBatchAsync(ctx, 4),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
     ];
 
     internal const string StoreProbeUserMessage =
