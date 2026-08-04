@@ -12,7 +12,8 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jEntityRepository : IEntityRepository, IUpsertPersistsProvenance, IBatchMemoryRepository<Entity>
+internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsertPersistsProvenance,
+    IBatchMemoryRepository<Entity>, IFusedBatchMemoryRepository<Entity>
 {
     private const int OwnerOverFetchFactor = Neo4jFactRepository.OwnerOverFetchFactor;
     private const int OwnerOverFetchFloor = Neo4jFactRepository.OwnerOverFetchFloor;

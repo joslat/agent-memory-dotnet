@@ -41,6 +41,9 @@ public sealed class CypherQuerySnapshotTests
 
     // ── MemberData source ─────────────────────────────────────────────────────
 
+    // W1.1 adds one fused statement for each node memory kind.
+    private const int FusedPersistenceQueryCount = 3;
+
     public static IEnumerable<object[]> GetAllCypherQueries()
         => CypherQueryRegistry.GetAll().Select(q => new object[] { q.Name, q.Cypher });
 
@@ -96,9 +99,9 @@ public sealed class CypherQuerySnapshotTests
     {
         var queries = CypherQueryRegistry.GetAll();
 
-        queries.Should().HaveCount(ExpectedQueryCount,
+        queries.Should().HaveCount(ExpectedQueryCount + FusedPersistenceQueryCount,
             because:
-                $"the catalog must contain exactly {ExpectedQueryCount} Cypher query constants. " +
+                $"the catalog must contain exactly {ExpectedQueryCount + FusedPersistenceQueryCount} Cypher query constants. " +
                 "Update CypherQuerySnapshotTests.ExpectedQueryCount if the change was intentional.");
     }
 

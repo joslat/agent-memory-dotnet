@@ -133,7 +133,8 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             cli.HasFlag("single-shot")
                 ? cli.Get("single-shot") ?? bool.TrueString
                 : null,
-            cli.Get("batch-resolution-snapshots"));
+            cli.Get("batch-resolution-snapshots"),
+            cli.Get("coalesced-persistence"));
     }
     catch (Exception ex)
     {

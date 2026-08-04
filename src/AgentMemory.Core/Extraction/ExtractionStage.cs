@@ -211,7 +211,12 @@ internal sealed class ExtractionStage : IExtractionStage
 
             try
             {
-                var entity = failFast && _entityResolver is IExtractionEntityResolver deferredResolver
+                // The extraction pipeline always hands this resolved entity to PersistenceStage. When
+                // that stage owns a coalesced transaction, an eager resolver upsert would write the
+                // same entity twice and sit outside the logical commit boundary. Direct resolver callers
+                // retain their historical persist-on-resolve behavior through ResolveEntityAsync.
+                var deferPersistence = failFast || _options.UseCoalescedPersistenceTransactions;
+                var entity = deferPersistence && _entityResolver is IExtractionEntityResolver deferredResolver
                     ? await deferredResolver.ResolveForPersistenceAsync(
                         extracted, sourceMessageIds, scope, cancellationToken).ConfigureAwait(false)
                     : await _entityResolver.ResolveEntityAsync(

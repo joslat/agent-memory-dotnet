@@ -20,9 +20,14 @@ public static partial class PerfScenarios
     private const int IntegratedEmbeddingItemCount = 720;
     private const int IntegratedLegacyQueryCount = 930;
     private const int IntegratedSnapshotQueryCount = 870;
+    private const int IntegratedCoalescedLegacyQueryCount = 290;
+    private const int IntegratedCoalescedSnapshotQueryCount = 230;
     private const int IntegratedLegacyReadTransactionCount = 120;
     private const int IntegratedSnapshotReadTransactionCount = 60;
-    private const int IntegratedWriteTransactionCount = 250;
+    private const int IntegratedCoalescedLegacyReadTransactionCount = 80;
+    private const int IntegratedCoalescedSnapshotReadTransactionCount = 20;
+    private const int IntegratedLegacyWriteTransactionCount = 250;
+    private const int IntegratedCoalescedWriteTransactionCount = 50;
 
     private static async Task RunIntegratedColdBuildAsync(ScenarioContext context, int workers)
     {
@@ -102,12 +107,23 @@ public static partial class PerfScenarios
         var retries = Math.Max(0, calls - IntegratedOwnerCount);
         context.Turn.Add("llm.unified_batch.retries", retries);
 
-        var expectedQueries = context.Profile.UseBatchEntityResolutionSnapshots
-            ? IntegratedSnapshotQueryCount
-            : IntegratedLegacyQueryCount;
-        var expectedReads = context.Profile.UseBatchEntityResolutionSnapshots
-            ? IntegratedSnapshotReadTransactionCount
-            : IntegratedLegacyReadTransactionCount;
+        var expectedQueries = context.Profile.UseCoalescedPersistenceTransactions
+            ? context.Profile.UseBatchEntityResolutionSnapshots
+                ? IntegratedCoalescedSnapshotQueryCount
+                : IntegratedCoalescedLegacyQueryCount
+            : context.Profile.UseBatchEntityResolutionSnapshots
+                ? IntegratedSnapshotQueryCount
+                : IntegratedLegacyQueryCount;
+        var expectedReads = context.Profile.UseCoalescedPersistenceTransactions
+            ? context.Profile.UseBatchEntityResolutionSnapshots
+                ? IntegratedCoalescedSnapshotReadTransactionCount
+                : IntegratedCoalescedLegacyReadTransactionCount
+            : context.Profile.UseBatchEntityResolutionSnapshots
+                ? IntegratedSnapshotReadTransactionCount
+                : IntegratedLegacyReadTransactionCount;
+        var expectedWrites = context.Profile.UseCoalescedPersistenceTransactions
+            ? IntegratedCoalescedWriteTransactionCount
+            : IntegratedLegacyWriteTransactionCount;
         var countersExact =
             context.Turn.Counter("llm.calls") == IntegratedOwnerCount &&
             calls == IntegratedOwnerCount &&
@@ -124,7 +140,7 @@ public static partial class PerfScenarios
                 IntegratedOwnerCount &&
             context.Turn.Counter("neo4j.queries") == expectedQueries &&
             context.Turn.Counter("neo4j.tx.read") == expectedReads &&
-            context.Turn.Counter("neo4j.tx.write") == IntegratedWriteTransactionCount &&
+            context.Turn.Counter("neo4j.tx.write") == expectedWrites &&
             context.Turn.Counter("persist.entities") == IntegratedSourceSessionCount * 2 &&
             context.Turn.Counter("persist.facts") == IntegratedSourceSessionCount &&
             context.Turn.Counter("persist.preferences") == IntegratedSourceSessionCount &&
@@ -157,7 +173,7 @@ public static partial class PerfScenarios
                 $"queries/read/write={context.Turn.Counter("neo4j.queries")}/" +
                 $"{context.Turn.Counter("neo4j.tx.read")}/" +
                 $"{context.Turn.Counter("neo4j.tx.write")}, expected " +
-                $"{expectedQueries}/{expectedReads}/{IntegratedWriteTransactionCount}).");
+                $"{expectedQueries}/{expectedReads}/{expectedWrites}).");
         }
     }
 

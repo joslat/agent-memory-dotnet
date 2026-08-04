@@ -12,7 +12,8 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance, IBatchMemoryRepository<Fact>
+internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance,
+    IBatchMemoryRepository<Fact>, IFusedBatchMemoryRepository<Fact>
 {
     // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
     // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).

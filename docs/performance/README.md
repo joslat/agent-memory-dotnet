@@ -224,6 +224,9 @@ with retrieved and access-tracked item guards unchanged.
 | Batch entity-resolution snapshots | `PERF-W-12-X01` | total read transactions per 40 sessions | 120 | **60** | **−60 (−50.0%)** |
 | Batch entity-resolution snapshots | `PERF-W-12-X01` | queries per 40 sessions | 930 | **870** | **−60 (−6.5%)** |
 | Batch entity-resolution snapshots | `PERF-W-12-X01` | estimated payload bytes per 40 sessions | 2,583,298 | **2,053,922** | **−529,376 (−20.5%)** |
+| Fused ordered source-session persistence | `PERF-W-12-X01` | queries per 40 sessions | 870 | **230** | **−640 (−73.6%)** |
+| Fused ordered source-session persistence | `PERF-W-12-X01` | read transactions per 40 sessions | 60 | **20** | **−40 (−66.7%)** |
+| Fused ordered source-session persistence | `PERF-W-12-X01` | write transactions per 40 sessions | 250 | **50** | **−200 (−80.0%)** |
 
 Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
 maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
@@ -260,6 +263,19 @@ and local Docker orchestration; they are controlled-host causal evidence, not de
 The related five-worker scaling gate reached **2.991×** rather than the locked 3.000×, so the broader
 cold-build phase remains fail-closed pending the separate persistence candidate.
 
+That persistence candidate is now accepted. The pipeline keeps independent owners parallel and
+same-owner source sessions chronological, prepares embeddings outside the transaction, defers the
+resolver's duplicate entity writes, and commits each source session atomically. Neo4j entity, fact,
+and preference `UNWIND` queries now include embedding, message provenance, optional point data, and
+dynamic POLE+O labels; relationships were already one bounded query. A transaction-only intermediate
+was rejected because it regressed X05/X10. The accepted fused design reduced the query chain inside
+each commit and moved paired remote-shape p50 from **39,159.14 → 28,813.92 ms at X01 (−26.42%)**,
+**6,774.52 → 5,851.43 ms at X05 (−13.63%)**, and **3,807.44 → 3,788.83 ms at X10
+(−0.49%)**. Candidate X05/X10 scaling reached **4.924× / 7.605×**. Exact model, embedding,
+graph, provenance, ordering, isolation, and both quality guards held. These milliseconds include
+injected provider delay and local Docker; the portable causal result is the exact counter movement
+above.
+
 ### Cold structured-memory build laboratory
 
 These opt-in laboratory arms measure preparation-workflow candidates; they are not yet shipped
@@ -270,6 +286,7 @@ AgentMemory defaults and their controlled-host milliseconds are not deployment l
 | Batch 50 raw-message embeddings + writes | `PERF-W-06` control/candidate | 167.84 / 323.08 ms | 60.24 / 86.03 ms | **−64.1% / −73.4%** | 50 messages/vectors; requests 50 → 1; queries 102 → 1; quality 1.000 |
 | One typed extraction response | `PERF-W-07` → `PERF-W-09` | 903.66 / 909.96 ms | 908.79 / 916.96 ms | +0.6% / +0.8% wall; calls **4 → 1**; total tokens **979 → 353** | Exact 2/2/1/1 output; zero retries/failures; quality 1.000 |
 | Bounded independent-owner cold build | `PERF-W-10-C01` → `PERF-W-10-C10` | 34,202.82 / 47,516.61 ms | 3,195.68 / 4,732.44 ms | **10.70× / 10.04× faster** | Exact 10 calls, 10 messages, 20/20/10/10 learned graph, 80 embeddings, 40/70/270 reads/writes/queries, provenance/isolation, quality 1.000 |
+| Fused ordered source-session persistence | `PERF-W-12` feature off/on | X01 39,159.14 / 50,946.60 ms | X01 28,813.92 / 32,074.05 ms | **−26.42% / −37.04%**; queries 870 → 230; reads 60 → 20; writes 250 → 50 | Exact 10 calls, 130/720 embeddings, 80/40/40/40 graph, provenance/order/isolation, quality 1.000; X05/X10 scaling 4.924×/7.605× |
 
 The unified response reduces provider capacity and token cost, but not one-unit wall time because the
 four original category calls already overlap. The wall-time lever is bounded concurrency across

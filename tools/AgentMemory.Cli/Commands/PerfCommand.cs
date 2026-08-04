@@ -46,6 +46,7 @@ public sealed class PerfCommand
         string? qualityGateValue,
         string? singleShotValue,
         string? batchResolutionSnapshotsValue,
+        string? coalescedPersistenceValue,
         CancellationToken cancellationToken = default)
     {
         var runLabel = Sanitize(label) ?? "baseline";
@@ -58,6 +59,8 @@ public sealed class PerfCommand
         var singleShot = ParseDefaultFalse(singleShotValue, "single-shot");
         var batchResolutionSnapshots = ParseDefaultTrue(
             batchResolutionSnapshotsValue, "batch-resolution-snapshots");
+        var coalescedPersistence = ParseDefaultTrue(
+            coalescedPersistenceValue, "coalesced-persistence");
 
         var (embeddingLatency, modelLatency) = ResolveLatency(latency);
 
@@ -109,7 +112,7 @@ public sealed class PerfCommand
         using var trace = new TraceLogWriter(Path.Combine(runDir, "trace.ndjson"));
         var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions, scaleName,
             embeddingLatency, modelLatency, scenarios, singleShot, useUnifiedExtraction,
-            maxConnectionPoolSize, batchResolutionSnapshots);
+            maxConnectionPoolSize, batchResolutionSnapshots, coalescedPersistence);
         trace.RunStart(runId, manifest);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "run.json"), JsonSerializer.Serialize(manifest, Json), cancellationToken)
@@ -126,7 +129,7 @@ public sealed class PerfCommand
         await using var profile = await HermeticProfile
             .StartAsync(dimensions, embeddingLatency, modelLatency, _output, scale,
                 scriptedRules, cancellationToken, maxConnectionPoolSize,
-                useUnifiedExtraction, batchResolutionSnapshots)
+                useUnifiedExtraction, batchResolutionSnapshots, coalescedPersistence)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
@@ -306,7 +309,7 @@ public sealed class PerfCommand
         string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions, string scale,
         TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios,
         bool singleShot, bool useUnifiedExtraction, int maxConnectionPoolSize,
-        bool batchResolutionSnapshots) => new
+        bool batchResolutionSnapshots, bool coalescedPersistence) => new
         {
             runId,
             label,
@@ -338,6 +341,7 @@ public sealed class PerfCommand
                 modelLatencyMs = modelLatency.TotalMilliseconds,
                 unifiedExtraction = useUnifiedExtraction,
                 batchEntityResolutionSnapshots = batchResolutionSnapshots,
+                coalescedPersistenceTransactions = coalescedPersistence,
                 learnedEmbeddingBatching = true,
                 neo4jMaxConnectionPoolSize = maxConnectionPoolSize,
                 neo4jImage = "neo4j:5.26",

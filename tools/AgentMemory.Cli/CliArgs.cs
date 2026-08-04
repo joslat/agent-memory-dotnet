@@ -105,6 +105,7 @@ public static class CliHelp
                    [--scale <S|M>] [--latency <zero|remote>] [--embedding-dimensions <n>]
                    [--output <dir>] [--quality-gate <true|false>]
                    [--batch-resolution-snapshots <true|false>]
+                   [--coalesced-persistence <true|false>]
                                      Measure a complete agent TURN: database round trips, embedding
                                      requests, model calls, and per-stage timing. Provisions its own
                                      Neo4j via Testcontainers (Docker required) with deterministic

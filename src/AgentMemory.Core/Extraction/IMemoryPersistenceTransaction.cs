@@ -7,6 +7,12 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal interface IMemoryPersistenceTransaction
 {
+    /// <summary>
+    /// Whether a failed callback is guaranteed not to commit and rollback failure is surfaced as a
+    /// different exception. The default keeps portable/pass-through providers on the legacy path.
+    /// </summary>
+    bool SupportsAtomicRollback => false;
+
     Task<T> ExecuteAsync<T>(
         Func<CancellationToken, Task<T>> work,
         CancellationToken cancellationToken = default);

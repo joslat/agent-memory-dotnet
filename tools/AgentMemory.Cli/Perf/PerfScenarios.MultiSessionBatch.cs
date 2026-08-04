@@ -70,6 +70,12 @@ public static partial class PerfScenarios
             result.Relationships.Count == 1 &&
             result.SourceMessageIds.Count == 1);
         var orderExact = returnedSessions.SequenceEqual(chronologicalSessions, StringComparer.Ordinal);
+        var expectedReads = context.Profile.UseCoalescedPersistenceTransactions
+            ? 16 : MultiSessionReadTransactionCount;
+        var expectedWrites = context.Profile.UseCoalescedPersistenceTransactions
+            ? 9 : MultiSessionWriteTransactionCount;
+        var expectedQueries = context.Profile.UseCoalescedPersistenceTransactions
+            ? 57 : MultiSessionQueryCount;
         var callsExact =
             context.Turn.Counter("llm.calls") == expectedCalls &&
             context.Turn.Counter("llm.unified_batch.calls") == expectedCalls &&
@@ -78,9 +84,9 @@ public static partial class PerfScenarios
             context.Turn.Counter("embed.requests") == MultiSessionEmbeddingRequestCount &&
             context.Turn.Counter("embed.items") == MultiSessionEmbeddingItemCount &&
             context.Turn.SpanCounts.GetValueOrDefault("provider.embedding") == MultiSessionEmbeddingRequestCount &&
-            context.Turn.Counter("neo4j.queries") == MultiSessionQueryCount &&
-            context.Turn.Counter("neo4j.tx.read") == MultiSessionReadTransactionCount &&
-            context.Turn.Counter("neo4j.tx.write") == MultiSessionWriteTransactionCount &&
+            context.Turn.Counter("neo4j.queries") == expectedQueries &&
+            context.Turn.Counter("neo4j.tx.read") == expectedReads &&
+            context.Turn.Counter("neo4j.tx.write") == expectedWrites &&
             context.Turn.Counter("persist.entities") == MultiSessionBatchUnitCount * 2 &&
             context.Turn.Counter("persist.facts") == MultiSessionPersistedItemCount &&
             context.Turn.Counter("persist.preferences") == MultiSessionPersistedItemCount &&
@@ -107,7 +113,7 @@ public static partial class PerfScenarios
                 $"{MultiSessionEmbeddingRequestCount}/{MultiSessionEmbeddingItemCount}/{MultiSessionEmbeddingRequestCount}; " +
                 $"queries/read/write={context.Turn.Counter("neo4j.queries")}/" +
                 $"{context.Turn.Counter("neo4j.tx.read")}/{context.Turn.Counter("neo4j.tx.write")}, expected " +
-                $"{MultiSessionQueryCount}/{MultiSessionReadTransactionCount}/{MultiSessionWriteTransactionCount}; " +
+                $"{expectedQueries}/{expectedReads}/{expectedWrites}; " +
                 $"fixed_work_exact={fixedWorkExact}).");
         }
     }

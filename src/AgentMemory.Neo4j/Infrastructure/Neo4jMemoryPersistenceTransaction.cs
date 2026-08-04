@@ -14,6 +14,8 @@ internal sealed class Neo4jMemoryPersistenceTransaction : IMemoryPersistenceTran
                 $"{nameof(INeo4jAtomicTransactionRunner)} for atomic memory persistence.");
     }
 
+    public bool SupportsAtomicRollback => true;
+
     public Task<T> ExecuteAsync<T>(
         Func<CancellationToken, Task<T>> work,
         CancellationToken cancellationToken = default) =>

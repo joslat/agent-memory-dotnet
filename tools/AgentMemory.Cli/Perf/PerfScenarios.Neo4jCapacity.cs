@@ -109,9 +109,19 @@ public static partial class PerfScenarios
         var savedCandidateReads = context.Profile.UseBatchEntityResolutionSnapshots
             ? 2L * (workload.SourceSessionCount - workload.OwnerCount)
             : 0L;
-        var expectedQueries = legacyQueries - savedCandidateReads;
-        var expectedReads = legacyReads - savedCandidateReads;
-        var expectedWrites = workload.OwnerCount + 6L * workload.SourceSessionCount;
+        var removedDuplicateResolutionQueries = context.Profile.UseCoalescedPersistenceTransactions
+            ? 6L * workload.SourceSessionCount
+            : 0L;
+        var fusedFollowUpQueries = context.Profile.UseCoalescedPersistenceTransactions
+            ? 10L * workload.SourceSessionCount
+            : 0L;
+        var expectedQueries = legacyQueries - savedCandidateReads - removedDuplicateResolutionQueries - fusedFollowUpQueries;
+        var joinedFactReads = context.Profile.UseCoalescedPersistenceTransactions
+            ? workload.SourceSessionCount
+            : 0L;
+        var expectedReads = legacyReads - savedCandidateReads - joinedFactReads;
+        var expectedWrites = workload.OwnerCount +
+            (context.Profile.UseCoalescedPersistenceTransactions ? 1L : 6L) * workload.SourceSessionCount;
         var samples = context.Turn.Samples;
         var telemetryExact =
             context.Turn.Counter("neo4j.telemetry.docker_samples") > 0 &&

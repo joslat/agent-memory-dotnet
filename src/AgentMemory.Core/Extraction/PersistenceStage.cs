@@ -69,14 +69,64 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
 
         var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
-        if (_options.FailureMode != IngestionFailureMode.FailFast)
+        if (_options.FailureMode == IngestionFailureMode.FailFast)
+        {
+            try
+            {
+                return await _persistenceTransaction.ExecuteAsync(
+                    ct => PersistPreparedAsync(extraction, ownerId, trustLevel, prepared, ct),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (MemoryIngestionException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Transaction-entry, commit, and rollback-confirmation failures occur outside the
+                // per-item catch blocks below. Preserve the documented fail-fast boundary while
+                // retaining the provider/transaction failure as the inner cause. Outcomes created
+                // inside the rolled-back transaction are deliberately excluded as non-durable.
+                var completedOutcomes = extraction.Outcomes.Concat(prepared.Outcomes).ToList();
+                throw new MemoryIngestionException(
+                    "Atomic memory persistence failed.", completedOutcomes, ex);
+            }
+        }
+
+        if (!_options.UseCoalescedPersistenceTransactions ||
+            !_persistenceTransaction.SupportsAtomicRollback)
+        {
             return await PersistPreparedAsync(
                 extraction, ownerId, trustLevel, prepared, cancellationToken).ConfigureAwait(false);
+        }
 
-        return await _persistenceTransaction.ExecuteAsync(
-            ct => PersistPreparedAsync(extraction, ownerId, trustLevel, prepared, ct),
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await _persistenceTransaction.ExecuteAsync(
+                async ct =>
+                {
+                    var result = await PersistPreparedAsync(
+                        extraction, ownerId, trustLevel, prepared, ct).ConfigureAwait(false);
+                    if (result.Outcomes.Any(outcome => outcome.Status == IngestionItemStatus.Failed))
+                        throw new ReplayBestEffortPersistenceException();
+                    return result;
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (ReplayBestEffortPersistenceException)
+        {
+            // ExecuteAsync may surface this marker only after its provider rollback completed. Reuse
+            // the already prepared embeddings and replay through today's item-isolated best-effort path.
+            return await PersistPreparedAsync(
+                extraction, ownerId, trustLevel, prepared, cancellationToken).ConfigureAwait(false);
+        }
     }
+
+    private sealed class ReplayBestEffortPersistenceException : Exception;
 
     private async Task<PersistenceResult> PersistPreparedAsync(
         ExtractionStageResult extraction,
@@ -148,17 +198,23 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
 
         Dictionary<string, Entity>? batchedEntitiesById = null;
+        var fusedEntityRepository = _options.UseCoalescedPersistenceTransactions
+            ? _entityRepository as IFusedBatchMemoryRepository<Entity> : null;
+        var batchEntityRepository = _entityRepository as IBatchMemoryRepository<Entity>;
         var canBatchEntities = _options.EnableBatchMemoryUpserts && !failFast &&
-            entityInputs.Count > 1 &&
+            entityInputs.Count > 0 &&
             entityInputs.Select(input => input.Item.EntityId).Distinct(StringComparer.Ordinal).Count() == entityInputs.Count &&
-            _entityRepository is IBatchMemoryRepository<Entity>;
+            (fusedEntityRepository is not null || (entityInputs.Count > 1 && batchEntityRepository is not null));
         if (canBatchEntities)
         {
             try
             {
-                var persisted = await ((IBatchMemoryRepository<Entity>)_entityRepository)
-                    .UpsertBatchAsync(entityInputs.Select(input => input.Item).ToList(), cancellationToken)
-                    .ConfigureAwait(false);
+                var items = entityInputs.Select(input => input.Item).ToList();
+                var persisted = fusedEntityRepository is not null
+                    ? await fusedEntityRepository.UpsertFusedBatchAsync(items, cancellationToken)
+                        .ConfigureAwait(false)
+                    : await batchEntityRepository!.UpsertBatchAsync(items, cancellationToken)
+                        .ConfigureAwait(false);
                 batchedEntitiesById = persisted.ToDictionary(entity => entity.EntityId, StringComparer.Ordinal);
                 if (entityInputs.Any(input => !batchedEntitiesById.ContainsKey(input.Item.EntityId)))
                     throw new InvalidOperationException("The entity batch result omitted one or more input identifiers.");
@@ -290,9 +346,12 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             .Select(fact => (fact.Subject, fact.Predicate, fact.Object))
             .Distinct(FactTripleComparer.OrdinalIgnoreCase)
             .Count() == extraction.FilteredFacts.Count;
-        var canAttemptFactBatch = _options.EnableBatchMemoryUpserts && !failFast &&
-            prepared.Facts.Count > 1 && distinctExtractedTriples &&
-            _factRepository is IBatchMemoryRepository<Fact>;
+        var fusedFactRepository = _options.UseCoalescedPersistenceTransactions
+            ? _factRepository as IFusedBatchMemoryRepository<Fact> : null;
+        var batchFactRepository = _factRepository as IBatchMemoryRepository<Fact>;
+        var canAttemptFactBatch = _options.EnableBatchMemoryUpserts && !failFast && distinctExtractedTriples &&
+            (fusedFactRepository is not null ||
+             (prepared.Facts.Count > 1 && batchFactRepository is not null));
 
         if (canAttemptFactBatch)
         {
@@ -304,14 +363,15 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
 
             Dictionary<(string Subject, string Predicate, string Object, string? OwnerId), Fact>? batchedFactsByKey = null;
-            if (factInputs.Count > 1 &&
+            if (factInputs.Count > 0 &&
                 factInputs.Select(input => FactKey(input.Item)).Distinct().Count() == factInputs.Count)
             {
                 try
                 {
-                    var persisted = await ((IBatchMemoryRepository<Fact>)_factRepository)
-                        .UpsertBatchAsync(factInputs.Select(input => input.Item).ToList(), cancellationToken)
-                        .ConfigureAwait(false);
+                    var items = factInputs.Select(input => input.Item).ToList();
+                    var persisted = fusedFactRepository is not null
+                        ? await fusedFactRepository.UpsertFusedBatchAsync(items, cancellationToken).ConfigureAwait(false)
+                        : await batchFactRepository!.UpsertBatchAsync(items, cancellationToken).ConfigureAwait(false);
                     batchedFactsByKey = persisted.ToDictionary(FactKey);
                     if (factInputs.Any(input => !batchedFactsByKey.ContainsKey(FactKey(input.Item))))
                         throw new InvalidOperationException("The fact batch result omitted one or more input triples.");
@@ -416,17 +476,22 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         }
 
         Dictionary<string, Preference>? batchedPreferencesById = null;
+        var fusedPreferenceRepository = _options.UseCoalescedPersistenceTransactions
+            ? _preferenceRepository as IFusedBatchMemoryRepository<Preference> : null;
+        var batchPreferenceRepository = _preferenceRepository as IBatchMemoryRepository<Preference>;
         var canBatchPreferences = _options.EnableBatchMemoryUpserts && !failFast &&
-            preferenceInputs.Count > 1 &&
+            preferenceInputs.Count > 0 &&
             preferenceInputs.Select(input => input.Item.PreferenceId).Distinct(StringComparer.Ordinal).Count() == preferenceInputs.Count &&
-            _preferenceRepository is IBatchMemoryRepository<Preference>;
+            (fusedPreferenceRepository is not null ||
+             (preferenceInputs.Count > 1 && batchPreferenceRepository is not null));
         if (canBatchPreferences)
         {
             try
             {
-                var persisted = await ((IBatchMemoryRepository<Preference>)_preferenceRepository)
-                    .UpsertBatchAsync(preferenceInputs.Select(input => input.Item).ToList(), cancellationToken)
-                    .ConfigureAwait(false);
+                var items = preferenceInputs.Select(input => input.Item).ToList();
+                var persisted = fusedPreferenceRepository is not null
+                    ? await fusedPreferenceRepository.UpsertFusedBatchAsync(items, cancellationToken).ConfigureAwait(false)
+                    : await batchPreferenceRepository!.UpsertBatchAsync(items, cancellationToken).ConfigureAwait(false);
                 batchedPreferencesById = persisted.ToDictionary(
                     preference => preference.PreferenceId, StringComparer.Ordinal);
                 if (preferenceInputs.Any(input => !batchedPreferencesById.ContainsKey(input.Item.PreferenceId)))

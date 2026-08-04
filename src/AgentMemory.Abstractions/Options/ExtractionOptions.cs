@@ -54,6 +54,16 @@ public sealed class ExtractionOptions
     public bool UseBatchEntityResolutionSnapshots { get; set; } = true;
 
     /// <summary>
+    /// Coalesces the successful repository work for one logical best-effort persistence operation
+    /// into one atomic store transaction when the provider can prove rollback. External embedding
+    /// work completes before the transaction opens. If any item fails, the coalesced attempt rolls
+    /// back and replays through the legacy item-isolated path; providers without atomic rollback
+    /// retain that path directly. Defaults to <see langword="true"/>; disable to preserve one
+    /// transaction per repository operation.
+    /// </summary>
+    public bool UseCoalescedPersistenceTransactions { get; set; } = true;
+
+    /// <summary>
     /// The trust level stamped on every entity/fact/preference persisted, unless a specific
     /// <c>ExtractionRequest.TrustLevel</c> overrides it for that call (#92 Phase 3). Defaults to
     /// <see cref="MemoryTrustLevel.UserProvided"/> -- everything extracted through the normal pipeline is

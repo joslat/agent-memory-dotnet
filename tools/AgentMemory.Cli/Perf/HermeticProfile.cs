@@ -44,13 +44,15 @@ public sealed class HermeticProfile : IAsyncDisposable
         PerfScale scale,
         ScaleMRunVolume? scaleRunVolume,
         int maxConnectionPoolSize,
-        bool useBatchEntityResolutionSnapshots)
+        bool useBatchEntityResolutionSnapshots,
+        bool useCoalescedPersistenceTransactions)
     {
         Dimensions = dimensions;
         Scale = scale;
         _scaleRunVolume = scaleRunVolume;
         MaxConnectionPoolSize = maxConnectionPoolSize;
         UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
+        UseCoalescedPersistenceTransactions = useCoalescedPersistenceTransactions;
     }
 
     /// <summary>Embedding dimensionality. Small by design — vector width is not what is being measured.</summary>
@@ -61,6 +63,9 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     /// <summary>Whether batch-scoped owner/type entity candidate snapshots are enabled.</summary>
     public bool UseBatchEntityResolutionSnapshots { get; }
+
+    /// <summary>Whether successful logical persistence operations share one atomic transaction.</summary>
+    public bool UseCoalescedPersistenceTransactions { get; }
 
     /// <summary>Scoped service provider for resolving memory services.</summary>
     public IServiceProvider Services => _scope.ServiceProvider;
@@ -106,19 +111,22 @@ public sealed class HermeticProfile : IAsyncDisposable
         CancellationToken cancellationToken = default,
         int maxConnectionPoolSize = 100,
         bool useUnifiedExtraction = false,
-        bool useBatchEntityResolutionSnapshots = true)
+        bool useBatchEntityResolutionSnapshots = true,
+        bool useCoalescedPersistenceTransactions = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
             ? await ScaleMDataset.PrepareRunVolumeAsync(dimensions, log, cancellationToken).ConfigureAwait(false)
             : null;
         var profile = new HermeticProfile(
-            dimensions, scale, scaleRunVolume, maxConnectionPoolSize, useBatchEntityResolutionSnapshots);
+            dimensions, scale, scaleRunVolume, maxConnectionPoolSize,
+            useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions);
         try
         {
             await profile.InitializeAsync(
                     embeddingLatency, modelLatency, log, scriptedRules, useUnifiedExtraction,
-                    useBatchEntityResolutionSnapshots, cancellationToken)
+                    useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions,
+                    cancellationToken)
                 .ConfigureAwait(false);
             return profile;
         }
@@ -133,6 +141,7 @@ public sealed class HermeticProfile : IAsyncDisposable
         TimeSpan embeddingLatency, TimeSpan modelLatency, TextWriter log,
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, bool useUnifiedExtraction,
         bool useBatchEntityResolutionSnapshots,
+        bool useCoalescedPersistenceTransactions,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"perf: starting {Image} (Testcontainers)…");
@@ -155,6 +164,8 @@ public sealed class HermeticProfile : IAsyncDisposable
             {
                 memory.Extraction.UseBatchEmbeddingRequests = true;
                 memory.Extraction.UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
+                memory.Extraction.UseCoalescedPersistenceTransactions =
+                    useCoalescedPersistenceTransactions;
             },
             neo4j =>
             {

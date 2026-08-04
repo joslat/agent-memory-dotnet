@@ -149,6 +149,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error);
+            Exception? rollbackFailure = null;
             if (transaction is not null)
             {
                 try
@@ -157,9 +158,14 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
                 }
                 catch (Exception rollbackException)
                 {
+                    rollbackFailure = rollbackException;
                     _logger.LogWarning(rollbackException, "Failed to roll back atomic memory transaction.");
                 }
             }
+
+            if (rollbackFailure is not null)
+                throw new AggregateException(
+                    "Atomic memory transaction failed and rollback could not be confirmed.", ex, rollbackFailure);
 
             _logger.LogError(ex, "Error executing atomic memory transaction.");
             throw;

@@ -47,6 +47,12 @@ public static partial class PerfScenarios
 
         var calls = context.Turn.Counter("llm.unified.calls");
         context.Turn.Add("llm.unified.retries", Math.Max(0, calls - ColdBuildUnitCount));
+        var expectedReadsPerUnit = context.Profile.UseCoalescedPersistenceTransactions
+            ? 2 : ColdBuildReadsPerUnit;
+        var expectedWritesPerUnit = context.Profile.UseCoalescedPersistenceTransactions
+            ? 2 : ColdBuildWritesPerUnit;
+        var expectedQueriesPerUnit = context.Profile.UseCoalescedPersistenceTransactions
+            ? 11 : ColdBuildQueriesPerUnit;
 
         var outputsExact = result.Results.All(unit =>
             unit.Status == IngestionStatus.Succeeded &&
@@ -73,11 +79,11 @@ public static partial class PerfScenarios
             context.Turn.Counter("embed.items") ==
                 ColdBuildUnitCount * ColdBuildEmbeddingsPerUnit &&
             context.Turn.Counter("neo4j.tx.read") ==
-                ColdBuildUnitCount * ColdBuildReadsPerUnit &&
+                ColdBuildUnitCount * expectedReadsPerUnit &&
             context.Turn.Counter("neo4j.tx.write") ==
-                ColdBuildUnitCount * ColdBuildWritesPerUnit &&
+                ColdBuildUnitCount * expectedWritesPerUnit &&
             context.Turn.Counter("neo4j.queries") ==
-                ColdBuildUnitCount * ColdBuildQueriesPerUnit;
+                ColdBuildUnitCount * expectedQueriesPerUnit;
 
         if (!outputsExact ||
             !countersExact ||
@@ -99,7 +105,9 @@ public static partial class PerfScenarios
                 $"{context.Turn.Counter("embed.items")}, expected 80/80; reads/writes/queries=" +
                 $"{context.Turn.Counter("neo4j.tx.read")}/" +
                 $"{context.Turn.Counter("neo4j.tx.write")}/" +
-                $"{context.Turn.Counter("neo4j.queries")}, expected 40/70/270).");
+                $"{context.Turn.Counter("neo4j.queries")}, expected " +
+                $"{10 * expectedReadsPerUnit}/{10 * expectedWritesPerUnit}/" +
+                $"{10 * expectedQueriesPerUnit}).");
         }
     }
 
