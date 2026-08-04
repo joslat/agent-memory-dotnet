@@ -47,11 +47,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     public bool IsEnabled =>
         _options.UseUnifiedExtraction && _options.UseMultiSessionBatchExtraction;
 
-    public async Task<IReadOnlyDictionary<string, UnifiedExtractionResult>> ExtractAsync(
+    public MultiSessionExtractionPlan Plan(
         IReadOnlyList<ExtractionRequest> requests,
         int maxSessionsPerBatch,
-        int maxInputTokens,
-        CancellationToken cancellationToken = default)
+        int maxInputTokens)
     {
         ArgumentNullException.ThrowIfNull(requests);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSessionsPerBatch);
@@ -62,9 +61,30 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         if (duplicate is not null)
             throw new ArgumentException($"Source session key '{duplicate.Key}' is not unique.", nameof(requests));
 
+        var batches = PlanBatches(requests, maxSessionsPerBatch, maxInputTokens)
+            .Select(batch => new MultiSessionExtractionBatchPlan(
+                batch.Select(request => request.SessionId).ToArray(),
+                EstimateInputTokens(batch)))
+            .ToArray();
+        return new MultiSessionExtractionPlan(batches);
+    }
+
+    public async Task<IReadOnlyDictionary<string, UnifiedExtractionResult>> ExtractAsync(
+        IReadOnlyList<ExtractionRequest> requests,
+        int maxSessionsPerBatch,
+        int maxInputTokens,
+        CancellationToken cancellationToken = default)
+    {
+        var plan = Plan(requests, maxSessionsPerBatch, maxInputTokens);
+        var requestsBySession = requests.ToDictionary(
+            request => request.SessionId,
+            StringComparer.Ordinal);
         var results = new Dictionary<string, UnifiedExtractionResult>(StringComparer.Ordinal);
-        foreach (var batch in PlanBatches(requests, maxSessionsPerBatch, maxInputTokens))
+        foreach (var plannedBatch in plan.Batches)
         {
+            var batch = plannedBatch.SourceSessionIds
+                .Select(sessionId => requestsBySession[sessionId])
+                .ToArray();
             var extracted = await ExtractOrSplitAsync(batch, maxInputTokens, cancellationToken)
                 .ConfigureAwait(false);
             foreach (var pair in extracted)

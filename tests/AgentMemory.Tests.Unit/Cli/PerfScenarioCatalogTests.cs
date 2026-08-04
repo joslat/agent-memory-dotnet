@@ -261,4 +261,53 @@ public sealed class PerfScenarioCatalogTests
             scenario.RequiresUnifiedExtraction.Should().BeTrue();
         }
     }
+    [Fact]
+    public void Catalog_ContainsIntegratedColdBuildArms_WithStableContracts()
+    {
+        var expected = new[]
+        {
+            ("PERF-W-12-X01", 1),
+            ("PERF-W-12-X05", 5),
+            ("PERF-W-12-X10", 10),
+        };
+
+        foreach (var (id, workers) in expected)
+        {
+            var scenario = PerfScenarios.All.Single(item => item.Id == id);
+
+            scenario.Description.Should().ContainEquivalentOf("integrated cold-build");
+            scenario.Description.Should().ContainEquivalentOf($"{workers} worker");
+            scenario.SupportsInterleavedAb.Should().BeFalse();
+            scenario.SetupAsync.Should().BeNull();
+            scenario.VerifyAsync.Should().NotBeNull(
+                "all messages, graph shape, provenance, order, and owner isolation must be read back");
+            scenario.IncludeInDefaultRun.Should().BeFalse();
+            scenario.RequiresUnifiedExtraction.Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public void Catalog_ContainsNeo4jCapacityWidthAndDepthDoublingArms()
+    {
+        var expected = new[]
+        {
+            "PERF-W-13-W01", "PERF-W-13-W02", "PERF-W-13-W04", "PERF-W-13-W08",
+            "PERF-W-13-D01", "PERF-W-13-D02", "PERF-W-13-D04", "PERF-W-13-D08",
+        };
+
+        foreach (var id in expected)
+        {
+            var scenario = PerfScenarios.All.Single(item => item.Id == id);
+
+            scenario.Description.Should().ContainEquivalentOf("Neo4j capacity");
+            scenario.Description.Should().MatchRegex("(width|depth)");
+            scenario.SupportsInterleavedAb.Should().BeFalse();
+            scenario.SetupAsync.Should().BeNull();
+            scenario.VerifyAsync.Should().NotBeNull();
+            scenario.IncludeInDefaultRun.Should().BeFalse();
+            scenario.RequiresUnifiedExtraction.Should().BeTrue();
+        }
+    }
+
+
 }

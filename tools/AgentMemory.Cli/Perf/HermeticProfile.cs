@@ -43,12 +43,14 @@ public sealed class HermeticProfile : IAsyncDisposable
         int dimensions,
         PerfScale scale,
         ScaleMRunVolume? scaleRunVolume,
-        int maxConnectionPoolSize)
+        int maxConnectionPoolSize,
+        bool useBatchEntityResolutionSnapshots)
     {
         Dimensions = dimensions;
         Scale = scale;
         _scaleRunVolume = scaleRunVolume;
         MaxConnectionPoolSize = maxConnectionPoolSize;
+        UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
     }
 
     /// <summary>Embedding dimensionality. Small by design — vector width is not what is being measured.</summary>
@@ -56,6 +58,9 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     /// <summary>Fixed product-driver pool size fingerprinted by concurrency artifacts.</summary>
     public int MaxConnectionPoolSize { get; }
+
+    /// <summary>Whether batch-scoped owner/type entity candidate snapshots are enabled.</summary>
+    public bool UseBatchEntityResolutionSnapshots { get; }
 
     /// <summary>Scoped service provider for resolving memory services.</summary>
     public IServiceProvider Services => _scope.ServiceProvider;
@@ -68,6 +73,9 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     /// <summary>Raw driver, for bulk fixture seeding that would be pointlessly slow through the services.</summary>
     public IDriver Driver { get; private set; } = null!;
+
+    /// <summary>Container identifier exposed only to explicit resource-capacity laboratory scenarios.</summary>
+    internal string ContainerId => _container?.Id ?? throw new InvalidOperationException("Neo4j is not running.");
 
     /// <summary>Scenario-scoped dependency latency; unset outside an explicitly degraded scenario.</summary>
     public PerfDependencyLatency DependencyLatency { get; } = new();
@@ -97,17 +105,20 @@ public sealed class HermeticProfile : IAsyncDisposable
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
         CancellationToken cancellationToken = default,
         int maxConnectionPoolSize = 100,
-        bool useUnifiedExtraction = false)
+        bool useUnifiedExtraction = false,
+        bool useBatchEntityResolutionSnapshots = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
             ? await ScaleMDataset.PrepareRunVolumeAsync(dimensions, log, cancellationToken).ConfigureAwait(false)
             : null;
-        var profile = new HermeticProfile(dimensions, scale, scaleRunVolume, maxConnectionPoolSize);
+        var profile = new HermeticProfile(
+            dimensions, scale, scaleRunVolume, maxConnectionPoolSize, useBatchEntityResolutionSnapshots);
         try
         {
             await profile.InitializeAsync(
-                    embeddingLatency, modelLatency, log, scriptedRules, useUnifiedExtraction, cancellationToken)
+                    embeddingLatency, modelLatency, log, scriptedRules, useUnifiedExtraction,
+                    useBatchEntityResolutionSnapshots, cancellationToken)
                 .ConfigureAwait(false);
             return profile;
         }
@@ -121,6 +132,7 @@ public sealed class HermeticProfile : IAsyncDisposable
     private async Task InitializeAsync(
         TimeSpan embeddingLatency, TimeSpan modelLatency, TextWriter log,
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, bool useUnifiedExtraction,
+        bool useBatchEntityResolutionSnapshots,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"perf: starting {Image} (Testcontainers)…");
@@ -139,7 +151,11 @@ public sealed class HermeticProfile : IAsyncDisposable
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
 
         services.AddNeo4jAgentMemory(
-            memory => { /* shipped defaults — measuring anything else would measure a strawman */ },
+            memory =>
+            {
+                memory.Extraction.UseBatchEmbeddingRequests = true;
+                memory.Extraction.UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
+            },
             neo4j =>
             {
                 neo4j.Uri = uri;

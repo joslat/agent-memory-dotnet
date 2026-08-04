@@ -21,7 +21,7 @@ namespace AgentMemory.Core.Resolution;
 /// entity — this is intentional "shared knowledge grows collaboratively" behavior, not a cross-owner
 /// leak (a future opt-in option could make shared knowledge read-only per owner if a deployment needs it).
 /// </remarks>
-internal sealed class CompositeEntityResolver : IEntityResolver, IExtractionEntityResolver
+internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtractionEntityResolver
 {
     private readonly IEntityRepository _entityRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
@@ -54,7 +54,7 @@ internal sealed class CompositeEntityResolver : IEntityResolver, IExtractionEnti
         IReadOnlyList<string> sourceMessageIds,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default) =>
-        ResolveEntityCoreAsync(
+        ResolveAndRememberAsync(
             extractedEntity, sourceMessageIds, scope, persistResolution: true, cancellationToken);
 
     public Task<Entity> ResolveForPersistenceAsync(
@@ -62,7 +62,7 @@ internal sealed class CompositeEntityResolver : IEntityResolver, IExtractionEnti
         IReadOnlyList<string> sourceMessageIds,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default) =>
-        ResolveEntityCoreAsync(
+        ResolveAndRememberAsync(
             extractedEntity, sourceMessageIds, scope, persistResolution: false, cancellationToken);
 
     /// <summary>
@@ -186,22 +186,11 @@ internal sealed class CompositeEntityResolver : IEntityResolver, IExtractionEnti
         return results;
     }
 
-    private async Task<IReadOnlyList<Entity>> GetCandidatesAsync(
+    private Task<IReadOnlyList<Entity>> GetCandidatesAsync(
         string type,
         MemoryScope? scope,
-        CancellationToken cancellationToken)
-    {
-        // The candidate set MUST be owner-scoped (R1): without it, an incoming entity could match and
-        // auto-merge onto another owner's private entity (a cross-owner write-path leak). A null scope
-        // (single-tenant / no owner context) preserves the legacy unscoped behavior.
-        if (_options.EntityResolution.TypeStrictFiltering)
-            return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
-
-        // Without type filtering, SearchByVectorAsync is impractical here without an embedding;
-        // GetByTypeAsync with empty type returns all in many impls, so we fall back gracefully.
-        // For a complete impl, a GetAllAsync method would be ideal — use GetByTypeAsync("") as best effort.
-        return await _entityRepository.GetByTypeAsync(type, scope, cancellationToken).ConfigureAwait(false);
-    }
+        CancellationToken cancellationToken) =>
+        GetBatchCandidatesAsync(type, scope, cancellationToken);
 
     private IReadOnlyList<IEntityMatcher> BuildMatchers()
     {

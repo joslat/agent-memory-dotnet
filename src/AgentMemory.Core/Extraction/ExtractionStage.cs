@@ -47,6 +47,12 @@ internal sealed class ExtractionStage : IExtractionStage
         _logger = logger;
     }
 
+    public IDisposable? BeginResolutionBatch() =>
+        (_entityResolver as IExtractionEntityResolver)?.BeginBatch();
+
+    public void InvalidateResolutionBatch() =>
+        (_entityResolver as IExtractionEntityResolver)?.InvalidateBatch();
+
     public Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
         ExtractionTypes typesToExtract,
@@ -153,6 +159,18 @@ internal sealed class ExtractionStage : IExtractionStage
         {
             throw new MemoryIngestionException(
                 "Ingestion failed fast: one or more extractors threw.", outcomes);
+        }
+
+        if (_entityResolver is IExtractionEntityResolver batchResolver)
+        {
+            var candidateTypes = rawEntities
+                .Where(entity =>
+                    entity.Confidence >= _options.MinConfidenceThreshold &&
+                    EntityValidator.IsValid(entity, _options.Validation))
+                .Select(entity => entity.Type)
+                .ToArray();
+            await batchResolver.PrepareCandidatesAsync(candidateTypes, scope, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // 2. Filter + validate + resolve entities; build name→Entity map for relationship resolution.

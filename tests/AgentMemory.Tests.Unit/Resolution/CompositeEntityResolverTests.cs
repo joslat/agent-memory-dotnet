@@ -222,6 +222,133 @@ public sealed class CompositeEntityResolverTests
     }
 
     [Fact]
+    public async Task BatchSnapshot_ReusesOwnerTypeCandidates_AndObservesEarlierDecision()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = (IExtractionEntityResolver)CreateSut(new ExtractionOptions
+        {
+            UseBatchEntityResolutionSnapshots = true,
+            EntityResolution = new EntityResolutionOptions
+            {
+                EnableFuzzyMatch = false,
+                EnableSemanticMatch = false,
+            },
+        });
+        using var batch = sut.BeginBatch();
+        await sut.PrepareCandidatesAsync(["Person"], MemoryScope.For("alice"));
+
+        var first = await sut.ResolveForPersistenceAsync(
+            MakeCandidate("Alice"), ["message-1"], MemoryScope.For("alice"));
+        var second = await sut.ResolveForPersistenceAsync(
+            MakeCandidate("Alice"), ["message-2"], MemoryScope.For("alice"));
+
+        second.EntityId.Should().Be(first.EntityId);
+        second.SourceMessageIds.Should().BeEquivalentTo("message-1", "message-2");
+        await _entityRepo.Received(1).GetByTypeAsync(
+            "Person",
+            Arg.Is<MemoryScope?>(scope => scope != null && scope.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BatchSnapshot_Disabled_RetainsPerEntityCandidateReads()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = (IExtractionEntityResolver)CreateSut(new ExtractionOptions
+        {
+            UseBatchEntityResolutionSnapshots = false,
+            EntityResolution = new EntityResolutionOptions
+            {
+                EnableFuzzyMatch = false,
+                EnableSemanticMatch = false,
+            },
+        });
+        using var batch = sut.BeginBatch();
+
+        await sut.ResolveForPersistenceAsync(
+            MakeCandidate("Alice"), ["message-1"], MemoryScope.For("alice"));
+        await sut.ResolveForPersistenceAsync(
+            MakeCandidate("Bob"), ["message-2"], MemoryScope.For("alice"));
+
+        await _entityRepo.Received(2).GetByTypeAsync(
+            "Person",
+            Arg.Is<MemoryScope?>(scope => scope != null && scope.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BatchSnapshot_Dispose_DoesNotReuseCandidatesAcrossBatches()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = (IExtractionEntityResolver)CreateSut();
+        using (sut.BeginBatch())
+            await sut.PrepareCandidatesAsync(["Person"], MemoryScope.For("alice"));
+        using (sut.BeginBatch())
+            await sut.PrepareCandidatesAsync(["Person"], MemoryScope.For("alice"));
+
+        await _entityRepo.Received(2).GetByTypeAsync(
+            "Person",
+            Arg.Is<MemoryScope?>(scope => scope != null && scope.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BatchSnapshot_Invalidate_RefetchesCandidates()
+    {
+        _entityRepo.GetByTypeAsync("Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
+
+        var sut = (IExtractionEntityResolver)CreateSut();
+        using var batch = sut.BeginBatch();
+        await sut.PrepareCandidatesAsync(["Person"], MemoryScope.For("alice"));
+        sut.InvalidateBatch();
+        await sut.PrepareCandidatesAsync(["Person"], MemoryScope.For("alice"));
+
+        await _entityRepo.Received(2).GetByTypeAsync(
+            "Person",
+            Arg.Is<MemoryScope?>(scope => scope != null && scope.OwnerId == "alice"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BatchSnapshot_PrefetchesIndependentTypesConcurrently()
+    {
+        var personStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var organizationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<IReadOnlyList<Entity>> LoadAsync(string type)
+        {
+            (type == "Person" ? personStarted : organizationStarted).SetResult();
+            await release.Task;
+            return Array.Empty<Entity>();
+        }
+
+        _entityRepo.GetByTypeAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(call => LoadAsync(call.ArgAt<string>(0)));
+
+        var sut = (IExtractionEntityResolver)CreateSut();
+        using var batch = sut.BeginBatch();
+        var preparing = sut.PrepareCandidatesAsync(
+            ["Person", "Organization"], MemoryScope.For("alice"));
+
+        await Task.WhenAll(personStarted.Task, organizationStarted.Task).WaitAsync(TimeSpan.FromSeconds(2));
+        preparing.IsCompleted.Should().BeFalse();
+        release.SetResult();
+        await preparing;
+
+        await _entityRepo.Received(1).GetByTypeAsync(
+            "Person", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _entityRepo.Received(1).GetByTypeAsync(
+            "Organization", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ResolveEntityAsync_CreateNew_StampsOwnerFromScope()
     {
         // leak-7: the created entity must carry the scope's owner (defense-in-depth, not just the

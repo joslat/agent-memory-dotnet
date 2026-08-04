@@ -9,6 +9,9 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal interface IExtractionStage
 {
+    IDisposable? BeginResolutionBatch();
+    void InvalidateResolutionBatch();
+
     /// <summary>
     /// Extracts, merges, filters, validates, and resolves items from the given messages. When
     /// <paramref name="scope"/> is supplied (R1) entity resolution is confined to the owner's own and

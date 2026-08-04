@@ -220,6 +220,10 @@ with retrieved and access-tracked item guards unchanged.
 | Batch memory upserts | `PERF-W-03` | queries per turn | 35 | **33** | **−2 (−5.7%)** |
 | Batch memory upserts | `PERF-W-05` | write transactions per extraction | 7 | **5** | **−2 (−28.6%)** |
 | Batch memory upserts | `PERF-W-05` | queries per extraction | 28 | **26** | **−2 (−7.1%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | entity candidate reads per 40 sessions | 80 | **20** | **−60 (−75.0%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | total read transactions per 40 sessions | 120 | **60** | **−60 (−50.0%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | queries per 40 sessions | 930 | **870** | **−60 (−6.5%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | estimated payload bytes per 40 sessions | 2,583,298 | **2,053,922** | **−529,376 (−20.5%)** |
 
 Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
 maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
@@ -243,6 +247,18 @@ item path so per-item outcomes are preserved; fail-fast mode intentionally keeps
 its whole-turn transaction so an error still identifies the exact failing item. Two fresh-container
 runs reproduced every counter above exactly. Records, estimated bytes, learned items, and both
 zero-tolerance quality guards were unchanged.
+
+Multi-session extraction now fetches each owner/type entity candidate set once, prefetches independent
+types concurrently, and updates that request-local snapshot as chronological sessions are resolved.
+`ExtractionOptions.UseBatchEntityResolutionSnapshots` can disable the default-on optimization. A
+remote-latency-shaped, fresh-container control/candidate characterization moved the X01 extraction-wave
+p50 from **47,341.00 to 32,600.96 ms (−31.1%)** and X10 from **7,568.38 to 3,621.08 ms
+(−52.2%)**. Writes remained 250; model calls 10; embedding work 130 requests / 720 items; the learned
+80/40/40/40 entity/fact/preference/relationship graph, provenance, source order, owner isolation, and
+both zero-tolerance quality gates were unchanged. These milliseconds include injected provider delay
+and local Docker orchestration; they are controlled-host causal evidence, not deployment latency.
+The related five-worker scaling gate reached **2.991×** rather than the locked 3.000×, so the broader
+cold-build phase remains fail-closed pending the separate persistence candidate.
 
 ### Cold structured-memory build laboratory
 

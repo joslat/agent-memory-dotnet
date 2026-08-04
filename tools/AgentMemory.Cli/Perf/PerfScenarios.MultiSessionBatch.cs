@@ -9,6 +9,12 @@ public static partial class PerfScenarios
 {
     private const int MultiSessionBatchUnitCount = 8;
     private const int MultiSessionBatchTokenBudget = 100_000;
+    private const int MultiSessionEmbeddingRequestCount = 25;
+    private const int MultiSessionEmbeddingItemCount = 56;
+    private const int MultiSessionQueryCount = 185;
+    private const int MultiSessionReadTransactionCount = 24;
+    private const int MultiSessionWriteTransactionCount = 49;
+    private const int MultiSessionPersistedItemCount = 8;
 
     private static async Task RunMultiSessionBatchAsync(ScenarioContext context, int batchSize)
     {
@@ -68,6 +74,19 @@ public static partial class PerfScenarios
             context.Turn.Counter("llm.calls") == expectedCalls &&
             context.Turn.Counter("llm.unified_batch.calls") == expectedCalls &&
             context.Turn.Counter("llm.unified.calls") == 0;
+        var fixedWorkExact =
+            context.Turn.Counter("embed.requests") == MultiSessionEmbeddingRequestCount &&
+            context.Turn.Counter("embed.items") == MultiSessionEmbeddingItemCount &&
+            context.Turn.SpanCounts.GetValueOrDefault("provider.embedding") == MultiSessionEmbeddingRequestCount &&
+            context.Turn.Counter("neo4j.queries") == MultiSessionQueryCount &&
+            context.Turn.Counter("neo4j.tx.read") == MultiSessionReadTransactionCount &&
+            context.Turn.Counter("neo4j.tx.write") == MultiSessionWriteTransactionCount &&
+            context.Turn.Counter("persist.entities") == MultiSessionBatchUnitCount * 2 &&
+            context.Turn.Counter("persist.facts") == MultiSessionPersistedItemCount &&
+            context.Turn.Counter("persist.preferences") == MultiSessionPersistedItemCount &&
+            context.Turn.Counter("persist.relationships") == MultiSessionPersistedItemCount &&
+            context.Turn.Counter("store.messages") == MultiSessionBatchUnitCount &&
+            context.Turn.SpanCounts.GetValueOrDefault("memory.persist.total") == MultiSessionBatchUnitCount;
 
         context.Turn.Add("batch.source_sessions", MultiSessionBatchUnitCount);
         context.Turn.Add("batch.max_sessions", batchSize);
@@ -75,15 +94,21 @@ public static partial class PerfScenarios
         context.Turn.Add("batch.output_exact", outputsExact ? 1 : 0);
         context.Turn.Add("batch.commit_order_exact", orderExact ? 1 : 0);
 
-        if (!outputsExact || !orderExact || !callsExact)
+        if (!outputsExact || !orderExact || !callsExact || !fixedWorkExact)
         {
             throw new InvalidOperationException(
                 $"PERF-W-11-B{batchSize:D2} batch contract failed (outputs/order=" +
                 $"{outputsExact}/{orderExact}; llm/batch/single=" +
                 $"{context.Turn.Counter("llm.calls")}/" +
                 $"{context.Turn.Counter("llm.unified_batch.calls")}/" +
-                $"{context.Turn.Counter("llm.unified.calls")}, expected {expectedCalls}/{expectedCalls}/0)."
-            );
+                $"{context.Turn.Counter("llm.unified.calls")}, expected {expectedCalls}/{expectedCalls}/0; " +
+                $"embed.requests/items/provider={context.Turn.Counter("embed.requests")}/" +
+                $"{context.Turn.Counter("embed.items")}/{context.Turn.SpanCounts.GetValueOrDefault("provider.embedding")}, expected " +
+                $"{MultiSessionEmbeddingRequestCount}/{MultiSessionEmbeddingItemCount}/{MultiSessionEmbeddingRequestCount}; " +
+                $"queries/read/write={context.Turn.Counter("neo4j.queries")}/" +
+                $"{context.Turn.Counter("neo4j.tx.read")}/{context.Turn.Counter("neo4j.tx.write")}, expected " +
+                $"{MultiSessionQueryCount}/{MultiSessionReadTransactionCount}/{MultiSessionWriteTransactionCount}; " +
+                $"fixed_work_exact={fixedWorkExact}).");
         }
     }
 

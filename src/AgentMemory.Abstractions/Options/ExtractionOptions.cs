@@ -38,6 +38,22 @@ public sealed class ExtractionOptions
     public bool EnableBatchMemoryUpserts { get; set; } = true;
 
     /// <summary>
+    /// Generates missing entity, fact, and preference embeddings in one aligned provider batch
+    /// before persistence. Result-count mismatches and unavailable vectors replay safely through
+    /// the existing single-item path. Defaults to <see langword="true"/>; disable to preserve the
+    /// legacy one-request-per-learned-item behavior.
+    /// </summary>
+    public bool UseBatchEmbeddingRequests { get; set; } = true;
+
+    /// <summary>
+    /// Reuses owner/type entity-resolution candidates within one multi-session extraction batch.
+    /// Candidate types are prefetched concurrently, while identity decisions remain chronological
+    /// and update the request-local snapshot after each resolution. Defaults to <see langword="true"/>.
+    /// Disable to retain one repository candidate lookup per extracted entity.
+    /// </summary>
+    public bool UseBatchEntityResolutionSnapshots { get; set; } = true;
+
+    /// <summary>
     /// The trust level stamped on every entity/fact/preference persisted, unless a specific
     /// <c>ExtractionRequest.TrustLevel</c> overrides it for that call (#92 Phase 3). Defaults to
     /// <see cref="MemoryTrustLevel.UserProvided"/> -- everything extracted through the normal pipeline is

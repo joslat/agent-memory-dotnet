@@ -101,8 +101,12 @@ public sealed class ScriptedChatClient : IChatClient
         if (_rules.Count == 0) return _payload;
 
         var prompt = string.Join("\n", messages.Select(m => m.Text ?? string.Empty));
+        if (prompt.Contains("LAB-N1 source", StringComparison.Ordinal))
+            return MultiSessionPayload(prompt, useLexicalIdentity: true, useCapacityLabels: true);
+        if (prompt.Contains("LAB-X1 source", StringComparison.Ordinal))
+            return MultiSessionPayload(prompt, useLexicalIdentity: true);
         if (prompt.Contains("LAB-B1 source", StringComparison.Ordinal))
-            return MultiSessionPayload(prompt);
+            return MultiSessionPayload(prompt, useLexicalIdentity: false);
 
         foreach (var rule in _rules)
         {
@@ -122,44 +126,129 @@ public sealed class ScriptedChatClient : IChatClient
     public const string EmptyPayload =
         """{"entities": [], "facts": [], "preferences": [], "relations": []}""";
 
-    private static string MultiSessionPayload(string prompt)
+    private static readonly string[] IntegratedLabels =
+    [
+        "amber", "birch", "cobalt", "dahlia", "ember", "fjord", "garnet", "harbor",
+        "indigo", "juniper", "kelp", "lilac", "maple", "nectar", "onyx", "pebble",
+        "quartz", "raven", "saffron", "thistle", "umber", "violet", "willow", "xenon",
+        "yarrow", "zephyr", "acorn", "breeze", "cedar", "drift", "elm", "fern",
+        "glacier", "hazel", "iris", "jade", "lotus", "moss", "opal", "pine",
+    ];
+
+    private const int CapacityLabelCount = 320;
+    private const int CapacityEmbeddingDimensions = 384;
+    private static readonly string[] CapacityLabels = CreateCapacityLabels();
+
+    private static string[] CreateCapacityLabels()
+    {
+        var labels = new List<string>(CapacityLabelCount);
+        var usedSlots = new HashSet<int>
+        {
+            LabelSlot("person"), LabelSlot("company"),
+        };
+
+        for (var candidate = 0; labels.Count < CapacityLabelCount; candidate++)
+        {
+            var label = PseudoWord(candidate);
+            if (usedSlots.Add(LabelSlot(label)))
+                labels.Add(label);
+        }
+
+        return labels.ToArray();
+    }
+
+    private static string PseudoWord(int value)
+    {
+        Span<char> characters = stackalloc char[12];
+        var state = unchecked((uint)value * 747_796_405u + 2_891_336_453u);
+        for (var index = 0; index < characters.Length; index++)
+        {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            characters[index] = (char)('a' + state % 26);
+        }
+        // Prevent the conservative harness stemmer from trimming a generated suffix.
+        characters[^1] = 'q';
+        return new string(characters);
+    }
+
+    private static int LabelSlot(string text)
+    {
+        const uint offset = 2166136261;
+        const uint prime = 16777619;
+        var hash = offset;
+        foreach (var character in text)
+        {
+            hash ^= character;
+            hash *= prime;
+        }
+        return (int)(hash % CapacityEmbeddingDimensions);
+    }
+
+    private static string MultiSessionPayload(
+        string prompt, bool useLexicalIdentity, bool useCapacityLabels = false)
     {
         var keys = Regex.Matches(prompt, "<source_session key=\\\"([^\\\"]+)\\\">")
             .Select(match => match.Groups[1].Value)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        string Identity(string key)
+        {
+            if (!useLexicalIdentity)
+                return key[^2..];
+            var separator = key.LastIndexOf('-');
+            var index = int.Parse(
+                key.AsSpan(separator + 1),
+                System.Globalization.CultureInfo.InvariantCulture);
+            var labels = useCapacityLabels ? CapacityLabels : IntegratedLabels;
+            return index < labels.Length
+                ? labels[index]
+                : throw new InvalidOperationException("Integrated capacity label range exceeded.");
+        }
+
         return JsonSerializer.Serialize(new
         {
             processed_source_sessions = keys,
             entities = keys.SelectMany(key =>
             {
-                var unit = key[^2..];
+                var identity = Identity(key);
                 return new[]
                 {
-                    new { source_session = key, name = $"Person {unit}", type = "PERSON", confidence = 0.95 },
-                    new { source_session = key, name = $"Company {unit}", type = "ORGANIZATION", confidence = 0.95 },
+                    new { source_session = key, name = $"Person {identity}", type = "PERSON", confidence = 0.95 },
+                    new { source_session = key, name = $"Company {identity}", type = "ORGANIZATION", confidence = 0.95 },
                 };
             }),
             facts = keys.Select(key =>
             {
-                var unit = key[^2..];
+                var identity = Identity(key);
                 return new
                 {
                     source_session = key,
-                    subject = $"Person {unit}",
+                    subject = $"Person {identity}",
                     predicate = "works_at",
-                    @object = $"Company {unit}",
+                    @object = $"Company {identity}",
                     confidence = 0.9,
                 };
             }),
             preferences = keys.Select(key => new
             {
-                source_session = key, category = "drink", preference = "prefers tea", confidence = 0.9,
+                source_session = key,
+                category = "drink",
+                preference = useLexicalIdentity ? $"prefers {Identity(key)} tea" : "prefers tea",
+                confidence = 0.9,
             }),
             relations = keys.Select(key =>
             {
-                var unit = key[^2..];
-                return new { source_session = key, source = $"Person {unit}", target = $"Company {unit}", relation_type = "WORKS_AT", confidence = 0.9 };
+                var identity = Identity(key);
+                return new
+                {
+                    source_session = key,
+                    source = $"Person {identity}",
+                    target = $"Company {identity}",
+                    relation_type = "WORKS_AT",
+                    confidence = 0.9,
+                };
             }),
         });
     }

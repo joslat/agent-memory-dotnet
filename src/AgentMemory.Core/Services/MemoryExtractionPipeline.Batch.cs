@@ -48,6 +48,7 @@ internal sealed partial class MemoryExtractionPipeline
             cancellationToken).ConfigureAwait(false);
 
         var persisted = new List<ExtractionResult>(ordered.Length);
+        using var resolutionBatch = _extractionStage.BeginResolutionBatch();
         foreach (var request in ordered)
         {
             if (!extractedBySession.TryGetValue(request.SessionId, out var extracted))
@@ -78,6 +79,9 @@ internal sealed partial class MemoryExtractionPipeline
                 trustLevel,
                 cancellationToken).ConfigureAwait(false);
             sw.Stop();
+            if (result.Outcomes.Any(outcome => outcome.Status == IngestionItemStatus.Failed))
+                _extractionStage.InvalidateResolutionBatch();
+
 
             persisted.Add(new ExtractionResult
             {

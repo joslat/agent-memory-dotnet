@@ -132,7 +132,8 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             cli.Get("quality-gate"),
             cli.HasFlag("single-shot")
                 ? cli.Get("single-shot") ?? bool.TrueString
-                : null);
+                : null,
+            cli.Get("batch-resolution-snapshots"));
     }
     catch (Exception ex)
     {

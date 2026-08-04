@@ -13,6 +13,7 @@ public static partial class PerfScenarios
     private const int FrozenRelationshipCount = 1;
     private const int FrozenLearnedEmbeddingCount =
         FrozenEntityCount + FrozenFactCount + FrozenPreferenceCount;
+    private const int FrozenEmbeddingRequestCount = FrozenResolutionEmbeddingCount + 1;
     private const int FrozenResolutionEmbeddingCount = FrozenEntityCount;
     private const int FrozenEmbeddingCount = FrozenLearnedEmbeddingCount + FrozenResolutionEmbeddingCount;
 
@@ -80,7 +81,7 @@ public static partial class PerfScenarios
         var spansPresent =
             ctx.Turn.SpanCounts.GetValueOrDefault("memory.extract.resolution") == 1 &&
             ctx.Turn.SpanCounts.GetValueOrDefault("memory.persist.total") == 1 &&
-            ctx.Turn.SpanCounts.GetValueOrDefault("provider.embedding") == FrozenEmbeddingCount;
+            ctx.Turn.SpanCounts.GetValueOrDefault("provider.embedding") == FrozenEmbeddingRequestCount;
         var excludedWork =
             ctx.Turn.Counter("llm.calls") +
             ctx.Turn.Counter("store.messages") +
@@ -88,7 +89,7 @@ public static partial class PerfScenarios
 
         if (!resultExact ||
             !persistedExact ||
-            ctx.Turn.Counter("embed.requests") != FrozenEmbeddingCount ||
+            ctx.Turn.Counter("embed.requests") != FrozenEmbeddingRequestCount ||
             ctx.Turn.Counter("embed.items") != FrozenEmbeddingCount ||
             !spansPresent ||
             excludedWork != 0)
@@ -97,11 +98,11 @@ public static partial class PerfScenarios
                 $"PERF-W-08 frozen persistence contract failed (result_exact={resultExact}, " +
                 $"persisted_exact={persistedExact}, embed.requests/items=" +
                 $"{ctx.Turn.Counter("embed.requests")}/{ctx.Turn.Counter("embed.items")}, expected " +
-                $"{FrozenEmbeddingCount}/{FrozenEmbeddingCount}; resolution/persistence/provider spans=" +
+                $"{FrozenEmbeddingRequestCount}/{FrozenEmbeddingCount}; resolution/persistence/provider spans=" +
                 $"{ctx.Turn.SpanCounts.GetValueOrDefault("memory.extract.resolution")}/" +
                 $"{ctx.Turn.SpanCounts.GetValueOrDefault("memory.persist.total")}/" +
                 $"{ctx.Turn.SpanCounts.GetValueOrDefault("provider.embedding")}, expected " +
-                $"1/1/{FrozenEmbeddingCount}; excluded_work={excludedWork}/0).");
+                $"1/1/{FrozenEmbeddingRequestCount}; excluded_work={excludedWork}/0).");
         }
     }
 

@@ -13,7 +13,7 @@ namespace AgentMemory.Core.Extraction;
 /// Embeds and persists the resolved items from <see cref="ExtractionStage"/>.
 /// Responsibility: generate embeddings, upsert to repositories, wire EXTRACTED_FROM provenance.
 /// </summary>
-internal sealed class PersistenceStage : IPersistenceStage
+internal sealed partial class PersistenceStage : IPersistenceStage
 {
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IEntityRepository _entityRepository;
@@ -584,7 +584,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         };
     }
 
-    private async Task<PreparedEmbeddings> PrepareEmbeddingsAsync(
+    private async Task<PreparedEmbeddings> PrepareEmbeddingsIndividuallyAsync(
         ExtractionStageResult extraction,
         CancellationToken cancellationToken)
     {
