@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.LongMemEval;
@@ -18,6 +19,11 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
     private readonly ConcurrentDictionary<string, ScopeCounter> _scopeCounters = new(StringComparer.Ordinal);
     private readonly AsyncLocal<string?> _currentScope = new();
     private long _calls;
+    private readonly ConditionalWeakTable<Activity, ActivityCallCounter> _activityCalls = new();
+    private long _completedCalls;
+    private long _retryCalls;
+    private int _activeCalls;
+    private int _maximumConcurrency;
     private long _failures;
     private long _elapsedTimestampTicks;
     private long _failureDetailSlots;
@@ -50,6 +56,9 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             Duration: TimeSpan.FromSeconds(
                 (double)elapsedTicks / Stopwatch.Frequency))
         {
+            CompletedCalls = Interlocked.Read(ref _completedCalls),
+            RetryCalls = Interlocked.Read(ref _retryCalls),
+            MaximumConcurrency = Volatile.Read(ref _maximumConcurrency),
             FailureDetails = _failureDetails.ToArray(),
             DroppedFailureDetails = Interlocked.Read(ref _droppedFailureDetails),
             CallDetails = _callDetails.OrderBy(detail => detail.CallOrdinal).ToArray(),
@@ -65,10 +74,18 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         var materializedMessages =
             messages as IReadOnlyList<ChatMessage> ?? messages.ToArray();
         var purpose = ClassifyPurpose(materializedMessages);
+        var activity = Activity.Current;
+        var estimatedInputTokens = EstimatedInputTokens(activity) ??
+            EstimateInputTokens(materializedMessages, purpose);
+        var retry = RecordActivityCall(activity, purpose) || IsParseRetry(materializedMessages, purpose);
+        if (retry)
+            Interlocked.Increment(ref _retryCalls);
+        var nowActive = Interlocked.Increment(ref _activeCalls);
+        UpdateMaximum(ref _maximumConcurrency, nowActive);
         var callOrdinal = Interlocked.Increment(ref _calls);
         var started = Stopwatch.GetTimestamp();
         var scopeCounter = CurrentScopeCounter();
-        scopeCounter?.RecordCall(purpose);
+        scopeCounter?.RecordCall(purpose, retry);
         Exception? failure = null;
         try
         {
@@ -90,8 +107,10 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             Interlocked.Add(
                 ref _elapsedTimestampTicks,
                 elapsed);
-            scopeCounter?.RecordDuration(elapsed);
-            RecordCall(callOrdinal, purpose, failure);
+            Interlocked.Increment(ref _completedCalls);
+            Interlocked.Decrement(ref _activeCalls);
+            scopeCounter?.RecordCompleted(elapsed);
+            RecordCall(callOrdinal, purpose, failure, elapsed, estimatedInputTokens, retry);
         }
     }
 
@@ -101,9 +120,11 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _calls);
+        var nowActive = Interlocked.Increment(ref _activeCalls);
+        UpdateMaximum(ref _maximumConcurrency, nowActive);
         var started = Stopwatch.GetTimestamp();
         var scopeCounter = CurrentScopeCounter();
-        scopeCounter?.RecordCall("streaming");
+        scopeCounter?.RecordCall("streaming", retry: false);
         try
         {
             await foreach (var update in inner
@@ -120,7 +141,9 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             Interlocked.Add(
                 ref _elapsedTimestampTicks,
                 elapsed);
-            scopeCounter?.RecordDuration(elapsed);
+            Interlocked.Increment(ref _completedCalls);
+            Interlocked.Decrement(ref _activeCalls);
+            scopeCounter?.RecordCompleted(elapsed);
         }
     }
 
@@ -151,13 +174,19 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
     private void RecordCall(
         long callOrdinal,
         string purpose,
-        Exception? exception)
+        Exception? exception,
+        long elapsedTimestampTicks,
+        int? estimatedInputTokens,
+        bool retry)
     {
         _callDetails.Enqueue(new LongMemEvalChatCallDetail(
             callOrdinal,
             purpose,
             exception?.GetType().FullName ?? exception?.GetType().Name,
-            exception is null ? null : ProviderStatus(exception)));
+            exception is null ? null : ProviderStatus(exception),
+            1_000d * elapsedTimestampTicks / Stopwatch.Frequency,
+            estimatedInputTokens,
+            retry));
         while (_callDetails.Count > MaxCallDetails &&
                _callDetails.TryDequeue(out _))
         {
@@ -175,6 +204,60 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
                 (int)http.StatusCode.Value,
             _ => null
         };
+
+    private bool RecordActivityCall(Activity? activity, string purpose)
+    {
+        if (activity is null ||
+            !string.Equals(purpose, "unified_batch", StringComparison.Ordinal))
+            return false;
+        var counter = _activityCalls.GetValue(
+            activity,
+            static _ => new ActivityCallCounter());
+        return Interlocked.Increment(ref counter.Calls) > 1;
+    }
+
+    private static int? EstimatedInputTokens(Activity? activity) =>
+        activity?.GetTagItem("memory.extract.estimated_input_tokens") switch
+        {
+            int value => value,
+            long value when value is >= 0 and <= int.MaxValue => (int)value,
+            _ => null
+        };
+
+    private static int? EstimateInputTokens(
+        IReadOnlyList<ChatMessage> messages,
+        string purpose)
+    {
+        if (!string.Equals(purpose, "unified_batch", StringComparison.Ordinal))
+            return null;
+        return checked(
+            messages.Sum(message => Encoding.UTF8.GetByteCount(message.Text ?? string.Empty)) +
+            33);
+    }
+
+    private static bool IsParseRetry(
+        IReadOnlyList<ChatMessage> messages,
+        string purpose) =>
+        string.Equals(purpose, "unified_batch", StringComparison.Ordinal) &&
+        messages.Count >= 4 &&
+        messages[^1].Role == ChatRole.User &&
+        string.Equals(
+            messages[^1].Text,
+            "That response was not valid JSON. Reply with ONLY the JSON object — " +
+            "no markdown fences, no prose.",
+            StringComparison.Ordinal);
+
+    private static void UpdateMaximum(ref int maximum, int candidate)
+    {
+        var observed = Volatile.Read(ref maximum);
+        while (candidate > observed)
+        {
+            var previous = Interlocked.CompareExchange(ref maximum, candidate, observed);
+            if (previous == observed)
+                return;
+            observed = previous;
+        }
+    }
 
     private static string ClassifyPurpose(
         IReadOnlyList<ChatMessage> messages)
@@ -230,24 +313,41 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         }
     }
 
+    private sealed class ActivityCallCounter
+    {
+        internal long Calls;
+    }
+
     private sealed class ScopeCounter
     {
         private readonly ConcurrentDictionary<string, long> _purposes = new(StringComparer.Ordinal);
         private long _calls;
         private long _failures;
         private long _elapsedTimestampTicks;
+        private long _completedCalls;
+        private long _retryCalls;
+        private int _activeCalls;
+        private int _maximumConcurrency;
 
-        internal void RecordCall(string purpose)
+        internal void RecordCall(string purpose, bool retry)
         {
             Interlocked.Increment(ref _calls);
+            if (retry)
+                Interlocked.Increment(ref _retryCalls);
+            var nowActive = Interlocked.Increment(ref _activeCalls);
+            UpdateMaximum(ref _maximumConcurrency, nowActive);
             _purposes.AddOrUpdate(purpose, 1, static (_, count) => count + 1);
         }
 
         internal void RecordFailure() => Interlocked.Increment(ref _failures);
 
-        internal void RecordDuration(long timestampTicks) =>
+        internal void RecordCompleted(long timestampTicks)
+        {
             Interlocked.Add(ref _elapsedTimestampTicks, timestampTicks);
+            Interlocked.Increment(ref _completedCalls);
+            Interlocked.Decrement(ref _activeCalls);
 
+        }
         internal LongMemEvalChatCallScopeSnapshot Snapshot() =>
             new(
                 Interlocked.Read(ref _calls),
@@ -258,7 +358,12 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
                 _purposes.ToDictionary(
                     pair => pair.Key,
                     pair => pair.Value,
-                    StringComparer.Ordinal));
+                    StringComparer.Ordinal))
+            {
+                CompletedCalls = Interlocked.Read(ref _completedCalls),
+                RetryCalls = Interlocked.Read(ref _retryCalls),
+                MaximumConcurrency = Volatile.Read(ref _maximumConcurrency)
+            };
     }
 }
 public sealed record LongMemEvalChatCallSnapshot(
@@ -266,6 +371,12 @@ public sealed record LongMemEvalChatCallSnapshot(
     long Failures,
     TimeSpan Duration)
 {
+    public long CompletedCalls { get; init; }
+
+    public long RetryCalls { get; init; }
+
+    public int MaximumConcurrency { get; init; }
+
     public IReadOnlyList<LongMemEvalChatCallFailure> FailureDetails { get; init; } =
         Array.Empty<LongMemEvalChatCallFailure>();
 
@@ -287,6 +398,12 @@ internal sealed record LongMemEvalChatCallScopeSnapshot(
     TimeSpan Duration,
     IReadOnlyDictionary<string, long> Purposes)
 {
+    internal long CompletedCalls { get; init; }
+
+    internal long RetryCalls { get; init; }
+
+    internal int MaximumConcurrency { get; init; }
+
     internal static LongMemEvalChatCallScopeSnapshot Zero { get; } =
         new(0, 0, TimeSpan.Zero, new Dictionary<string, long>(StringComparer.Ordinal));
 }
@@ -301,4 +418,7 @@ public sealed record LongMemEvalChatCallDetail(
     long CallOrdinal,
     string Purpose,
     string? ExceptionType,
-    int? ProviderStatus);
+    int? ProviderStatus,
+    double DurationMilliseconds,
+    int? EstimatedInputTokens,
+    bool Retry);

@@ -159,6 +159,64 @@ public sealed class LongMemEvalPreparedBatchBehaviorTests
         }
     }
 
+    [Fact]
+    public async Task Meter_RecordsMaximumConcurrentProviderCalls()
+    {
+        const int expectedConcurrency = 4;
+        var provider = Substitute.For<IChatClient>();
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = 0;
+        provider.GetResponseAsync(
+                Arg.Any<IEnumerable<ChatMessage>>(),
+                Arg.Any<ChatOptions?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                if (Interlocked.Increment(ref entered) == expectedConcurrency)
+                    release.TrySetResult();
+                await release.Task;
+                return new ChatResponse(
+                    new ChatMessage(ChatRole.Assistant, "{\"sessions\":[]}"));
+            });
+        using var meter = new LongMemEvalChatCallMeter(provider);
+
+        await Task.WhenAll(
+            Enumerable.Range(0, expectedConcurrency)
+                .Select(_ => UnifiedBatchCallAsync(meter)));
+
+        var snapshot = meter.Snapshot();
+        snapshot.Calls.Should().Be(expectedConcurrency);
+        snapshot.CompletedCalls.Should().Be(expectedConcurrency);
+        snapshot.Failures.Should().Be(0);
+        snapshot.RetryCalls.Should().Be(0);
+        snapshot.MaximumConcurrency.Should().Be(expectedConcurrency);
+        snapshot.CallDetails.Should().HaveCount(expectedConcurrency);
+        snapshot.CallDetails.Should().OnlyContain(detail =>
+            detail.EstimatedInputTokens > 0 && detail.DurationMilliseconds >= 0);
+    }
+
+    [Fact]
+    public async Task Meter_AttributesOnlyTheExactParseRetryInstruction()
+    {
+        using var meter = new LongMemEvalChatCallMeter(SuccessfulProvider());
+        await meter.GetResponseAsync(
+        [
+            new ChatMessage(ChatRole.System, "You extract structured long-term memory from multiple independent source sessions."),
+            new ChatMessage(ChatRole.User, "extract"),
+            new ChatMessage(ChatRole.Assistant, "not-json"),
+            new ChatMessage(ChatRole.User, "That response was not valid JSON. Reply with ONLY the JSON object — no markdown fences, no prose.")
+        ]);
+
+        var snapshot = meter.Snapshot();
+        snapshot.Calls.Should().Be(1);
+        snapshot.CompletedCalls.Should().Be(1);
+        snapshot.RetryCalls.Should().Be(1);
+        snapshot.CallDetails.Should().ContainSingle()
+            .Which.Retry.Should().BeTrue();
+    }
+
+
     private static Harness CreateHarness(
         int extraProviderCalls, bool providerFailure = false)
     {

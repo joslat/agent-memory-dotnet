@@ -40,6 +40,7 @@ public sealed class LongMemEvalPreparationManifestTests
     [InlineData("dataset")]
     [InlineData("model")]
     [InlineData("budget")]
+    [InlineData("response-contract")]
     [InlineData("response-format")]
     [InlineData("unified")]
     [InlineData("multi-session")]
@@ -55,6 +56,7 @@ public sealed class LongMemEvalPreparationManifestTests
             "dataset" => expected with { DatasetSha256 = "different-dataset" },
             "model" => expected with { ExtractionModelId = "different-model" },
             "budget" => expected with { MaxRelevantMessages = 31 },
+            "response-contract" => expected with { ExtractionResponseContract = "different-contract" },
             "response-format" => expected with { UseJsonResponseFormat = false },
             "unified" => expected with { UseUnifiedExtraction = false },
             "multi-session" => expected with { UseMultiSessionBatchExtraction = false },

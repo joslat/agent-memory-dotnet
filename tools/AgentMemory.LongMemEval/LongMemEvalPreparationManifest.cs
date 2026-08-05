@@ -28,17 +28,20 @@ internal sealed record LongMemEvalPreparationManifest(
     int EmbeddingDimensions,
     int MaxRelevantMessages,
     string ExtractionSourceTime,
+    string ExtractionResponseContract,
     bool UseJsonResponseFormat,
     bool UseUnifiedExtraction,
     bool UseMultiSessionBatchExtraction,
     int PreparationWorkers,
     int MaxSessionsPerBatch,
     int MaxInputTokens,
+    int MaxConcurrentBatchesPerExtraction,
+    int MaxConcurrentExtractionBatches,
     IReadOnlyList<LongMemEvalPreparedQuestion> Questions,
     long InitialExtractionCalls,
     string Fingerprint)
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 5;
 
     internal int MessagesPrepared => Questions.Sum(question => question.MessagesPrepared);
 
@@ -60,11 +63,14 @@ internal sealed record LongMemEvalPreparationManifest(
         IReadOnlyList<LongMemEvalPreparedQuestion> questions,
         long initialExtractionCalls,
         bool useJsonResponseFormat = true,
+        string extractionResponseContract = "json-object",
         bool useUnifiedExtraction = false,
         bool useMultiSessionBatchExtraction = false,
         int preparationWorkers = 1,
         int maxSessionsPerBatch = 1,
-        int maxInputTokens = 100_000)
+        int maxInputTokens = 100_000,
+        int maxConcurrentBatchesPerExtraction = 1,
+        int maxConcurrentExtractionBatches = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preparationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetSha256);
@@ -77,11 +83,15 @@ internal sealed record LongMemEvalPreparationManifest(
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRelevantMessages);
         ArgumentException.ThrowIfNullOrWhiteSpace(extractionSourceTime);
+        ArgumentException.ThrowIfNullOrWhiteSpace(extractionResponseContract);
         ArgumentNullException.ThrowIfNull(questions);
         ArgumentOutOfRangeException.ThrowIfNegative(initialExtractionCalls);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(preparationWorkers);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSessionsPerBatch);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInputTokens);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxConcurrentBatchesPerExtraction);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxConcurrentExtractionBatches);
         if (useMultiSessionBatchExtraction && !useUnifiedExtraction)
         {
             throw new ArgumentException(
@@ -112,12 +122,15 @@ internal sealed record LongMemEvalPreparationManifest(
             embeddingDimensions,
             maxRelevantMessages,
             extractionSourceTime,
+            extractionResponseContract,
             useJsonResponseFormat,
             useUnifiedExtraction,
             useMultiSessionBatchExtraction,
             preparationWorkers,
             maxSessionsPerBatch,
             maxInputTokens,
+            maxConcurrentBatchesPerExtraction,
+            maxConcurrentExtractionBatches,
             materialized,
             initialExtractionCalls,
             Fingerprint: string.Empty);
@@ -155,11 +168,14 @@ internal sealed record LongMemEvalPreparationManifest(
             manifest.MaxRelevantMessages,
             manifest.ExtractionSourceTime,
             manifest.UseJsonResponseFormat,
+            manifest.ExtractionResponseContract,
             manifest.UseUnifiedExtraction,
             manifest.UseMultiSessionBatchExtraction,
             manifest.PreparationWorkers,
             manifest.MaxSessionsPerBatch,
             manifest.MaxInputTokens,
+            manifest.MaxConcurrentBatchesPerExtraction,
+            manifest.MaxConcurrentExtractionBatches,
             Questions = manifest.Questions.Select(question => new
             {
                 question.QuestionNumber,
@@ -196,11 +212,14 @@ internal sealed record LongMemEvalPreparationExpectation(
     int MaxRelevantMessages,
     string ExtractionSourceTime,
     bool UseJsonResponseFormat = true,
+    string ExtractionResponseContract = "json-object",
     bool UseUnifiedExtraction = false,
     bool UseMultiSessionBatchExtraction = false,
     int PreparationWorkers = 1,
     int MaxSessionsPerBatch = 1,
-    int MaxInputTokens = 100_000)
+    int MaxInputTokens = 100_000,
+    int MaxConcurrentBatchesPerExtraction = 1,
+    int MaxConcurrentExtractionBatches = 0)
 {
     internal void Validate(LongMemEvalPreparationManifest manifest)
     {
@@ -214,12 +233,15 @@ internal sealed record LongMemEvalPreparationExpectation(
             manifest.EmbeddingDimensions != EmbeddingDimensions ||
             manifest.MaxRelevantMessages != MaxRelevantMessages ||
             manifest.UseJsonResponseFormat != UseJsonResponseFormat ||
+            !string.Equals(manifest.ExtractionResponseContract, ExtractionResponseContract, StringComparison.Ordinal) ||
             !string.Equals(manifest.ExtractionSourceTime, ExtractionSourceTime, StringComparison.Ordinal) ||
             manifest.UseUnifiedExtraction != UseUnifiedExtraction ||
             manifest.UseMultiSessionBatchExtraction != UseMultiSessionBatchExtraction ||
             manifest.PreparationWorkers != PreparationWorkers ||
             manifest.MaxSessionsPerBatch != MaxSessionsPerBatch ||
-            manifest.MaxInputTokens != MaxInputTokens)
+            manifest.MaxInputTokens != MaxInputTokens ||
+            manifest.MaxConcurrentBatchesPerExtraction != MaxConcurrentBatchesPerExtraction ||
+            manifest.MaxConcurrentExtractionBatches != MaxConcurrentExtractionBatches)
         {
             throw new InvalidOperationException(
                 "Prepared LongMemEval configuration does not match the sealed manifest.");
@@ -239,11 +261,14 @@ internal static class LongMemEvalPreparationFingerprint
         int embeddingDimensions,
         int maxRelevantMessages,
         bool useJsonResponseFormat = true,
+        string extractionResponseContract = "json-object",
         bool useUnifiedExtraction = false,
         bool useMultiSessionBatchExtraction = false,
         int preparationWorkers = 1,
         int maxSessionsPerBatch = 1,
-        int maxInputTokens = 100_000) =>
+        int maxInputTokens = 100_000,
+        int maxConcurrentBatchesPerExtraction = 1,
+        int maxConcurrentExtractionBatches = 0) =>
         new(
             datasetSha256,
             agentEvalRevision,
@@ -255,11 +280,14 @@ internal static class LongMemEvalPreparationFingerprint
             maxRelevantMessages,
             "metadata-only-not-in-extraction-prompt",
             useJsonResponseFormat,
+            extractionResponseContract,
             useUnifiedExtraction,
             useMultiSessionBatchExtraction,
             preparationWorkers,
             maxSessionsPerBatch,
-            maxInputTokens);
+            maxInputTokens,
+            maxConcurrentBatchesPerExtraction,
+            maxConcurrentExtractionBatches);
 }
 public sealed class LongMemEvalPreparedState
 {

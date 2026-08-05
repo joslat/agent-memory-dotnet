@@ -33,6 +33,17 @@ retries; flattening each roughly 500-turn question into one extraction request w
 context overflow and erase the session/time boundaries under test. `--prepared-pair` therefore
 prepares the structured graph once, freezes it, and evaluates isolated Structured and Hybrid clones.
 
+Prepared-pair extraction runs up to four planned batches concurrently within one question and caps
+all extraction provider calls from the process at 12. Both controls are explicit through
+`--max-concurrent-batches-per-extraction` and `--max-concurrent-extraction-batches`, are recorded in
+the preparation fingerprint, and fail closed when provider calls retry, fail, exceed the cap, or do
+not all complete. Per-call telemetry is content-free and bounded to call ordinal, estimated input
+size, provider duration, retry state, exception type, and numeric provider status.
+Each provider batch uses deterministic short source-session aliases (`s1` through `s4`) and a
+batch-specific JSON schema that constrains acknowledgements and learned-item source keys to those
+aliases. AgentMemory maps aliases back to the immutable source-session ids before persistence. The
+sealed preparation fingerprint records this contract as `batch-source-alias-schema-v1`.
+
 The report contains AgentEval's overall, task-averaged, per-type and per-question results alongside
 per-question AgentMemory stored/retrieved counts and opt-in ranked evidence. The evaluator aligns each
 retrieved message with its source session/turn/timestamp after recall and reports gold-session recall,

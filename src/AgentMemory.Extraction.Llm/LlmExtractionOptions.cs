@@ -36,6 +36,18 @@ public sealed class LlmExtractionOptions
     public bool UseMultiSessionBatchExtraction { get; set; }
 
     /// <summary>
+    /// Maximum number of planned multi-session batches that one extraction operation may send
+    /// concurrently. The default of one preserves the historical sequential provider-call order.
+    /// </summary>
+    public int MaxConcurrentBatchesPerExtraction { get; set; } = 1;
+
+    /// <summary>
+    /// Optional process-local cap shared by all multi-session extraction operations registered in
+    /// the same service provider. Zero disables the shared cap.
+    /// </summary>
+    public int MaxConcurrentExtractionBatches { get; set; }
+
+    /// <summary>
     /// Model identifier to use. <c>null</c> (the default) means use the <c>IChatClient</c> default.
     /// </summary>
     public string? ModelId { get; set; }

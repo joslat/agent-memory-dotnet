@@ -32,10 +32,15 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         TextWriter log,
         CancellationToken cancellationToken,
         string? volumeName = null,
-        bool enableBatchedPreparation = false)
+        bool enableBatchedPreparation = false,
+        int maxConcurrentBatchesPerExtraction = 1,
+        int maxConcurrentExtractionBatches = 0)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxConcurrentBatchesPerExtraction);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxConcurrentExtractionBatches);
 
         if (memoryMode.UsesExtraction() && extractionChatClient is null)
         {
@@ -54,6 +59,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     log,
                     volumeName,
                     enableBatchedPreparation,
+                    maxConcurrentBatchesPerExtraction,
+                    maxConcurrentExtractionBatches,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -74,6 +81,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         TextWriter log,
         string? volumeName,
         bool enableBatchedPreparation,
+        int maxConcurrentBatchesPerExtraction,
+        int maxConcurrentExtractionBatches,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -96,6 +105,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.UseJsonResponseFormat = true;
                 options.UseUnifiedExtraction = enableBatchedPreparation;
                 options.UseMultiSessionBatchExtraction = enableBatchedPreparation;
+                options.MaxConcurrentBatchesPerExtraction = maxConcurrentBatchesPerExtraction;
+                options.MaxConcurrentExtractionBatches = maxConcurrentExtractionBatches;
             }
             : null;
         services.AddNeo4jAgentMemory(

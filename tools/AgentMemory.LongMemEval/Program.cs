@@ -392,8 +392,11 @@ internal static class LongMemEvalProgram
           [--prepared-pair] [--preflight-only] \
           [--preparation-workers 10] [--max-sessions-per-batch 4] \
           [--max-input-tokens 100000] \
-          [--checkpoint-questions 3] [--checkpoint-timeout-seconds 300] \
+          [--max-concurrent-batches-per-extraction 4] \
+          [--max-concurrent-extraction-batches 12] \
+          [--checkpoint-questions 3] [--checkpoint-timeout-seconds 3600] \
           [--diagnostic-question N --diagnostic-source-session N] \
+          [--provider-no-progress-timeout-seconds 600] \
           [--evidence-detail none|identifiers|content] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
 

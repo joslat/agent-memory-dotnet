@@ -36,11 +36,14 @@ public sealed class LongMemEvalPreparedBatchBridgeContractTests
             .ToHashSet(StringComparer.Ordinal);
         manifestProperties.Should().Contain(
         [
+            "ExtractionResponseContract",
             "UseUnifiedExtraction",
             "UseMultiSessionBatchExtraction",
             "PreparationWorkers",
             "MaxSessionsPerBatch",
-            "MaxInputTokens"
+            "MaxInputTokens",
+            "MaxConcurrentBatchesPerExtraction",
+            "MaxConcurrentExtractionBatches"
         ], "the prepared artifact fingerprint must identify the execution path");
         var preparedPairOptions = typeof(LongMemEvalPreparedPairProgram)
             .GetNestedType(
@@ -54,6 +57,19 @@ public sealed class LongMemEvalPreparedBatchBridgeContractTests
         preparedPairOptionProperties.Should().Contain(
             "PreflightOnly",
             "a full live preparation cannot begin before a zero-provider-call frozen-plan gate");
+        preparedPairOptionProperties.Should().Contain(
+            [
+                "MaxConcurrentBatchesPerExtraction",
+                "MaxConcurrentExtractionBatches"
+            ],
+            "P1 concurrency must be explicit and fingerprinted by the prepared-pair driver");
+        preparedPairOptionProperties.Should().Contain(
+            [
+                "CheckpointTimeoutSeconds",
+                "ProviderNoProgressTimeoutSeconds"
+            ],
+            "the 60-minute/no-progress watchdog policy must be explicit");
+
         preparedPairOptionProperties.Should().Contain(
             [
                 "CheckpointQuestions",

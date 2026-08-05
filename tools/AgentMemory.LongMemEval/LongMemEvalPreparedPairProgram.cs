@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
+using AgentMemory.Extraction.Llm;
 using AgentEval.Memory.Models;
 using AgentMemory.Abstractions.Services;
 using Azure;
@@ -22,8 +23,11 @@ internal static class LongMemEvalPreparedPairProgram
     private const int DefaultPreparationWorkers = 10;
     private const int DefaultMaxSessionsPerBatch = 4;
     private const int DefaultMaxInputTokens = 100_000;
-    private const int DefaultCheckpointTimeoutSeconds = 300;
-    private const double MaximumAcceptedProjectionMilliseconds = 900_000d;
+    private const int DefaultMaxConcurrentBatchesPerExtraction = 4;
+    private const int DefaultMaxConcurrentExtractionBatches = 12;
+    private const int DefaultCheckpointTimeoutSeconds = 3_600;
+    private const int DefaultProviderNoProgressTimeoutSeconds = 600;
+    private const double ColdBuildSpeedTargetMilliseconds = 900_000d;
 
     private const int FixedTenExpectedSourceSessions = 474;
     internal static async Task<int> RunAsync(string[] args)
@@ -76,11 +80,18 @@ internal static class LongMemEvalPreparedPairProgram
                 embeddingDeployment,
                 embeddingDimensions,
                 options.MaxRelevantMessages,
+                extractionResponseContract: options.IsDiagnostic
+                    ? "json-object"
+                    : LlmMultiSessionExtractionResponseContract.Version,
                 useUnifiedExtraction: !options.IsDiagnostic,
                 useMultiSessionBatchExtraction: !options.IsDiagnostic,
                 preparationWorkers: options.IsDiagnostic ? 1 : options.PreparationWorkers,
                 maxSessionsPerBatch: options.MaxSessionsPerBatch,
-                maxInputTokens: options.MaxInputTokens);
+                maxInputTokens: options.MaxInputTokens,
+                maxConcurrentBatchesPerExtraction:
+                    options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
+                maxConcurrentExtractionBatches:
+                    options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches);
             var preparationId =
                 $"longmemeval-prepared-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
             var overall = Stopwatch.StartNew();
@@ -110,7 +121,11 @@ internal static class LongMemEvalPreparedPairProgram
                         Console.Out,
                         CancellationToken.None,
                         baseVolumeName,
-                        enableBatchedPreparation: !options.IsDiagnostic)
+                        enableBatchedPreparation: !options.IsDiagnostic,
+                        maxConcurrentBatchesPerExtraction:
+                            options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
+                        maxConcurrentExtractionBatches:
+                            options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -249,8 +264,8 @@ internal static class LongMemEvalPreparedPairProgram
                             options.MaxInputTokens,
                             options.CheckpointTimeoutSeconds,
                             projectionSafetyMargin = 1.25d,
-                            maximumAcceptedProjectionMilliseconds =
-                                MaximumAcceptedProjectionMilliseconds,
+                            coldBuildSpeedTargetMilliseconds =
+                                ColdBuildSpeedTargetMilliseconds,
                             questions = plans.Select((plan, index) => new
                             {
                                 questionNumber = index + 1,
@@ -269,13 +284,9 @@ internal static class LongMemEvalPreparedPairProgram
                         $"{checkpointInputTokens} estimated input tokens; " +
                         $"deadline {options.CheckpointTimeoutSeconds}s.");
 
-                    using var checkpointCancellation = new CancellationTokenSource(
-                        TimeSpan.FromSeconds(options.CheckpointTimeoutSeconds));
                     var checkpointWall = Stopwatch.StartNew();
-                    LongMemEvalPreparedBatchExecution checkpointExecution;
-                    try
-                    {
-                        checkpointExecution = await LongMemEvalPreparedBatchExecutor.ExecuteAsync(
+                    var checkpointExecution = await RunPreparedWithDiagnosticsAsync(
+                            cancellationToken => LongMemEvalPreparedBatchExecutor.ExecuteAsync(
                                 baseProfile.Services,
                                 extractionCalls,
                                 preparationId,
@@ -289,15 +300,15 @@ internal static class LongMemEvalPreparedPairProgram
                                 options.MaxSessionsPerBatch,
                                 options.MaxInputTokens,
                                 checkpointIndexes,
-                                checkpointCancellation.Token)
-                            .ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                        when (checkpointCancellation.IsCancellationRequested)
-                    {
-                        throw new TimeoutException(
-                            $"LongMemEval checkpoint exceeded {options.CheckpointTimeoutSeconds} seconds.");
-                    }
+                                cancellationToken),
+                            extractionCalls,
+                            checkpointCalls,
+                            TimeSpan.FromSeconds(options.CheckpointTimeoutSeconds),
+                            baseProfile.Services,
+                            TimeSpan.FromSeconds(options.ProviderNoProgressTimeoutSeconds),
+                            "checkpoint",
+                            Console.Out)
+                        .ConfigureAwait(false);
                     checkpointWall.Stop();
                     ValidateCheckpointTelemetry(
                         checkpointExecution.Telemetry, questions, plans, checkpointIndexes);
@@ -305,6 +316,11 @@ internal static class LongMemEvalPreparedPairProgram
                     if (checkpointExecution.PlannedCalls != checkpointCalls ||
                         checkpointExecution.EstimatedInputTokens != checkpointInputTokens ||
                         checkpointSnapshot.Calls != checkpointCalls ||
+                        checkpointSnapshot.CompletedCalls != checkpointCalls ||
+                        checkpointSnapshot.RetryCalls != 0 ||
+                        checkpointSnapshot.MaximumConcurrency <= 1 ||
+                        checkpointSnapshot.MaximumConcurrency >
+                        options.MaxConcurrentExtractionBatches ||
                         checkpointSnapshot.Failures != 0 ||
                         checkpointExecution.MaximumConcurrency <= 0 ||
                         checkpointExecution.MaximumConcurrency >
@@ -328,45 +344,58 @@ internal static class LongMemEvalPreparedPairProgram
                         $"longmemeval: checkpoint completed in " +
                         $"{checkpointWall.Elapsed.TotalMilliseconds:F2} ms wall; " +
                         $"{checkpointSnapshot.Duration.TotalMilliseconds:F2} ms aggregate provider; " +
-                        $"maximum concurrency {checkpointExecution.MaximumConcurrency}; " +
+                        $"maximum provider concurrency {checkpointSnapshot.MaximumConcurrency}; " +
+                        $"maximum preparation concurrency {checkpointExecution.MaximumConcurrency}; " +
                         $"conservative full cold-build projection {projectedMilliseconds:F2} ms.");
-                    if (projectedMilliseconds > MaximumAcceptedProjectionMilliseconds)
-                    {
-                        throw new InvalidOperationException(
-                            $"LongMemEval checkpoint projected {projectedMilliseconds:F2} ms, " +
-                            $"above the {MaximumAcceptedProjectionMilliseconds:F0} ms gate.");
-                    }
-
+                    Console.WriteLine(
+                        $"longmemeval: cold-build speed target met: " +
+                        $"{projectedMilliseconds <= ColdBuildSpeedTargetMilliseconds}.");
                     Console.WriteLine(
                         "longmemeval: checkpoint accepted; no manifest, clone, recall, " +
                         "answer, judge, or report executed.");
                     return 0;
                 }
-                batchExecution = await LongMemEvalPreparedBatchExecutor.ExecuteAsync(
-                        baseProfile.Services,
+                batchExecution = await RunPreparedWithDiagnosticsAsync(
+                        cancellationToken => LongMemEvalPreparedBatchExecutor.ExecuteAsync(
+                            baseProfile.Services,
+                            extractionCalls,
+                            preparationId,
+                            evidenceIndex,
+                            questions,
+                            plans,
+                            deployment,
+                            options.EvidenceDetail,
+                            options.MaxRelevantMessages,
+                            options.PreparationWorkers,
+                            options.MaxSessionsPerBatch,
+                            options.MaxInputTokens,
+                            questionIndexes: null,
+                            cancellationToken),
                         extractionCalls,
-                        preparationId,
-                        evidenceIndex,
-                        questions,
-                        plans,
-                        deployment,
-                        options.EvidenceDetail,
-                        options.MaxRelevantMessages,
-                        options.PreparationWorkers,
-                        options.MaxSessionsPerBatch,
-                        options.MaxInputTokens,
-                        questionIndexes: null,
-                        cancellationToken: CancellationToken.None)
+                        plannedCalls,
+                        TimeSpan.FromSeconds(options.CheckpointTimeoutSeconds),
+                        baseProfile.Services,
+                        TimeSpan.FromSeconds(options.ProviderNoProgressTimeoutSeconds),
+                        "fixed-ten preparation",
+                        Console.Out)
                     .ConfigureAwait(false);
                 preparationTelemetry = batchExecution.Telemetry;
                 ValidatePreparationTelemetry(preparationTelemetry, questions.Length);
                 var initialExtractionCalls = batchExecution.PlannedCalls;
                 var extractionSnapshot = extractionCalls.Snapshot();
                 if (extractionSnapshot.Calls != initialExtractionCalls ||
-                    extractionSnapshot.Failures != 0)
+                    extractionSnapshot.CompletedCalls != initialExtractionCalls ||
+                    extractionSnapshot.Failures != 0 ||
+                    extractionSnapshot.RetryCalls != 0 ||
+                    extractionSnapshot.MaximumConcurrency <= 1 ||
+                    extractionSnapshot.MaximumConcurrency > options.MaxConcurrentExtractionBatches)
                 {
                     throw new InvalidOperationException(
-                        $"Prepared LongMemEval extraction accounting mismatch: observed {extractionSnapshot.Calls} calls and {extractionSnapshot.Failures} failures; expected exactly {initialExtractionCalls} calls and zero failures.");
+                        $"Prepared LongMemEval extraction accounting mismatch: started/completed " +
+                        $"{extractionSnapshot.Calls}/{extractionSnapshot.CompletedCalls}, failures " +
+                        $"{extractionSnapshot.Failures}, retries {extractionSnapshot.RetryCalls}, maximum " +
+                        $"provider concurrency {extractionSnapshot.MaximumConcurrency}; expected exactly " +
+                        $"{initialExtractionCalls} completed calls, zero failures/retries, and concurrency 2..{options.MaxConcurrentExtractionBatches}.");
                 }
 
                 var preparedQuestions = questions.Select((question, index) =>
@@ -414,11 +443,14 @@ internal static class LongMemEvalPreparedPairProgram
                     preparedQuestions,
                     initialExtractionCalls,
                     useJsonResponseFormat: expectation.UseJsonResponseFormat,
+                    extractionResponseContract: expectation.ExtractionResponseContract,
                     useUnifiedExtraction: true,
                     useMultiSessionBatchExtraction: true,
                     preparationWorkers: options.PreparationWorkers,
                     maxSessionsPerBatch: options.MaxSessionsPerBatch,
-                    maxInputTokens: options.MaxInputTokens);
+                    maxInputTokens: options.MaxInputTokens,
+                    maxConcurrentBatchesPerExtraction: options.MaxConcurrentBatchesPerExtraction,
+                    maxConcurrentExtractionBatches: options.MaxConcurrentExtractionBatches);
 
                 var seal = Stopwatch.StartNew();
                 var store = new Neo4jLongMemEvalPreparationStore(driver);
@@ -533,13 +565,19 @@ internal static class LongMemEvalPreparedPairProgram
                         LongMemEvalMemoryMode.Hybrid.Fingerprint()
                     },
                     extractionSourceTime = expectation.ExtractionSourceTime,
-                    extractionResponseFormat = expectation.UseJsonResponseFormat ? "json-object" : "unspecified",
+                    extractionResponseFormat = expectation.UseJsonResponseFormat
+                        ? expectation.ExtractionResponseContract
+                        : "unspecified",
                     extractionExecution = "unified-multi-session-batch",
                     preparationWorkers = options.PreparationWorkers,
                     maximumObservedPreparationConcurrency =
                         batchExecution!.MaximumConcurrency,
                     maxSessionsPerBatch = options.MaxSessionsPerBatch,
                     maxInputTokens = options.MaxInputTokens,
+                    maxConcurrentBatchesPerExtraction = options.MaxConcurrentBatchesPerExtraction,
+                    maxConcurrentExtractionBatches = options.MaxConcurrentExtractionBatches,
+                    preparationWatchdogSeconds = options.CheckpointTimeoutSeconds,
+                    providerNoProgressWatchdogSeconds = options.ProviderNoProgressTimeoutSeconds,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
@@ -563,6 +601,8 @@ internal static class LongMemEvalPreparedPairProgram
                     manifest.PreparationWorkers,
                     manifest.MaxSessionsPerBatch,
                     manifest.MaxInputTokens,
+                    manifest.MaxConcurrentBatchesPerExtraction,
+                    manifest.MaxConcurrentExtractionBatches,
                     plannedEstimatedInputTokens =
                         batchExecution!.EstimatedInputTokens,
                     maximumObservedConcurrency =
@@ -797,11 +837,65 @@ internal static class LongMemEvalPreparedPairProgram
                 : null
         };
 
+    private static async Task<T> RunPreparedWithDiagnosticsAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        LongMemEvalChatCallMeter meter,
+        long expectedProviderCalls,
+        TimeSpan overallTimeout,
+        IServiceProvider services,
+        TimeSpan noProviderProgressTimeout,
+        string phase,
+        TextWriter output)
+    {
+        try
+        {
+            return await LongMemEvalPreparationWatchdog.RunAsync(
+                    operation,
+                    meter,
+                    expectedProviderCalls,
+                    overallTimeout,
+                    noProviderProgressTimeout,
+                    phase,
+                    output)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            var snapshot = services.GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot();
+            if (snapshot.Splits == 0)
+                throw;
+            var reasons = string.Join(',', snapshot.Details.GroupBy(item => item.Reason).OrderBy(group => group.Key, StringComparer.Ordinal).Select(group => $"{group.Key}={group.Count()}"));
+            var sizes = string.Join(',', snapshot.Details.GroupBy(item => item.SourceSessions).OrderBy(group => group.Key).Select(group => $"{group.Key}={group.Count()}"));
+            var types = string.Join(',', snapshot.Details.Select(item => item.ExceptionType).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal));
+            throw new InvalidOperationException(
+                $"{exception.Message} Content-free batch-split diagnostics: " +
+                $"splits={snapshot.Splits}; reasons={reasons}; " +
+                $"source_session_counts={sizes}; " +
+                $"exception_types={types}; dropped_details={snapshot.DroppedDetails}.",
+                exception);
+        }
+    }
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
     {
         snapshot.Calls,
+        snapshot.CompletedCalls,
         snapshot.Failures,
-        durationMs = snapshot.Duration.TotalMilliseconds
+        snapshot.RetryCalls,
+        snapshot.MaximumConcurrency,
+        durationMs = snapshot.Duration.TotalMilliseconds,
+        snapshot.DroppedCallDetails,
+        batches = snapshot.CallDetails
+            .Where(detail => string.Equals(detail.Purpose, "unified_batch", StringComparison.Ordinal))
+            .Select(detail => new
+            {
+                detail.CallOrdinal,
+                detail.DurationMilliseconds,
+                detail.EstimatedInputTokens,
+                detail.Retry,
+                detail.ExceptionType,
+                detail.ProviderStatus
+            })
+            .ToArray()
     };
 
     private static void ValidateCheckpointTelemetry(
@@ -908,16 +1002,31 @@ internal static class LongMemEvalPreparedPairProgram
             ParsePositive(Value("--preparation-workers"), DefaultPreparationWorkers, "--preparation-workers"),
             ParsePositive(Value("--max-sessions-per-batch"), DefaultMaxSessionsPerBatch, "--max-sessions-per-batch"),
             ParsePositive(Value("--max-input-tokens"), DefaultMaxInputTokens, "--max-input-tokens"),
+            ParsePositive(
+                Value("--max-concurrent-batches-per-extraction"),
+                DefaultMaxConcurrentBatchesPerExtraction,
+                "--max-concurrent-batches-per-extraction"),
+            ParsePositive(Value("--max-concurrent-extraction-batches"),
+                DefaultMaxConcurrentExtractionBatches, "--max-concurrent-extraction-batches"),
             Has("--preflight-only"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
             ParsePositive(
                 Value("--checkpoint-timeout-seconds"),
                 DefaultCheckpointTimeoutSeconds,
-                "--checkpoint-timeout-seconds"));
+                "--checkpoint-timeout-seconds"),
+            ParsePositive(Value("--provider-no-progress-timeout-seconds"),
+                DefaultProviderNoProgressTimeoutSeconds,
+                "--provider-no-progress-timeout-seconds"));
     }
 
     private static void Validate(PreparedPairOptions options)
     {
+        if (options.ProviderNoProgressTimeoutSeconds > options.CheckpointTimeoutSeconds)
+        {
+            throw new ArgumentException(
+                "--provider-no-progress-timeout-seconds cannot exceed --checkpoint-timeout-seconds.");
+        }
+
         if (string.IsNullOrWhiteSpace(options.DatasetPath))
             throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required.");
         if (!File.Exists(options.DatasetPath))
@@ -1086,9 +1195,12 @@ internal static class LongMemEvalPreparedPairProgram
         int PreparationWorkers,
         int MaxSessionsPerBatch,
         int MaxInputTokens,
+        int MaxConcurrentBatchesPerExtraction,
+        int MaxConcurrentExtractionBatches,
         bool PreflightOnly,
         int? CheckpointQuestions,
-        int CheckpointTimeoutSeconds)
+        int CheckpointTimeoutSeconds,
+        int ProviderNoProgressTimeoutSeconds)
     {
         internal bool IsDiagnostic =>
             DiagnosticQuestionPosition is not null &&

@@ -39,14 +39,15 @@ internal sealed class LlmExtractionRunner
         string conversationText,
         Func<LlmExtractionResponse, IReadOnlyList<T>> project,
         CancellationToken cancellationToken,
-        bool failOnParseExhaustion = false)
+        bool failOnParseExhaustion = false,
+        ChatResponseFormat? responseFormat = null)
     {
         var chatMessages = new List<ChatMessage>
         {
             new(ChatRole.System, systemPrompt),
             new(ChatRole.User, $"{userInstruction}\n\n{conversationText}")
         };
-        var chatOptions = BuildChatOptions();
+        var chatOptions = BuildChatOptions(responseFormat);
 
         int maxAttempts = _options.MaxRetries < 0 ? 1 : _options.MaxRetries + 1;
 
@@ -80,13 +81,13 @@ internal sealed class LlmExtractionRunner
         return Array.Empty<T>();
     }
 
-    private ChatOptions BuildChatOptions()
+    private ChatOptions BuildChatOptions(ChatResponseFormat? responseFormat)
     {
         var opts = new ChatOptions { Temperature = _options.Temperature };
         if (!string.IsNullOrEmpty(_options.ModelId))
             opts.ModelId = _options.ModelId;
         if (_options.UseJsonResponseFormat)
-            opts.ResponseFormat = ChatResponseFormat.Json;
+            opts.ResponseFormat = responseFormat ?? ChatResponseFormat.Json;
         return opts;
     }
 

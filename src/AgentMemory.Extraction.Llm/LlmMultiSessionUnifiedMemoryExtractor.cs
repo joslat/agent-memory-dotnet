@@ -33,15 +33,23 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
     private readonly ILogger<LlmMultiSessionUnifiedMemoryExtractor> _logger;
+    private readonly LlmExtractionBatchConcurrencyLimiter? _concurrencyLimiter;
+    private readonly LlmExtractionBatchDiagnostics? _batchDiagnostics;
 
     public LlmMultiSessionUnifiedMemoryExtractor(
         IChatClient chatClient,
         IOptions<LlmExtractionOptions> options,
-        ILogger<LlmMultiSessionUnifiedMemoryExtractor> logger)
+        ILogger<LlmMultiSessionUnifiedMemoryExtractor> logger,
+        LlmExtractionBatchConcurrencyLimiter? concurrencyLimiter = null,
+        LlmExtractionBatchDiagnostics? batchDiagnostics = null)
     {
         _chatClient = chatClient;
         _options = options.Value;
         _logger = logger;
+        _concurrencyLimiter = concurrencyLimiter;
+        _batchDiagnostics = batchDiagnostics;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            _options.MaxConcurrentBatchesPerExtraction);
     }
 
     public bool IsEnabled =>
@@ -79,22 +87,79 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         var requestsBySession = requests.ToDictionary(
             request => request.SessionId,
             StringComparer.Ordinal);
-        var results = new Dictionary<string, UnifiedExtractionResult>(StringComparer.Ordinal);
-        foreach (var plannedBatch in plan.Batches)
+        var extractedByBatch =
+            new IReadOnlyDictionary<string, UnifiedExtractionResult>?[plan.BatchCount];
+        var concurrency = Math.Min(
+            _options.MaxConcurrentBatchesPerExtraction,
+            plan.BatchCount);
+
+        if (concurrency <= 1)
         {
-            var batch = plannedBatch.SourceSessionIds
-                .Select(sessionId => requestsBySession[sessionId])
-                .ToArray();
-            var extracted = await ExtractOrSplitAsync(batch, maxInputTokens, cancellationToken)
-                .ConfigureAwait(false);
-            foreach (var pair in extracted)
-                results.Add(pair.Key, pair.Value);
+            for (var index = 0; index < plan.BatchCount; index++)
+            {
+                extractedByBatch[index] = await ExtractPlannedBatchAsync(
+                        plan.Batches[index],
+                        requestsBySession,
+                        maxInputTokens,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, plan.BatchCount),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = concurrency,
+                    CancellationToken = cancellationToken
+                },
+                async (index, itemCancellationToken) =>
+                {
+                    extractedByBatch[index] = await ExtractPlannedBatchAsync(
+                            plan.Batches[index],
+                            requestsBySession,
+                            maxInputTokens,
+                            itemCancellationToken)
+                        .ConfigureAwait(false);
+                }).ConfigureAwait(false);
         }
 
-        if (results.Count != requests.Count)
+        var unordered = new Dictionary<string, UnifiedExtractionResult>(StringComparer.Ordinal);
+        foreach (var extracted in extractedByBatch)
+        {
+            if (extracted is null)
+                throw new InvalidOperationException(
+                    "Multi-session extraction did not complete every planned batch.");
+            foreach (var pair in extracted)
+                unordered.Add(pair.Key, pair.Value);
+        }
+
+        if (unordered.Count != requests.Count)
             throw new InvalidOperationException(
-                $"Multi-session extraction returned {results.Count} sessions for {requests.Count} inputs.");
+                $"Multi-session extraction returned {unordered.Count} sessions for {requests.Count} inputs.");
+
+        var results = new Dictionary<string, UnifiedExtractionResult>(StringComparer.Ordinal);
+        foreach (var request in requests)
+            results.Add(request.SessionId, unordered[request.SessionId]);
         return results;
+    }
+
+    private async Task<IReadOnlyDictionary<string, UnifiedExtractionResult>>
+        ExtractPlannedBatchAsync(
+            MultiSessionExtractionBatchPlan plannedBatch,
+            IReadOnlyDictionary<string, ExtractionRequest> requestsBySession,
+            int maxInputTokens,
+            CancellationToken cancellationToken)
+    {
+        var batch = plannedBatch.SourceSessionIds
+            .Select(sessionId => requestsBySession[sessionId])
+            .ToArray();
+        return await ExtractOrSplitAsync(
+                batch,
+                maxInputTokens,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyDictionary<string, UnifiedExtractionResult>> ExtractOrSplitAsync(
@@ -114,6 +179,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         }
         catch (Exception ex) when (batch.Count > 1)
         {
+            _batchDiagnostics?.RecordSplit(ex, batch.Count);
             _logger.LogWarning(
                 ex,
                 "Multi-session extraction batch of {Count} did not pass validation; splitting.",
@@ -131,16 +197,26 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         IReadOnlyList<ExtractionRequest> batch,
         CancellationToken cancellationToken)
     {
+        var estimatedInputTokens = EstimateInputTokens(batch);
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.unified_batch");
         activity?.SetTag("memory.extract.source_sessions", batch.Count);
+        activity?.SetTag("memory.extract.estimated_input_tokens", estimatedInputTokens);
         var runner = new LlmExtractionRunner(_chatClient, _options, _logger);
-        var projected = await runner.RunAsync(
-            SystemPrompt,
-            UserInstruction,
-            BuildBatchText(batch),
-            response => new[] { ProjectAndValidate(response, batch) },
-            cancellationToken,
-            failOnParseExhaustion: true).ConfigureAwait(false);
+
+        Task<IReadOnlyList<IReadOnlyDictionary<string, UnifiedExtractionResult>>> RunProviderAsync() =>
+            runner.RunAsync(
+                SystemPrompt,
+                UserInstruction,
+                BuildBatchText(batch),
+                response => new[] { ProjectAndValidate(response, batch) },
+                cancellationToken,
+                failOnParseExhaustion: true,
+                responseFormat: LlmMultiSessionExtractionResponseContract.CreateResponseFormat(batch.Count));
+
+        var projected = _concurrencyLimiter is null
+            ? await RunProviderAsync().ConfigureAwait(false)
+            : await _concurrencyLimiter.RunAsync(RunProviderAsync, cancellationToken)
+                .ConfigureAwait(false);
         return projected.Single();
     }
 
@@ -148,7 +224,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         LlmExtractionResponse response,
         IReadOnlyList<ExtractionRequest> batch)
     {
-        var expected = batch.Select(request => request.SessionId).ToHashSet(StringComparer.Ordinal);
+        var sourceSessions = batch.Select((request, index) =>
+            new BatchSourceSession(
+                LlmMultiSessionExtractionResponseContract.Alias(index), request)).ToArray();
+        var expected = sourceSessions.Select(item => item.Alias).ToHashSet(StringComparer.Ordinal);
         var acknowledged = (response.ProcessedSourceSessions ?? [])
             .ToHashSet(StringComparer.Ordinal);
         if (!acknowledged.SetEquals(expected) || response.ProcessedSourceSessions!.Count != expected.Count)
@@ -215,9 +294,9 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                 });
         }
 
-        return results.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value.ToResult(),
+        return sourceSessions.ToDictionary(
+            item => item.Request.SessionId,
+            item => results[item.Alias].ToResult(),
             StringComparer.Ordinal);
     }
 
@@ -267,9 +346,11 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     private static string BuildBatchText(IReadOnlyList<ExtractionRequest> batch)
     {
         var builder = new StringBuilder();
-        foreach (var request in batch)
+        for (var index = 0; index < batch.Count; index++)
         {
-            builder.Append("<source_session key=\"").Append(request.SessionId).AppendLine("\">");
+            var request = batch[index];
+            builder.Append("<source_session key=\"")
+                .Append(LlmMultiSessionExtractionResponseContract.Alias(index)).AppendLine("\">");
             foreach (var message in request.Messages)
             {
                 builder.Append('[').Append(message.TimestampUtc.ToString("O")).Append("] ")
@@ -288,6 +369,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         "INDIVIDUAL" => "PERSON",
         var value => value,
     };
+    private sealed record BatchSourceSession(
+        string Alias,
+        ExtractionRequest Request);
+
 
     private sealed class Accumulator
     {

@@ -323,6 +323,15 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void LlmExtractionOptions_Default_MultiSessionBatchConcurrencyPreservesCompatibility()
+    {
+        var options = new LlmExtractionOptions();
+
+        options.MaxConcurrentBatchesPerExtraction.Should().Be(1);
+        options.MaxConcurrentExtractionBatches.Should().Be(0);
+    }
+
+    [Fact]
     public void LlmExtractionOptions_Default_UseJsonResponseFormatIsTrue()
     {
         new LlmExtractionOptions().UseJsonResponseFormat.Should().BeTrue();
