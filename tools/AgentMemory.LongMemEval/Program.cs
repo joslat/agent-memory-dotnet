@@ -392,6 +392,7 @@ internal static class LongMemEvalProgram
           [--prepared-pair] [--preflight-only] \
           [--preparation-workers 10] [--max-sessions-per-batch 4] \
           [--max-input-tokens 100000] \
+          [--checkpoint-questions 3] [--checkpoint-timeout-seconds 300] \
           [--diagnostic-question N --diagnostic-source-session N] \
           [--evidence-detail none|identifiers|content] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
@@ -400,6 +401,8 @@ internal static class LongMemEvalProgram
         Supplying both diagnostic selectors with --prepared-pair runs exactly one extraction unit and can never emit a report or execute recall/judging.
         --preflight-only freezes the exact prepared-pair batch plan, proves zero provider calls/writes,
         prints source-session/call/token totals, cleans up, and emits no accepted report.
+        --checkpoint-questions selects the highest-token frozen questions, executes the identical
+        preparation path under a hard deadline, projects full cold-build time, cleans up, and emits no report.
 
 
         Requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT,

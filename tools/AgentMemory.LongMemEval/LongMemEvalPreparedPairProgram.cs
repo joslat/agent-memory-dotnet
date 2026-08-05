@@ -22,6 +22,8 @@ internal static class LongMemEvalPreparedPairProgram
     private const int DefaultPreparationWorkers = 10;
     private const int DefaultMaxSessionsPerBatch = 4;
     private const int DefaultMaxInputTokens = 100_000;
+    private const int DefaultCheckpointTimeoutSeconds = 300;
+    private const double MaximumAcceptedProjectionMilliseconds = 900_000d;
 
     private const int FixedTenExpectedSourceSessions = 474;
     internal static async Task<int> RunAsync(string[] args)
@@ -221,6 +223,125 @@ internal static class LongMemEvalPreparedPairProgram
                         "zero graph writes, no report, clone, recall, answer, or judge executed.");
                     return 0;
                 }
+                if (options.CheckpointQuestions is int checkpointQuestions)
+                {
+                    var checkpointIndexes = LongMemEvalPreparedBatchExecutor
+                        .SelectCheckpointQuestionIndexes(plans, checkpointQuestions);
+                    var checkpointCalls = checkpointIndexes.Sum(
+                        index => (long)plans[index].BatchCount);
+                    var checkpointSourceSessions = checkpointIndexes.Sum(
+                        index => (long)plans[index].SourceSessionCount);
+                    var checkpointInputTokens = checkpointIndexes.Sum(
+                        index => plans[index].TotalEstimatedInputTokens);
+                    var checkpointFingerprint = Convert.ToHexStringLower(
+                        SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+                        {
+                            schema = 1,
+                            datasetSha256,
+                            agentEvalRevision,
+                            answerModelId = deployment,
+                            extractionModelId = extractionDeployment,
+                            embeddingModelId = embeddingDeployment,
+                            embeddingDimensions,
+                            options.MaxRelevantMessages,
+                            options.PreparationWorkers,
+                            options.MaxSessionsPerBatch,
+                            options.MaxInputTokens,
+                            options.CheckpointTimeoutSeconds,
+                            projectionSafetyMargin = 1.25d,
+                            maximumAcceptedProjectionMilliseconds =
+                                MaximumAcceptedProjectionMilliseconds,
+                            questions = plans.Select((plan, index) => new
+                            {
+                                questionNumber = index + 1,
+                                sourceSessions = plan.SourceSessionCount,
+                                calls = plan.BatchCount,
+                                estimatedInputTokens = plan.TotalEstimatedInputTokens
+                            }).ToArray(),
+                            selectedQuestionNumbers = checkpointIndexes
+                                .Select(index => index + 1)
+                                .ToArray()
+                        })));
+                    Console.WriteLine(
+                        $"longmemeval: checkpoint {checkpointFingerprint}; questions " +
+                        $"{string.Join(',', checkpointIndexes.Select(index => index + 1))}; " +
+                        $"{checkpointCalls} calls, {checkpointSourceSessions} source sessions, " +
+                        $"{checkpointInputTokens} estimated input tokens; " +
+                        $"deadline {options.CheckpointTimeoutSeconds}s.");
+
+                    using var checkpointCancellation = new CancellationTokenSource(
+                        TimeSpan.FromSeconds(options.CheckpointTimeoutSeconds));
+                    var checkpointWall = Stopwatch.StartNew();
+                    LongMemEvalPreparedBatchExecution checkpointExecution;
+                    try
+                    {
+                        checkpointExecution = await LongMemEvalPreparedBatchExecutor.ExecuteAsync(
+                                baseProfile.Services,
+                                extractionCalls,
+                                preparationId,
+                                evidenceIndex,
+                                questions,
+                                plans,
+                                deployment,
+                                options.EvidenceDetail,
+                                options.MaxRelevantMessages,
+                                options.PreparationWorkers,
+                                options.MaxSessionsPerBatch,
+                                options.MaxInputTokens,
+                                checkpointIndexes,
+                                checkpointCancellation.Token)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                        when (checkpointCancellation.IsCancellationRequested)
+                    {
+                        throw new TimeoutException(
+                            $"LongMemEval checkpoint exceeded {options.CheckpointTimeoutSeconds} seconds.");
+                    }
+                    checkpointWall.Stop();
+                    ValidateCheckpointTelemetry(
+                        checkpointExecution.Telemetry, questions, plans, checkpointIndexes);
+                    var checkpointSnapshot = extractionCalls.Snapshot();
+                    if (checkpointExecution.PlannedCalls != checkpointCalls ||
+                        checkpointExecution.EstimatedInputTokens != checkpointInputTokens ||
+                        checkpointSnapshot.Calls != checkpointCalls ||
+                        checkpointSnapshot.Failures != 0 ||
+                        checkpointExecution.MaximumConcurrency <= 0 ||
+                        checkpointExecution.MaximumConcurrency >
+                        Math.Min(checkpointQuestions, options.PreparationWorkers))
+                    {
+                        throw new InvalidOperationException(
+                            "LongMemEval checkpoint accounting or concurrency guard failed.");
+                    }
+
+                    var projectedMilliseconds = LongMemEvalPreparedBatchExecutor
+                        .ProjectFullPreparationMilliseconds(
+                            plannedCalls,
+                            plannedSourceSessions,
+                            plannedInputTokens,
+                            checkpointCalls,
+                            checkpointSourceSessions,
+                            checkpointInputTokens,
+                            checkpointWall.Elapsed.TotalMilliseconds,
+                            profileStartup.Elapsed.TotalMilliseconds);
+                    Console.WriteLine(
+                        $"longmemeval: checkpoint completed in " +
+                        $"{checkpointWall.Elapsed.TotalMilliseconds:F2} ms wall; " +
+                        $"{checkpointSnapshot.Duration.TotalMilliseconds:F2} ms aggregate provider; " +
+                        $"maximum concurrency {checkpointExecution.MaximumConcurrency}; " +
+                        $"conservative full cold-build projection {projectedMilliseconds:F2} ms.");
+                    if (projectedMilliseconds > MaximumAcceptedProjectionMilliseconds)
+                    {
+                        throw new InvalidOperationException(
+                            $"LongMemEval checkpoint projected {projectedMilliseconds:F2} ms, " +
+                            $"above the {MaximumAcceptedProjectionMilliseconds:F0} ms gate.");
+                    }
+
+                    Console.WriteLine(
+                        "longmemeval: checkpoint accepted; no manifest, clone, recall, " +
+                        "answer, judge, or report executed.");
+                    return 0;
+                }
                 batchExecution = await LongMemEvalPreparedBatchExecutor.ExecuteAsync(
                         baseProfile.Services,
                         extractionCalls,
@@ -234,7 +355,8 @@ internal static class LongMemEvalPreparedPairProgram
                         options.PreparationWorkers,
                         options.MaxSessionsPerBatch,
                         options.MaxInputTokens,
-                        CancellationToken.None)
+                        questionIndexes: null,
+                        cancellationToken: CancellationToken.None)
                     .ConfigureAwait(false);
                 preparationTelemetry = batchExecution.Telemetry;
                 ValidatePreparationTelemetry(preparationTelemetry, questions.Length);
@@ -682,6 +804,53 @@ internal static class LongMemEvalPreparedPairProgram
         durationMs = snapshot.Duration.TotalMilliseconds
     };
 
+    private static void ValidateCheckpointTelemetry(
+        IReadOnlyList<LongMemEvalQuestionTelemetry> telemetry,
+        IReadOnlyList<LongMemEvalEvidenceQuestion> questions,
+        IReadOnlyList<MultiSessionExtractionPlan> plans,
+        IReadOnlyList<int> questionIndexes)
+    {
+        if (telemetry.Count != questionIndexes.Count)
+            throw new InvalidOperationException(
+                "LongMemEval checkpoint telemetry count did not match its frozen selection.");
+
+        for (var position = 0; position < questionIndexes.Count; position++)
+        {
+            var questionIndex = questionIndexes[position];
+            var item = telemetry[position];
+            var plan = plans[questionIndex];
+            if (item.QuestionNumber != questionIndex + 1 ||
+                !string.Equals(item.Status, "prepared", StringComparison.Ordinal) ||
+                item.MessagesStored <= 0 ||
+                item.ExtractionUnits != plan.SourceSessionCount ||
+                item.ExtractionCallsPlanned != plan.BatchCount ||
+                item.ItemsRetrieved != 0 ||
+                item.GraphReadBack is null ||
+                item.GraphReadBack.TotalLearned == 0 ||
+                !item.GraphReadBack.CompleteProvenance ||
+                item.StageTimings is null ||
+                item.StageTimings.StorageMs <= 0 ||
+                item.StageTimings.ExtractionPersistenceMs <= 0 ||
+                item.StageTimings.GraphReadBackMs <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"LongMemEval checkpoint question {questionIndex + 1} failed " +
+                    "storage, extraction, graph, provenance, or timing guards.");
+            }
+
+            var sourceSessions = questions[questionIndex].Messages
+                .Where(message =>
+                    !message.IsSyntheticBoundary &&
+                    !message.IsSyntheticFormatterPadding)
+                .Select(message => message.SourceSessionOrdinal)
+                .Distinct()
+                .Count();
+            if (sourceSessions != plan.SourceSessionCount)
+                throw new InvalidOperationException(
+                    $"LongMemEval checkpoint question {questionIndex + 1} source-session guard failed.");
+        }
+    }
+
     private static void ValidatePreparationTelemetry(
         IReadOnlyList<LongMemEvalQuestionTelemetry> telemetry,
         int expectedQuestions)
@@ -739,7 +908,12 @@ internal static class LongMemEvalPreparedPairProgram
             ParsePositive(Value("--preparation-workers"), DefaultPreparationWorkers, "--preparation-workers"),
             ParsePositive(Value("--max-sessions-per-batch"), DefaultMaxSessionsPerBatch, "--max-sessions-per-batch"),
             ParsePositive(Value("--max-input-tokens"), DefaultMaxInputTokens, "--max-input-tokens"),
-            Has("--preflight-only"));
+            Has("--preflight-only"),
+            ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
+            ParsePositive(
+                Value("--checkpoint-timeout-seconds"),
+                DefaultCheckpointTimeoutSeconds,
+                "--checkpoint-timeout-seconds"));
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -775,6 +949,28 @@ internal static class LongMemEvalPreparedPairProgram
         {
             throw new ArgumentException(
                 "--output is forbidden for preflight-only execution.");
+        }
+        if (options.CheckpointQuestions > options.Questions)
+        {
+            throw new ArgumentException(
+                "--checkpoint-questions cannot exceed --questions.");
+        }
+        if (options.CheckpointQuestions is not null &&
+            (options.IsDiagnostic || options.PreflightOnly))
+        {
+            throw new ArgumentException(
+                "--checkpoint-questions cannot be combined with diagnostic or preflight-only execution.");
+        }
+        if (options.CheckpointQuestions is not null && options.OutputPath is not null)
+        {
+            throw new ArgumentException(
+                "--output is forbidden for checkpoint execution.");
+        }
+        if (options.CheckpointQuestions is not null &&
+            options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
+        {
+            throw new ArgumentException(
+                "Content evidence is forbidden for checkpoint execution.");
         }
     }
 
@@ -890,7 +1086,9 @@ internal static class LongMemEvalPreparedPairProgram
         int PreparationWorkers,
         int MaxSessionsPerBatch,
         int MaxInputTokens,
-        bool PreflightOnly)
+        bool PreflightOnly,
+        int? CheckpointQuestions,
+        int CheckpointTimeoutSeconds)
     {
         internal bool IsDiagnostic =>
             DiagnosticQuestionPosition is not null &&

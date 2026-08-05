@@ -13,6 +13,46 @@ namespace AgentMemory.Tests.Unit.LongMemEval;
 public sealed class LongMemEvalPreparedBatchBehaviorTests
 {
     [Fact]
+    public void CheckpointSelection_PicksHighestTokenQuestionsWithStableTies()
+    {
+        var plans = new[]
+        {
+            Plan(100),
+            Plan(300),
+            Plan(300),
+            Plan(200)
+        };
+
+        var selected = LongMemEvalPreparedBatchExecutor
+            .SelectCheckpointQuestionIndexes(plans, 2);
+
+        selected.Should().Equal(1, 2);
+    }
+
+    [Fact]
+    public void CheckpointProjection_UsesWorstScaleAndSafetyMargin()
+    {
+        var projected = LongMemEvalPreparedBatchExecutor
+            .ProjectFullPreparationMilliseconds(
+                fullCalls: 12,
+                fullSourceSessions: 48,
+                fullEstimatedInputTokens: 1_200,
+                checkpointCalls: 3,
+                checkpointSourceSessions: 12,
+                checkpointEstimatedInputTokens: 300,
+                checkpointWallMilliseconds: 10_000,
+                profileStartupMilliseconds: 2_000);
+
+        projected.Should().Be(52_000);
+    }
+
+    private static MultiSessionExtractionPlan Plan(int tokens) =>
+        new(
+        [
+            new MultiSessionExtractionBatchPlan([Guid.NewGuid().ToString("N")], tokens)
+        ]);
+
+    [Fact]
     public async Task BatchedPreparation_UsesOneUnifiedCallForThreeSourceSessions()
     {
         var harness = CreateHarness(extraProviderCalls: 0);

@@ -47,12 +47,19 @@ public sealed class LongMemEvalPreparedBatchBridgeContractTests
                 "PreparedPairOptions",
                 BindingFlags.NonPublic);
         preparedPairOptions.Should().NotBeNull();
-        preparedPairOptions!.GetProperties(
+        var preparedPairOptionProperties = preparedPairOptions!.GetProperties(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .Select(property => property.Name)
-            .Should().Contain(
-                "PreflightOnly",
-                "a full live preparation cannot begin before a zero-provider-call frozen-plan gate");
+            .ToHashSet(StringComparer.Ordinal);
+        preparedPairOptionProperties.Should().Contain(
+            "PreflightOnly",
+            "a full live preparation cannot begin before a zero-provider-call frozen-plan gate");
+        preparedPairOptionProperties.Should().Contain(
+            [
+                "CheckpointQuestions",
+                "CheckpointTimeoutSeconds"
+            ],
+            "the bounded live checkpoint must be explicit and time-limited");
 
     }
 }

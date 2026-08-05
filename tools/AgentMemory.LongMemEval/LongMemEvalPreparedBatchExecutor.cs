@@ -7,6 +7,49 @@ namespace AgentMemory.LongMemEval;
 
 internal static class LongMemEvalPreparedBatchExecutor
 {
+    internal static IReadOnlyList<int> SelectCheckpointQuestionIndexes(
+        IReadOnlyList<MultiSessionExtractionPlan> plans,
+        int checkpointQuestions)
+    {
+        ArgumentNullException.ThrowIfNull(plans);
+        if (checkpointQuestions <= 0 || checkpointQuestions > plans.Count)
+            throw new ArgumentOutOfRangeException(nameof(checkpointQuestions));
+
+        return Enumerable.Range(0, plans.Count)
+            .OrderByDescending(index => plans[index].TotalEstimatedInputTokens)
+            .ThenBy(index => index)
+            .Take(checkpointQuestions)
+            .OrderBy(index => index)
+            .ToArray();
+    }
+
+    internal static double ProjectFullPreparationMilliseconds(
+        long fullCalls,
+        long fullSourceSessions,
+        long fullEstimatedInputTokens,
+        long checkpointCalls,
+        long checkpointSourceSessions,
+        long checkpointEstimatedInputTokens,
+        double checkpointWallMilliseconds,
+        double profileStartupMilliseconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fullCalls);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fullSourceSessions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fullEstimatedInputTokens);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(checkpointCalls);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(checkpointSourceSessions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(checkpointEstimatedInputTokens);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(checkpointWallMilliseconds);
+        ArgumentOutOfRangeException.ThrowIfNegative(profileStartupMilliseconds);
+
+        var scale = Math.Max(
+            (double)fullCalls / checkpointCalls,
+            Math.Max(
+                (double)fullSourceSessions / checkpointSourceSessions,
+                (double)fullEstimatedInputTokens / checkpointEstimatedInputTokens));
+        return profileStartupMilliseconds + (1.25d * checkpointWallMilliseconds * scale);
+    }
+
     internal static IReadOnlyList<MultiSessionExtractionPlan> Preflight(
         IServiceProvider services,
         string preparationId,
@@ -81,6 +124,7 @@ internal static class LongMemEvalPreparedBatchExecutor
         int preparationWorkers,
         int maxSessionsPerBatch,
         int maxInputTokens,
+        IReadOnlyList<int>? questionIndexes,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -94,20 +138,32 @@ internal static class LongMemEvalPreparedBatchExecutor
         if (questions.Count != plans.Count)
             throw new ArgumentException("Every LongMemEval question requires one frozen batch plan.");
 
-        var telemetry = new LongMemEvalQuestionTelemetry[questions.Count];
+        var executionIndexes = questionIndexes?.ToArray() ??
+            Enumerable.Range(0, questions.Count).ToArray();
+        if (executionIndexes.Length == 0 ||
+            executionIndexes.Distinct().Count() != executionIndexes.Length ||
+            executionIndexes.Any(index => index < 0 || index >= questions.Count))
+        {
+            throw new ArgumentException(
+                "Checkpoint question indexes must be nonempty, unique, and in range.",
+                nameof(questionIndexes));
+        }
+
+        var telemetry = new LongMemEvalQuestionTelemetry[executionIndexes.Length];
         var active = 0;
         var maximumActive = 0;
         var completed = 0;
         var driver = services.GetRequiredService<IDriver>();
         await Parallel.ForEachAsync(
-            Enumerable.Range(0, questions.Count),
+            Enumerable.Range(0, executionIndexes.Length),
             new ParallelOptions
             {
                 MaxDegreeOfParallelism = preparationWorkers,
                 CancellationToken = cancellationToken
             },
-            async (index, itemCancellationToken) =>
+            async (executionPosition, itemCancellationToken) =>
             {
+                var index = executionIndexes[executionPosition];
                 var nowActive = Interlocked.Increment(ref active);
                 UpdateMaximum(ref maximumActive, nowActive);
                 try
@@ -160,10 +216,10 @@ internal static class LongMemEvalPreparedBatchExecutor
                             $"LongMemEval question {index + 1} did not record its exact frozen batch plan.");
                     }
 
-                    telemetry[index] = questionTelemetry[0];
+                    telemetry[executionPosition] = questionTelemetry[0];
                     var completedNow = Interlocked.Increment(ref completed);
                     Console.WriteLine(
-                        $"longmemeval: prepared question {completedNow}/{questions.Count} " +
+                        $"longmemeval: prepared question {completedNow}/{executionIndexes.Length} " +
                         $"(source question {index + 1}).");
                 }
                 finally
@@ -177,8 +233,8 @@ internal static class LongMemEvalPreparedBatchExecutor
                 "LongMemEval concurrent preparation did not produce telemetry for every question.");
         return new LongMemEvalPreparedBatchExecution(
             telemetry,
-            plans.Sum(plan => (long)plan.BatchCount),
-            plans.Sum(plan => (long)plan.TotalEstimatedInputTokens),
+            executionIndexes.Sum(index => (long)plans[index].BatchCount),
+            executionIndexes.Sum(index => (long)plans[index].TotalEstimatedInputTokens),
             maximumActive);
     }
 
