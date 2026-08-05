@@ -42,4 +42,40 @@ public sealed class LongMemEvalDiagnosticCliTests
                 Directory.Delete(directory);
         }
     }
+    [Fact]
+    public async Task PreflightOnlyExecutionRejectsAnOutputPathBeforeProviderWork()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"agentmemory-lme-preflight-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var dataset = Path.Combine(directory, "dataset.json");
+        var output = Path.Combine(directory, "forbidden-report.json");
+        await File.WriteAllTextAsync(dataset, "[]");
+
+        try
+        {
+            var exitCode = await LongMemEvalPreparedPairProgram.RunAsync(
+            [
+                "--dataset", dataset,
+                "--questions", "10",
+                "--preflight-only",
+                "--output", output
+            ]);
+
+            exitCode.Should().Be(1);
+            File.Exists(output).Should().BeFalse(
+                "preflight-only execution can never create or accept a report");
+        }
+        finally
+        {
+            if (File.Exists(output))
+                File.Delete(output);
+            if (File.Exists(dataset))
+                File.Delete(dataset);
+            if (Directory.Exists(directory))
+                Directory.Delete(directory);
+        }
+    }
+
 }

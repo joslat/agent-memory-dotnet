@@ -19,7 +19,11 @@ internal static class LongMemEvalPreparedPairProgram
     private const int DefaultQuestions = 10;
     private const int DefaultSeed = 42;
     private const int DefaultMaxRelevant = 30;
+    private const int DefaultPreparationWorkers = 10;
+    private const int DefaultMaxSessionsPerBatch = 4;
+    private const int DefaultMaxInputTokens = 100_000;
 
+    private const int FixedTenExpectedSourceSessions = 474;
     internal static async Task<int> RunAsync(string[] args)
     {
         try
@@ -69,7 +73,12 @@ internal static class LongMemEvalPreparedPairProgram
                 extractionDeployment,
                 embeddingDeployment,
                 embeddingDimensions,
-                options.MaxRelevantMessages);
+                options.MaxRelevantMessages,
+                useUnifiedExtraction: !options.IsDiagnostic,
+                useMultiSessionBatchExtraction: !options.IsDiagnostic,
+                preparationWorkers: options.IsDiagnostic ? 1 : options.PreparationWorkers,
+                maxSessionsPerBatch: options.MaxSessionsPerBatch,
+                maxInputTokens: options.MaxInputTokens);
             var preparationId =
                 $"longmemeval-prepared-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
             var overall = Stopwatch.StartNew();
@@ -82,6 +91,7 @@ internal static class LongMemEvalPreparedPairProgram
                     azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
             LongMemEvalPreparationManifest manifest;
             IReadOnlyList<LongMemEvalQuestionTelemetry> preparationTelemetry;
+            LongMemEvalPreparedBatchExecution? batchExecution = null;
             var profileStartup = Stopwatch.StartNew();
             var baseStopMilliseconds = 0d;
             var manifestSealMilliseconds = 0d;
@@ -97,7 +107,8 @@ internal static class LongMemEvalPreparedPairProgram
                         embeddingDimensions,
                         Console.Out,
                         CancellationToken.None,
-                        baseVolumeName)
+                        baseVolumeName,
+                        enableBatchedPreparation: !options.IsDiagnostic)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -134,7 +145,7 @@ internal static class LongMemEvalPreparedPairProgram
 
                 var questionIndexes = options.IsDiagnostic
                     ? new[] { options.DiagnosticQuestionPosition!.Value - 1 }
-                    : Enumerable.Range(0, questions.Length).ToArray();
+                    : Array.Empty<int>();
                 foreach (var index in questionIndexes)
                 {
                     var question = questions[index];
@@ -172,10 +183,62 @@ internal static class LongMemEvalPreparedPairProgram
                         $"purposes {purposes}; no report, clone, recall, answer, or judge executed.");
                     return 0;
                 }
-                preparationTelemetry = adapter.QuestionTelemetry;
+                var plans = LongMemEvalPreparedBatchExecutor.Preflight(
+                    baseProfile.Services,
+                    preparationId,
+                    evidenceIndex,
+                    questions,
+                    options.MaxSessionsPerBatch,
+                    options.MaxInputTokens);
+                var plannedCalls = plans.Sum(plan => (long)plan.BatchCount);
+                var plannedSourceSessions =
+                    plans.Sum(plan => plan.SourceSessionCount);
+                var plannedInputTokens =
+                    plans.Sum(plan => plan.TotalEstimatedInputTokens);
+                if (options.Questions == DefaultQuestions &&
+                    options.Seed == DefaultSeed &&
+                    plannedSourceSessions != FixedTenExpectedSourceSessions)
+                {
+                    throw new InvalidOperationException(
+                        $"Canonical fixed-ten preflight produced {plannedSourceSessions} " +
+                        $"source sessions; expected exactly {FixedTenExpectedSourceSessions}.");
+                }
+                Console.WriteLine(
+                    $"longmemeval: frozen preparation preflight {plannedCalls} calls for " +
+                    $"{plannedSourceSessions} source sessions and " +
+                    $"{plannedInputTokens} estimated input tokens.");
+                if (options.PreflightOnly)
+                {
+                    var preflightSnapshot = extractionCalls.Snapshot();
+                    if (preflightSnapshot.Calls != 0 ||
+                        preflightSnapshot.Failures != 0)
+                    {
+                        throw new InvalidOperationException(
+                            "Preflight-only execution performed provider work.");
+                    }
+                    Console.WriteLine(
+                        "longmemeval: preflight-only accepted; zero provider calls, " +
+                        "zero graph writes, no report, clone, recall, answer, or judge executed.");
+                    return 0;
+                }
+                batchExecution = await LongMemEvalPreparedBatchExecutor.ExecuteAsync(
+                        baseProfile.Services,
+                        extractionCalls,
+                        preparationId,
+                        evidenceIndex,
+                        questions,
+                        plans,
+                        deployment,
+                        options.EvidenceDetail,
+                        options.MaxRelevantMessages,
+                        options.PreparationWorkers,
+                        options.MaxSessionsPerBatch,
+                        options.MaxInputTokens,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+                preparationTelemetry = batchExecution.Telemetry;
                 ValidatePreparationTelemetry(preparationTelemetry, questions.Length);
-                var initialExtractionCalls =
-                    preparationTelemetry.Sum(item => item.ExtractionUnits) * 4L;
+                var initialExtractionCalls = batchExecution.PlannedCalls;
                 var extractionSnapshot = extractionCalls.Snapshot();
                 if (extractionSnapshot.Calls != initialExtractionCalls ||
                     extractionSnapshot.Failures != 0)
@@ -227,7 +290,13 @@ internal static class LongMemEvalPreparedPairProgram
                     options.MaxRelevantMessages,
                     expectation.ExtractionSourceTime,
                     preparedQuestions,
-                    initialExtractionCalls);
+                    initialExtractionCalls,
+                    useJsonResponseFormat: expectation.UseJsonResponseFormat,
+                    useUnifiedExtraction: true,
+                    useMultiSessionBatchExtraction: true,
+                    preparationWorkers: options.PreparationWorkers,
+                    maxSessionsPerBatch: options.MaxSessionsPerBatch,
+                    maxInputTokens: options.MaxInputTokens);
 
                 var seal = Stopwatch.StartNew();
                 var store = new Neo4jLongMemEvalPreparationStore(driver);
@@ -343,6 +412,12 @@ internal static class LongMemEvalPreparedPairProgram
                     },
                     extractionSourceTime = expectation.ExtractionSourceTime,
                     extractionResponseFormat = expectation.UseJsonResponseFormat ? "json-object" : "unspecified",
+                    extractionExecution = "unified-multi-session-batch",
+                    preparationWorkers = options.PreparationWorkers,
+                    maximumObservedPreparationConcurrency =
+                        batchExecution!.MaximumConcurrency,
+                    maxSessionsPerBatch = options.MaxSessionsPerBatch,
+                    maxInputTokens = options.MaxInputTokens,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
@@ -361,6 +436,15 @@ internal static class LongMemEvalPreparedPairProgram
                     manifest.MessagesPrepared,
                     manifest.ExtractionUnitsPrepared,
                     manifest.InitialExtractionCalls,
+                    manifest.UseUnifiedExtraction,
+                    manifest.UseMultiSessionBatchExtraction,
+                    manifest.PreparationWorkers,
+                    manifest.MaxSessionsPerBatch,
+                    manifest.MaxInputTokens,
+                    plannedEstimatedInputTokens =
+                        batchExecution!.EstimatedInputTokens,
+                    maximumObservedConcurrency =
+                        batchExecution.MaximumConcurrency,
                     questions = manifest.Questions,
                     extractionObserved = Project(extractionSnapshotFinal),
                     extractionRetryCalls =
@@ -607,6 +691,7 @@ internal static class LongMemEvalPreparedPairProgram
                 !string.Equals(item.Status, "prepared", StringComparison.Ordinal) ||
                 item.MessagesStored <= 0 ||
                 item.ExtractionUnits <= 0 ||
+                item.ExtractionCallsPlanned <= 0 ||
                 item.ItemsRetrieved != 0 ||
                 item.GraphReadBack is null ||
                 item.GraphReadBack.TotalLearned == 0 ||
@@ -636,6 +721,8 @@ internal static class LongMemEvalPreparedPairProgram
                 throw new ArgumentException($"{name} requires a value.");
             return args[index + 1];
         }
+        bool Has(string name) =>
+            Array.IndexOf(args, name) >= 0;
 
         return new PreparedPairOptions(
             Value("--dataset") ?? string.Empty,
@@ -648,7 +735,11 @@ internal static class LongMemEvalPreparedPairProgram
             Value("--output"),
             ParseOptionalPositive(Value("--diagnostic-question"), "--diagnostic-question"),
             ParseOptionalNonNegative(
-                Value("--diagnostic-source-session"), "--diagnostic-source-session"));
+                Value("--diagnostic-source-session"), "--diagnostic-source-session"),
+            ParsePositive(Value("--preparation-workers"), DefaultPreparationWorkers, "--preparation-workers"),
+            ParsePositive(Value("--max-sessions-per-batch"), DefaultMaxSessionsPerBatch, "--max-sessions-per-batch"),
+            ParsePositive(Value("--max-input-tokens"), DefaultMaxInputTokens, "--max-input-tokens"),
+            Has("--preflight-only"));
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -674,6 +765,16 @@ internal static class LongMemEvalPreparedPairProgram
         {
             throw new ArgumentException(
                 "Content evidence is forbidden for diagnostic-only extraction.");
+        }
+        if (options.PreflightOnly && options.IsDiagnostic)
+        {
+            throw new ArgumentException(
+                "--preflight-only cannot be combined with diagnostic-only extraction.");
+        }
+        if (options.PreflightOnly && options.OutputPath is not null)
+        {
+            throw new ArgumentException(
+                "--output is forbidden for preflight-only execution.");
         }
     }
 
@@ -785,7 +886,11 @@ internal static class LongMemEvalPreparedPairProgram
         int JudgeRetryAttempts,
         string? OutputPath,
         int? DiagnosticQuestionPosition,
-        int? DiagnosticSourceSessionOrdinal)
+        int? DiagnosticSourceSessionOrdinal,
+        int PreparationWorkers,
+        int MaxSessionsPerBatch,
+        int MaxInputTokens,
+        bool PreflightOnly)
     {
         internal bool IsDiagnostic =>
             DiagnosticQuestionPosition is not null &&

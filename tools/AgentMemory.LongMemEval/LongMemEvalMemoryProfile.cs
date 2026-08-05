@@ -31,7 +31,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int embeddingDimensions,
         TextWriter log,
         CancellationToken cancellationToken,
-        string? volumeName = null)
+        string? volumeName = null,
+        bool enableBatchedPreparation = false)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -52,6 +53,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     embeddingDimensions,
                     log,
                     volumeName,
+                    enableBatchedPreparation,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -71,6 +73,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int embeddingDimensions,
         TextWriter log,
         string? volumeName,
+        bool enableBatchedPreparation,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -91,6 +94,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.Temperature = 0;
                 options.MaxRetries = 2;
                 options.UseJsonResponseFormat = true;
+                options.UseUnifiedExtraction = enableBatchedPreparation;
+                options.UseMultiSessionBatchExtraction = enableBatchedPreparation;
             }
             : null;
         services.AddNeo4jAgentMemory(

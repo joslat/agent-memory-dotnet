@@ -389,13 +389,17 @@ internal static class LongMemEvalProgram
         dotnet run --project tools/AgentMemory.LongMemEval -- \
           --dataset <longmemeval_s_cleaned.json> [--questions 10] [--seed 42] \
           [--max-relevant 30] [--memory-mode raw|structured|hybrid] \
-          [--prepared-pair] \
+          [--prepared-pair] [--preflight-only] \
+          [--preparation-workers 10] [--max-sessions-per-batch 4] \
+          [--max-input-tokens 100000] \
           [--diagnostic-question N --diagnostic-source-session N] \
           [--evidence-detail none|identifiers|content] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
 
         --prepared-pair prepares structured memory once, freezes it, clones it, and evaluates isolated Structured and Hybrid arms.
         Supplying both diagnostic selectors with --prepared-pair runs exactly one extraction unit and can never emit a report or execute recall/judging.
+        --preflight-only freezes the exact prepared-pair batch plan, proves zero provider calls/writes,
+        prints source-session/call/token totals, cleans up, and emits no accepted report.
 
 
         Requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT,

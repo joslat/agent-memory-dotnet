@@ -13,7 +13,7 @@ namespace AgentMemory.LongMemEval;
 /// answer model's context. History is buffered by the synchronous AgentEval capability method, then
 /// batch-persisted and semantically recalled before the question is sent to the answer model.
 /// </summary>
-public sealed class AgentMemoryLongMemEvalAdapter :
+public sealed partial class AgentMemoryLongMemEvalAdapter :
     IEvaluableAgent,
     IHistoryInjectableAgent,
     ISessionResettableAgent
@@ -94,8 +94,28 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                 "A diagnostic source-session selector is valid only for preparation-only execution.",
                 nameof(options));
         }
-        _sessionId = ScopeId("session", 0);
-        _ownerId = ScopeId("owner", 0);
+        if (_options.InitialQuestionNumber < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "The initial question number must be non-negative.");
+        }
+        if (_options.UseBatchedPreparation &&
+            (!_options.PreparationOnly ||
+             _options.DiagnosticSourceSessionOrdinal is not null ||
+             _options.BatchExtractionPipeline is null ||
+             _options.BatchPlanner is null ||
+             _options.ExpectedExtractionPlan is null ||
+             _options.MaxSessionsPerBatch <= 0 ||
+             _options.MaxInputTokens <= 0))
+        {
+            throw new ArgumentException(
+                "Batched LongMemEval preparation requires an ordinary preparation run, the batch pipeline, deterministic planner, expected plan, and positive batch limits.",
+                nameof(options));
+        }
+        _questionNumber = _options.InitialQuestionNumber;
+        _sessionId = ScopeId("session", _questionNumber);
+        _ownerId = ScopeId("owner", _questionNumber);
     }
 
     public string Name => "AgentMemory.LongMemEval";
@@ -221,6 +241,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         }
 
         var extractionUnits = 0;
+        var extractionCallsPlanned = 0;
         LongMemEvalGraphSnapshot? graphSnapshot = null;
         if (_options.MemoryMode.UsesExtraction())
         {
@@ -234,6 +255,50 @@ public sealed class AgentMemoryLongMemEvalAdapter :
 
             if (!_options.PreparedMemory)
             {
+                if (_options.UseBatchedPreparation)
+                {
+                    try
+                    {
+                        var batch = await ExecuteBatchedPreparationAsync(
+                            messages,
+                            evidenceQuestion,
+                            sessionId,
+                            ownerId,
+                            questionNumber,
+                            timings,
+                            cancellationToken).ConfigureAwait(false);
+                        extractionUnits = batch.ExtractionUnits;
+                        extractionCallsPlanned = batch.PlannedCalls;
+                    }
+                    catch (LongMemEvalExtractionAccountingException)
+                    {
+                        RecordTelemetry(
+                            questionNumber,
+                            messages.Count,
+                            0,
+                            false,
+                            "extraction-provider-accounting-error",
+                            evidenceQuestion.QuestionId,
+                            extractionUnits: extractionUnits,
+                            extractionCallsPlanned:
+                                _options.ExpectedExtractionPlan!.BatchCount);
+                        throw;
+                    }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        RecordTelemetry(
+                            questionNumber,
+                            messages.Count,
+                            0,
+                            false,
+                            "extraction-error",
+                            evidenceQuestion.QuestionId,
+                            extractionUnits: extractionUnits);
+                        throw;
+                    }
+                }
+                else
+                {
                 var allExtractionGroups = messages
                     .Select((message, index) =>
                         (Message: message, Origin: evidenceQuestion.Messages[index]))
@@ -365,6 +430,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                         throw;
                     }
                 }
+                }
             }
 
             if (_options.RequireGraphReadBack)
@@ -423,7 +489,8 @@ public sealed class AgentMemoryLongMemEvalAdapter :
             RecordTelemetry(
                 questionNumber, messagesStored, 0, false, "prepared",
                 evidenceQuestion!.QuestionId, extractionUnits: extractionUnits,
-                graphSnapshot: graphSnapshot, stageTimings: timings.Snapshot());
+                graphSnapshot: graphSnapshot, stageTimings: timings.Snapshot(),
+                extractionCallsPlanned: extractionCallsPlanned);
             return new AgentResponse { Text = string.Empty, ModelId = _options.ModelId };
         }
 
@@ -600,7 +667,8 @@ public sealed class AgentMemoryLongMemEvalAdapter :
         LongMemEvalStageTimings? stageTimings = null,
         int messagesPrepared = 0,
         int extractionUnitsPrepared = 0,
-        bool preparedMemory = false)
+        bool preparedMemory = false,
+        int extractionCallsPlanned = 0)
     {
         lock (_stateLock)
         {
@@ -615,6 +683,7 @@ public sealed class AgentMemoryLongMemEvalAdapter :
                 PreparedMemory = preparedMemory,
                 RawMessagesRetrieved = context?.RelevantMessages.Items.Count ?? 0,
                 EntitiesRetrieved = context?.RelevantEntities.Items.Count ?? 0,
+                ExtractionCallsPlanned = extractionCallsPlanned,
                 FactsRetrieved = context?.RelevantFacts.Items.Count ?? 0,
                 PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
                 GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
@@ -781,6 +850,20 @@ public sealed record LongMemEvalAdapterOptions
     internal bool PreparationOnly { get; init; }
 
 
+    internal bool UseBatchedPreparation { get; init; }
+
+    internal IMemoryExtractionPipeline? BatchExtractionPipeline { get; init; }
+
+    internal IMultiSessionUnifiedMemoryExtractor? BatchPlanner { get; init; }
+
+    internal int MaxSessionsPerBatch { get; init; } = 4;
+
+    internal int MaxInputTokens { get; init; } = 100_000;
+
+    internal int InitialQuestionNumber { get; init; }
+
+    internal MultiSessionExtractionPlan? ExpectedExtractionPlan { get; init; }
+
     internal int? DiagnosticSourceSessionOrdinal { get; init; }
     /// <summary>
     /// Total non-GraphRAG answer-context item budget. Raw uses it entirely for messages; Structured
@@ -821,6 +904,8 @@ public sealed record LongMemEvalQuestionTelemetry(
     public int ExtractionUnits { get; init; }
 
     public int MessagesPrepared { get; init; }
+
+    public int ExtractionCallsPlanned { get; init; }
 
     public int ExtractionUnitsPrepared { get; init; }
 

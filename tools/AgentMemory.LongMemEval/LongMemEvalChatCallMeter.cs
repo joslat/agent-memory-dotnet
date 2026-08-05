@@ -15,12 +15,31 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
     private const int MaxCallDetails = 64;
     private readonly ConcurrentQueue<LongMemEvalChatCallFailure> _failureDetails = new();
     private readonly ConcurrentQueue<LongMemEvalChatCallDetail> _callDetails = new();
+    private readonly ConcurrentDictionary<string, ScopeCounter> _scopeCounters = new(StringComparer.Ordinal);
+    private readonly AsyncLocal<string?> _currentScope = new();
     private long _calls;
     private long _failures;
     private long _elapsedTimestampTicks;
     private long _failureDetailSlots;
     private long _droppedFailureDetails;
     private long _droppedCallDetails;
+    internal IDisposable BeginScope(string scope)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        var previous = _currentScope.Value;
+        _currentScope.Value = scope;
+        _scopeCounters.GetOrAdd(scope, static _ => new ScopeCounter());
+        return new ScopeLease(this, previous);
+    }
+
+    internal LongMemEvalChatCallScopeSnapshot SnapshotScope(string scope)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        return _scopeCounters.TryGetValue(scope, out var counter)
+            ? counter.Snapshot()
+            : LongMemEvalChatCallScopeSnapshot.Zero;
+    }
+
 
     public LongMemEvalChatCallSnapshot Snapshot()
     {
@@ -48,6 +67,8 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         var purpose = ClassifyPurpose(materializedMessages);
         var callOrdinal = Interlocked.Increment(ref _calls);
         var started = Stopwatch.GetTimestamp();
+        var scopeCounter = CurrentScopeCounter();
+        scopeCounter?.RecordCall(purpose);
         Exception? failure = null;
         try
         {
@@ -59,14 +80,17 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         {
             failure = exception;
             Interlocked.Increment(ref _failures);
+            scopeCounter?.RecordFailure();
             RecordFailure(callOrdinal, purpose, exception);
             throw;
         }
         finally
         {
+            var elapsed = Stopwatch.GetTimestamp() - started;
             Interlocked.Add(
                 ref _elapsedTimestampTicks,
-                Stopwatch.GetTimestamp() - started);
+                elapsed);
+            scopeCounter?.RecordDuration(elapsed);
             RecordCall(callOrdinal, purpose, failure);
         }
     }
@@ -78,6 +102,8 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
     {
         Interlocked.Increment(ref _calls);
         var started = Stopwatch.GetTimestamp();
+        var scopeCounter = CurrentScopeCounter();
+        scopeCounter?.RecordCall("streaming");
         try
         {
             await foreach (var update in inner
@@ -90,11 +116,18 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         }
         finally
         {
+            var elapsed = Stopwatch.GetTimestamp() - started;
             Interlocked.Add(
                 ref _elapsedTimestampTicks,
-                Stopwatch.GetTimestamp() - started);
+                elapsed);
+            scopeCounter?.RecordDuration(elapsed);
         }
     }
+
+    private ScopeCounter? CurrentScopeCounter() =>
+        _currentScope.Value is { } scope
+            ? _scopeCounters.GetOrAdd(scope, static _ => new ScopeCounter())
+            : null;
 
     private void RecordFailure(
         long callOrdinal,
@@ -167,6 +200,14 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
                 "You are a relationship extraction assistant.",
                 StringComparison.Ordinal))
             return "relationship";
+        if (systemPrompt.StartsWith(
+                "You extract structured long-term memory from multiple independent source sessions.",
+                StringComparison.Ordinal))
+            return "unified_batch";
+        if (systemPrompt.StartsWith(
+                "You extract structured long-term memory from a conversation.",
+                StringComparison.Ordinal))
+            return "unified";
         return "other";
     }
 
@@ -176,8 +217,50 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             : inner.GetService(serviceType, serviceKey);
 
     public void Dispose() => inner.Dispose();
-}
 
+
+    private sealed class ScopeLease(LongMemEvalChatCallMeter owner, string? previous) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                owner._currentScope.Value = previous;
+        }
+    }
+
+    private sealed class ScopeCounter
+    {
+        private readonly ConcurrentDictionary<string, long> _purposes = new(StringComparer.Ordinal);
+        private long _calls;
+        private long _failures;
+        private long _elapsedTimestampTicks;
+
+        internal void RecordCall(string purpose)
+        {
+            Interlocked.Increment(ref _calls);
+            _purposes.AddOrUpdate(purpose, 1, static (_, count) => count + 1);
+        }
+
+        internal void RecordFailure() => Interlocked.Increment(ref _failures);
+
+        internal void RecordDuration(long timestampTicks) =>
+            Interlocked.Add(ref _elapsedTimestampTicks, timestampTicks);
+
+        internal LongMemEvalChatCallScopeSnapshot Snapshot() =>
+            new(
+                Interlocked.Read(ref _calls),
+                Interlocked.Read(ref _failures),
+                TimeSpan.FromSeconds(
+                    (double)Interlocked.Read(ref _elapsedTimestampTicks) /
+                    Stopwatch.Frequency),
+                _purposes.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value,
+                    StringComparer.Ordinal));
+    }
+}
 public sealed record LongMemEvalChatCallSnapshot(
     long Calls,
     long Failures,
@@ -185,6 +268,7 @@ public sealed record LongMemEvalChatCallSnapshot(
 {
     public IReadOnlyList<LongMemEvalChatCallFailure> FailureDetails { get; init; } =
         Array.Empty<LongMemEvalChatCallFailure>();
+
 
     public long DroppedFailureDetails { get; init; }
 
@@ -195,6 +279,16 @@ public sealed record LongMemEvalChatCallSnapshot(
 
     public static LongMemEvalChatCallSnapshot Zero { get; } =
         new(0, 0, TimeSpan.Zero);
+}
+
+internal sealed record LongMemEvalChatCallScopeSnapshot(
+    long Calls,
+    long Failures,
+    TimeSpan Duration,
+    IReadOnlyDictionary<string, long> Purposes)
+{
+    internal static LongMemEvalChatCallScopeSnapshot Zero { get; } =
+        new(0, 0, TimeSpan.Zero, new Dictionary<string, long>(StringComparer.Ordinal));
 }
 
 public sealed record LongMemEvalChatCallFailure(

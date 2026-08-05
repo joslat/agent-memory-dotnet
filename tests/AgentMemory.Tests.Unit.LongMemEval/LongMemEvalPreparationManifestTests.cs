@@ -41,6 +41,11 @@ public sealed class LongMemEvalPreparationManifestTests
     [InlineData("model")]
     [InlineData("budget")]
     [InlineData("response-format")]
+    [InlineData("unified")]
+    [InlineData("multi-session")]
+    [InlineData("workers")]
+    [InlineData("sessions-per-batch")]
+    [InlineData("input-tokens")]
     public void PreparedState_RejectsChangedConfiguration(string field)
     {
         var manifest = Manifest();
@@ -51,6 +56,11 @@ public sealed class LongMemEvalPreparationManifestTests
             "model" => expected with { ExtractionModelId = "different-model" },
             "budget" => expected with { MaxRelevantMessages = 31 },
             "response-format" => expected with { UseJsonResponseFormat = false },
+            "unified" => expected with { UseUnifiedExtraction = false },
+            "multi-session" => expected with { UseMultiSessionBatchExtraction = false },
+            "workers" => expected with { PreparationWorkers = 9 },
+            "sessions-per-batch" => expected with { MaxSessionsPerBatch = 3 },
+            "input-tokens" => expected with { MaxInputTokens = 99_999 },
             _ => throw new ArgumentOutOfRangeException(nameof(field))
         };
 
@@ -99,7 +109,13 @@ public sealed class LongMemEvalPreparationManifestTests
                     52,
                     new LongMemEvalGraphSnapshot(2, 3, 4, 1, 9, 9, 20, 6, 1))
             ],
-            208);
+            208,
+            useJsonResponseFormat: true,
+            useUnifiedExtraction: true,
+            useMultiSessionBatchExtraction: true,
+            preparationWorkers: 10,
+            maxSessionsPerBatch: 4,
+            maxInputTokens: 100_000);
 
     private static LongMemEvalPreparationExpectation Expectation() =>
         LongMemEvalPreparationFingerprint.Expect(
@@ -110,5 +126,11 @@ public sealed class LongMemEvalPreparationManifestTests
             "extraction-model",
             "embedding-model",
             1536,
-            30);
+            30,
+            useJsonResponseFormat: true,
+            useUnifiedExtraction: true,
+            useMultiSessionBatchExtraction: true,
+            preparationWorkers: 10,
+            maxSessionsPerBatch: 4,
+            maxInputTokens: 100_000);
 }
