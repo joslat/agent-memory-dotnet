@@ -494,11 +494,13 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             return new AgentResponse { Text = string.Empty, ModelId = _options.ModelId };
         }
 
+        // Hoisted out of the try: the retrieval-evidence build below needs the message allowance to
+        // tell "retrieval missed" apart from "retrieval was never given a message budget" (BUG-E1).
+        var budget = LongMemEvalRecallBudget.For(
+            _options.MemoryMode, _options.MaxRelevantMessages);
         RecallResult recall;
         try
         {
-            var budget = LongMemEvalRecallBudget.For(
-                _options.MemoryMode, _options.MaxRelevantMessages);
             recall = await timings.MeasureAsync(
                 LongMemEvalStage.Retrieval,
                 () => LongMemEvalRuntime.ExecuteStageAsync(
@@ -577,7 +579,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     recall.Context.RelevantMessages.RankedItems,
                     originsByMessageId,
                     _options.EvidenceDetail,
-                    answerPrompt.Length);
+                    answerPrompt.Length,
+                    budget.Messages);
                 if (_options.EvidenceDetail != LongMemEvalEvidenceDetail.None)
                 {
                     normalizedEvidence = LongMemEvalAgentEvalEvidence.Build(

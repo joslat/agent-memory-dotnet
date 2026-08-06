@@ -332,15 +332,24 @@ public sealed record LongMemEvalRetrievalEvidence(
     int? FirstGoldSessionRank,
     int? FirstGoldTurnRank,
     double? ReciprocalRank,
-    IReadOnlyList<LongMemEvalRankedEvidence> RankedItems)
+    IReadOnlyList<LongMemEvalRankedEvidence> RankedItems,
+    bool GoldAttributionObservable = true)
 {
+    /// <param name="configuredMessageBudget">
+    /// The recall budget's message allowance. Gold attribution is resolved through recalled raw
+    /// messages, so when this is zero — as in Structured mode — retrieval was never given the chance
+    /// to hit a gold turn and the gold metrics are <b>not observable</b> rather than zero. Reporting
+    /// 0.0 here previously caused every failed structured question to be classified a
+    /// <c>retrieval-miss</c>, manufacturing a product defect out of a harness limitation.
+    /// </param>
     internal static LongMemEvalRetrievalEvidence Build(
         LongMemEvalEvidenceQuestion question,
         IReadOnlyList<Message> recalled,
         IReadOnlyList<MemoryContextRankedItem> rankedItems,
         IReadOnlyDictionary<string, LongMemEvalMessageOrigin> originsByMessageId,
         LongMemEvalEvidenceDetail detail,
-        int answerPromptCharacters)
+        int answerPromptCharacters,
+        int configuredMessageBudget)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(recalled);
@@ -405,6 +414,10 @@ public sealed record LongMemEvalRetrievalEvidence(
             .Select(item => (int?)item.ContextRank)
             .FirstOrDefault();
 
+        // Gold attribution rides entirely on recalled raw messages. Without a message budget there is
+        // nothing it could ever have matched, so every gold metric is unobservable, not zero.
+        var observable = configuredMessageBudget > 0;
+
         return new LongMemEvalRetrievalEvidence(
             K: recalled.Count,
             AnswerPromptCharacters: answerPromptCharacters,
@@ -413,17 +426,18 @@ public sealed record LongMemEvalRetrievalEvidence(
             MaxItemsFromSingleSession: sourceSessionCounts.DefaultIfEmpty(0).Max(),
             GoldSessionsRequired: question.AnswerSessionIds.Count,
             GoldSessionsHit: goldSessionsHit,
-            GoldSessionRecallAtK: question.AnswerSessionIds.Count == 0
+            GoldSessionRecallAtK: !observable || question.AnswerSessionIds.Count == 0
                 ? null
                 : (double)goldSessionsHit / question.AnswerSessionIds.Count,
             AnnotatedGoldTurns: annotatedGoldTurns,
             GoldTurnsHit: goldTurnsHit,
-            GoldTurnHitAtK: annotatedGoldTurns == 0 ? null : goldTurnsHit > 0,
+            GoldTurnHitAtK: !observable || annotatedGoldTurns == 0 ? null : goldTurnsHit > 0,
             FirstGoldSessionRank: firstGoldSessionRank,
             FirstGoldTurnRank: firstGoldTurnRank,
-            ReciprocalRank: firstGoldSessionRank is int rank ? 1d / rank : null,
+            ReciprocalRank: observable && firstGoldSessionRank is int rank ? 1d / rank : null,
             RankedItems: detail == LongMemEvalEvidenceDetail.None
                 ? Array.Empty<LongMemEvalRankedEvidence>()
-                : evidence.AsReadOnly());
+                : evidence.AsReadOnly(),
+            GoldAttributionObservable: observable);
     }
 }

@@ -150,14 +150,32 @@ internal static class LongMemEvalPostRunDiagnostics
             return "oracle-inconclusive";
         if (oracle.Correct is not true)
             return "oracle-answer-or-benchmark-inconclusive";
+        return ClassifyRetrievalEvidence(evidence);
+    }
+
+    /// <summary>
+    /// The evidence-dependent tail of <see cref="Classify"/>, reached only once judge and oracle
+    /// states are resolved. Shared with <see cref="ClassifyForTest"/> so the two cannot drift.
+    /// </summary>
+    private static string ClassifyRetrievalEvidence(LongMemEvalRetrievalEvidence? evidence)
+    {
         if (evidence is null)
             return "retrieval-evidence-missing";
+        // BUG-E1: gold attribution resolves only through recalled raw messages, so a mode with no
+        // message budget (Structured) never gave retrieval a chance to hit. Blaming retrieval — or
+        // falling through to an answer-synthesis verdict — would both be inventing a cause.
+        if (!evidence.GoldAttributionObservable)
+            return "retrieval-not-observable";
         if (evidence.GoldSessionRecallAtK is double sessionRecall && sessionRecall < 1d)
             return "retrieval-miss";
         if (evidence.GoldTurnHitAtK is false)
             return "retrieval-miss";
         return "answer-synthesis-failure";
     }
+
+    /// <summary>Test seam for the gold-attribution branches.</summary>
+    internal static string ClassifyForTest(LongMemEvalRetrievalEvidence? evidence) =>
+        ClassifyRetrievalEvidence(evidence);
 
     private static bool NeedsJudgeRetry(QuestionResult question) =>
         !IsAgentFailure(question) &&

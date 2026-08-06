@@ -167,8 +167,9 @@ public sealed class LongMemEvalEvidenceIndexTests
 
         var evidence = LongMemEvalRetrievalEvidence.Build(
             question, recalled, ranked, origins, LongMemEvalEvidenceDetail.Identifiers,
-            answerPromptCharacters: 400);
+            answerPromptCharacters: 400, configuredMessageBudget: 30);
 
+        evidence.GoldAttributionObservable.Should().BeTrue();
         evidence.K.Should().Be(4);
         evidence.AnswerPromptCharacters.Should().Be(400);
         evidence.EstimatedAnswerPromptTokens.Should().Be(100);
