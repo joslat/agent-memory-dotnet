@@ -186,26 +186,57 @@ public sealed class ScriptedChatClient : IChatClient
         return (int)(hash % CapacityEmbeddingDimensions);
     }
 
+    /// <summary>
+    /// One batched source session as the provider sees it: an opaque request-local alias key plus the
+    /// session's own transcript.
+    /// </summary>
+    /// <remarks>
+    /// Under <c>batch-source-alias-schema-v1</c> the key is a deterministic short alias (<c>s1</c>…
+    /// <c>sN</c>) that the product maps back to the immutable real session id after the response, so it
+    /// carries no session identity at all. A stand-in must therefore recover identity the way a real
+    /// model does — by reading the block's own content — and echo the alias back unchanged.
+    /// </remarks>
+    private static readonly Regex SourceSessionBlock = new(
+        "<source_session key=\"([^\"]+)\">(.*?)</source_session>",
+        RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex SourceUnitMarker = new(
+        @"LAB-[A-Z0-9]+ source (\d+)",
+        RegexOptions.Compiled);
+
     private static string MultiSessionPayload(
         string prompt, bool useLexicalIdentity, bool useCapacityLabels = false)
     {
-        var keys = Regex.Matches(prompt, "<source_session key=\\\"([^\\\"]+)\\\">")
-            .Select(match => match.Groups[1].Value)
-            .Distinct(StringComparer.Ordinal)
+        var blocks = SourceSessionBlock.Matches(prompt)
+            .Select(match => (Key: match.Groups[1].Value, Body: match.Groups[2].Value))
+            .DistinctBy(block => block.Key, StringComparer.Ordinal)
             .ToArray();
-        string Identity(string key)
-        {
-            if (!useLexicalIdentity)
-                return key[^2..];
-            var separator = key.LastIndexOf('-');
-            var index = int.Parse(
-                key.AsSpan(separator + 1),
-                System.Globalization.CultureInfo.InvariantCulture);
-            var labels = useCapacityLabels ? CapacityLabels : IntegratedLabels;
-            return index < labels.Length
-                ? labels[index]
-                : throw new InvalidOperationException("Integrated capacity label range exceeded.");
-        }
+        if (blocks.Length == 0)
+            throw new InvalidOperationException(
+                "Multi-session stand-in found no <source_session> block; returning an empty payload " +
+                "would measure a no-op that looks healthy.");
+
+        var keys = blocks.Select(block => block.Key).ToArray();
+        var identities = blocks.ToDictionary(
+            block => block.Key,
+            block =>
+            {
+                var marker = SourceUnitMarker.Match(block.Body);
+                if (!marker.Success)
+                    throw new InvalidOperationException(
+                        "Multi-session stand-in could not recover a source ordinal from a batched " +
+                        "session body; the laboratory fixture and alias contract disagree.");
+                var digits = marker.Groups[1].Value;
+                if (!useLexicalIdentity)
+                    return digits;
+                var index = int.Parse(digits, System.Globalization.CultureInfo.InvariantCulture);
+                var labels = useCapacityLabels ? CapacityLabels : IntegratedLabels;
+                return index < labels.Length
+                    ? labels[index]
+                    : throw new InvalidOperationException("Integrated capacity label range exceeded.");
+            },
+            StringComparer.Ordinal);
+        string Identity(string key) => identities[key];
 
         return JsonSerializer.Serialize(new
         {
