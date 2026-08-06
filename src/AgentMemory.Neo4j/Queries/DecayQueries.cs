@@ -98,7 +98,12 @@ internal static class DecayQueries
             // Clamp daysSince to >= 0 so the prune score matches the C# read-path score exactly for nodes
             // with a future last_accessed_at (a negative exponent would otherwise inflate the score).
             "            WITH " + a + ", conf, ac, CASE WHEN rawDays < 0 THEN 0.0 ELSE rawDays END AS daysSince\n" +
-            "            WHERE (COALESCE(conf, 0.5) * exp(-$lambda * daysSince) + $boostFactor * ac) < $minScore\n" +
+            // BUG-R7: the access term is damped (log), capped ($maxBoost), and decayed on the same
+            // curve as confidence, so a single recall can no longer hold a stale node above $minScore
+            // forever. Must stay identical to MemoryDecayService.ComputeScore and VectorRerank.
+            "            WHERE ((COALESCE(conf, 0.5) + CASE WHEN $boostFactor * log(1 + ac) > $maxBoost" +
+            " THEN $maxBoost ELSE $boostFactor * log(1 + ac) END)" +
+            " * exp(-$lambda * daysSince)) < $minScore\n" +
             "            " + action + "\n" +
             "            RETURN count(*) AS pruned";
     }

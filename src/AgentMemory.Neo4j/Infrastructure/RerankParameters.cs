@@ -25,6 +25,7 @@ internal static class RerankParameters
         parameters["now"] = DateTimeOffset.UtcNow.ToString("O");
         parameters["lambda"] = Math.Log(2) / halfLife;
         parameters["boostFactor"] = decay.AccessBoostFactor;
+        parameters["maxBoost"] = decay.MaxAccessBoost;
         parameters["tmpWeight"] = ranking.EffectiveRecencyWeight;
     }
 }

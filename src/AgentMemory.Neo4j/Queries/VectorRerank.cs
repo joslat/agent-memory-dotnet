@@ -19,9 +19,16 @@ namespace AgentMemory.Neo4j.Queries;
 /// </remarks>
 internal static class VectorRerank
 {
-    // confidence·e^(−λ·daysSince) + boost·accessCount, with COALESCE fallbacks matching the prune.
+    // (confidence + damped, capped accessBoost)·e^(−λ·daysSince), with COALESCE fallbacks matching the
+    // prune. BUG-R7: the boost was linear, uncapped, and outside the decay, so at the shipped 0.2
+    // factor five accesses drove it to 1.0 — where the clamp below pinned retention at its maximum
+    // permanently and every frequently-recalled item tied at the ceiling, destroying the confidence
+    // and recency signal this blend exists to carry.
     private const string RetentionExpr =
-        "COALESCE(node.confidence, 0.5) * exp(-$lambda * daysSince) + $boostFactor * COALESCE(node.access_count, 0)";
+        "(COALESCE(node.confidence, 0.5) + " +
+        "CASE WHEN $boostFactor * log(1 + COALESCE(node.access_count, 0)) > $maxBoost " +
+        "THEN $maxBoost ELSE $boostFactor * log(1 + COALESCE(node.access_count, 0)) END) " +
+        "* exp(-$lambda * daysSince)";
 
     /// <summary>
     /// Appends the (optional) recency-rerank blend, then RETURN / ORDER BY / LIMIT, and builds the query.

@@ -71,8 +71,11 @@ public sealed class MemoryDecayServiceTests
         var scoreWithoutAccess = sut.ComputeScore(1.0, createdAt, null, 0);
         var scoreWithAccess = sut.ComputeScore(1.0, createdAt, null, 5);
 
-        // 5 accesses × 0.2 = 1.0 boost
-        (scoreWithAccess - scoreWithoutAccess).Should().BeApproximately(1.0, 0.01);
+        // BUG-R7: the boost is log-damped and decays with the rest of the score, so 5 accesses add
+        // 0.2·ln(6) = 0.3583 of retention, which one half-life then halves to ≈0.179. It used to add
+        // a flat 1.0 — larger than the entire confidence term and immune to time.
+        (scoreWithAccess - scoreWithoutAccess).Should().BeApproximately(0.179, 0.01);
+        scoreWithAccess.Should().BeGreaterThan(scoreWithoutAccess);
     }
 
     [Fact]
@@ -96,8 +99,11 @@ public sealed class MemoryDecayServiceTests
 
         var score = sut.ComputeScore(0.0, _now, null, 10);
 
-        // 0 * exp(...) + 0.1 * 10 = 1.0
-        score.Should().BeApproximately(1.0, 0.01);
+        // The invariant this test exists for is preserved — access alone still yields retention when
+        // confidence is zero — but BUG-R7 damps the magnitude: (0.0 + 0.1·ln(11)) · exp(0) = 0.2398,
+        // not the old linear 0.1 × 10 = 1.0.
+        score.Should().BeApproximately(0.2398, 0.01);
+        score.Should().BeGreaterThan(0.0);
     }
 
     [Fact]

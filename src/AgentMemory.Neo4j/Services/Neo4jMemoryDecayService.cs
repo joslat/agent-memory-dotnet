@@ -75,6 +75,7 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
                     ["now"] = now,
                     ["lambda"] = lambda,
                     ["boostFactor"] = _options.AccessBoostFactor,
+                    ["maxBoost"] = _options.MaxAccessBoost,
                     ["minScore"] = _options.MinRetentionScore,
                 };
                 if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
@@ -208,6 +209,11 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         var reference = lastAccessedAt ?? createdAt;
         double daysSince = Math.Max(0, (_clock.UtcNow - reference).TotalDays);
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
-        return confidence * Math.Exp(-lambda * daysSince) + _options.AccessBoostFactor * accessCount;
+        // BUG-R7: damped, capped, and decayed on the same curve as confidence. Must stay identical to
+        // MemoryDecayService.ComputeScore and to the Cypher prune/rerank expressions.
+        double boost = Math.Min(
+            _options.AccessBoostFactor * Math.Log(1 + Math.Max(0, accessCount)),
+            _options.MaxAccessBoost);
+        return (confidence + boost) * Math.Exp(-lambda * daysSince);
     }
 }

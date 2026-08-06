@@ -125,7 +125,11 @@ public sealed class ScopedVectorSearchQueryTests
         var cypher = build(false, true, 10, /*recencyRerank*/ true);
 
         cypher.Should().Contain("exp(-$lambda * daysSince)", $"{label} must reuse the ACT-R decay curve");
-        cypher.Should().Contain("$boostFactor * COALESCE(node.access_count, 0)");
+        cypher.Should().Contain("$boostFactor * log(1 + COALESCE(node.access_count, 0))",
+            $"{label} must damp the access boost (BUG-R7)");
+        cypher.Should().Contain("$maxBoost", $"{label} must cap the access boost (BUG-R7)");
+        cypher.Should().NotContain("$boostFactor * COALESCE(node.access_count, 0)",
+            $"{label} must not regress to the linear, uncapped, undecayed access boost");
         cypher.Should().Contain("AS sTmp");
         cypher.Should().Contain("((1.0 - $tmpWeight) * score + $tmpWeight * sTmp) AS score",
             $"{label} must blend the semantic and recency scores convexly");
