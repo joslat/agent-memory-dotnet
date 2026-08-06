@@ -498,6 +498,11 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         // tell "retrieval missed" apart from "retrieval was never given a message budget" (BUG-E1).
         var budget = LongMemEvalRecallBudget.For(
             _options.MemoryMode, _options.MaxRelevantMessages);
+        // G3B.1 over-fetches candidates so that dropping formatter artifacts still fills the budget.
+        // The final cap stays `budget.Messages`; only the request widens.
+        var requestedMessages = _options.ExcludeSyntheticFormatterMessages
+            ? budget.Messages * _options.SyntheticExclusionCandidateMultiplier
+            : budget.Messages;
         RecallResult recall;
         try
         {
@@ -514,7 +519,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                             Options = new RecallOptions
                             {
                                 MaxRecentMessages = 0,
-                                MaxRelevantMessages = budget.Messages,
+                                MaxRelevantMessages = requestedMessages,
                                 MaxEntities = budget.Entities,
                                 MaxPreferences = budget.Preferences,
                                 MaxFacts = budget.Facts,
@@ -538,6 +543,18 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             RecordTelemetry(questionNumber, messages.Count, 0, recall.Truncated, "retrieval-empty");
             throw new InvalidOperationException(
                 $"AgentMemory retrieved no history for LongMemEval question {questionNumber}; refusing to manufacture a score.");
+        }
+
+        if (_options.ExcludeSyntheticFormatterMessages)
+        {
+            recall = recall with
+            {
+                Context = recall.Context with
+                {
+                    RelevantMessages = LongMemEvalRecallBudget.SelectRealSourceTurns(
+                        recall.Context.RelevantMessages, originsByMessageId, budget.Messages)
+                }
+            };
         }
 
         var recalled = recall.Context.RelevantMessages.Items;
@@ -876,6 +893,24 @@ public sealed record LongMemEvalAdapterOptions
 
     public int MaxRelevantMessages { get; init; } = 30;
 
+    /// <summary>
+    /// G3B.1. When enabled, message recall over-fetches
+    /// <see cref="SyntheticExclusionCandidateMultiplier"/>× the message budget, drops only the items
+    /// AgentEval's formatter injected (session boundaries and padding), preserves the provider's
+    /// retrieval order, and selects the first <see cref="MaxRelevantMessages"/> real source turns.
+    /// </summary>
+    /// <remarks>
+    /// Default-off, because the raw arm is the immutable comparison control. In the accepted r8 run
+    /// 240 of 300 final items were formatter boilerplate, and both questions reported as retrieval
+    /// failures returned 30 of 30 — so the control never got the chance to rank a real turn. This
+    /// changes selection only: storage, embeddings, the vector query and the item budget are
+    /// untouched.
+    /// </remarks>
+    public bool ExcludeSyntheticFormatterMessages { get; init; }
+
+    /// <summary>Candidate over-fetch factor used only when synthetic exclusion is enabled.</summary>
+    public int SyntheticExclusionCandidateMultiplier { get; init; } = 3;
+
     public double MinSimilarityScore { get; init; } = 0;
 
     public string? ModelId { get; init; }
@@ -945,6 +980,61 @@ internal sealed record LongMemEvalRecallBudget(
             LongMemEvalMemoryMode.Structured => Structured(total),
             LongMemEvalMemoryMode.Hybrid => Hybrid(total),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+        };
+    }
+
+    /// <summary>
+    /// G3B.1. Keeps only real source turns from an over-fetched candidate set, in the provider's own
+    /// retrieval order, then takes the first <paramref name="finalCap"/>.
+    /// </summary>
+    /// <remarks>
+    /// Exclusion is driven solely by the formatter-supplied origin flags — no scoring, deduplication,
+    /// diversity, recency, or second query. <c>RetrievalRank</c> is preserved exactly as the provider
+    /// returned it so the candidate-set ceiling stays reportable; only <c>ContextRank</c> is renumbered
+    /// over the survivors. An item with no known origin is kept: dropping what we cannot classify
+    /// would silently shrink the budget.
+    /// </remarks>
+    internal static MemoryContextSection<Message> SelectRealSourceTurns(
+        MemoryContextSection<Message> section,
+        IReadOnlyDictionary<string, LongMemEvalMessageOrigin> originsByMessageId,
+        int finalCap)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        ArgumentNullException.ThrowIfNull(originsByMessageId);
+        ArgumentOutOfRangeException.ThrowIfNegative(finalCap);
+
+        bool IsRealSourceTurn(string messageId) =>
+            !originsByMessageId.TryGetValue(messageId, out var origin) ||
+            (!origin.IsSyntheticBoundary && !origin.IsSyntheticFormatterPadding);
+
+        var ranked = section.RankedItems.Count > 0
+            ? section.RankedItems.OrderBy(item => item.ContextRank).ToArray()
+            : [];
+        if (ranked.Length == 0)
+        {
+            // No diagnostics were requested, so retrieval order is only observable through Items.
+            return section with
+            {
+                Items = section.Items.Where(m => IsRealSourceTurn(m.MessageId)).Take(finalCap).ToArray()
+            };
+        }
+
+        var itemsById = section.Items.ToDictionary(m => m.MessageId, StringComparer.Ordinal);
+        var keptIds = ranked
+            .Select(item => item.ItemId)
+            .Where(IsRealSourceTurn)
+            .Where(itemsById.ContainsKey)
+            .Take(finalCap)
+            .ToArray();
+        var keptSet = keptIds.ToHashSet(StringComparer.Ordinal);
+
+        return section with
+        {
+            Items = keptIds.Select(id => itemsById[id]).ToArray(),
+            RankedItems = ranked
+                .Where(item => keptSet.Contains(item.ItemId))
+                .Select((item, index) => item with { ContextRank = index + 1 })
+                .ToArray()
         };
     }
 

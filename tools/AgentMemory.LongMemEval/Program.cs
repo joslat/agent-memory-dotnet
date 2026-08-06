@@ -100,6 +100,7 @@ internal static class LongMemEvalProgram
                     MemoryMode = options.MemoryMode,
                     MinSimilarityScore = 0,
                     ModelId = deployment,
+                    ExcludeSyntheticFormatterMessages = options.ExcludeSyntheticMessages,
                     EvidenceIndex = evidenceIndex,
                     EvidenceDetail = options.EvidenceDetail,
                     RequireGraphReadBack = options.MemoryMode.UsesExtraction(),
@@ -174,6 +175,11 @@ internal static class LongMemEvalProgram
                     judgeModel = deployment,
                     maxRelevantMessages = options.MaxRelevantMessages,
                     operatingMode = options.MemoryMode.Fingerprint(),
+                    // G3B.1 changes which items fill the budget, so a filtered run must never be
+                    // comparable to the control by accident.
+                    syntheticFormatterExclusion = options.ExcludeSyntheticMessages
+                        ? "excluded-candidate-x3"
+                        : "control-unfiltered",
                     extractionModel = options.MemoryMode.UsesExtraction() ? extractionDeployment : null,
                     extractionTemperatureCompatibility = options.MemoryMode.UsesExtraction()
                         ? "explicit-zero-to-provider-default" : null,
@@ -308,7 +314,8 @@ internal static class LongMemEvalProgram
             ParseOracleMode(Value("--oracle")),
             ParseMemoryMode(Value("--memory-mode")),
             ParseNonNegative(Value("--judge-retries"), 2, "--judge-retries"),
-            Value("--output"));
+            Value("--output"),
+            Array.IndexOf(args, "--exclude-synthetic-messages") >= 0);
     }
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
@@ -398,7 +405,12 @@ internal static class LongMemEvalProgram
           [--diagnostic-question N --diagnostic-source-session N] \
           [--provider-no-progress-timeout-seconds 600] \
           [--evidence-detail none|identifiers|content] \
+          [--exclude-synthetic-messages] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
+
+        --exclude-synthetic-messages over-fetches 3x the message budget, drops only AgentEval's
+        formatter boilerplate (session boundaries and padding), keeps retrieval order, and selects
+        the first --max-relevant real source turns. Default off: unfiltered recall is the control.
 
         --prepared-pair prepares structured memory once, freezes it, clones it, and evaluates isolated Structured and Hybrid arms.
         Supplying both diagnostic selectors with --prepared-pair runs exactly one extraction unit and can never emit a report or execute recall/judging.
@@ -424,5 +436,6 @@ internal static class LongMemEvalProgram
         LongMemEvalOracleMode OracleMode,
         LongMemEvalMemoryMode MemoryMode,
         int JudgeRetryAttempts,
-        string? OutputPath);
+        string? OutputPath,
+        bool ExcludeSyntheticMessages);
 }
