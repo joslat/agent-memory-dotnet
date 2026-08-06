@@ -156,7 +156,8 @@ public static partial class PerfScenarios
             extracted.Results.Any(result =>
                 result.Plan.BatchCount != 1 ||
                 result.Plan.SourceSessionCount != IntegratedSessionsPerOwner) ||
-            context.Profile.MaxConnectionPoolSize != 16)
+            (context.Profile.MaxConnectionPoolSize != 16 &&
+                !context.Profile.PoolSizeExplicitlyConfigured))
         {
             throw new InvalidOperationException(
                 $"PERF-W-12-X{workers:D2} integrated contract failed (outputs/order=" +

@@ -134,7 +134,8 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
                 ? cli.Get("single-shot") ?? bool.TrueString
                 : null,
             cli.Get("batch-resolution-snapshots"),
-            cli.Get("coalesced-persistence"));
+            cli.Get("coalesced-persistence"),
+            cli.Get("pool-size"));
     }
     catch (Exception ex)
     {

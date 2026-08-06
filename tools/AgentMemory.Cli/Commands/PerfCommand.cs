@@ -47,6 +47,7 @@ public sealed class PerfCommand
         string? singleShotValue,
         string? batchResolutionSnapshotsValue,
         string? coalescedPersistenceValue,
+        string? poolSizeValue = null,
         CancellationToken cancellationToken = default)
     {
         var runLabel = Sanitize(label) ?? "baseline";
@@ -87,7 +88,18 @@ public sealed class PerfCommand
             return 1;
         }
         var useUnifiedExtraction = extractionModes[0];
-        var maxConnectionPoolSize = useUnifiedExtraction ? 16 : 100;
+        int maxConnectionPoolSize;
+        try
+        {
+            maxConnectionPoolSize = ResolveMaxConnectionPoolSize(
+                poolSizeValue, useUnifiedExtraction, scenarios.Select(s => s.Id).ToArray());
+        }
+        catch (ArgumentException ex)
+        {
+            _output.WriteLine($"error: {ex.Message}");
+            return 1;
+        }
+        var poolSizeExplicitlyConfigured = poolSizeValue is not null;
 
         if (singleShot &&
             (scenarios.Count != 1 || iterations != 1 || warmup != 0 || qualityGateEnabled))
@@ -129,7 +141,8 @@ public sealed class PerfCommand
         await using var profile = await HermeticProfile
             .StartAsync(dimensions, embeddingLatency, modelLatency, _output, scale,
                 scriptedRules, cancellationToken, maxConnectionPoolSize,
-                useUnifiedExtraction, batchResolutionSnapshots, coalescedPersistence)
+                useUnifiedExtraction, batchResolutionSnapshots, coalescedPersistence,
+                poolSizeExplicitlyConfigured)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
@@ -303,6 +316,35 @@ public sealed class PerfCommand
 
         await scenario.ValidateAsync(new ScenarioVerificationContext(
             profile, record, 0, "measure", null, cancellationToken)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Resolves the fingerprinted Neo4j driver pool size. Without an override the historical
+    /// defaults hold exactly: 16 for the unified cold-build laboratory, 100 for the default catalog.
+    /// An explicit override exists only for the D1 pool-curve arms and is therefore restricted to
+    /// integrated cold-build (<c>PERF-W-12-*</c>) selections, where the scenario self-assertion and
+    /// the manifest both record the deliberate value.
+    /// </summary>
+    private static int ResolveMaxConnectionPoolSize(
+        string? poolSizeValue, bool useUnifiedExtraction, IReadOnlyList<string> scenarioIds)
+    {
+        var defaultPoolSize = useUnifiedExtraction ? 16 : 100;
+        if (poolSizeValue is null)
+            return defaultPoolSize;
+        if (!int.TryParse(poolSizeValue, NumberStyles.None, CultureInfo.InvariantCulture, out var poolSize) ||
+            poolSize <= 0)
+        {
+            throw new ArgumentException(
+                $"--pool-size must be a positive integer; got '{poolSizeValue}'.");
+        }
+        if (scenarioIds.Count == 0 ||
+            scenarioIds.Any(id => !id.StartsWith("PERF-W-12-", StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "--pool-size is a D1 pool-curve override and requires selecting only the " +
+                "integrated cold-build scenarios (PERF-W-12-*).");
+        }
+        return poolSize;
     }
 
     private static object BuildManifest(

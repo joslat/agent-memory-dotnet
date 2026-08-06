@@ -45,7 +45,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         ScaleMRunVolume? scaleRunVolume,
         int maxConnectionPoolSize,
         bool useBatchEntityResolutionSnapshots,
-        bool useCoalescedPersistenceTransactions)
+        bool useCoalescedPersistenceTransactions,
+        bool poolSizeExplicitlyConfigured)
     {
         Dimensions = dimensions;
         Scale = scale;
@@ -53,6 +54,7 @@ public sealed class HermeticProfile : IAsyncDisposable
         MaxConnectionPoolSize = maxConnectionPoolSize;
         UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
         UseCoalescedPersistenceTransactions = useCoalescedPersistenceTransactions;
+        PoolSizeExplicitlyConfigured = poolSizeExplicitlyConfigured;
     }
 
     /// <summary>Embedding dimensionality. Small by design — vector width is not what is being measured.</summary>
@@ -60,6 +62,13 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     /// <summary>Fixed product-driver pool size fingerprinted by concurrency artifacts.</summary>
     public int MaxConnectionPoolSize { get; }
+
+    /// <summary>
+    /// True only when an operator explicitly selected the pool size (the D1 pool-curve arms).
+    /// Lab self-assertions treat any non-16 pool without this deliberate, fingerprinted selection
+    /// as a wiring error.
+    /// </summary>
+    public bool PoolSizeExplicitlyConfigured { get; }
 
     /// <summary>Whether batch-scoped owner/type entity candidate snapshots are enabled.</summary>
     public bool UseBatchEntityResolutionSnapshots { get; }
@@ -112,7 +121,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         int maxConnectionPoolSize = 100,
         bool useUnifiedExtraction = false,
         bool useBatchEntityResolutionSnapshots = true,
-        bool useCoalescedPersistenceTransactions = true)
+        bool useCoalescedPersistenceTransactions = true,
+        bool poolSizeExplicitlyConfigured = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
@@ -120,7 +130,8 @@ public sealed class HermeticProfile : IAsyncDisposable
             : null;
         var profile = new HermeticProfile(
             dimensions, scale, scaleRunVolume, maxConnectionPoolSize,
-            useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions);
+            useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions,
+            poolSizeExplicitlyConfigured);
         try
         {
             await profile.InitializeAsync(
