@@ -126,8 +126,10 @@ internal sealed class LongMemEvalReferenceAgent(
             }
         }
 
+        // The floor is the question and nothing else — not even "today's date". Only the history
+        // arms receive the time signal, because only they have history for it to date.
         var answerPrompt = AgentMemoryLongMemEvalAdapter.BuildAnswerPrompt(
-            messages, prompt, origins.QuestionDate);
+            messages, prompt, arm.UsesHistory() ? origins.QuestionDate : null);
 
         ChatResponse response;
         try

@@ -145,13 +145,22 @@ those are rejected rather than ignored, because they have no meaning for an arm 
 
 | Arm | Overall | Mean context (est. tokens/question) |
 |---|---:|---:|
-| no-memory floor | 0.0% | 0 |
-| AgentMemory raw | 70.0% | 4,284 |
-| full-history ceiling | 80.0% | 120,524 |
+| no memory layer (fresh session, nothing) | 0.0% | 0 |
+| **AgentMemory raw** | **90.0%** (task-avg 94.4%) | **~4,300** |
+| full chat history in context | 100.0% | ~120,500 |
 
-Read a score against **80.0%, not 100%**: two of the ten questions fail even with the entire
-conversation in context, so they are reasoning or judging limits that no retrieval change can reach.
-On this sample AgentMemory reaches 87.5% of the achievable band on 28.1× less context.
+**90% of the quality on 3.5% of the context.** State that as a cost-and-scale result, not a quality
+win: on a sample where the whole transcript fits the window, replaying it still scores higher. The
+memory system's case is what happens when it stops fitting.
+
+Both history arms must always be measured with the **same** prompt treatment. An earlier version of
+this table read 70.0% / 80.0% purely because the answer prompt discarded session dates; restoring
+them moved AgentMemory to 90.0% *and* the full-history arm to 100.0%. Fixing one side only would
+have produced a flattering and completely false comparison.
+
+The single remaining failure is diagnosed as embedding **granularity**, not ranking: its evidence is
+a passing aside inside a long turn about another topic, so the turn-level embedding never surfaces
+it.
 
 Whether the history fits is decided by **the provider rejecting the prompt**, never by a token
 estimate — every question in this dataset is 113,750–128,489 estimated tokens against a 128k window,
