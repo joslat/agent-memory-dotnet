@@ -24,6 +24,13 @@ internal static class LongMemEvalProgram
             PrintHelp();
             return 0;
         }
+        if (args.Contains("--reference-arm", StringComparer.Ordinal))
+        {
+            // G4-REF. Dispatched before everything else so no AgentMemory service, container, or
+            // embedding client is ever constructed for an arm that by definition has no memory.
+            return await LongMemEvalReferenceArmProgram.RunAsync(args)
+                .ConfigureAwait(false);
+        }
         if (args.Contains("--prepared-pair", StringComparer.Ordinal))
         {
             return await LongMemEvalPreparedPairProgram.RunAsync(args)
@@ -397,6 +404,7 @@ internal static class LongMemEvalProgram
         dotnet run --project tools/AgentMemory.LongMemEval -- \
           --dataset <longmemeval_s_cleaned.json> [--questions 10] [--seed 42] \
           [--max-relevant 30] [--memory-mode raw|structured|hybrid] \
+          [--reference-arm no-memory|full-history] \
           [--prepared-pair] [--preflight-only] \
           [--preparation-workers 10] [--max-sessions-per-batch 4] \
           [--max-input-tokens 100000] \
@@ -412,6 +420,17 @@ internal static class LongMemEvalProgram
         --exclude-synthetic-messages over-fetches 3x the message budget, drops only AgentEval's
         formatter boilerplate (session boundaries and padding), keeps retrieval order, and selects
         the first --max-relevant real source turns. Default off: unfiltered recall is the control.
+
+        --reference-arm runs a control that uses no AgentMemory at all, on the identical sample, seed,
+        answer deployment and judge, so an AgentMemory score has something to be measured against:
+          no-memory     the question alone - the model's parametric floor.
+          full-history  every real source turn in context, formatter boilerplate dropped - the ceiling.
+        It starts no container and makes no embedding, extraction, storage or recall call. Whether the
+        history fits is decided by the provider rejecting the prompt, never by a token estimate: in this
+        dataset every question is 113k-128k estimated tokens, inside any estimator's own error bar.
+        A question that does not fit is reported as skipped and excluded from fitted accuracy, never
+        scored as wrong. Cannot be combined with --memory-mode, --prepared-pair,
+        --exclude-synthetic-messages, or a non-none --oracle.
 
         --prepared-pair prepares structured memory once, freezes it, clones it, and evaluates isolated Structured and Hybrid arms.
         Supplying both diagnostic selectors with --prepared-pair runs exactly one extraction unit and can never emit a report or execute recall/judging.

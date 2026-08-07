@@ -120,6 +120,41 @@ internal static class LongMemEvalPostRunDiagnostics
             attributions);
     }
 
+    /// <summary>
+    /// G4-REF. The judge-retry pass alone, without oracle or gold-attribution. A reference arm has no
+    /// retrieval, so running <see cref="Attribute"/> against it would label every failure
+    /// <c>retrieval-evidence-missing</c> — inventing a retrieval cause for an arm that has no
+    /// retrieval. Retries still matter, because BUG-J1's base-call accounting depends on them.
+    /// </summary>
+    internal static async Task<IReadOnlyList<LongMemEvalJudgeRetryResult>> RetryInvalidJudgeVerdictsAsync(
+        IChatClient chatClient,
+        LongMemEvalEvidenceIndex evidenceIndex,
+        IReadOnlyList<QuestionResult> questionResults,
+        int judgeRetryAttempts,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(chatClient);
+        ArgumentNullException.ThrowIfNull(evidenceIndex);
+        ArgumentNullException.ThrowIfNull(questionResults);
+        if (judgeRetryAttempts < 0)
+            throw new ArgumentOutOfRangeException(nameof(judgeRetryAttempts));
+
+        var judge = new LongMemEvalJudge(chatClient, NullLogger<LongMemEvalJudge>.Instance);
+        var retries = new List<LongMemEvalJudgeRetryResult>();
+        foreach (var question in questionResults.Where(NeedsJudgeRetry))
+        {
+            retries.Add(await RetryJudgeAsync(
+                    judge,
+                    evidenceIndex.GetByQuestionId(question.QuestionId),
+                    question.AgentResponse,
+                    judgeRetryAttempts,
+                    cancellationToken)
+                .ConfigureAwait(false));
+        }
+
+        return retries.AsReadOnly();
+    }
+
     internal static string Attribute(
         QuestionResult question,
         LongMemEvalJudgeRetryResult? retry,
