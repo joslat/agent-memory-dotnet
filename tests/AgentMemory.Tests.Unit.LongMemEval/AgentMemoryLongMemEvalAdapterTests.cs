@@ -520,7 +520,9 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
                     1, evidenceQuestion.QuestionId, LongMemEvalEvidenceIndex.Fingerprint(history),
                     LongMemEvalPreparationManifest.Hash(
                         "prepared-run-session-0001|prepared-run-owner-0001"),
-                    evidenceQuestion.Messages.Count, sourceSessions, sourceSessions, graphSnapshot)
+                    evidenceQuestion.Messages.Count(m =>
+                        !m.IsSyntheticBoundary && !m.IsSyntheticFormatterPadding),
+                    sourceSessions, sourceSessions, graphSnapshot)
             ],
             sourceSessions * 4);
         var memory = Substitute.For<IMemoryService>();
@@ -587,7 +589,9 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
         var telemetry = adapter.QuestionTelemetry.Should().ContainSingle().Subject;
         telemetry.MessagesStored.Should().Be(0);
         telemetry.ExtractionUnits.Should().Be(0);
-        telemetry.MessagesPrepared.Should().Be(evidenceQuestion.Messages.Count);
+        // Preparation persists real conversation only; the fabricated boundary turns are excluded.
+        telemetry.MessagesPrepared.Should().Be(evidenceQuestion.Messages.Count(m =>
+            !m.IsSyntheticBoundary && !m.IsSyntheticFormatterPadding));
         telemetry.ExtractionUnitsPrepared.Should().Be(sourceSessions);
         telemetry.PreparedMemory.Should().BeTrue();
         telemetry.StageTimings.Should().NotBeNull();

@@ -80,7 +80,8 @@ public sealed class LongMemEvalPreparedAdapterFailureTests
                     historySha256 ?? LongMemEvalEvidenceIndex.Fingerprint(history),
                     LongMemEvalPreparationManifest.Hash(
                         "prepared-run-session-0001|prepared-run-owner-0001"),
-                    evidenceQuestion.Messages.Count,
+                    evidenceQuestion.Messages.Count(m =>
+                        !m.IsSyntheticBoundary && !m.IsSyntheticFormatterPadding),
                     sourceSessions,
                     sourceSessions,
                     Snapshot())

@@ -351,11 +351,18 @@ public sealed class LongMemEvalPreparedState
             .Select(message => message.SourceSessionOrdinal)
             .Distinct()
             .Count();
+        // G3B.9 stopped persisting AgentEval's fabricated session-boundary turns, so the sealed
+        // count is of real conversation only. Comparing it against every injected message would
+        // reject every question. The guard stays exact — it is the expectation that was stale.
+        var persistableMessages = evidenceQuestion.Messages
+            .Count(message =>
+                !message.IsSyntheticBoundary &&
+                !message.IsSyntheticFormatterPadding);
 
         if (!string.Equals(prepared.QuestionId, evidenceQuestion.QuestionId, StringComparison.Ordinal) ||
             !string.Equals(prepared.HistorySha256, historySha256, StringComparison.Ordinal) ||
             !string.Equals(prepared.ScopeSha256, scopeSha256, StringComparison.Ordinal) ||
-            prepared.MessagesPrepared != evidenceQuestion.Messages.Count ||
+            prepared.MessagesPrepared != persistableMessages ||
             prepared.SourceSessions != sourceSessions ||
             prepared.ExtractionUnitsPrepared != sourceSessions)
         {
