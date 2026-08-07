@@ -344,8 +344,15 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
         var response = await adapter.InvokeAsync(LongMemEvalEvidenceIndexTests.InvocationPrompt(entry));
 
         recallRequest!.Options.IncludeDiagnostics.Should().BeTrue();
-        stored.Should().HaveCount(4);
-        stored!.Should().OnlyContain(message =>
+        // G3B.9: of this fixture's four injected messages, two are AgentEval's fabricated
+        // session-boundary turn. Only the real conversation is persisted now, so the count moved
+        // 4 -> 2. The assertion is strengthened rather than merely relaxed: the fabricated pair must
+        // be provably absent, not just uncounted.
+        stored.Should().HaveCount(2);
+        stored!.Should().NotContain(message =>
+            message.Content.Contains("Understood.", StringComparison.Ordinal) ||
+            message.Content.StartsWith("--- Session", StringComparison.Ordinal));
+        stored.Should().OnlyContain(message =>
             message.Metadata.ContainsKey("sourceSessionId") &&
             !message.Metadata.ContainsKey("hasAnswer") &&
             !message.Metadata.ContainsKey("answerSessionIds"));
@@ -361,11 +368,13 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
         response.AdditionalProperties.Should().ContainKey(evidenceKey);
         var normalized = response.AdditionalProperties![evidenceKey].Should()
             .BeOfType<AgentEval.Memory.External.Models.QuestionEvidenceEnvelope>().Subject;
-        normalized.Retrieved.Should().HaveCount(4);
-        normalized.AnswerContext.Should().HaveCount(4);
+        // Follows the storage change: the stubbed recall echoes what was persisted, and the
+        // fabricated boundary turn is no longer persisted.
+        normalized.Retrieved.Should().HaveCount(2);
+        normalized.AnswerContext.Should().HaveCount(2);
         normalized.Retrieved.Should().OnlyContain(item => item.Content == null);
         normalized.AnswerContext.Should().OnlyContain(item => item.Content == null);
-        normalized.AnswerContext.Select(item => item.AnswerContextOrder).Should().Equal(1, 2, 3, 4);
+        normalized.AnswerContext.Select(item => item.AnswerContextOrder).Should().Equal(1, 2);
     }
 
     [Fact]

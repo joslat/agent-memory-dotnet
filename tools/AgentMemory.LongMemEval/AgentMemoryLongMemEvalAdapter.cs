@@ -226,12 +226,25 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         {
             try
             {
+                // G3B.9 root fix. AgentEval's formatter has no channel for session structure in an
+                // API that only accepts (user, assistant) pairs, so it fabricates a turn per session
+                // boundary — `LongMemEvalHistoryFormatter.cs:39`. The assistant half
+                // ("Understood. Starting a new conversation session.") is pure fabrication carrying
+                // zero information, and the user half's session id and date are already attached to
+                // every real message as provenance metadata. Persisting them was therefore storing
+                // 21% redundant corpus whose *identical* content produced identical embeddings, tying
+                // and monopolising top-K — 46 byte-identical copies in one question.
+                //
+                // Excluding them at the write boundary removes the flood at its source rather than
+                // filtering it back out at retrieval. `messages` itself is left whole because the
+                // extraction path indexes it positionally against the evidence origins.
+                var persisted = SelectPersistableMessages(messages, originsByMessageId);
                 _ = await timings.MeasureAsync(
                     LongMemEvalStage.Storage,
                     () => LongMemEvalRuntime.ExecuteStageAsync(
                         "storage",
-                        () => _memory.AddMessagesAsync(messages, cancellationToken))).ConfigureAwait(false);
-                messagesStored = messages.Count;
+                        () => _memory.AddMessagesAsync(persisted, cancellationToken))).ConfigureAwait(false);
+                messagesStored = persisted.Count;
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -750,6 +763,27 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 StageTimings = stageTimings
             });
         }
+    }
+
+    /// <summary>
+    /// G3B.9. The messages that represent actual conversation, excluding AgentEval's fabricated
+    /// session-boundary turns. An unclassifiable message is kept: dropping what we cannot identify
+    /// would silently lose real evidence, which is far worse than the flooding this prevents.
+    /// </summary>
+    internal static List<Message> SelectPersistableMessages(
+        IReadOnlyList<Message> messages,
+        IReadOnlyDictionary<string, LongMemEvalMessageOrigin> originsByMessageId)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(originsByMessageId);
+        if (originsByMessageId.Count == 0)
+            return messages.ToList();
+
+        return messages
+            .Where(message =>
+                !originsByMessageId.TryGetValue(message.MessageId, out var origin) ||
+                (!origin.IsSyntheticBoundary && !origin.IsSyntheticFormatterPadding))
+            .ToList();
     }
 
     internal static List<Message> BuildMessages(
