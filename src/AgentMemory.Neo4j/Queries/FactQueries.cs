@@ -9,6 +9,33 @@ namespace AgentMemory.Neo4j.Queries;
 /// </summary>
 internal static class FactQueries
 {
+    // ── Predicate expansion (G3B.13) ───────────────────────────────────
+
+    /// <summary>
+    /// Every fact an owner holds under the given canonical predicates, bounded.
+    /// </summary>
+    /// <remarks>
+    /// Top-K vector search answers "what is most relevant"; it cannot answer "how many", because a
+    /// relevance cutoff gives no completeness guarantee — miss one of five births and the count is
+    /// four. This retrieves a <i>relation</i> whole so aggregation questions become answerable, and
+    /// composes with top-K rather than replacing it: similarity finds which predicate matters, this
+    /// makes that predicate complete.
+    /// <para>
+    /// Matches <c>predicate_key</c>, never the raw predicate: raw text would reinstate the exact
+    /// fragmentation canonical identity removed, where "were_born_in" and "were born in" fail to
+    /// find each other. Owner-scoped and explicitly limited — unbounded completeness over a graph of
+    /// ~1,000 facts would simply exhaust the answer budget.
+    /// </para>
+    /// </remarks>
+    public const string SearchByCanonicalPredicates = @"
+            MATCH (f:Fact)
+            WHERE f.owner_key = $ownerKey
+              AND f.predicate_key IN $predicateKeys
+              AND (f.invalidated_at IS NULL)
+            RETURN f
+            ORDER BY f.confidence DESC, f.id ASC
+            LIMIT $limit";
+
     // ── UpsertAsync ────────────────────────────────────────────────────
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
