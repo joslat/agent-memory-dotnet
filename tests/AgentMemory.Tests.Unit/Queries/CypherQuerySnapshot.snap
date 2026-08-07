@@ -406,8 +406,11 @@ UNWIND $items AS item
 
 ## FusedPersistenceQueries.FactUpsertBatch
 UNWIND $items AS item
-            MERGE (f:Fact {subject: item.subject, predicate: item.predicate, object: item.object, owner_key: item.owner_key})
+            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key})
             ON CREATE SET
+                f.subject            = item.subject,
+                f.predicate          = item.predicate,
+                f.object             = item.object,
                 f.id                 = item.id,
                 f.owner_id           = item.owner_id,
                 f.category           = item.category,

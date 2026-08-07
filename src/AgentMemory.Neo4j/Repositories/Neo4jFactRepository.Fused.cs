@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Memory;
 using AgentMemory.Neo4j.Queries;
 using Microsoft.Extensions.Logging;
 using Neo4j.Driver;
@@ -26,6 +27,12 @@ internal sealed partial class Neo4jFactRepository
             ["id"] = fact.FactId,
             ["subject"] = fact.Subject,
             ["predicate"] = fact.Predicate,
+            // The fused batch writer is the path extraction actually uses; the non-fused Upsert
+            // carried these keys while this one did not, so canonical identity never reached a real
+            // cold build.
+            ["subject_key"] = MemoryTripleCanonicalizer.Canonical(fact.Subject),
+            ["predicate_key"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
+            ["object_key"] = MemoryTripleCanonicalizer.Canonical(fact.Object),
             ["object"] = fact.Object,
             ["owner_id"] = fact.OwnerId,
             ["owner_key"] = fact.OwnerId ?? OwnerKeyShared,
