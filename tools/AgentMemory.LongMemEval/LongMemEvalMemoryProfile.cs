@@ -34,7 +34,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         string? volumeName = null,
         bool enableBatchedPreparation = false,
         int maxConcurrentBatchesPerExtraction = 1,
-        int maxConcurrentExtractionBatches = 0)
+        int maxConcurrentExtractionBatches = 0,
+        bool usePredicateVocabulary = false)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -61,6 +62,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     enableBatchedPreparation,
                     maxConcurrentBatchesPerExtraction,
                     maxConcurrentExtractionBatches,
+                    usePredicateVocabulary,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -83,6 +85,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool enableBatchedPreparation,
         int maxConcurrentBatchesPerExtraction,
         int maxConcurrentExtractionBatches,
+        bool usePredicateVocabulary,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -107,6 +110,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.UseMultiSessionBatchExtraction = enableBatchedPreparation;
                 options.MaxConcurrentBatchesPerExtraction = maxConcurrentBatchesPerExtraction;
                 options.MaxConcurrentExtractionBatches = maxConcurrentExtractionBatches;
+                options.UsePredicateVocabulary = usePredicateVocabulary;
             }
             : null;
         services.AddNeo4jAgentMemory(

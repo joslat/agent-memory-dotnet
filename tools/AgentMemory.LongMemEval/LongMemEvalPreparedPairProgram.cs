@@ -136,7 +136,8 @@ internal static class LongMemEvalPreparedPairProgram
                         maxConcurrentBatchesPerExtraction:
                             options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
                         maxConcurrentExtractionBatches:
-                            options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches)
+                            options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
+                        usePredicateVocabulary: options.UsePredicateVocabulary)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -1031,6 +1032,7 @@ internal static class LongMemEvalPreparedPairProgram
                 DefaultMaxConcurrentExtractionBatches, "--max-concurrent-extraction-batches"),
             Has("--preflight-only"),
             Has("--retain-prepared-volumes"),
+            Has("--use-predicate-vocabulary"),
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
             ParsePositive(
@@ -1222,6 +1224,7 @@ internal static class LongMemEvalPreparedPairProgram
         int MaxConcurrentExtractionBatches,
         bool PreflightOnly,
         bool RetainPreparedVolumes,
+        bool UsePredicateVocabulary,
         int MaxItemsPerSourceSession,
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
