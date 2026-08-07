@@ -3,6 +3,7 @@ using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extraction.Llm.Internal;
+using AgentMemory.Core.Memory;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,6 +27,36 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         Sessions are independent. Never combine facts or entities across source_session values.
         Use empty arrays when a category has no supported memory. Do not emit prose or markdown.
         """;
+
+    /// <summary>
+    /// The system prompt, with the established relation vocabulary offered when one is supplied.
+    /// </summary>
+    /// <remarks>
+    /// Extraction invents a predicate per sentence when nothing tells it which relations exist —
+    /// measured at 700 facts under 421 distinct predicates, with a single birth expressed as
+    /// "was born", "was born in", "were born in", "had" and "welcomed", which left counting
+    /// questions unanswerable even once a relation could be retrieved whole. Reconciling phrasings
+    /// afterwards cannot be done safely, since "bought" and "sold" are one similarity threshold
+    /// apart, so the vocabulary is applied at generation instead.
+    /// <para>
+    /// The extractor is told to <b>prefer</b> these relations, never to be limited to them: a model
+    /// restricted to a fixed list would drop facts that genuinely need a new relation. An empty
+    /// vocabulary yields the original prompt byte-for-byte, so callers that do not use this are
+    /// unaffected — including the frozen batch plan, whose estimated input totals depend on prompt
+    /// size.
+    /// </para>
+    /// </remarks>
+    internal static string BuildSystemPrompt(MemoryPredicateVocabulary? vocabulary)
+    {
+        var established = vocabulary?.Snapshot() ?? [];
+        if (established.Count == 0)
+            return SystemPrompt;
+
+        return SystemPrompt +
+            "\nEstablished relation predicates, in order of preference: " +
+            string.Join(", ", established) +
+            ".\nReuse an established predicate whenever it fits; introduce a new one only when none does.";
+    }
 
     private const string UserInstruction =
         "Extract every source session independently and acknowledge all processed source sessions:";
