@@ -13,8 +13,11 @@ internal static class FactQueries
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
     public const string Upsert = @"
-            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object, owner_key: $ownerKey})
+            MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey})
             ON CREATE SET
+                f.subject            = $subject,
+                f.predicate          = $predicate,
+                f.object             = $object,
                 f.id                 = $id,
                 f.owner_id           = $ownerId,
                 f.category           = $category,
@@ -49,8 +52,11 @@ internal static class FactQueries
     /// </summary>
     public const string UpsertBatch = @"
             UNWIND $items AS item
-            MERGE (f:Fact {subject: item.subject, predicate: item.predicate, object: item.object, owner_key: item.owner_key})
+            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key})
             ON CREATE SET
+                f.subject            = item.subject,
+                f.predicate          = item.predicate,
+                f.object             = item.object,
                 f.id                 = item.id,
                 f.owner_id           = item.owner_id,
                 f.category           = item.category,

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -55,6 +56,10 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["id"] = fact.FactId,
                 ["subject"] = fact.Subject,
                 ["predicate"] = fact.Predicate,
+                // Identity is the canonical trio; the raw strings above stay for display and audit.
+                ["subjectKey"] = MemoryTripleCanonicalizer.Canonical(fact.Subject),
+                ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
+                ["objectKey"] = MemoryTripleCanonicalizer.Canonical(fact.Object),
                 ["object"] = fact.Object,
                 ["ownerId"] = fact.OwnerId,
                 ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
@@ -121,6 +126,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["id"] = f.FactId,
             ["subject"] = f.Subject,
             ["predicate"] = f.Predicate,
+            ["subject_key"] = MemoryTripleCanonicalizer.Canonical(f.Subject),
+            ["predicate_key"] = MemoryTripleCanonicalizer.Canonical(f.Predicate),
+            ["object_key"] = MemoryTripleCanonicalizer.Canonical(f.Object),
             ["object"] = f.Object,
             ["owner_id"] = f.OwnerId,
             ["owner_key"] = f.OwnerId ?? OwnerKeyShared,
