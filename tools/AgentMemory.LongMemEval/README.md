@@ -120,6 +120,48 @@ Their calls and outcomes are reported separately and never alter AgentEval's sco
 base call count. Oracle mode gives the answer model only labelled source sessions and uses the same
 answer deployment and type-specific judge to distinguish retrieval failure from reader/judge limits.
 
+## Reference arms — what a score is measured *against*
+
+A LongMemEval percentage means nothing on its own, because it silently compares one AgentMemory
+configuration against another. `--reference-arm` supplies the two ends of the band, on the identical
+sample, seed, answer deployment and judge:
+
+```powershell
+dotnet run -c Release --project tools/AgentMemory.LongMemEval -- `
+  --reference-arm no-memory `      # the question alone: the model's parametric floor
+  --dataset <longmemeval_s_cleaned.json> --questions 10 --seed 42 --judge-retries 2
+
+dotnet run -c Release --project tools/AgentMemory.LongMemEval -- `
+  --reference-arm full-history `   # every real turn in context: the ceiling retrieval aims at
+  --dataset <longmemeval_s_cleaned.json> --questions 10 --seed 42 --judge-retries 2
+```
+
+Neither arm starts a container or makes an embedding, extraction, storage or recall call, so neither
+needs Docker or an embedding deployment; each costs ~20 provider calls. They cannot be combined with
+`--memory-mode`, `--prepared-pair`, `--exclude-synthetic-messages`, or a non-`none` `--oracle` —
+those are rejected rather than ignored, because they have no meaning for an arm with no memory.
+
+**Measured band (seed 42, ten questions, 2026-08-07):**
+
+| Arm | Overall | Mean context (est. tokens/question) |
+|---|---:|---:|
+| no-memory floor | 0.0% | 0 |
+| AgentMemory raw | 70.0% | 4,284 |
+| full-history ceiling | 80.0% | 120,524 |
+
+Read a score against **80.0%, not 100%**: two of the ten questions fail even with the entire
+conversation in context, so they are reasoning or judging limits that no retrieval change can reach.
+On this sample AgentMemory reaches 87.5% of the achievable band on 28.1× less context.
+
+Whether the history fits is decided by **the provider rejecting the prompt**, never by a token
+estimate — every question in this dataset is 113,750–128,489 estimated tokens against a 128k window,
+so an estimate would be deciding inside its own error bar. A question that does not fit is reported
+as `skipped-context-window` and excluded from fitted accuracy rather than scored wrong; if every
+question skips, the arm reports "not measurable on this deployment" instead of 0%. The arms'
+system prompts necessarily differ from the shipped memory prompt (instructing a model to use
+"retrieved memory" when there is none would manufacture abstentions) and are recorded verbatim in
+each report.
+
 ## Reading a score
 
 The first run is a characterization baseline, not a product-quality pass/fail gate. A small sample
