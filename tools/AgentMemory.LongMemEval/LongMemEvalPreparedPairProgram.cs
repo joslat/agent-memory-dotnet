@@ -738,6 +738,14 @@ internal static class LongMemEvalPreparedPairProgram
                 ModelId = deployment,
                 EvidenceIndex = evidenceIndex,
                 EvidenceDetail = options.EvidenceDetail,
+                // Every G3B.1-.4 correction previously reached the Raw arm only, so Structured and
+                // Hybrid were being measured through the uncorrected message pipeline - an unfair
+                // comparison against our own product. Hybrid was the visible casualty: 66% of its
+                // message slots were formatter boilerplate and its two failing multi-session
+                // questions received 0 and 2 real turns out of 15.
+                ExcludeSyntheticFormatterMessages = true,
+                MaxItemsPerSourceSession = options.MaxItemsPerSourceSession,
+                ChronologicalAnswerContext = true,
                 RequireGraphReadBack = true,
                 GraphProbe = new Neo4jLongMemEvalGraphProbe(driver)
             });
@@ -1021,6 +1029,7 @@ internal static class LongMemEvalPreparedPairProgram
                 DefaultMaxConcurrentExtractionBatches, "--max-concurrent-extraction-batches"),
             Has("--preflight-only"),
             Has("--retain-prepared-volumes"),
+            ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
             ParsePositive(
                 Value("--checkpoint-timeout-seconds"),
@@ -1211,6 +1220,7 @@ internal static class LongMemEvalPreparedPairProgram
         int MaxConcurrentExtractionBatches,
         bool PreflightOnly,
         bool RetainPreparedVolumes,
+        int MaxItemsPerSourceSession,
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
         int ProviderNoProgressTimeoutSeconds)
