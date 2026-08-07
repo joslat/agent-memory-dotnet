@@ -81,4 +81,15 @@ public sealed class LlmExtractionOptions
     /// When null the extractor's built-in default prompt is used.
     /// </summary>
     public string? PreferenceExtractionPrompt { get; set; }
+
+    /// <summary>
+    /// Offers the established relation vocabulary to the extractor so it reuses relation names
+    /// instead of inventing a phrasing per sentence. Default off.
+    /// </summary>
+    /// <remarks>
+    /// QUALITY-RISK: it changes what the model emits, and it lengthens the prompt, which moves the
+    /// frozen batch plan's estimated input totals. Opt-in so the effect can be measured against an
+    /// unchanged control before it becomes the default.
+    /// </remarks>
+    public bool UsePredicateVocabulary { get; set; }
 }

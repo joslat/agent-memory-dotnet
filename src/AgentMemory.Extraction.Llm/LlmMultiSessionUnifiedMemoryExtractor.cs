@@ -61,6 +61,15 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     private const string UserInstruction =
         "Extract every source session independently and acknowledge all processed source sessions:";
 
+    /// <summary>The vocabulary offered to the model, or null when the option is off.</summary>
+    /// <remarks>
+    /// Built from the curated seed on each use rather than cached, so the size the plan estimates
+    /// and the string actually sent can never diverge — an estimate taken from a different prompt
+    /// than the request would corrupt the frozen plan's token accounting silently.
+    /// </remarks>
+    private MemoryPredicateVocabulary? ActiveVocabulary =>
+        _options.UsePredicateVocabulary ? MemoryPredicateSeedVocabulary.Create() : null;
+
     private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
     private readonly ILogger<LlmMultiSessionUnifiedMemoryExtractor> _logger;
@@ -236,7 +245,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
 
         Task<IReadOnlyList<IReadOnlyDictionary<string, UnifiedExtractionResult>>> RunProviderAsync() =>
             runner.RunAsync(
-                SystemPrompt,
+                BuildSystemPrompt(ActiveVocabulary),
                 UserInstruction,
                 BuildBatchText(batch),
                 response => new[] { ProjectAndValidate(response, batch) },
@@ -340,7 +349,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         return target;
     }
 
-    private static IReadOnlyList<IReadOnlyList<ExtractionRequest>> PlanBatches(
+    private IReadOnlyList<IReadOnlyList<ExtractionRequest>> PlanBatches(
         IReadOnlyList<ExtractionRequest> requests,
         int maxSessionsPerBatch,
         int maxInputTokens)
@@ -367,9 +376,9 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         return batches;
     }
 
-    private static int EstimateInputTokens(IReadOnlyList<ExtractionRequest> batch) =>
+    private int EstimateInputTokens(IReadOnlyList<ExtractionRequest> batch) =>
         checked(
-            Encoding.UTF8.GetByteCount(SystemPrompt) +
+            Encoding.UTF8.GetByteCount(BuildSystemPrompt(ActiveVocabulary)) +
             Encoding.UTF8.GetByteCount(UserInstruction) +
             Encoding.UTF8.GetByteCount(BuildBatchText(batch)) +
             35);
