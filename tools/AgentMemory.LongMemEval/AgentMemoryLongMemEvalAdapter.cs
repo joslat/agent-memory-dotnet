@@ -243,6 +243,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         var extractionUnits = 0;
         var extractionCallsPlanned = 0;
         LongMemEvalGraphSnapshot? graphSnapshot = null;
+        LongMemEvalGoldEvidenceCoverage? goldCoverage = null;
         if (_options.MemoryMode.UsesExtraction())
         {
             if (evidenceQuestion is null)
@@ -464,6 +465,18 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                         "LongMemEval graph read-back did not prove non-empty learned memory with complete provenance.");
                 }
 
+                // G3B.5. Soundness is proven above; this asks whether the build is *adequate* —
+                // whether anything was learned from the sessions that actually hold the answer.
+                // Checked here, before any evaluation call is spent on this graph.
+                var goldSourceMessageIds = originsByMessageId
+                    .Where(entry =>
+                        evidenceQuestion.AnswerSessionIds.Contains(entry.Value.SourceSessionId))
+                    .Select(entry => entry.Key)
+                    .ToArray();
+                goldCoverage = await _options.GraphProbe
+                    .ReadGoldCoverageAsync(ownerId, goldSourceMessageIds, cancellationToken)
+                    .ConfigureAwait(false);
+
                 if (preparedQuestion is not null &&
                     !Equals(graphSnapshot, preparedQuestion.GraphSnapshot))
                 {
@@ -490,7 +503,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 questionNumber, messagesStored, 0, false, "prepared",
                 evidenceQuestion!.QuestionId, extractionUnits: extractionUnits,
                 graphSnapshot: graphSnapshot, stageTimings: timings.Snapshot(),
-                extractionCallsPlanned: extractionCallsPlanned);
+                extractionCallsPlanned: extractionCallsPlanned,
+                goldCoverage: goldCoverage);
             return new AgentResponse { Text = string.Empty, ModelId = _options.ModelId };
         }
 
@@ -673,7 +687,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             timings.Snapshot(),
             preparedQuestion?.MessagesPrepared ?? 0,
             preparedQuestion?.ExtractionUnitsPrepared ?? 0,
-            preparedQuestion is not null);
+            preparedQuestion is not null,
+            goldCoverage: goldCoverage);
 
         var additionalProperties = new Dictionary<string, object?>
         {
@@ -710,7 +725,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         int messagesPrepared = 0,
         int extractionUnitsPrepared = 0,
         bool preparedMemory = false,
-        int extractionCallsPlanned = 0)
+        int extractionCallsPlanned = 0,
+        LongMemEvalGoldEvidenceCoverage? goldCoverage = null)
     {
         lock (_stateLock)
         {
@@ -730,6 +746,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
                 GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
                 GraphReadBack = graphSnapshot,
+                GoldEvidenceCoverage = goldCoverage,
                 StageTimings = stageTimings
             });
         }
@@ -1054,6 +1071,23 @@ public sealed record LongMemEvalQuestionTelemetry(
     public bool GraphRagIncluded { get; init; }
 
     public LongMemEvalGraphSnapshot? GraphReadBack { get; init; }
+
+    /// <summary>
+    /// G3B.5. Whether the cold build learned anything from the answer-bearing sessions. Null outside
+    /// extraction modes. Zero <c>GoldLearnedItems</c> means Structured cannot answer this question at
+    /// any recall quality — an extraction finding, never a retrieval one.
+    /// </summary>
+    public LongMemEvalGoldEvidenceCoverage? GoldEvidenceCoverage { get; init; }
+
+    /// <summary>
+    /// G3B.5 volume plausibility: learned items per contributing source message. A build that is
+    /// sound and fully provenanced can still be far too thin, and "3 facts from 474 sessions" must
+    /// be loud rather than silently green.
+    /// </summary>
+    public double LearnedItemsPerSourceMessage =>
+        GraphReadBack is null || GraphReadBack.SourceMessages == 0
+            ? 0d
+            : (double)GraphReadBack.LearnedItems / GraphReadBack.SourceMessages;
 
     public LongMemEvalStageTimings? StageTimings { get; init; }
 }

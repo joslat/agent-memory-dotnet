@@ -99,14 +99,18 @@ internal static class LongMemEvalPostRunDiagnostics
         var evidenceByQuestion = telemetry
             .Where(item => item.QuestionId is not null)
             .ToDictionary(item => item.QuestionId!, item => item.RetrievalEvidence, StringComparer.Ordinal);
+        var coverageByQuestion = telemetry
+            .Where(item => item.QuestionId is not null)
+            .ToDictionary(item => item.QuestionId!, item => item.GoldEvidenceCoverage, StringComparer.Ordinal);
         var attributions = questionResults.Select(question =>
         {
             retriesByQuestion.TryGetValue(question.QuestionId, out var retry);
             oracleByQuestion.TryGetValue(question.QuestionId, out var oracle);
             evidenceByQuestion.TryGetValue(question.QuestionId, out var evidence);
+            coverageByQuestion.TryGetValue(question.QuestionId, out var coverage);
             return new LongMemEvalFailureAttribution(
                 question.QuestionId,
-                Attribute(question, retry, oracle, evidence),
+                Attribute(question, retry, oracle, evidence, coverage),
                 evidence?.GoldSessionRecallAtK,
                 evidence?.GoldTurnHitAtK,
                 evidence?.FirstGoldSessionRank,
@@ -159,7 +163,8 @@ internal static class LongMemEvalPostRunDiagnostics
         QuestionResult question,
         LongMemEvalJudgeRetryResult? retry,
         LongMemEvalOracleResult? oracle,
-        LongMemEvalRetrievalEvidence? evidence)
+        LongMemEvalRetrievalEvidence? evidence,
+        LongMemEvalGoldEvidenceCoverage? goldCoverage = null)
     {
         ArgumentNullException.ThrowIfNull(question);
 
@@ -185,15 +190,22 @@ internal static class LongMemEvalPostRunDiagnostics
             return "oracle-inconclusive";
         if (oracle.Correct is not true)
             return "oracle-answer-or-benchmark-inconclusive";
-        return ClassifyRetrievalEvidence(evidence);
+        return ClassifyRetrievalEvidence(evidence, goldCoverage);
     }
 
     /// <summary>
     /// The evidence-dependent tail of <see cref="Classify"/>, reached only once judge and oracle
     /// states are resolved. Shared with <see cref="ClassifyForTest"/> so the two cannot drift.
     /// </summary>
-    private static string ClassifyRetrievalEvidence(LongMemEvalRetrievalEvidence? evidence)
+    private static string ClassifyRetrievalEvidence(
+        LongMemEvalRetrievalEvidence? evidence,
+        LongMemEvalGoldEvidenceCoverage? goldCoverage = null)
     {
+        // G3B.5: if the cold build learned nothing from the answer-bearing sessions, the question was
+        // unanswerable before recall ever ran. Blaming retrieval - or calling it merely "not
+        // observable" - would hide an extraction defect behind a retrieval label.
+        if (goldCoverage is { EvidenceLearned: false })
+            return "extraction-lost-evidence";
         if (evidence is null)
             return "retrieval-evidence-missing";
         // BUG-E1: gold attribution resolves only through recalled raw messages, so a mode with no
@@ -209,8 +221,10 @@ internal static class LongMemEvalPostRunDiagnostics
     }
 
     /// <summary>Test seam for the gold-attribution branches.</summary>
-    internal static string ClassifyForTest(LongMemEvalRetrievalEvidence? evidence) =>
-        ClassifyRetrievalEvidence(evidence);
+    internal static string ClassifyForTest(
+        LongMemEvalRetrievalEvidence? evidence,
+        LongMemEvalGoldEvidenceCoverage? goldCoverage = null) =>
+        ClassifyRetrievalEvidence(evidence, goldCoverage);
 
     private static bool NeedsJudgeRetry(QuestionResult question) =>
         !IsAgentFailure(question) &&

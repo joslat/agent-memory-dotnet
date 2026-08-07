@@ -7,6 +7,28 @@ internal interface ILongMemEvalGraphProbe
     Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// G3B.5. Whether the cold build actually learned anything from the sessions that hold the
+    /// answer, checked before any evaluation call is spent on the graph.
+    /// </summary>
+    /// <remarks>
+    /// The existing read-back proves the graph is <i>sound</i> — non-empty, fully provenanced, and
+    /// bit-identical to the sealed snapshot. It cannot prove it is <i>adequate</i>: three facts
+    /// learned from 474 sessions would pass every current guard. This asks the question that decides
+    /// whether Structured mode can work at all, and separates "extraction lost the fact" from
+    /// "retrieval missed it" — a distinction BUG-E1 left unattributable.
+    /// </remarks>
+    /// <remarks>
+    /// Defaults to <see langword="null"/> meaning <b>not measured</b> — deliberately not "fine". A
+    /// probe that cannot answer must not be able to assert coverage it never checked, so the absent
+    /// case falls through to the pre-existing verdicts rather than silently reporting a clean build.
+    /// </remarks>
+    Task<LongMemEvalGoldEvidenceCoverage?> ReadGoldCoverageAsync(
+        string ownerId,
+        IReadOnlyList<string> goldSourceMessageIds,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<LongMemEvalGoldEvidenceCoverage?>(null);
 }
 
 internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalGraphProbe
@@ -46,6 +68,43 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
                provenanceEdges, sourceMessages
         """;
 
+    private const string GoldCoverageQuery =
+        """
+        MATCH (n)-[:EXTRACTED_FROM]->(m:Message)
+        WHERE n.owner_id = $ownerId
+          AND (n:Entity OR n:Fact OR n:Preference)
+          AND m.id IN $goldSourceMessageIds
+        RETURN count(DISTINCT n) AS goldLearnedItems,
+               count(DISTINCT m) AS goldSourceMessagesCovered
+        """;
+
+    public async Task<LongMemEvalGoldEvidenceCoverage?> ReadGoldCoverageAsync(
+        string ownerId,
+        IReadOnlyList<string> goldSourceMessageIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
+        ArgumentNullException.ThrowIfNull(goldSourceMessageIds);
+        if (goldSourceMessageIds.Count == 0)
+            return new LongMemEvalGoldEvidenceCoverage(0, 0, 0);
+
+
+        await using var session = driver.AsyncSession();
+        return await session.ExecuteReadAsync<LongMemEvalGoldEvidenceCoverage?>(async transaction =>
+        {
+            var cursor = await transaction.RunAsync(
+                GoldCoverageQuery,
+                new { ownerId, goldSourceMessageIds = goldSourceMessageIds.ToArray() })
+                .ConfigureAwait(false);
+            var record = await cursor.SingleAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new LongMemEvalGoldEvidenceCoverage(
+                record["goldLearnedItems"].As<int>(),
+                record["goldSourceMessagesCovered"].As<int>(),
+                goldSourceMessageIds.Count);
+        }).ConfigureAwait(false);
+    }
+
     public async Task<LongMemEvalGraphSnapshot> ReadAsync(
         string ownerId,
         CancellationToken cancellationToken = default)
@@ -71,6 +130,26 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
                 record["sourceMessages"].As<int>());
         }).ConfigureAwait(false);
     }
+}
+
+/// <summary>
+/// G3B.5. How much of the cold build traces back to the sessions that hold the answer.
+/// </summary>
+public sealed record LongMemEvalGoldEvidenceCoverage(
+    int GoldLearnedItems,
+    int GoldSourceMessagesCovered,
+    int GoldSourceMessages)
+{
+    /// <summary>
+    /// Zero means Structured mode <b>cannot</b> answer this question however good recall is: nothing
+    /// the extractor learned came from a session containing the answer. That is an extraction
+    /// finding, and must never be reported as a retrieval failure.
+    /// </summary>
+    public bool EvidenceLearned => GoldLearnedItems > 0;
+
+    /// <summary>Fraction of answer-bearing source messages that contributed any learned item.</summary>
+    public double SourceMessageCoverage =>
+        GoldSourceMessages == 0 ? 0d : (double)GoldSourceMessagesCovered / GoldSourceMessages;
 }
 
 public sealed record LongMemEvalGraphSnapshot(
