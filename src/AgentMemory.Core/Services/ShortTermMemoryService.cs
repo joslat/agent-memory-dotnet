@@ -135,9 +135,39 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredM
             for (var index = 0; index < missingIndices.Length; index++)
             {
                 var messageIndex = missingIndices[index];
+                var vector = embeddings[index];
+
+                // BUG-M1. The count check above cannot see an empty vector, and an empty list is not
+                // null — so such a message passes recall's `embedding IS NOT NULL` filter, then
+                // cosine yields null and the score comparison drops it. The message would be stored
+                // and permanently unretrievable with no error raised. Replay that slot alone, and if
+                // it still comes back unusable, fail the write: a message is the only copy of itself,
+                // so losing the write is recoverable and storing an unsearchable one is not.
+                // Blank content has no embedding by definition — the orchestrator returns an empty
+                // vector for it deliberately. That is a property of the input, not a provider
+                // failure, so it is stored as-is and simply never matches a semantic search.
+                var contentIsBlank = string.IsNullOrWhiteSpace(messageList[messageIndex].Content);
+                if (!contentIsBlank && (vector is null || vector.Length == 0))
+                {
+                    _logger.LogWarning(
+                        "Batch embedding returned an unusable vector for message {MessageId}; replaying it individually.",
+                        messageList[messageIndex].MessageId);
+                    vector = await _embeddingOrchestrator
+                        .EmbedMessageAsync(messageList[messageIndex].Content, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (vector is null || vector.Length == 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Embedding for message {messageList[messageIndex].MessageId} was empty after an " +
+                            "individual replay, although its content is not blank; refusing to persist a " +
+                            "message that could never be retrieved.");
+                    }
+                }
+
                 messageList[messageIndex] = messageList[messageIndex] with
                 {
-                    Embedding = embeddings[index],
+                    Embedding = vector,
                 };
             }
         }

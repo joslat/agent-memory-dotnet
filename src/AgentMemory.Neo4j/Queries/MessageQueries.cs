@@ -231,7 +231,7 @@ internal static class MessageQueries
         {
             return $$"""
                 MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)
-                WHERE node.embedding IS NOT NULL
+                WHERE node.embedding IS NOT NULL AND size(node.embedding) = size($embedding)
                 {{metadataFilterFragment}}
                 WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
                 WHERE score >= $minScore
