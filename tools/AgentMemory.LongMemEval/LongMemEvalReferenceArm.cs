@@ -12,13 +12,27 @@ namespace AgentMemory.LongMemEval;
 /// </remarks>
 public enum LongMemEvalReferenceArm
 {
-    /// <summary>The question alone — the model's pure parametric floor with no context whatsoever.</summary>
+    /// <summary>
+    /// The question alone.
+    /// </summary>
+    /// <remarks>
+    /// This is not a degenerate configuration — it is the realistic one. In LongMemEval the question
+    /// arrives in a <b>fresh session</b>, and an ordinary agent carries no chat history across
+    /// sessions, so "nothing" is exactly what an agent without a memory layer has. The gap between
+    /// this arm and AgentMemory is therefore the product's actual value, not a strawman.
+    /// </remarks>
     NoMemory,
 
     /// <summary>
-    /// Every real source turn in the conversation, in order, in the answer model's context — the
-    /// ceiling that retrieval is trying to approach.
+    /// Every real message in the conversation, in order, in the answer model's context.
     /// </summary>
+    /// <remarks>
+    /// Deliberately <b>not</b> called a ceiling. It is a competing <i>strategy</i> — "no memory
+    /// layer, replay the entire transcript into every prompt" — not an upper bound, and a memory
+    /// system that distils better context could in principle beat it. It is also only available
+    /// while the transcript still fits the window, which is a property of the dataset rather than of
+    /// the strategy.
+    /// </remarks>
     FullHistory
 }
 
@@ -31,9 +45,9 @@ internal static class LongMemEvalReferenceArmExtensions
     public static string Fingerprint(this LongMemEvalReferenceArm arm) => arm switch
     {
         LongMemEvalReferenceArm.NoMemory => "reference-no-memory",
-        // The de-contamination is part of the arm's definition, not an option: AgentEval's formatter
-        // boilerplate is an artifact of the harness, not conversation, and G3B.1 measured it at 80%
-        // of the recalled context. A contaminated ceiling would understate itself.
+        // The de-contamination is part of every history arm's definition, not an option: AgentEval's
+        // formatter boilerplate is an artifact of the harness, not conversation, and G3B.1 measured
+        // it at 80% of the recalled context. A contaminated baseline would understate itself.
         LongMemEvalReferenceArm.FullHistory => "reference-full-history-decontaminated",
         _ => throw new ArgumentOutOfRangeException(nameof(arm), arm, null)
     };
@@ -63,12 +77,17 @@ internal static class LongMemEvalReferenceArmExtensions
 }
 
 /// <summary>Per-question accounting for a reference arm. Content-free by construction.</summary>
+/// <remarks>
+/// Counts are <b>messages</b>, not conversation turns — two messages per turn — because AgentMemory's
+/// own <c>MaxRelevantMessages</c> budget is denominated in messages, and the equal-budget comparison
+/// is only exact if both sides count the same unit.
+/// </remarks>
 public sealed record LongMemEvalReferenceTelemetry(
     int QuestionNumber,
     string? QuestionId,
     string Status,
-    int HistoryTurnsProvided,
-    int SyntheticTurnsDropped,
+    int HistoryMessagesProvided,
+    int SyntheticMessagesDropped,
     int PromptCharacters,
     int EstimatedPromptTokens);
 
@@ -84,12 +103,19 @@ internal interface ILongMemEvalReferenceOriginResolver
 }
 
 /// <summary>
-/// <paramref name="IsSynthetic"/> is parallel to the flattened injected message list: two entries per
-/// history turn, user first.
+/// <paramref name="IsSynthetic"/> and <paramref name="SourceTimestamps"/> are parallel to the
+/// flattened injected message list: two entries per history turn, user first.
 /// </summary>
+/// <remarks>
+/// G3B.2 carries the timestamps because the session dates otherwise exist only in the boundary
+/// markers this arm drops. The baseline is fixed in the same change as the memory arm, so the
+/// comparison measures the memory system rather than which side received the fix.
+/// </remarks>
 internal sealed record LongMemEvalReferenceOrigins(
     string QuestionId,
-    IReadOnlyList<bool> IsSynthetic);
+    IReadOnlyList<bool> IsSynthetic,
+    IReadOnlyList<string> SourceTimestamps,
+    string? QuestionDate);
 
 /// <summary>Resolves origins through the real evaluator-side evidence index.</summary>
 internal sealed class LongMemEvalEvidenceOriginResolver(LongMemEvalEvidenceIndex index)
@@ -111,6 +137,8 @@ internal sealed class LongMemEvalEvidenceOriginResolver(LongMemEvalEvidenceIndex
             question.QuestionId,
             question.Messages
                 .Select(origin => origin.IsSyntheticBoundary || origin.IsSyntheticFormatterPadding)
-                .ToArray());
+                .ToArray(),
+            question.Messages.Select(origin => origin.SourceTimestamp).ToArray(),
+            question.QuestionDate);
     }
 }

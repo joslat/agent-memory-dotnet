@@ -97,7 +97,7 @@ internal sealed class LongMemEvalReferenceAgent(
         // index consumed in lockstep with the runner and proves the same question set was sampled.
         var origins = originResolver.Resolve(history, prompt);
 
-        var turns = new List<(string Role, string Content)>();
+        var messages = new List<(string Role, string Timestamp, string Content)>();
         var dropped = 0;
         if (arm.UsesHistory())
         {
@@ -116,12 +116,18 @@ internal sealed class LongMemEvalReferenceAgent(
                         return;
                     }
 
-                    turns.Add((role, content));
+                    // G3B.2: the session date travels on the message, since the boundary marker that
+                    // used to carry it is exactly what this arm drops.
+                    var timestamp = current < origins.SourceTimestamps.Count
+                        ? origins.SourceTimestamps[current]
+                        : string.Empty;
+                    messages.Add((role, timestamp, content));
                 }
             }
         }
 
-        var answerPrompt = AgentMemoryLongMemEvalAdapter.BuildAnswerPrompt(turns, prompt);
+        var answerPrompt = AgentMemoryLongMemEvalAdapter.BuildAnswerPrompt(
+            messages, prompt, origins.QuestionDate);
 
         ChatResponse response;
         try
@@ -138,11 +144,11 @@ internal sealed class LongMemEvalReferenceAgent(
         {
             // The provider is the authority on whether the history fits. Recording its verdict is
             // exactly the measurement this arm exists to take, so it is not a failure.
-            Record(questionNumber, origins.QuestionId, "skipped-context-window", turns.Count, dropped, answerPrompt);
+            Record(questionNumber, origins.QuestionId, "skipped-context-window", messages.Count, dropped, answerPrompt);
             return new AgentResponse { Text = SkippedAnswer, ModelId = modelId };
         }
 
-        Record(questionNumber, origins.QuestionId, "completed", turns.Count, dropped, answerPrompt);
+        Record(questionNumber, origins.QuestionId, "completed", messages.Count, dropped, answerPrompt);
         return new AgentResponse
         {
             Text = response.Text ?? string.Empty,
@@ -151,7 +157,7 @@ internal sealed class LongMemEvalReferenceAgent(
             {
                 ["referenceArm"] = arm.Fingerprint(),
                 ["referenceArm.runId"] = runId,
-                ["referenceArm.historyTurnsProvided"] = turns.Count
+                ["referenceArm.historyMessagesProvided"] = messages.Count
             }
         };
     }
@@ -181,7 +187,7 @@ internal sealed class LongMemEvalReferenceAgent(
         int questionNumber,
         string questionId,
         string status,
-        int turnsProvided,
+        int messagesProvided,
         int dropped,
         string answerPrompt)
     {
@@ -191,7 +197,7 @@ internal sealed class LongMemEvalReferenceAgent(
                 questionNumber,
                 questionId,
                 status,
-                turnsProvided,
+                messagesProvided,
                 dropped,
                 answerPrompt.Length,
                 // Labelled an estimate and reported only. It is never used to decide whether the

@@ -583,7 +583,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}.");
         }
 
-        var answerPrompt = BuildAnswerPrompt(recall.Context, prompt);
+        var answerPrompt = BuildAnswerPrompt(
+            recall.Context, prompt, evidenceQuestion?.QuestionDate);
         LongMemEvalRetrievalEvidence? retrievalEvidence = null;
         AgentEval.Memory.External.Models.QuestionEvidenceEnvelope? normalizedEvidence = null;
         if (evidenceQuestion is not null)
@@ -785,28 +786,52 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
     }
 
+    /// <summary>
+    /// G3B.2. The source timestamp AgentMemory persisted with the message and returns through recall.
+    /// </summary>
+    /// <remarks>
+    /// LongMemEval session dates reach us only inside AgentEval's <c>--- Session N (date) ---</c>
+    /// boundary markers, which G3B.1 correctly drops as formatter boilerplate — taking every date
+    /// with them. The date survives on each real message as <c>sourceTimestamp</c> provenance, so it
+    /// is restored from there rather than from the evaluator-side index: this must be data the
+    /// product actually returns, not knowledge the harness happens to hold. Falls back to the stored
+    /// clock so a message with no provenance is still rendered rather than silently dropped.
+    /// </remarks>
+    internal static string DisplayTimestamp(Message message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return message.Metadata is not null &&
+               message.Metadata.TryGetValue("sourceTimestamp", out var source) &&
+               source?.ToString() is { Length: > 0 } text
+            ? text
+            : message.TimestampUtc.ToString("O");
+    }
+
     internal static string BuildAnswerPrompt(
-        IEnumerable<(string Role, string Content)> recalled,
-        string question)
+        IEnumerable<(string Role, string Timestamp, string Content)> recalled,
+        string question,
+        string? currentDate = null)
     {
         ArgumentNullException.ThrowIfNull(recalled);
         ArgumentException.ThrowIfNullOrWhiteSpace(question);
 
         var builder = new StringBuilder("Retrieved memory:\n");
-        foreach (var (role, content) in recalled)
-            builder.Append('[').Append(role).Append("] ").AppendLine(content);
-        builder.Append("\nQuestion: ").Append(question).Append("\nAnswer:");
-        return builder.ToString();
+        foreach (var (role, timestamp, content) in recalled)
+            AppendMessage(builder, role, timestamp, content);
+        return AppendQuestion(builder, question, currentDate);
     }
 
-    internal static string BuildAnswerPrompt(MemoryContext context, string question)
+    internal static string BuildAnswerPrompt(
+        MemoryContext context,
+        string question,
+        string? currentDate = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(question);
 
         var builder = new StringBuilder("Retrieved memory:\n");
         foreach (var message in context.RelevantMessages.Items)
-            builder.Append('[').Append(message.Role).Append("] ").AppendLine(message.Content);
+            AppendMessage(builder, message.Role, DisplayTimestamp(message), message.Content);
         foreach (var entity in context.RelevantEntities.Items)
         {
             builder.Append("[entity] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
@@ -839,6 +864,25 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
         if (!string.IsNullOrWhiteSpace(context.GraphRagContext))
             builder.Append("[graphrag]\n").AppendLine(context.GraphRagContext);
+        return AppendQuestion(builder, question, currentDate);
+    }
+
+    private static void AppendMessage(
+        StringBuilder builder, string role, string timestamp, string content)
+    {
+        builder.Append('[').Append(role);
+        if (!string.IsNullOrWhiteSpace(timestamp))
+            builder.Append(" @ ").Append(timestamp);
+        builder.Append("] ").AppendLine(content);
+    }
+
+    private static string AppendQuestion(
+        StringBuilder builder, string question, string? currentDate)
+    {
+        // Without "now", a relative-time question such as "how many days ago did I ..." is
+        // unanswerable no matter how good retrieval was.
+        if (!string.IsNullOrWhiteSpace(currentDate))
+            builder.Append("\nCurrent date: ").AppendLine(currentDate);
         builder.Append("\nQuestion: ").Append(question).Append("\nAnswer:");
         return builder.ToString();
     }

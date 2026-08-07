@@ -295,11 +295,14 @@ internal static class LongMemEvalPostRunDiagnostics
         var calls = 0;
         try
         {
+            // G3B.2: the oracle gets the same time signal as every other arm, or "perfect retrieval"
+            // would be measured against a strictly worse prompt than the thing it bounds.
             var answerPrompt = AgentMemoryLongMemEvalAdapter.BuildAnswerPrompt(
                 indexed.Messages
                     .Where(message => indexed.AnswerSessionIds.Contains(message.SourceSessionId))
-                    .Select(message => (message.Role, message.FormattedContent)),
-                indexed.InvocationPrompt);
+                    .Select(message => (message.Role, message.SourceTimestamp, message.FormattedContent)),
+                indexed.InvocationPrompt,
+                indexed.QuestionDate);
             var response = await chatClient.GetResponseAsync(
             [
                 new ChatMessage(ChatRole.System, AgentMemoryLongMemEvalAdapter.SystemPrompt),

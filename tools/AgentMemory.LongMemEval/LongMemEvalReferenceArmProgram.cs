@@ -129,8 +129,8 @@ internal static class LongMemEvalReferenceArmProgram
                     // The headline. Overall accuracy counts a skip as wrong; fitted accuracy
                     // excludes it, because "did not fit" is not "answered incorrectly".
                     fittedAccuracyPercent = validation.FittedAccuracyPercent,
-                    totalHistoryTurnsProvided = telemetry.Sum(item => item.HistoryTurnsProvided),
-                    totalSyntheticTurnsDropped = telemetry.Sum(item => item.SyntheticTurnsDropped)
+                    totalHistoryMessagesProvided = telemetry.Sum(item => item.HistoryMessagesProvided),
+                    totalSyntheticMessagesDropped = telemetry.Sum(item => item.SyntheticMessagesDropped)
                 },
                 callAccounting = new
                 {

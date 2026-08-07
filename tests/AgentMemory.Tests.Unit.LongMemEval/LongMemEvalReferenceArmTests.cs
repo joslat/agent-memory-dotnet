@@ -29,7 +29,7 @@ public sealed class LongMemEvalReferenceArmTests
         Assert.DoesNotContain("user-turn", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("assistant-turn", prompt, StringComparison.Ordinal);
         var telemetry = Assert.Single(agent.QuestionTelemetry);
-        Assert.Equal(0, telemetry.HistoryTurnsProvided);
+        Assert.Equal(0, telemetry.HistoryMessagesProvided);
         Assert.Equal("completed", telemetry.Status);
     }
 
@@ -61,11 +61,27 @@ public sealed class LongMemEvalReferenceArmTests
 
         var telemetry = Assert.Single(agent.QuestionTelemetry);
         // 3 turns => 6 injected messages, of which the stub marks 2 synthetic.
-        Assert.Equal(4, telemetry.HistoryTurnsProvided);
-        Assert.Equal(2, telemetry.SyntheticTurnsDropped);
+        Assert.Equal(4, telemetry.HistoryMessagesProvided);
+        Assert.Equal(2, telemetry.SyntheticMessagesDropped);
         Assert.Equal(
             6,
-            telemetry.HistoryTurnsProvided + telemetry.SyntheticTurnsDropped);
+            telemetry.HistoryMessagesProvided + telemetry.SyntheticMessagesDropped);
+    }
+
+    [Fact]
+    public async Task FullHistoryArmIsNotCappedByAnyItemBudget()
+    {
+        // The arm's whole point is that it is the unbounded-context strategy; a cap would silently
+        // turn it into a different experiment.
+        var client = new RecordingChatClient();
+        var agent = CreateAgent(LongMemEvalReferenceArm.FullHistory, client);
+        agent.InjectConversationHistory(History(5));
+
+        _ = await agent.InvokeAsync(Question);
+
+        var telemetry = Assert.Single(agent.QuestionTelemetry);
+        Assert.Equal(8, telemetry.HistoryMessagesProvided);
+        Assert.Equal(2, telemetry.SyntheticMessagesDropped);
     }
 
     [Fact]
@@ -225,6 +241,7 @@ public sealed class LongMemEvalReferenceArmTests
         IChatClient client) =>
         new(client, arm, "reference-run", "test-model", new StubOriginResolver());
 
+    /// <summary>Turn 1 is formatter boilerplate, so 2 of every history's messages are synthetic.</summary>
     private static IReadOnlyList<(string UserMessage, string AssistantResponse)> History(int turns) =>
         Enumerable.Range(0, turns)
             .Select(index => index == 1
@@ -239,11 +256,17 @@ public sealed class LongMemEvalReferenceArmTests
             IReadOnlyList<(string UserMessage, string AssistantResponse)> history,
             string prompt)
         {
-            var flags = history
+            var contents = history
                 .SelectMany(turn => new[] { turn.UserMessage, turn.AssistantResponse })
+                .ToArray();
+            var flags = contents
                 .Select(content => content.StartsWith("SYNTHETIC", StringComparison.Ordinal))
                 .ToArray();
-            return new LongMemEvalReferenceOrigins("stub-question", flags);
+            var timestamps = contents
+                .Select((_, index) => $"2023/05/{index + 1:D2} (Mon) 10:00")
+                .ToArray();
+            return new LongMemEvalReferenceOrigins(
+                "stub-question", flags, timestamps, "2023/06/03 (Sat) 15:47");
         }
     }
 
