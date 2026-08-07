@@ -785,7 +785,9 @@ internal static class LongMemEvalPreparedPairProgram
             answerSnapshot,
             judgeSnapshot,
             extractionSnapshot,
-            expectedInitialExtractionCalls: 0);
+            expectedInitialExtractionCalls: 0,
+            diagnosticJudgeCalls: diagnostics.JudgeRetries.Count,
+            agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts);
         total.Stop();
         return new PreparedArmExecution(
             mode,
