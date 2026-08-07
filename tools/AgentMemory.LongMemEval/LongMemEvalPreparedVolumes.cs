@@ -17,6 +17,7 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
     private readonly IVolume _structuredVolume;
     private readonly IVolume _hybridVolume;
     private readonly LongMemEvalPreparedVolumeLifecycle _lifecycle = new();
+    private readonly bool _retain;
 
     private LongMemEvalPreparedVolumes(
         string baseVolumeName,
@@ -24,8 +25,10 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
         string structuredVolumeName,
         IVolume structuredVolume,
         string hybridVolumeName,
-        IVolume hybridVolume)
+        IVolume hybridVolume,
+        bool retain)
     {
+        _retain = retain;
         BaseVolumeName = baseVolumeName;
         _baseVolume = baseVolume;
         StructuredVolumeName = structuredVolumeName;
@@ -42,7 +45,8 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
 
     internal static async Task<LongMemEvalPreparedVolumes> CreateAsync(
         string preparationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retain = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preparationId);
         var suffix = Guid.NewGuid().ToString("N");
@@ -56,16 +60,17 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
         var baseName = $"am-lme-{prefix}-base-{suffix}";
         var structuredName = $"am-lme-{prefix}-structured-{suffix}";
         var hybridName = $"am-lme-{prefix}-hybrid-{suffix}";
-        var baseVolume = Build(baseName);
-        var structuredVolume = Build(structuredName);
-        var hybridVolume = Build(hybridName);
+        var baseVolume = Build(baseName, retain);
+        var structuredVolume = Build(structuredName, retain);
+        var hybridVolume = Build(hybridName, retain);
         var volumes = new LongMemEvalPreparedVolumes(
             baseName,
             baseVolume,
             structuredName,
             structuredVolume,
             hybridName,
-            hybridVolume);
+            hybridVolume,
+            retain);
         try
         {
             await baseVolume.CreateAsync(cancellationToken).ConfigureAwait(false);
@@ -122,6 +127,13 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _lifecycle.Dispose();
+        if (_retain)
+        {
+            // Deliberate: the volumes outlive the run so the graph can be inspected and re-attached.
+            // Cleanup becomes the operator's responsibility and the names are printed for that.
+            return;
+        }
+
         List<Exception>? failures = null;
         foreach (var volume in new[] { _hybridVolume, _structuredVolume, _baseVolume })
         {
@@ -139,10 +151,15 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
             throw new AggregateException("Failed to dispose LongMemEval volumes.", failures);
     }
 
-    private static IVolume Build(string name) =>
+    /// <summary>
+    /// G3B.6. <paramref name="retain"/> keeps the cold build on disk after the run so a failure can
+    /// be analysed against the exact graph that produced it, instead of paying for another
+    /// non-deterministic 121-call rebuild that would not reproduce it anyway.
+    /// </summary>
+    private static IVolume Build(string name, bool retain) =>
         new VolumeBuilder()
             .WithName(name)
-            .WithCleanUp(true)
+            .WithCleanUp(!retain)
             .Build();
 
     private static async Task CloneAsync(

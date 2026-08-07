@@ -97,8 +97,19 @@ internal static class LongMemEvalPreparedPairProgram
             var overall = Stopwatch.StartNew();
 
             await using var volumes = await LongMemEvalPreparedVolumes
-                .CreateAsync(preparationId, CancellationToken.None)
+                .CreateAsync(
+                    preparationId,
+                    CancellationToken.None,
+                    retain: options.RetainPreparedVolumes)
                 .ConfigureAwait(false);
+            if (options.RetainPreparedVolumes)
+            {
+                // Printed so the retained build can be re-attached and inspected, and so the operator
+                // knows cleanup is now theirs.
+                Console.WriteLine(
+                    "longmemeval: retaining prepared volumes (cleanup is now manual): " +
+                    $"{volumes.BaseVolumeName}, {volumes.StructuredVolumeName}, {volumes.HybridVolumeName}");
+            }
             using var extractionCalls = new LongMemEvalChatCallMeter(
                 new ProviderCompatibleExtractionChatClient(
                     azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
@@ -1009,6 +1020,7 @@ internal static class LongMemEvalPreparedPairProgram
             ParsePositive(Value("--max-concurrent-extraction-batches"),
                 DefaultMaxConcurrentExtractionBatches, "--max-concurrent-extraction-batches"),
             Has("--preflight-only"),
+            Has("--retain-prepared-volumes"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
             ParsePositive(
                 Value("--checkpoint-timeout-seconds"),
@@ -1198,6 +1210,7 @@ internal static class LongMemEvalPreparedPairProgram
         int MaxConcurrentBatchesPerExtraction,
         int MaxConcurrentExtractionBatches,
         bool PreflightOnly,
+        bool RetainPreparedVolumes,
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
         int ProviderNoProgressTimeoutSeconds)

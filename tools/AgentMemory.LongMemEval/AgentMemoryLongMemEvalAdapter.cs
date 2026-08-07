@@ -619,7 +619,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
 
         var answerPrompt = BuildAnswerPrompt(
-            recall.Context, prompt, evidenceQuestion?.QuestionDate);
+            recall.Context, prompt, evidenceQuestion?.QuestionDate, originsByMessageId);
         LongMemEvalRetrievalEvidence? retrievalEvidence = null;
         AgentEval.Memory.External.Models.QuestionEvidenceEnvelope? normalizedEvidence = null;
         if (evidenceQuestion is not null)
@@ -862,24 +862,58 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     internal static string BuildAnswerPrompt(
         MemoryContext context,
         string question,
-        string? currentDate = null)
+        string? currentDate = null,
+        IReadOnlyDictionary<string, LongMemEvalMessageOrigin>? originsByMessageId = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(question);
+
+        // G3B.7. Structured items carried no date at all, which is the same defect G3B.2 fixed for
+        // messages, left live on the structured channel: Structured mode lost precisely the temporal
+        // questions. Entities, facts and preferences all carry SourceMessageIds, and those messages
+        // carry the real conversation date, so the item can be dated from data recall already
+        // returns - no extra query and nothing evaluator-side.
+        string SourceDates(IReadOnlyList<string> sourceMessageIds)
+        {
+            if (originsByMessageId is null || sourceMessageIds.Count == 0)
+                return string.Empty;
+            var dates = sourceMessageIds
+                .Select(id => originsByMessageId.TryGetValue(id, out var origin)
+                    ? origin.SourceTimestamp
+                    : string.Empty)
+                .Where(date => !string.IsNullOrWhiteSpace(date))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            return dates.Length switch
+            {
+                0 => string.Empty,
+                1 => dates[0],
+                // A learned item can be evidenced across several dates; collapsing that to one would
+                // hide exactly the supersession a knowledge-update question turns on.
+                _ => $"{dates[0]} .. {dates[^1]}"
+            };
+        }
 
         var builder = new StringBuilder("Retrieved memory:\n");
         foreach (var message in context.RelevantMessages.Items)
             AppendMessage(builder, message.Role, DisplayTimestamp(message), message.Content);
         foreach (var entity in context.RelevantEntities.Items)
         {
-            builder.Append("[entity] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
+            builder.Append("[entity");
+            if (SourceDates(entity.SourceMessageIds) is { Length: > 0 } entityDates)
+                builder.Append(" @ ").Append(entityDates);
+            builder.Append("] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
             if (!string.IsNullOrWhiteSpace(entity.Description))
                 builder.Append(": ").Append(entity.Description);
             builder.AppendLine();
         }
         foreach (var fact in context.RelevantFacts.Items)
         {
-            builder.Append("[fact] ")
+            builder.Append("[fact");
+            if (SourceDates(fact.SourceMessageIds) is { Length: > 0 } factDates)
+                builder.Append(" @ ").Append(factDates);
+            builder.Append("] ")
                 .Append(fact.Subject).Append(' ')
                 .Append(fact.Predicate).Append(' ')
                 .Append(fact.Object);
@@ -895,7 +929,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
         foreach (var preference in context.RelevantPreferences.Items)
         {
-            builder.Append("[preference] ").Append(preference.PreferenceText);
+            builder.Append("[preference");
+            if (SourceDates(preference.SourceMessageIds) is { Length: > 0 } preferenceDates)
+                builder.Append(" @ ").Append(preferenceDates);
+            builder.Append("] ").Append(preference.PreferenceText);
             if (!string.IsNullOrWhiteSpace(preference.Context))
                 builder.Append(" (").Append(preference.Context).Append(')');
             builder.AppendLine();
