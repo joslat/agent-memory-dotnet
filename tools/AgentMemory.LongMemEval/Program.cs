@@ -108,6 +108,8 @@ internal static class LongMemEvalProgram
                     MinSimilarityScore = 0,
                     ModelId = deployment,
                     ExcludeSyntheticFormatterMessages = options.ExcludeSyntheticMessages,
+                    MaxItemsPerSourceSession = options.MaxItemsPerSourceSession,
+                    ChronologicalAnswerContext = options.ChronologicalAnswerContext,
                     EvidenceIndex = evidenceIndex,
                     EvidenceDetail = options.EvidenceDetail,
                     RequireGraphReadBack = options.MemoryMode.UsesExtraction(),
@@ -188,6 +190,14 @@ internal static class LongMemEvalProgram
                     syntheticFormatterExclusion = options.ExcludeSyntheticMessages
                         ? "excluded-candidate-x3"
                         : "control-unfiltered",
+                    // G3B.3 reallocates the budget across sessions, so a capped run must never be
+                    // comparable to an uncapped one by accident.
+                    answerContextOrder = options.ChronologicalAnswerContext
+                        ? "chronological"
+                        : "retrieval-rank",
+                    sessionBudgetCap = options.MaxItemsPerSourceSession == 0
+                        ? "uncapped"
+                        : $"max-{options.MaxItemsPerSourceSession}-items-per-source-session",
                     extractionModel = options.MemoryMode.UsesExtraction() ? extractionDeployment : null,
                     extractionTemperatureCompatibility = options.MemoryMode.UsesExtraction()
                         ? "explicit-zero-to-provider-default" : null,
@@ -323,7 +333,9 @@ internal static class LongMemEvalProgram
             ParseMemoryMode(Value("--memory-mode")),
             ParseNonNegative(Value("--judge-retries"), 2, "--judge-retries"),
             Value("--output"),
-            Array.IndexOf(args, "--exclude-synthetic-messages") >= 0);
+            Array.IndexOf(args, "--exclude-synthetic-messages") >= 0,
+            ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
+            Array.IndexOf(args, "--chronological-context") >= 0);
     }
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
@@ -414,7 +426,7 @@ internal static class LongMemEvalProgram
           [--diagnostic-question N --diagnostic-source-session N] \
           [--provider-no-progress-timeout-seconds 600] \
           [--evidence-detail none|identifiers|content] \
-          [--exclude-synthetic-messages] \
+          [--exclude-synthetic-messages] [--max-items-per-session N] [--chronological-context] \
           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
 
         --exclude-synthetic-messages over-fetches 3x the message budget, drops only AgentEval's
@@ -457,5 +469,7 @@ internal static class LongMemEvalProgram
         LongMemEvalMemoryMode MemoryMode,
         int JudgeRetryAttempts,
         string? OutputPath,
-        bool ExcludeSyntheticMessages);
+        bool ExcludeSyntheticMessages,
+        int MaxItemsPerSourceSession,
+        bool ChronologicalAnswerContext);
 }

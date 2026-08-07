@@ -552,7 +552,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 Context = recall.Context with
                 {
                     RelevantMessages = LongMemEvalRecallBudget.SelectRealSourceTurns(
-                        recall.Context.RelevantMessages, originsByMessageId, budget.Messages)
+                        recall.Context.RelevantMessages,
+                        originsByMessageId,
+                        budget.Messages,
+                        _options.MaxItemsPerSourceSession)
                 }
             };
         }
@@ -581,6 +584,24 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 extractionUnits: extractionUnits);
             throw new InvalidOperationException(
                 $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}.");
+        }
+
+        if (_options.ChronologicalAnswerContext)
+        {
+            // The stored clock is epoch + injection ordinal, so ordering by it reproduces the
+            // conversation's own sequence exactly. Selection is unchanged; only the order differs.
+            recall = recall with
+            {
+                Context = recall.Context with
+                {
+                    RelevantMessages = recall.Context.RelevantMessages with
+                    {
+                        Items = recall.Context.RelevantMessages.Items
+                            .OrderBy(message => message.TimestampUtc)
+                            .ToArray()
+                    }
+                }
+            };
         }
 
         var answerPrompt = BuildAnswerPrompt(
@@ -952,6 +973,29 @@ public sealed record LongMemEvalAdapterOptions
     /// </remarks>
     public bool ExcludeSyntheticFormatterMessages { get; init; }
 
+    /// <summary>
+    /// G3B.4. Presents the recalled messages in chronological order instead of similarity-rank
+    /// order.
+    /// </summary>
+    /// <remarks>
+    /// Retrieval rank answers "how relevant"; it says nothing about "when". A question such as
+    /// "the order of the six museums I visited from earliest to latest" forces the reader to sort
+    /// scattered dates itself. Selection is untouched - the same items in a different order - so this
+    /// isolates presentation from retrieval.
+    /// </remarks>
+    public bool ChronologicalAnswerContext { get; init; }
+
+    /// <summary>
+    /// G3B.3. Maximum answer-context items any one source session may occupy. 0 disables the cap.
+    /// </summary>
+    /// <remarks>
+    /// Measured motivation: on `gpt4_7abb270c` two sessions took 14 of 30 slots while a required
+    /// sixth gold session — present in the candidate pool — received none. The cap reallocates slots
+    /// only; the query, candidate pool, ranking and final item count are unchanged, and unused slots
+    /// are refilled uncapped so the context is never left short.
+    /// </remarks>
+    public int MaxItemsPerSourceSession { get; init; }
+
     /// <summary>Candidate over-fetch factor used only when synthetic exclusion is enabled.</summary>
     /// <remarks>
     /// Raised from 3 to 5 by measurement: the first filtered run found formatter boilerplate still
@@ -1047,15 +1091,58 @@ internal sealed record LongMemEvalRecallBudget(
     internal static MemoryContextSection<Message> SelectRealSourceTurns(
         MemoryContextSection<Message> section,
         IReadOnlyDictionary<string, LongMemEvalMessageOrigin> originsByMessageId,
-        int finalCap)
+        int finalCap,
+        int maxPerSession = 0)
     {
         ArgumentNullException.ThrowIfNull(section);
         ArgumentNullException.ThrowIfNull(originsByMessageId);
         ArgumentOutOfRangeException.ThrowIfNegative(finalCap);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxPerSession);
 
         bool IsRealSourceTurn(string messageId) =>
             !originsByMessageId.TryGetValue(messageId, out var origin) ||
             (!origin.IsSyntheticBoundary && !origin.IsSyntheticFormatterPadding);
+
+        /// <summary>
+        /// G3B.3. Fills the budget in ranked order while no source session exceeds
+        /// <paramref name="maxPerSession"/>, then refills any unused slots from the skipped items,
+        /// uncapped, so the context is never left short. An item with no known origin is keyed by its
+        /// own id and therefore never capped.
+        /// </summary>
+        string[] Diversify(string[] candidates)
+        {
+            if (maxPerSession == 0 || candidates.Length <= finalCap)
+                return candidates.Take(finalCap).ToArray();
+
+            var perSession = new Dictionary<string, int>(StringComparer.Ordinal);
+            var selected = new HashSet<string>(StringComparer.Ordinal);
+            var skipped = new List<string>();
+            foreach (var id in candidates)
+            {
+                if (selected.Count == finalCap) break;
+                var session = originsByMessageId.TryGetValue(id, out var origin)
+                    ? origin.SourceSessionId
+                    : id;
+                var taken = perSession.GetValueOrDefault(session);
+                if (taken >= maxPerSession)
+                {
+                    skipped.Add(id);
+                    continue;
+                }
+
+                perSession[session] = taken + 1;
+                selected.Add(id);
+            }
+
+            foreach (var id in skipped)
+            {
+                if (selected.Count == finalCap) break;
+                selected.Add(id);
+            }
+
+            // Emit in the provider's own retrieval order, not selection order.
+            return candidates.Where(selected.Contains).ToArray();
+        }
 
         var ranked = section.RankedItems.Count > 0
             ? section.RankedItems.OrderBy(item => item.ContextRank).ToArray()
@@ -1065,17 +1152,20 @@ internal sealed record LongMemEvalRecallBudget(
             // No diagnostics were requested, so retrieval order is only observable through Items.
             return section with
             {
-                Items = section.Items.Where(m => IsRealSourceTurn(m.MessageId)).Take(finalCap).ToArray()
+                Items = Diversify(
+                        section.Items.Where(m => IsRealSourceTurn(m.MessageId))
+                            .Select(m => m.MessageId).ToArray())
+                    .Select(id => section.Items.First(m => m.MessageId == id))
+                    .ToArray()
             };
         }
 
         var itemsById = section.Items.ToDictionary(m => m.MessageId, StringComparer.Ordinal);
-        var keptIds = ranked
+        var keptIds = Diversify(ranked
             .Select(item => item.ItemId)
             .Where(IsRealSourceTurn)
             .Where(itemsById.ContainsKey)
-            .Take(finalCap)
-            .ToArray();
+            .ToArray());
         var keptSet = keptIds.ToHashSet(StringComparer.Ordinal);
 
         return section with
