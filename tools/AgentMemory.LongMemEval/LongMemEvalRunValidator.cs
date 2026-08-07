@@ -16,7 +16,8 @@ internal static class LongMemEvalRunValidator
         LongMemEvalChatCallSnapshot? answerCalls = null,
         LongMemEvalChatCallSnapshot? judgeCalls = null,
         LongMemEvalChatCallSnapshot? extractionCalls = null,
-        long expectedInitialExtractionCalls = 0)
+        long expectedInitialExtractionCalls = 0,
+        int diagnosticJudgeCalls = 0)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -31,11 +32,18 @@ internal static class LongMemEvalRunValidator
                 $"AgentEval returned {questionResults.Count} question results for {questionCount} questions.");
         }
 
+        // Diagnostic judge retries are deliberately additional calls that never rewrite a base
+        // verdict (the report records diagnosticCallsAffectScore = false), so they are excluded from
+        // the exact 2N base-call contract rather than being allowed to reject an otherwise valid run.
+        // The guard itself is unchanged: base calls must still be exactly 2N.
         var expectedCalls = questionCount * 2;
-        if (llmCalls != expectedCalls)
+        var baseLlmCalls = llmCalls - diagnosticJudgeCalls;
+        if (baseLlmCalls != expectedCalls)
         {
             issues.Add(
-                $"AgentEval reported {llmCalls} LLM calls for {questionCount} questions; expected exactly {expectedCalls}.");
+                $"AgentEval reported {llmCalls} LLM calls ({baseLlmCalls} base after excluding " +
+                $"{diagnosticJudgeCalls} diagnostic judge retries) for {questionCount} questions; " +
+                $"expected exactly {expectedCalls} base calls.");
         }
 
         if (telemetry.Count != questionCount)
@@ -50,10 +58,12 @@ internal static class LongMemEvalRunValidator
                 $"Observed {answerCalls.Calls} answer calls for {questionCount} questions; expected exactly {questionCount}.");
         }
 
-        if (judgeCalls is not null && judgeCalls.Calls != questionCount)
+        if (judgeCalls is not null && judgeCalls.Calls - diagnosticJudgeCalls != questionCount)
         {
             issues.Add(
-                $"Observed {judgeCalls.Calls} judge calls for {questionCount} questions; expected exactly {questionCount}.");
+                $"Observed {judgeCalls.Calls} judge calls ({judgeCalls.Calls - diagnosticJudgeCalls} base " +
+                $"after excluding {diagnosticJudgeCalls} diagnostic retries) for {questionCount} questions; " +
+                $"expected exactly {questionCount} base judge calls.");
         }
 
         if (answerCalls is not null && judgeCalls is not null &&

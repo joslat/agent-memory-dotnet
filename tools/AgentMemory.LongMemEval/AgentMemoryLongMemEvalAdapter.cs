@@ -909,7 +909,13 @@ public sealed record LongMemEvalAdapterOptions
     public bool ExcludeSyntheticFormatterMessages { get; init; }
 
     /// <summary>Candidate over-fetch factor used only when synthetic exclusion is enabled.</summary>
-    public int SyntheticExclusionCandidateMultiplier { get; init; } = 3;
+    /// <remarks>
+    /// Raised from 3 to 5 by measurement: the first filtered run found formatter boilerplate still
+    /// occupied <b>69% of the candidate pool at K = 90</b>, yielding ~27.9 real turns against a
+    /// 30-item budget. Filling the budget needs ≈97 candidates, so 5× (150) leaves headroom rather
+    /// than sitting on the boundary.
+    /// </remarks>
+    public int SyntheticExclusionCandidateMultiplier { get; init; } = 5;
 
     public double MinSimilarityScore { get; init; } = 0;
 

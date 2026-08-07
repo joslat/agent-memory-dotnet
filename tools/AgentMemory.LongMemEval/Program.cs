@@ -152,7 +152,8 @@ internal static class LongMemEvalProgram
                 answerCalls,
                 judgeCalls,
                 extractionCalls,
-                initialExtractionCalls);
+                initialExtractionCalls,
+                postRunDiagnostics.JudgeRetries.Count);
             var destination = ResolveOutput(options.OutputPath, runId);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             var report = new
