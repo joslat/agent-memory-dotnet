@@ -63,8 +63,44 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         // already exists, so an embedder/dimension change leaves stale indexes that would only fail at
         // query time. Verify dimensions now and surface an actionable error listing every mismatch.
         await ValidateVectorIndexDimensionsAsync(cancellationToken).ConfigureAwait(false);
+        await ValidateNoFailedIndexesAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Schema bootstrap complete.");
+    }
+
+    /// <summary>
+    /// Surfaces indexes that reached the terminal FAILED state. Only vector dimensions were checked
+    /// before, so a range index that could not populate — Neo4j caps index keys at roughly 8 KB, and
+    /// nothing bounds fact property length — degraded invisibly: queries still succeeded through full
+    /// scans, so the symptom was gradual slowness rather than an error.
+    /// </summary>
+    private async Task ValidateNoFailedIndexesAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var failed = await _txRunner.ReadAsync(
+            async runner =>
+            {
+                var cursor = await runner.RunAsync(SchemaQueries.ShowIndexStates).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                // Filtered in memory rather than in Cypher: a literal in a WHERE clause trips the
+                // repository's parameterization guard, and POPULATING is a normal transient state.
+                return records
+                    .Where(record => string.Equals(
+                        record["state"].As<string>(), "FAILED", StringComparison.OrdinalIgnoreCase))
+                    .Select(record => $"{record["name"].As<string>()} ({record["type"].As<string>()})")
+                    .ToArray();
+            },
+            cancellationToken).ConfigureAwait(false) ?? [];
+
+        if (failed.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Neo4j reports {failed.Length} index(es) in the FAILED state: {string.Join(", ", failed)}. " +
+                "A failed index does not stop queries — they fall back to full scans — so this would " +
+                "otherwise surface only as unexplained slowness. Drop and recreate the index; if it " +
+                "covers long text properties, note that Neo4j limits index keys to roughly 8 KB.");
+        }
     }
 
     private async Task ValidateVectorIndexDimensionsAsync(CancellationToken cancellationToken)
