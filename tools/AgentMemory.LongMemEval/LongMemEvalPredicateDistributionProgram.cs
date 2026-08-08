@@ -63,7 +63,15 @@ internal static class LongMemEvalPredicateDistributionProgram
                     summary.CanonicalPredicateCount,
                     summary.TotalFactCount,
                     summary.OwnerCount,
-                    consolidationRatio = summary.ConsolidationRatio,
+                    // Near 1.00 by design: the canonicalizer folds case and separators only, because
+                    // folding synonyms at write time would merge bought onto sold irreversibly.
+                    canonicalizerFoldRatio = summary.ConsolidationRatio,
+                    perOwner = new
+                    {
+                        minPredicates = summary.MinPredicatesPerOwner,
+                        maxPredicates = summary.MaxPredicatesPerOwner,
+                        averagePredicates = summary.AveragePredicatesPerOwner
+                    },
                     buildSlice = new
                     {
                         predicateCount = split.Build.Count,
@@ -81,9 +89,14 @@ internal static class LongMemEvalPredicateDistributionProgram
 
                 Console.WriteLine(
                     $"longmemeval: {summary.TotalFactCount} facts over {summary.OwnerCount} owners; " +
-                    $"{summary.RawPredicateCount} raw predicates consolidated to " +
-                    $"{summary.CanonicalPredicateCount} canonical " +
-                    $"({summary.ConsolidationRatio:F2}x).");
+                    $"{summary.RawPredicateCount} raw predicates, {summary.CanonicalPredicateCount} " +
+                    $"canonical globally (canonicalizer fold {summary.ConsolidationRatio:F2}x, " +
+                    "expected near 1.00 - it folds case and separators only).");
+                Console.WriteLine(
+                    $"longmemeval: per owner {summary.MinPredicatesPerOwner}-" +
+                    $"{summary.MaxPredicatesPerOwner} canonical predicates " +
+                    $"(mean {summary.AveragePredicatesPerOwner:F1}) - this is the figure comparable to " +
+                    "the recorded pre/post-vocabulary baseline.");
                 Console.WriteLine(
                     $"longmemeval: build slice {split.Build.Count} predicates / {split.BuildFactCount} facts; " +
                     $"held-out {split.HeldOut.Count} predicates / {split.HeldOutFactCount} facts.");
@@ -124,9 +137,27 @@ internal static class LongMemEvalPredicateDistributionProgram
                    count(DISTINCT f.owner_key) AS owners
             """;
 
+        // Per owner as well as globally. The recorded pre/post-vocabulary baseline (421 -> 79-107) is a
+        // PER-OWNER figure, and comparing a global distinct count against it would look like a
+        // catastrophic regression while measuring an entirely different quantity.
+        const string PerOwner = """
+            MATCH (f:Fact)
+            WITH f.owner_key AS owner,
+                 count(DISTINCT coalesce(f.predicate_key, toLower(f.predicate))) AS predicates
+            RETURN min(predicates) AS minPerOwner,
+                   max(predicates) AS maxPerOwner,
+                   avg(predicates) AS avgPerOwner
+            """;
+
         var totals = await session.ExecuteReadAsync(async transaction =>
         {
             var cursor = await transaction.RunAsync(Totals).ConfigureAwait(false);
+            return await cursor.SingleAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
+        var perOwner = await session.ExecuteReadAsync(async transaction =>
+        {
+            var cursor = await transaction.RunAsync(PerOwner).ConfigureAwait(false);
             return await cursor.SingleAsync().ConfigureAwait(false);
         }).ConfigureAwait(false);
 
@@ -147,7 +178,12 @@ internal static class LongMemEvalPredicateDistributionProgram
             totals["canonicalPredicates"].As<int>(),
             totals["totalFacts"].As<int>(),
             totals["owners"].As<int>(),
-            predicates);
+            predicates)
+        {
+            MinPredicatesPerOwner = perOwner["minPerOwner"].As<int>(),
+            MaxPredicatesPerOwner = perOwner["maxPerOwner"].As<int>(),
+            AveragePredicatesPerOwner = perOwner["avgPerOwner"].As<double>()
+        };
     }
 
     private static string? Value(string[] args, string name)

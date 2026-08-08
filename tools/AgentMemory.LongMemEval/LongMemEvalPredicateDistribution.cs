@@ -16,10 +16,20 @@ internal sealed record LongMemEvalPredicateDistributionSummary(
     int OwnerCount,
     IReadOnlyList<LongMemEvalPredicateCount> Predicates)
 {
-    /// <summary>How many surface predicates collapsed onto each canonical one.</summary>
+    /// <summary>
+    /// How many surface predicates collapsed onto each canonical one. This measures the
+    /// <b>canonicalizer</b>, which folds case and separators only, and is expected to sit near 1.00.
+    /// It is <b>not</b> the vocabulary consolidation figure, which is measured per owner.
+    /// </summary>
     internal double ConsolidationRatio => CanonicalPredicateCount == 0
         ? 0
         : (double)RawPredicateCount / CanonicalPredicateCount;
+
+    internal int MinPredicatesPerOwner { get; init; }
+
+    internal int MaxPredicatesPerOwner { get; init; }
+
+    internal double AveragePredicatesPerOwner { get; init; }
 }
 
 internal sealed record LongMemEvalPredicateSplit(
