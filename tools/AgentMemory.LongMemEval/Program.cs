@@ -31,6 +31,13 @@ internal static class LongMemEvalProgram
             return await LongMemEvalReferenceArmProgram.RunAsync(args)
                 .ConfigureAwait(false);
         }
+        if (args.Contains("--surface-probe", StringComparer.Ordinal))
+        {
+            // K2. Read-only, credential-free: reports whether the reasoning-trace and GraphRAG
+            // surfaces have anything to return, and checks index health first because a FAILED index
+            // is indistinguishable from an empty corpus from the outside.
+            return await LongMemEvalSurfaceProbeProgram.RunAsync(args).ConfigureAwait(false);
+        }
         if (args.Contains("--predicate-distribution", StringComparer.Ordinal))
         {
             // J1.2. Read-only, and dispatched before any Azure environment is required: counting
