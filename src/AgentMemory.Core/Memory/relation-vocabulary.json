@@ -14,7 +14,10 @@
     "rebel": "README self-contradicts on non-commercial",
     "tacred": "paid"
   },
-  "retired": [],
+  "retired": [
+    "finished",
+    "welcomed"
+  ],
   "canonical": {
     "adopted": {
       "family": "event",
@@ -25,6 +28,29 @@
         "adopt",
         "adopting",
         "adopts"
+      ]
+    },
+    "allergic to": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "allergy to",
+        "is allergic to"
+      ]
+    },
+    "applied for": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "applied to",
+        "applies for",
+        "apply for",
+        "apply to",
+        "applying for"
       ]
     },
     "asked about": {
@@ -49,8 +75,18 @@
         "assemble",
         "assembles",
         "assembling",
-        "put together",
-        "set up"
+        "put together"
+      ]
+    },
+    "ate": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "eat",
+        "eating",
+        "eats"
       ]
     },
     "attended": {
@@ -63,12 +99,14 @@
         "attend",
         "attending",
         "attends",
+        "compete in",
         "competed in",
         "competes in",
-        "contestant in",
-        "participant of",
-        "participant of event",
+        "competing in",
+        "participate in",
         "participated in",
+        "participates in",
+        "participating in",
         "present at",
         "takes part",
         "took part",
@@ -103,13 +141,29 @@
         "wikidata:P463"
       ],
       "surfaceForms": [
-        "band member of",
         "belong to",
         "belonged to",
-        "club",
-        "in musical group",
         "is member of",
-        "membership"
+        "join",
+        "joined",
+        "joining",
+        "joins",
+        "member of"
+      ]
+    },
+    "booked": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "book",
+        "booking",
+        "books",
+        "reserve",
+        "reserved",
+        "reserves",
+        "reserving"
       ]
     },
     "borrowed": {
@@ -129,15 +183,43 @@
         "schema.org:BuyAction"
       ],
       "surfaceForms": [
-        "acquired",
         "buy",
         "buying",
         "buys",
+        "order",
         "ordered",
+        "ordering",
+        "orders",
         "purchase",
         "purchased",
         "purchases",
         "purchasing"
+      ]
+    },
+    "broke": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "break",
+        "breaking",
+        "breaks",
+        "broke down",
+        "broken"
+      ]
+    },
+    "called": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "call",
+        "calling",
+        "calls",
+        "phoned",
+        "rang"
       ]
     },
     "cancelled": {
@@ -148,6 +230,7 @@
       "surfaceForms": [
         "cancel",
         "canceled",
+        "canceling",
         "cancelling",
         "cancels"
       ]
@@ -171,7 +254,11 @@
       "surfaceForms": [
         "complete",
         "completes",
-        "completing"
+        "completing",
+        "finish",
+        "finished",
+        "finishes",
+        "finishing"
       ]
     },
     "considered": {
@@ -184,6 +271,32 @@
         "considering",
         "considers",
         "is considering"
+      ]
+    },
+    "cooked": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "bake",
+        "baked",
+        "bakes",
+        "baking",
+        "cook",
+        "cooking",
+        "cooks"
+      ]
+    },
+    "costs": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "cost",
+        "cost me",
+        "priced at"
       ]
     },
     "created": {
@@ -204,16 +317,45 @@
         "making"
       ]
     },
+    "decided": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "choose",
+        "chooses",
+        "choosing",
+        "chose",
+        "decide",
+        "decides",
+        "deciding"
+      ]
+    },
     "decreased to": {
       "family": "state",
       "sources": [
         "hand-authored"
       ],
       "surfaceForms": [
+        "decrease",
         "decrease to",
         "decreased",
+        "decreases",
         "decreases to",
+        "decreasing",
         "fell to"
+      ]
+    },
+    "diagnosed with": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "diagnose with",
+        "diagnosed",
+        "was diagnosed with"
       ]
     },
     "died": {
@@ -225,7 +367,10 @@
         "die",
         "dies",
         "dying",
-        "passed away"
+        "pass away",
+        "passed away",
+        "passes away",
+        "passing away"
       ]
     },
     "dislikes": {
@@ -236,9 +381,11 @@
       "surfaceForms": [
         "dislike",
         "disliked",
+        "disliking",
         "hate",
         "hated",
-        "hates"
+        "hates",
+        "hating"
       ]
     },
     "divorced": {
@@ -252,6 +399,17 @@
         "divorcing"
       ]
     },
+    "feels": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "feel",
+        "feeling",
+        "felt"
+      ]
+    },
     "finds": {
       "family": "event",
       "sources": [
@@ -263,17 +421,6 @@
         "found"
       ]
     },
-    "finished": {
-      "family": "event",
-      "sources": [
-        "schema.org:AchieveAction"
-      ],
-      "surfaceForms": [
-        "finish",
-        "finishes",
-        "finishing"
-      ]
-    },
     "fixed": {
       "family": "event",
       "sources": [
@@ -283,7 +430,10 @@
         "fix",
         "fixes",
         "fixing",
+        "mend",
         "mended",
+        "mending",
+        "mends",
         "repair",
         "repaired",
         "repairing",
@@ -296,8 +446,14 @@
         "schema.org:GiveAction"
       ],
       "surfaceForms": [
+        "donate",
         "donated",
+        "donates",
+        "donating",
+        "gift",
         "gifted",
+        "gifting",
+        "gifts",
         "give",
         "gives",
         "giving"
@@ -308,8 +464,10 @@
       "sources": [
         "hand-authored"
       ],
-      "surfaceForms": [
+      "surfaceForms": [],
+      "storedOnly": [
         "had",
+        "has",
         "have",
         "having"
       ]
@@ -320,10 +478,24 @@
         "hand-authored"
       ],
       "surfaceForms": [
+        "increase",
         "increase to",
         "increased",
+        "increases",
         "increases to",
+        "increasing",
         "rose to"
+      ]
+    },
+    "installed": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "install",
+        "installing",
+        "installs"
       ]
     },
     "is": {
@@ -331,11 +503,13 @@
       "sources": [
         "hand-authored"
       ],
-      "surfaceForms": [
+      "surfaceForms": [],
+      "storedOnly": [
         "am",
         "are",
         "be",
         "been",
+        "is",
         "was",
         "were"
       ]
@@ -345,7 +519,9 @@
       "sources": [
         "hand-authored"
       ],
-      "surfaceForms": [
+      "surfaceForms": [],
+      "storedOnly": [
+        "is a",
         "is an",
         "was a",
         "was an"
@@ -383,7 +559,10 @@
         "learning",
         "learns",
         "learnt",
-        "studied"
+        "studied",
+        "studies",
+        "study",
+        "studying"
       ]
     },
     "lent": {
@@ -415,29 +594,46 @@
         "loves"
       ]
     },
+    "listened to": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "listen to",
+        "listening to",
+        "listens to"
+      ]
+    },
     "lives in": {
       "family": "state",
       "sources": [
         "wikidata:P551"
       ],
       "surfaceForms": [
-        "address",
         "has resided in",
-        "home city",
-        "home town",
-        "hometown",
-        "house",
         "live in",
         "lived in",
         "lives at",
         "living in",
-        "place of residence",
         "resided at",
         "resided in",
         "resident in",
         "resident of",
         "resides in",
         "residing in"
+      ]
+    },
+    "lost": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "lose",
+        "loses",
+        "losing",
+        "misplaced"
       ]
     },
     "married": {
@@ -447,8 +643,6 @@
         "wikidata:P26"
       ],
       "surfaceForms": [
-        "husband",
-        "husbands",
         "marital partner",
         "marriage partner",
         "married partner",
@@ -456,13 +650,11 @@
         "marries",
         "marry",
         "marrying",
-        "partner",
+        "spouse",
         "spouses",
         "wed",
         "wedded",
-        "wedded to",
-        "wife",
-        "wives"
+        "wedded to"
       ]
     },
     "met": {
@@ -485,7 +677,21 @@
         "move to",
         "moves to",
         "moving to",
-        "relocated to"
+        "relocate to",
+        "relocated to",
+        "relocates to",
+        "relocating to"
+      ]
+    },
+    "owes": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "owe",
+        "owed",
+        "owing"
       ]
     },
     "owns": {
@@ -494,14 +700,30 @@
         "wikidata:P1830"
       ],
       "surfaceForms": [
-        "item owned",
         "own",
         "owned",
         "owning",
         "owns property",
         "possess",
-        "possesses",
-        "shareholder of"
+        "possesses"
+      ]
+    },
+    "paid": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "paid for",
+        "pay",
+        "pay for",
+        "paying",
+        "paying for",
+        "pays",
+        "spend",
+        "spending",
+        "spends",
+        "spent"
       ]
     },
     "planned": {
@@ -513,6 +735,17 @@
         "plan",
         "planning",
         "plans"
+      ]
+    },
+    "played": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "play",
+        "playing",
+        "plays"
       ]
     },
     "prefers": {
@@ -535,9 +768,7 @@
         "rate",
         "rates",
         "rating",
-        "review",
-        "reviewed",
-        "reviews"
+        "reviewed"
       ]
     },
     "received": {
@@ -568,8 +799,10 @@
         "hand-authored"
       ],
       "surfaceForms": [
-        "related",
         "relates to"
+      ],
+      "storedOnly": [
+        "related"
       ]
     },
     "rented": {
@@ -578,11 +811,25 @@
         "schema.org:RentAction"
       ],
       "surfaceForms": [
+        "lease",
         "leased",
         "leases",
         "rent",
         "renting",
         "rents"
+      ]
+    },
+    "rented out": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "leased out",
+        "let out",
+        "rent out",
+        "renting out",
+        "rents out"
       ]
     },
     "requested": {
@@ -591,6 +838,10 @@
         "schema.org:AskAction"
       ],
       "surfaceForms": [
+        "ask for",
+        "asked for",
+        "asking for",
+        "asks for",
         "request",
         "requesting",
         "requests"
@@ -621,6 +872,18 @@
         "returns"
       ]
     },
+    "returned from": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "got back from",
+        "return from",
+        "returning from",
+        "returns from"
+      ]
+    },
     "scheduled": {
       "family": "event",
       "sources": [
@@ -630,6 +893,24 @@
         "schedule",
         "schedules",
         "scheduling"
+      ]
+    },
+    "sent": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "email",
+        "emailed",
+        "emailing",
+        "emails",
+        "send",
+        "sending",
+        "sends",
+        "texted",
+        "texting",
+        "texts"
       ]
     },
     "sold": {
@@ -658,15 +939,63 @@
         "starts"
       ]
     },
+    "stayed at": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "stay at",
+        "stay in",
+        "stayed in",
+        "staying at",
+        "stays at"
+      ]
+    },
+    "stopped": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "gave up",
+        "quit",
+        "quits",
+        "quitting",
+        "stop",
+        "stopping",
+        "stops"
+      ]
+    },
+    "told": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "said",
+        "saying",
+        "says",
+        "tell",
+        "telling",
+        "tells"
+      ]
+    },
     "travelled to": {
       "family": "event",
       "sources": [
         "schema.org:TravelAction"
       ],
       "surfaceForms": [
+        "been to",
         "flew to",
+        "flies to",
+        "fly to",
+        "flying to",
+        "go to",
         "travel to",
         "traveled to",
+        "traveling to",
         "travelling to",
         "travels to",
         "went to"
@@ -678,9 +1007,12 @@
         "schema.org:UpdateAction"
       ],
       "surfaceForms": [
+        "update",
         "update to",
         "updated",
-        "updates to"
+        "updates",
+        "updates to",
+        "updating"
       ]
     },
     "uses": {
@@ -726,6 +1058,7 @@
       "surfaceForms": [
         "born",
         "was born in",
+        "welcomed",
         "were born",
         "were born in"
       ]
@@ -741,17 +1074,6 @@
         "watching"
       ]
     },
-    "welcomed": {
-      "family": "event",
-      "sources": [
-        "hand-authored"
-      ],
-      "surfaceForms": [
-        "welcome",
-        "welcomes",
-        "welcoming"
-      ]
-    },
     "works at": {
       "family": "state",
       "sources": [
@@ -759,39 +1081,19 @@
         "wikidata:P937"
       ],
       "surfaceForms": [
-        "active in",
-        "conducts business at",
-        "conducts business in",
-        "did work at",
-        "did work from",
-        "does work at",
-        "does work from",
         "employed at",
         "employed by",
-        "location",
         "location of work",
-        "organisation",
-        "organization",
-        "place of activity",
-        "place of employment",
-        "place of work",
-        "stationed at",
-        "work area",
         "work at",
-        "work place",
-        "work residence",
-        "work site",
         "worked at",
         "worked for",
         "worked from",
         "working at",
         "working for",
         "working from",
-        "working place",
         "workplace",
         "works for",
-        "works from",
-        "worksite"
+        "works from"
       ]
     }
   }

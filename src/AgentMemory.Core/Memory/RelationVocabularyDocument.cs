@@ -23,6 +23,20 @@ internal sealed class RelationVocabularyEntry
 
     [JsonPropertyName("surfaceForms")]
     public IReadOnlyList<string> SurfaceForms { get; init; } = [];
+
+    /// <summary>
+    /// Forms that are expansion targets but must never trigger retrieval from a question.
+    /// </summary>
+    /// <remarks>
+    /// Surface forms carry two jobs at once: they decide what a question retrieves, and they are the
+    /// stored predicate keys expansion fetches. The copulas need the second and are actively harmful
+    /// in the first — <c>was</c>, <c>had</c> and <c>have</c> appear in almost every question a person
+    /// asks, and each one would expand <c>is</c>, which is 26% of the measured graph, exhausting the
+    /// shared budget before any correct relation is reached. Deleting them is not an option either,
+    /// because facts really are stored under them.
+    /// </remarks>
+    [JsonPropertyName("storedOnly")]
+    public IReadOnlyList<string> StoredOnly { get; init; } = [];
 }
 
 internal sealed class RelationVocabularyDocument

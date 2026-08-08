@@ -96,8 +96,40 @@ public sealed class MemoryRelationLexiconTests
     {
         // "is" is the single most common predicate in the measured graph at 1,213 facts, 26% of all
         // of them. Naive -s stripping would reduce it to "i" and lose a quarter of the graph.
-        Lexicon.Resolve("is").Should().Be("is");
-        Lexicon.Resolve("was").Should().Be("is");
+        MemoryTripleCanonicalizer.Canonical("is").Should().Be("is");
+        Lexicon.StoredFormsOf("is").Should().Contain("is").And.Contain("was");
+    }
+
+    [Theory]
+    // Independent review finding, verified against 50 natural questions: these fire on almost every
+    // question a person asks, and each one expands `is` - 1,213 facts, 26% of the measured graph -
+    // consuming the shared expansion budget before any correct relation is reached. They cannot
+    // simply be deleted, because expansion still needs them as stored predicate keys.
+    [InlineData("is")]
+    [InlineData("was")]
+    [InlineData("were")]
+    [InlineData("have")]
+    [InlineData("had")]
+    [InlineData("been")]
+    public void CopulasDoNotTriggerRetrievalFromAQuestion(string form) =>
+        Lexicon.Resolve(form).Should().BeNull();
+
+    [Fact]
+    public void CopulasAreStillReachableAsStoredKeys()
+    {
+        // The other half of the same requirement: a fact stored under "was" must still be fetched
+        // when `is` is expanded, or the split would lose data rather than protect the budget.
+        Lexicon.StoredFormsOf("is").Should().Contain("was").And.Contain("were");
+        Lexicon.StoredFormsOf("has").Should().Contain("had");
+    }
+
+    [Fact]
+    public void AQuestionAboutABirthDoesNotExpandTheCopula()
+    {
+        // The reviewer's worked example: this previously resolved `is` and pulled a quarter of the
+        // graph into a fixed budget.
+        Lexicon.ResolveQuestion("When was my daughter born?")
+            .Should().NotContain("is").And.Contain("was born");
     }
 
     [Fact]

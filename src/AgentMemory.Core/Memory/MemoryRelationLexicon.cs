@@ -32,13 +32,16 @@ internal sealed class MemoryRelationLexicon
     private readonly FrozenDictionary<string, string> _surfaceToCanonical;
     private readonly FrozenDictionary<string, string[]> _canonicalToStoredForms;
     private readonly FrozenSet<string> _canonical;
+    private readonly FrozenSet<string> _queryStopForms;
 
     private MemoryRelationLexicon(
         FrozenDictionary<string, string> surfaceToCanonical,
         FrozenDictionary<string, string[]> canonicalToStoredForms,
         FrozenSet<string> canonical,
+        FrozenSet<string> queryStopForms,
         IReadOnlyList<string> ambiguousSurfaceForms)
     {
+        _queryStopForms = queryStopForms;
         _surfaceToCanonical = surfaceToCanonical;
         _canonicalToStoredForms = canonicalToStoredForms;
         _canonical = canonical;
@@ -67,7 +70,7 @@ internal sealed class MemoryRelationLexicon
     internal string? Resolve(string? surfaceForm)
     {
         var normalized = MemoryTripleCanonicalizer.Canonical(surfaceForm);
-        if (normalized.Length == 0)
+        if (normalized.Length == 0 || _queryStopForms.Contains(normalized))
             return null;
         if (_surfaceToCanonical.TryGetValue(normalized, out var canonical))
             return canonical;
@@ -183,6 +186,9 @@ internal sealed class MemoryRelationLexicon
             surfaceToCanonical.ToFrozenDictionary(StringComparer.Ordinal),
             canonicalToStoredForms,
             table.Keys.Select(MemoryTripleCanonicalizer.Canonical)
+                .ToFrozenSet(StringComparer.Ordinal),
+            MemoryRelationSeedTable.QueryStopForms
+                .Select(MemoryTripleCanonicalizer.Canonical)
                 .ToFrozenSet(StringComparer.Ordinal),
             [.. ambiguous]);
     }

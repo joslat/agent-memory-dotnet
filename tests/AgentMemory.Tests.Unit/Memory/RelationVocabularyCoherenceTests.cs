@@ -26,11 +26,19 @@ public sealed class RelationVocabularyCoherenceTests
     {
         // The invariant in one line: anything we can write, we can find again. A relation the
         // extractor may store but the lexicon cannot resolve is unreachable by any question.
+        //
+        // The one exception is deliberate and explicit. A handful of relations are declared query
+        // stop forms because they fire on almost every question and expand a bucket large enough to
+        // exhaust the retrieval budget - `is` alone is 26% of the measured graph. Those are still
+        // written, and still fetched by similarity and by expansion; they simply never TRIGGER an
+        // expansion. The exception is enumerated in the artifact, not inferred here.
         foreach (var predicate in MemoryPredicateSeedVocabulary.Create().Snapshot())
         {
+            var canonical = MemoryTripleCanonicalizer.Canonical(predicate);
+            if (MemoryRelationSeedTable.QueryStopForms.Contains(canonical))
+                continue;
             MemoryRelationLexicon.Default.Resolve(predicate).Should()
-                .Be(MemoryTripleCanonicalizer.Canonical(predicate),
-                    $"'{predicate}' is offered to extraction and must resolve to itself");
+                .Be(canonical, $"'{predicate}' is offered to extraction and must resolve to itself");
         }
     }
 
@@ -75,11 +83,15 @@ public sealed class RelationVocabularyCoherenceTests
     [Fact]
     public void RetiredRelationsStayResolvableSoOlderGraphsRemainReadable()
     {
-        // A relation removed from the vocabulary does not vanish from graphs already written under it.
-        // Retiring must stop new writes without making the existing facts unreachable.
+        // A relation removed from the vocabulary does not vanish from graphs already written under
+        // it. Retiring must stop new writes without making the existing facts unreachable, so the
+        // retired name survives as a surface form of the relation it merged into — reachable through
+        // the survivor rather than through a canonical key that no longer exists.
         foreach (var retired in MemoryRelationSeedTable.RetiredRelations)
         {
-            MemoryRelationLexicon.Default.Resolve(retired).Should().Be(retired);
+            MemoryRelationLexicon.Default.Resolve(retired).Should().NotBeNullOrEmpty(
+                "facts stored under a retired relation must stay reachable");
+            MemoryRelationLexicon.Default.CanonicalRelations.Should().NotContain(retired);
             MemoryPredicateSeedVocabulary.Create().Snapshot()
                 .Select(MemoryTripleCanonicalizer.Canonical)
                 .Should().NotContain(retired);

@@ -66,6 +66,15 @@ internal static class MemoryRelationSeedTable
     internal static IReadOnlyDictionary<string, string[]> Table { get; } =
         RelationVocabularyDocument.Load().Canonical.ToDictionary(
             entry => entry.Key,
-            entry => entry.Value.SurfaceForms.ToArray(),
+            entry => entry.Value.SurfaceForms.Concat(entry.Value.StoredOnly)
+                .Distinct(StringComparer.Ordinal).ToArray(),
             StringComparer.Ordinal);
+
+    /// <summary>
+    /// Forms that expansion may fetch but a question must never resolve to.
+    /// </summary>
+    internal static IReadOnlySet<string> QueryStopForms { get; } =
+        RelationVocabularyDocument.Load().Canonical
+            .SelectMany(entry => entry.Value.StoredOnly)
+            .ToHashSet(StringComparer.Ordinal);
 }
