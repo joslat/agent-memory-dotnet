@@ -31,6 +31,13 @@ internal static class LongMemEvalProgram
             return await LongMemEvalReferenceArmProgram.RunAsync(args)
                 .ConfigureAwait(false);
         }
+        if (args.Contains("--predicate-distribution", StringComparer.Ordinal))
+        {
+            // J1.2. Read-only, and dispatched before any Azure environment is required: counting
+            // relation names in an existing volume must not need the credentials of a paid run.
+            return await LongMemEvalPredicateDistributionProgram.RunAsync(args)
+                .ConfigureAwait(false);
+        }
         if (args.Contains("--prepared-pair", StringComparer.Ordinal))
         {
             return await LongMemEvalPreparedPairProgram.RunAsync(args)
