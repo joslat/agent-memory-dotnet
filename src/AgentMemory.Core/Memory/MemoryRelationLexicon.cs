@@ -29,6 +29,33 @@ internal sealed class MemoryRelationLexicon
     /// <summary>Longest multi-word surface form, so the harvester knows its window.</summary>
     private const int MaximumPhraseWords = 4;
 
+    /// <summary>
+    /// Words that mark a sentence as being about the owner of the memory rather than an instruction.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately narrow. Second person is excluded because "can you tell me…" is the commonest
+    /// assistant-request opener there is, and admitting it would reopen the exact hole this closes.
+    /// </remarks>
+    private static readonly FrozenSet<string> FirstPersonMarkers =
+        new[] { "i", "me", "my", "mine", "myself", "we", "us", "our", "ours" }
+            .ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Words that mark a sentence as a question rather than an instruction.
+    /// </summary>
+    /// <remarks>
+    /// Needed because a memory question need not mention its owner: "How many babies were born to
+    /// friends and family" is about the user's history and contains no first person at all. It is
+    /// also the one question predicate expansion is measured to flip, so a gate that dropped it would
+    /// have traded away the only proven win in this track.
+    /// </remarks>
+    private static readonly FrozenSet<string> Interrogatives =
+        new[]
+        {
+            "what", "when", "where", "who", "whom", "whose", "which", "how", "why",
+            "did", "do", "does", "was", "were", "is", "are", "has", "have", "had", "can", "could"
+        }.ToFrozenSet(StringComparer.Ordinal);
+
     private readonly FrozenDictionary<string, string> _surfaceToCanonical;
     private readonly FrozenDictionary<string, string[]> _canonicalToStoredForms;
     private readonly FrozenSet<string> _canonical;
@@ -126,6 +153,26 @@ internal sealed class MemoryRelationLexicon
             .Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0)
             return [];
+
+        // Reject the imperative-instruction shape. Two independent reviews measured the same bound:
+        // per-form suppression cannot reach it, because `create`, `build`, `save`, `read` and `start`
+        // are all legitimate relations that cannot be deleted, yet "Create a summary" is not a
+        // question about anyone's past. It is a property of the sentence, not of any single verb,
+        // which is why no amount of per-form editing reached it.
+        //
+        // The discriminator is mood, NOT first person. A first-person test was written first and
+        // measured against the benchmark before being trusted: it would have blocked "How many babies
+        // were born to friends and family members" - a question with no first-person marker at all,
+        // and the single question that predicate expansion is proven to flip. An imperative is a bare
+        // verb with no subject, so the test is that the sentence OPENS on a relation verb while
+        // carrying neither an interrogative nor a first-person marker.
+        if (Resolve(words[0]) is not null &&
+            !words.Any(FirstPersonMarkers.Contains) &&
+            !words.Any(Interrogatives.Contains))
+        {
+            return [];
+        }
+
         var resolved = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 

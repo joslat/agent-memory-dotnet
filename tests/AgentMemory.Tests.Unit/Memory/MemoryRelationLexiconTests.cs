@@ -153,6 +153,41 @@ public sealed class MemoryRelationLexiconTests
         Lexicon.ResolveQuestion("Order the results by date").Should().BeEmpty();
     }
 
+    [Theory]
+    // The imperative-instruction shape, which per-form suppression provably cannot reach: every one
+    // of these verbs is a legitimate relation that cannot be deleted, yet none of these sentences is
+    // a question about the user's memory. Two independent reviews measured this as the bound on
+    // precision - 25 of 40 boilerplate probes still fired after all per-form work was done.
+    [InlineData("Create a summary of this document")]
+    [InlineData("Build the project and run the tests")]
+    [InlineData("Save the file to disk")]
+    [InlineData("Read the contents of that page")]
+    [InlineData("Complete the form below")]
+    [InlineData("Start the server on port 8080")]
+    [InlineData("Choose the best option")]
+    public void ImperativeInstructionsRetrieveNothing(string instruction) =>
+        Lexicon.ResolveQuestion(instruction).Should().BeEmpty();
+
+    [Theory]
+    // The other half. A memory question must still resolve, and these are the shapes that carry one:
+    // an explicit first person, or a possessive.
+    [InlineData("What did I create last year?", "created")]
+    [InlineData("Which books did I read?", "read")]
+    [InlineData("How much have I saved?", "saved")]
+    [InlineData("When did my subscription start?", "started")]
+    public void MemoryQuestionsStillResolve(string question, string expected) =>
+        Lexicon.ResolveQuestion(question).Should().Contain(expected);
+
+    [Fact]
+    public void TheKnownFailingBenchmarkQuestionSurvivesTheGate()
+    {
+        // gpt4_15e38248 is the measured case this whole mechanism exists for. A precision gate that
+        // broke it would be trading the only win we have.
+        Lexicon.ResolveQuestion(
+                "How many pieces of furniture did I buy, assemble, sell, or fix this year?")
+            .Should().HaveCount(4);
+    }
+
     [Fact]
     public void AQuestionAboutABirthDoesNotExpandTheCopula()
     {
