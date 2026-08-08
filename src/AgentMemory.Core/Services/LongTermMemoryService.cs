@@ -366,8 +366,19 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
         foreach (var fact in expanded)
         {
-            if (seen.Add(fact.FactId))
-                top.Add(fact);
+            if (!seen.Add(fact.FactId))
+                continue;
+
+            // Marked because expansion returns a relation across the whole owner, so a fact may
+            // legitimately carry provenance outside the current query's window. A consumer
+            // resolving provenance must be able to tell that apart from a source that genuinely
+            // cannot be resolved, which is corruption — marking the former keeps the latter
+            // detectable rather than silencing both.
+            var metadata = new Dictionary<string, object>(fact.Metadata, StringComparer.Ordinal)
+            {
+                [Fact.RetrievalSourceMetadataKey] = Fact.RetrievalSourcePredicateExpansion
+            };
+            top.Add(fact with { Metadata = metadata });
         }
 
         return top;

@@ -5,6 +5,19 @@ namespace AgentMemory.Abstractions.Domain;
 /// </summary>
 public sealed record Fact
 {
+    /// <summary>Metadata key recording how a recalled fact entered the context.</summary>
+    /// <remarks>
+    /// Facts reaching the context by canonical-predicate expansion may legitimately carry provenance
+    /// outside the current query's window, because expansion returns a relation across the whole
+    /// owner rather than only what the query itself matched. Consumers that resolve provenance must
+    /// be able to tell that apart from a fact whose source genuinely cannot be resolved, which is
+    /// corruption. Marking the former keeps the latter detectable.
+    /// </remarks>
+    public const string RetrievalSourceMetadataKey = "agentMemory.retrievalSource";
+
+    /// <summary>Value of <see cref="RetrievalSourceMetadataKey"/> for predicate-expanded facts.</summary>
+    public const string RetrievalSourcePredicateExpansion = "predicate-expansion";
+
     /// <summary>
     /// Unique identifier for the fact.
     /// </summary>
