@@ -33,7 +33,7 @@ public sealed class FactExpansionQuestionRelationTests
         _factRepo
             .SearchByCanonicalPredicatesAsync(
                 Arg.Any<IReadOnlyList<string>>(), Arg.Any<int>(),
-                Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+                Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
     }
 
@@ -81,7 +81,7 @@ public sealed class FactExpansionQuestionRelationTests
 
         await _factRepo.DidNotReceive().SearchByCanonicalPredicatesAsync(
             Arg.Any<IReadOnlyList<string>>(), Arg.Any<int>(),
-            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+            Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

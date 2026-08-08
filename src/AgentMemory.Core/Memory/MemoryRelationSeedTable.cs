@@ -33,6 +33,18 @@ namespace AgentMemory.Core.Memory;
 internal static class MemoryRelationSeedTable
 {
     /// <summary>
+    /// Relations still resolvable at query time but no longer offered to extraction.
+    /// </summary>
+    /// <remarks>
+    /// Retiring a relation must stop new writes without making facts already stored under it
+    /// unreachable - a graph does not rewrite itself when the vocabulary changes. Empty today; it
+    /// exists so that removing a key later is a recorded decision rather than a silent divergence
+    /// between the two sides, which is the failure this table was restructured to prevent.
+    /// </remarks>
+    internal static IReadOnlySet<string> RetiredRelations { get; } =
+        new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>
     /// Content hash of the query lexicon, recorded in run reports.
     /// </summary>
     /// <remarks>

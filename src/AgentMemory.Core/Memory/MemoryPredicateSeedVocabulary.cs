@@ -24,23 +24,26 @@ namespace AgentMemory.Core.Memory;
 /// </remarks>
 public static class MemoryPredicateSeedVocabulary
 {
+    /// <summary>
+    /// Derived from the single relation table, never authored separately.
+    /// </summary>
+    /// <remarks>
+    /// This list was previously maintained by hand alongside the query lexicon, and the two drifted:
+    /// **13 relations became resolvable at query time that the extractor was never offered**, so the
+    /// graph could not contain them however well retrieval worked. `assembled` was one of them, which
+    /// is why assembly was filed under `completed` and the furniture question could not be answered
+    /// from the graph. One relation known to two layers must have one definition.
+    /// <para>
+    /// Only the canonical keys cross over. Surface forms stay read-side: they never enter an
+    /// extraction prompt, where they would cost tokens on every call and invite the extractor to
+    /// choose inconsistently between <c>buy</c>, <c>buys</c> and <c>purchased</c> - the opposite of
+    /// the consolidation this vocabulary exists to produce.
+    /// </para>
+    /// </remarks>
     private static readonly string[] Seed =
-    [
-        // Existence and life events — the family that motivated this work, where one birth arrived
-        // as "was born", "was born in", "were born in", "had" and "welcomed".
-        "was_born", "died", "married", "divorced", "welcomed", "adopted",
-        // Acquisition and disposal, both directions.
-        "bought", "sold", "rented", "returned", "gave", "received", "borrowed", "lent",
-        // Preference and opinion, both polarities.
-        "likes", "dislikes", "prefers", "avoids", "recommends", "rated",
-        // Association and identity.
-        "is", "is_a", "works_at", "lives_in", "owns", "belongs_to", "knows", "related_to",
-        // Activity.
-        "attended", "visited", "travelled_to", "started", "finished", "cancelled",
-        "planned", "scheduled", "completed", "learned", "created", "fixed",
-        // State change.
-        "moved_to", "changed_to", "increased_to", "decreased_to", "updated_to"
-    ];
+        [.. MemoryRelationSeedTable.Table.Keys
+            .Where(relation => !MemoryRelationSeedTable.RetiredRelations.Contains(relation))
+            .OrderBy(relation => relation, StringComparer.Ordinal)];
 
     /// <summary>
     /// Content hash of this vocabulary, for recording which table produced a given extracted graph.

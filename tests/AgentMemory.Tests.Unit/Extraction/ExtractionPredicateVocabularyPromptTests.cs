@@ -20,8 +20,16 @@ public sealed class ExtractionPredicateVocabularyPromptTests
         var prompt = LlmMultiSessionUnifiedMemoryExtractor.BuildSystemPrompt(
             MemoryPredicateSeedVocabulary.Create());
 
-        prompt.Should().Contain("was_born");
+        // Asserted in the canonical space form rather than the former `was_born` spelling. The seed is
+        // now derived from the one shared relation table, whose keys are written in stored
+        // predicate_key form. This is a deliberate change and not merely a test edit: both spellings
+        // fold to the identical predicate_key, so what reaches the graph is unchanged, and the natural
+        // phrase is the better thing to put in front of a language model.
+        prompt.Should().Contain("was born");
         prompt.Should().Contain("predicate");
+        // The invariant the test actually exists for: every offered relation appears in the prompt.
+        foreach (var relation in MemoryPredicateSeedVocabulary.Create().Snapshot())
+            prompt.Should().Contain(relation);
     }
 
     [Fact]
