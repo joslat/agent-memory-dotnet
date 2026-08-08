@@ -9,6 +9,37 @@ namespace AgentMemory.Neo4j.Queries;
 /// </summary>
 internal static class FactQueries
 {
+    // ── Canonical-key backfill (Phase 1.1) ─────────────────────────────
+
+    /// <summary>Facts written before canonical identity, in bounded batches.</summary>
+    /// <remarks>
+    /// Selecting on <c>predicate_key IS NULL</c> makes the backfill idempotent by construction: once
+    /// every fact is keyed, a re-run selects nothing. Bounded so a large store migrates in batches
+    /// rather than one transaction.
+    /// </remarks>
+    public const string SelectFactsMissingCanonicalKeys = @"
+            MATCH (f:Fact)
+            WHERE f.predicate_key IS NULL
+            RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate, f.object AS object
+            LIMIT $limit";
+
+    /// <summary>
+    /// Writes canonical keys computed <b>in C#</b> onto facts identified by id.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately contains no <c>toLower()</c> or string rewriting: Cypher's <c>toLower()</c> and
+    /// .NET's <c>ToLowerInvariant()</c> disagree on U+0130, so a key computed here would not match
+    /// the one the write path produces, silently reintroducing the duplication canonical identity
+    /// exists to remove. That is also why this is not a .cypher migration file.
+    /// </remarks>
+    public const string ApplyCanonicalKeys = @"
+            UNWIND $items AS item
+            MATCH (f:Fact {id: item.id})
+            SET f.subject_key   = item.subject_key,
+                f.predicate_key = item.predicate_key,
+                f.object_key    = item.object_key
+            RETURN count(f) AS updated";
+
     // ── Predicate expansion (G3B.13) ───────────────────────────────────
 
     /// <summary>
