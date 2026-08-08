@@ -734,7 +734,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             preparedQuestion?.MessagesPrepared ?? 0,
             preparedQuestion?.ExtractionUnitsPrepared ?? 0,
             preparedQuestion is not null,
-            goldCoverage: goldCoverage);
+            goldCoverage: goldCoverage,
+            answerPromptText: answerPrompt);
 
         var additionalProperties = new Dictionary<string, object?>
         {
@@ -772,7 +773,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         int extractionUnitsPrepared = 0,
         bool preparedMemory = false,
         int extractionCallsPlanned = 0,
-        LongMemEvalGoldEvidenceCoverage? goldCoverage = null)
+        LongMemEvalGoldEvidenceCoverage? goldCoverage = null,
+        string? answerPromptText = null)
     {
         lock (_stateLock)
         {
@@ -791,6 +793,11 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 FactsRetrieved = context?.RelevantFacts.Items.Count ?? 0,
                 PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
                 GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
+                // J5.1. The real cost of this arm: the assembled prompt the reader actually sees.
+                // Every quality number here was half a result without it, and the band's cost column
+                // predates predicate expansion entirely.
+                AnswerPromptCharacters = answerPromptText?.Length ?? 0,
+                EstimatedContextTokens = LongMemEvalContextSize.Estimate(answerPromptText),
                 GraphReadBack = graphSnapshot,
                 GoldEvidenceCoverage = goldCoverage,
                 StageTimings = stageTimings
@@ -1165,6 +1172,12 @@ public sealed record LongMemEvalQuestionTelemetry(
     bool RecallTruncated,
     string Status = "completed")
 {
+    /// <summary>Length of the assembled answer prompt, the arm's actual context cost.</summary>
+    public int AnswerPromptCharacters { get; init; }
+
+    /// <summary>Approximate tokens in that prompt. An estimate, and named one.</summary>
+    public int EstimatedContextTokens { get; init; }
+
     public string? QuestionId { get; init; }
 
     public LongMemEvalRetrievalEvidence? RetrievalEvidence { get; init; }

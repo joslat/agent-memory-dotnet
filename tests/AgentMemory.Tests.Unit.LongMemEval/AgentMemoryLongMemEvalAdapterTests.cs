@@ -87,7 +87,15 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
                 {
                     RawMessagesRetrieved = 1
                 },
-                options => options.Excluding(info => info.Path == "StageTimings"));
+                options => options
+                    .Excluding(info => info.Path == "StageTimings")
+                    // J5.1 context cost: a real measurement of this run, not a fixed expectation, so
+                    // it is asserted below on its own terms rather than frozen into this shape.
+                    .Excluding(info => info.Path == "AnswerPromptCharacters")
+                    .Excluding(info => info.Path == "EstimatedContextTokens"));
+        // The arm's actual cost must be recorded and non-zero: a prompt was demonstrably built above.
+        telemetry.AnswerPromptCharacters.Should().BeGreaterThan(0);
+        telemetry.EstimatedContextTokens.Should().BeGreaterThan(0);
         telemetry.StageTimings.Should().NotBeNull(
             "accepted LongMemEval questions must expose a phase waterfall");
         telemetry.StageTimings!.StorageMs.Should().BeGreaterThan(0);

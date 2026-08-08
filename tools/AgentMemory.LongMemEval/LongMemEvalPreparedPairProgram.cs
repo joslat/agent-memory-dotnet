@@ -870,6 +870,14 @@ internal static class LongMemEvalPreparedPairProgram
             extractionUnitsPrepared = arm.Telemetry.Sum(item => item.ExtractionUnitsPrepared),
             extractionUnitsDuringEvaluation = arm.Telemetry.Sum(item => item.ExtractionUnits),
             itemsRetrieved = arm.Telemetry.Sum(item => item.ItemsRetrieved),
+            // J5.1. The cost half of the comparison. Item counts alone cannot say whether an arm is
+            // cheaper, and the band's recorded token figures predate predicate expansion entirely.
+            meanEstimatedContextTokens = arm.Telemetry.Count == 0
+                ? 0
+                : arm.Telemetry.Average(item => item.EstimatedContextTokens),
+            maxEstimatedContextTokens = arm.Telemetry.Count == 0
+                ? 0
+                : arm.Telemetry.Max(item => item.EstimatedContextTokens),
             rawMessagesRetrieved = arm.Telemetry.Sum(item => item.RawMessagesRetrieved),
             entitiesRetrieved = arm.Telemetry.Sum(item => item.EntitiesRetrieved),
             factsRetrieved = arm.Telemetry.Sum(item => item.FactsRetrieved),
