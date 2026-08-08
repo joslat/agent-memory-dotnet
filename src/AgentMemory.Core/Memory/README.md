@@ -37,10 +37,12 @@ they would cost tokens on every call and invite the extractor to choose inconsis
 
 | source | licence | what it contributed | fetched |
 |---|---|---|---|
-| [schema.org Action hierarchy](https://schema.org/Action) | CC BY-SA 3.0 | canonical keys for the **event** family — 36 relations, incl. the whole trade/transfer group | 2026-08-08 |
+| [schema.org Action hierarchy](https://schema.org/Action) | CC BY-SA 3.0 | canonical keys for the **event** family — 34 relations, incl. the whole trade/transfer group | 2026-08-08 |
 | [Wikidata](https://query.wikidata.org/) property aliases (`skos:altLabel`, SPARQL) | CC0 | surface forms for the **state** family — 6 relations, 141 alias rows over 10 targeted properties | 2026-08-08 |
+| [PARAREL](https://github.com/yanaiela/pararel) paraphrase patterns | MIT | verb phrases per relation — **4 relations**; best-shaped source, its patterns *are* verb phrases (`is originally from` → `was born`, `passed away in` → `died`) | 2026-08-08 |
+| [Rel2Text](https://github.com/kasnerz/rel2text) crowd verbalisations | Apache-2.0 | delexicalised phrases, `state==ok` rows only — **7 relations** | 2026-08-08 |
 | [FewRel `pid2name.json`](https://github.com/thunlp/FewRel) | MIT | **surveyed, near-zero yield** — see below | 2026-08-08 |
-| hand-authored | — | 18 relations no surveyed source provides, incl. `assembled` and `fixed` | — |
+| hand-authored | — | **60 relations** — the majority, and the opposite of what the plan assumed. No surveyed source covers domestic life | — |
 
 ### Why the two families are seeded differently
 
@@ -103,9 +105,25 @@ These fail CI rather than throwing inside a consumer's process on first use:
 
 ## `retired`
 
-Relations that stay resolvable but are no longer offered to extraction. Empty today. It exists because
-a graph does not rewrite itself when a vocabulary changes: removing a key must stop new writes without
-making facts already stored under it unreachable.
+Currently **`finished`, `welcomed`**. A graph does not rewrite itself when a vocabulary
+changes, so removing a key must stop new writes without making facts already stored under it
+unreachable.
+
+Two mechanisms. **Demotion** removes the key and keeps its name as a surface form of the relation it
+merged into, so old facts are reached through the survivor — this is what `finished` (into `completed`)
+and `welcomed` (into `was born`) did. **Flagging** keeps the key and excludes it from the extraction
+vocabulary. Demotion is preferred where a survivor exists, because it leaves one name for one meaning.
+
+## `storedOnly`
+
+32 forms across the table. These are fetched by expansion but never trigger retrieval from a
+question. Two groups: the copulas (`is`, `was`, `had`, …), which appear in nearly every question and
+would expand `is` — 26% of the measured graph — on all of them; and bare verbs that double as
+assistant boilerplate (`plan`, `give`, `tell`, `know`, `need`, `want`, `find`, `work`, `order`, `own`,
+`used`, `change`, `go to`). Each is re-admitted through a question-anchored phrase such as
+`do i work` / `did i work`, so recall survives while the boilerplate stays silent. Bare `plan` was the
+worst case: `planned` is the largest measured bucket at 839 facts, so *"which phone plan am I on?"*
+could displace most of a retrieval budget on a question that had nothing to do with plans.
 
 ## Known limitations
 
@@ -113,7 +131,7 @@ making facts already stored under it unreachable.
   `location` and `organisation`, `belongs to` acquired `club`. A question rarely contains these, and a
   wrong surface form is not harmless: resolution expands a **whole relation** into a fixed retrieval
   budget, so one bad alias can displace correct items. These are under review.
-- **Size.** 58 relations against a ~400 reviewability ceiling. The ceiling applies to *keys*, which cost
+- **Size.** 101 relations against a ~400 reviewability ceiling, with 619 surface forms. The ceiling applies to *keys*, which cost
   prompt tokens on every extraction call; surface forms are read-side and far cheaper.
 - **Changing this file changes what gets extracted**, and only takes effect on a fresh build of the
   memory graph. Its content hash is recorded in evaluation reports so two graphs built under different
