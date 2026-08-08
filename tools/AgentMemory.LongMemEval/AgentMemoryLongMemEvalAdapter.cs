@@ -551,6 +551,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                                 MaxPreferences = budget.Preferences,
                                 MaxFacts = budget.Facts,
                                 MaxTraces = 0,
+                                // G5 "hard" tier: a relation returned whole, for the aggregation
+                                // questions top-K structurally cannot answer.
+                                ExpandFactsByPredicate = _options.ExpandFactsByPredicate,
+                                MaxExpandedFacts = _options.MaxExpandedFacts,
                                 MaxGraphRagItems = budget.GraphRag,
                                 MinSimilarityScore = _options.MinSimilarityScore,
                                 BlendMode = RetrievalBlendMode.MemoryOnly,
@@ -1083,6 +1087,12 @@ public sealed record LongMemEvalAdapterOptions
     /// are refilled uncapped so the context is never left short.
     /// </remarks>
     public int MaxItemsPerSourceSession { get; init; }
+
+    /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
+    public bool ExpandFactsByPredicate { get; init; }
+
+    /// <summary>Cap on expanded facts.</summary>
+    public int MaxExpandedFacts { get; init; } = 100;
 
     /// <summary>Candidate over-fetch factor used only when synthetic exclusion is enabled.</summary>
     /// <remarks>

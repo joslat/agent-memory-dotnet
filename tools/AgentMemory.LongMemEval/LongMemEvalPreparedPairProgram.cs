@@ -745,6 +745,7 @@ internal static class LongMemEvalPreparedPairProgram
                 // message slots were formatter boilerplate and its two failing multi-session
                 // questions received 0 and 2 real turns out of 15.
                 ExcludeSyntheticFormatterMessages = true,
+                ExpandFactsByPredicate = options.ExpandFactsByPredicate,
                 MaxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                 ChronologicalAnswerContext = true,
                 RequireGraphReadBack = true,
@@ -1033,6 +1034,7 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--preflight-only"),
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
+            Has("--expand-facts-by-predicate"),
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
             ParsePositive(
@@ -1225,6 +1227,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool PreflightOnly,
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
+        bool ExpandFactsByPredicate,
         int MaxItemsPerSourceSession,
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
