@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -318,15 +319,58 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, false, 0, cancellationToken);
+
+    /// <summary>
+    /// Fact recall with optional canonical-predicate expansion (G5 "hard" tier).
+    /// </summary>
+    /// <remarks>
+    /// A separate overload rather than optional parameters on the interface method: adding optional
+    /// parameters to a published interface breaks every implementor, and the interface is locked
+    /// under SemVer.
+    /// </remarks>
+    public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        CancellationToken cancellationToken)
     {
-        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchFactsAsync)), cancellationToken).ConfigureAwait(false);
-        return scored.Select(r => r.Fact).ToList();
+        var resolved = Resolve(scope, nameof(SearchFactsAsync));
+        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken).ConfigureAwait(false);
+        var top = scored.Select(r => r.Fact).ToList();
+        if (!expandByPredicate || top.Count == 0)
+            return top;
+
+        // G5 "hard" tier. Similarity decides *which* relation matters; this returns that relation
+        // whole. Top-K is a relevance cutoff and carries no completeness guarantee, so a question
+        // like "how many babies were born" is unanswerable from it - miss one of five and the count
+        // is four. Expansion is additive: the similarity-ranked facts stay, in order, at the front.
+        var predicates = top
+            .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
+            .Where(predicate => predicate.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
+            predicates, expansionLimit, resolved, cancellationToken).ConfigureAwait(false);
+
+        var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
+        foreach (var fact in expanded)
+        {
+            if (seen.Add(fact.FactId))
+                top.Add(fact);
+        }
+
+        return top;
     }
 
     /// <inheritdoc/>

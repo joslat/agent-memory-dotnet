@@ -223,7 +223,14 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
                 ? TimedAsync("memory.recall.facts",
-                    () => _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
+                    // Only the expansion path takes the wider overload. Off by default, the call is
+                    // byte-for-byte the original, so no existing behaviour or contract shifts.
+                    () => recallOpts.ExpandFactsByPredicate
+                        ? _longTerm.SearchFactsAsync(
+                            queryEmbedding, recallOpts.MaxFacts, minScore, scope,
+                            true, recallOpts.MaxExpandedFacts, cancellationToken)
+                        : _longTerm.SearchFactsAsync(
+                            queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
                 : Empty<Fact>();
 
             var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0

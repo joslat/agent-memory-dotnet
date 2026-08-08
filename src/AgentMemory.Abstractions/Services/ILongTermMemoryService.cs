@@ -204,4 +204,22 @@ public interface ILongTermMemoryService
 
     /// <summary>Supersedes the loser preference with the winner (D7). See <see cref="SupersedeFactAsync"/>.</summary>
     Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fact recall with optional canonical-predicate expansion — a relation returned <b>whole</b>.
+    /// </summary>
+    /// <remarks>
+    /// A default interface method, not extra optional parameters on the method above: adding optional
+    /// parameters to a published interface breaks every implementor. The default ignores expansion,
+    /// so a store that cannot retrieve by relation behaves exactly as before.
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
 }

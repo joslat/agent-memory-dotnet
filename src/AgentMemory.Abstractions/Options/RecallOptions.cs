@@ -55,4 +55,19 @@ public sealed record RecallOptions
 
     /// <summary>Default singleton instance.</summary>
     public static RecallOptions Default { get; } = new();
+
+    /// <summary>
+    /// G5 "hard" tier. After the similarity-ranked facts are chosen, also returns every fact sharing
+    /// their canonical predicates, so a relation arrives <b>whole</b>. Default off.
+    /// </summary>
+    /// <remarks>
+    /// Top-K is a relevance cutoff and gives no completeness guarantee, so aggregation questions
+    /// ("how many...", "list all...") cannot be answered from it: missing one of five matching facts
+    /// silently yields four. Enable this when the question is an aggregation; it widens the context,
+    /// so it is not the default.
+    /// </remarks>
+    public bool ExpandFactsByPredicate { get; init; }
+
+    /// <summary>Cap on facts returned by predicate expansion. Unbounded completeness would exhaust the budget.</summary>
+    public int MaxExpandedFacts { get; init; } = 100;
 }
