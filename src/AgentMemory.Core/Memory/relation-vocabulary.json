@@ -15,8 +15,7 @@
     "tacred": "paid"
   },
   "retired": [
-    "finished",
-    "welcomed"
+    "finished"
   ],
   "canonical": {
     "adopted": {
@@ -1454,7 +1453,6 @@
         "was born in",
         "was native to",
         "was originally from",
-        "welcomed",
         "were born",
         "were born in"
       ]
@@ -1478,6 +1476,17 @@
       "surfaceForms": [
         "weigh",
         "weight"
+      ]
+    },
+    "welcomed": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "welcome",
+        "welcomes",
+        "welcoming"
       ]
     },
     "works at": {
@@ -1534,5 +1543,10 @@
         "works on"
       ]
     }
+  },
+  "expansionExempt": {
+    "is": "copula; 340 facts. Expanding it wholesale floods the budget and carries almost no meaning.",
+    "is a": "copula variant; same reason as `is`.",
+    "has": "generic possession; absorbed 518 facts in the J1.6 build. Reachable by similarity, never expanded."
   }
 }

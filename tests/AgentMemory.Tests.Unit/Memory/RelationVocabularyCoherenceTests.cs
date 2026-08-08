@@ -152,6 +152,47 @@ public sealed class RelationVocabularyCoherenceTests
     }
 
     [Fact]
+    public void NoRelationIsOfferedToExtractionWhileBeingUnreachableFromEveryQuestion()
+    {
+        // Measured, not theorised. The J1.6 cold build showed `has` absorbing 489 extra facts while
+        // every one of its trigger forms was stop-listed, so 518 facts became unexpandable — a
+        // write-only sink. `storedOnly` quietly reintroduced the asymmetry the one-table rule exists
+        // to remove: a relation can be attractive to the extractor and invisible to every question.
+        var document = RelationVocabularyDocument.Load();
+        var offered = MemoryPredicateSeedVocabulary.Create().Snapshot()
+            .Select(MemoryTripleCanonicalizer.Canonical)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Corrected after measurement: such a relation is still reachable by top-K similarity, so it
+        // is un-EXPANDABLE rather than unreachable. The rule is therefore that every one must be a
+        // DECLARED exemption carrying a reason, not that none may exist — the copulas legitimately
+        // qualify, and expanding them wholesale would flood a fixed budget with near-meaningless facts.
+        var sinks = document.Canonical
+            .Where(entry => offered.Contains(entry.Key))
+            .Where(entry => entry.Value.SurfaceForms.Count == 0)
+            .Select(entry => entry.Key)
+            .ToList();
+
+        sinks.Should().BeSubsetOf(document.ExpansionExempt.Keys);
+        foreach (var exempt in sinks)
+        {
+            document.ExpansionExempt[exempt].Should().NotBeNullOrWhiteSpace(
+                $"'{exempt}' collects facts no question can expand, so its reason must be recorded");
+        }
+    }
+
+    [Fact]
+    public void WelcomedIsOfferedToExtraction()
+    {
+        // Retiring it was a WRITE-side change made on READ-side reasoning, and it cost the one
+        // question predicate expansion is proven to flip: `welcomed` went 7 facts to 0, births
+        // scattered, and 2e6d26dc regressed from correct to incorrect on the rebuilt graph.
+        MemoryPredicateSeedVocabulary.Create().Snapshot()
+            .Select(MemoryTripleCanonicalizer.Canonical)
+            .Should().Contain("welcomed");
+    }
+
+    [Fact]
     public void OpposingRelationsSurviveTheSharedSource()
     {
         // Carried over from the seed, where it is load-bearing: offering only one side of an opposing

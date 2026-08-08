@@ -49,6 +49,20 @@ internal sealed class RelationVocabularyDocument
     [JsonPropertyName("retired")]
     public IReadOnlyList<string> Retired { get; init; } = [];
 
+    /// <summary>
+    /// Relations the extractor may write but a question must never expand wholesale, each with its
+    /// reason.
+    /// </summary>
+    /// <remarks>
+    /// They remain reachable by top-K similarity; what they are exempt from is <i>expansion</i>. The
+    /// copulas would otherwise flood a fixed budget with almost no meaning per fact — the J1.6 build
+    /// measured `has` absorbing 518 facts. Declared explicitly rather than left implicit in
+    /// <c>storedOnly</c>, so the asymmetry is a recorded decision instead of an accident.
+    /// </remarks>
+    [JsonPropertyName("expansionExempt")]
+    public IReadOnlyDictionary<string, string> ExpansionExempt { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
     [JsonPropertyName("canonical")]
     public IReadOnlyDictionary<string, RelationVocabularyEntry> Canonical { get; init; } =
         new Dictionary<string, RelationVocabularyEntry>(StringComparer.Ordinal);
