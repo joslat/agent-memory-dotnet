@@ -42,10 +42,14 @@ internal static class LongMemEvalOrphanSweep
         IReadOnlyList<LongMemEvalVolumeCandidate> candidates,
         string? protectedVolumeName,
         DateTimeOffset now,
-        TimeSpan? minimumAge = null)
+        TimeSpan? minimumAge = null,
+        IReadOnlyCollection<string>? pinned = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         var age = minimumAge ?? DefaultMinimumAge;
+        var pins = pinned is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(pinned, StringComparer.Ordinal);
 
         // Unrelated volumes on a developer machine are not this tool's property to delete, and are
         // not reported either - listing them as skips would bury the real output in noise.
@@ -59,6 +63,9 @@ internal static class LongMemEvalOrphanSweep
             .ThenBy(candidate => candidate.Name, StringComparer.Ordinal)
             .FirstOrDefault();
 
+        var surviving = new HashSet<string>(
+            ours.Select(candidate => candidate.Name), StringComparer.Ordinal);
+
         var removable = new List<string>();
         var skipped = new List<LongMemEvalOrphanSkip>();
         foreach (var candidate in ours)
@@ -67,6 +74,23 @@ internal static class LongMemEvalOrphanSweep
             {
                 skipped.Add(new LongMemEvalOrphanSkip(
                     candidate.Name, "named for reuse by this run"));
+                continue;
+            }
+
+            if (pins.Contains(candidate.Name))
+            {
+                skipped.Add(new LongMemEvalOrphanSkip(candidate.Name, "pinned by the operator"));
+                continue;
+            }
+
+            // A clone is only cheap to recreate while the base it was cloned from still exists.
+            // Treating "clone" as a synonym for "worthless" destroyed a deliberately retained
+            // pre-vocabulary baseline whose base had already been removed - it was the only copy.
+            if (BaseNameOf(candidate.Name) is { } baseName && !surviving.Contains(baseName))
+            {
+                skipped.Add(new LongMemEvalOrphanSkip(
+                    candidate.Name,
+                    "its base volume is gone, so it cannot be regenerated and is the only copy"));
                 continue;
             }
 
@@ -124,7 +148,12 @@ internal static class LongMemEvalOrphanSweep
                 return;
 
             var candidates = await InspectAsync(names, cancellationToken).ConfigureAwait(false);
-            var decision = Select(candidates, protectedVolumeName, DateTimeOffset.UtcNow);
+            var decision = Select(
+                candidates,
+                protectedVolumeName,
+                DateTimeOffset.UtcNow,
+                minimumAge: null,
+                pinned: ReadPins());
             if (decision.Removable.Count == 0)
             {
                 log.WriteLine(
@@ -158,6 +187,46 @@ internal static class LongMemEvalOrphanSweep
         {
             log.WriteLine($"longmemeval: orphan sweep skipped: {exception.Message}");
         }
+    }
+
+    /// <summary>
+    /// Volumes the operator has deliberately kept, one name per line, <c>#</c> for comments.
+    /// </summary>
+    /// <remarks>
+    /// An explicit, inspectable pin exists because a document-level note that a volume was "kept
+    /// deliberately" is invisible to a sweep, and one was destroyed for exactly that reason.
+    /// </remarks>
+    internal static string PinFilePath { get; } =
+        Path.Combine("artifacts", "evaluation", "pinned-volumes.txt");
+
+    private static IReadOnlyCollection<string> ReadPins()
+    {
+        if (!File.Exists(PinFilePath))
+            return [];
+        return File.ReadAllLines(PinFilePath)
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0 && !line.StartsWith('#'))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// The base volume a clone was produced from, or null when the name is not a clone.
+    /// </summary>
+    private static string? BaseNameOf(string name)
+    {
+        // AdoptAsync names its targets "{base}-reuse-structured-{suffix}".
+        var reuse = name.IndexOf("-reuse-", StringComparison.Ordinal);
+        if (reuse > 0)
+            return name[..reuse];
+
+        foreach (var kind in new[] { "-structured-", "-hybrid-" })
+        {
+            var index = name.IndexOf(kind, StringComparison.Ordinal);
+            if (index > 0)
+                return string.Concat(name.AsSpan(0, index), "-base-", name.AsSpan(index + kind.Length));
+        }
+
+        return null;
     }
 
     private static bool IsBase(string name) =>

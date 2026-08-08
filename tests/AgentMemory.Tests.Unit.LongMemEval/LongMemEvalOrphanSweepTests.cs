@@ -17,10 +17,13 @@ public sealed class LongMemEvalOrphanSweepTests
     [Fact]
     public void OldUnreferencedClonesAreRemoved()
     {
-        // Clones are regenerable from a base in seconds; they are the bulk of the leak.
+        // Clones are regenerable from a base in seconds; they are the bulk of the leak. The base
+        // must be present in the fixture, because a clone without one is the only copy of its graph
+        // and is deliberately protected.
         var decision = Select(
             Volume("am-lme-run-a-structured-1111", hoursAgo: 6),
-            Volume("am-lme-run-a-hybrid-1111", hoursAgo: 6));
+            Volume("am-lme-run-a-hybrid-1111", hoursAgo: 6),
+            Volume("am-lme-run-a-base-1111", hoursAgo: 6));
 
         decision.Removable.Should().BeEquivalentTo(
             "am-lme-run-a-structured-1111", "am-lme-run-a-hybrid-1111");
@@ -59,12 +62,15 @@ public sealed class LongMemEvalOrphanSweepTests
         var decision = Select(
             Volume("am-lme-run-a-structured-1111", hoursAgo: 0.25),
             Volume("am-lme-run-a-base-1111", hoursAgo: 0.25),
-            Volume("am-lme-run-old-hybrid-9999", hoursAgo: 40));
+            Volume("am-lme-run-old-hybrid-9999", hoursAgo: 40),
+            Volume("am-lme-run-old-base-9999", hoursAgo: 40));
 
-        decision.Removable.Should().ContainSingle()
-            .Which.Should().Be("am-lme-run-old-hybrid-9999");
+        decision.Removable.Should().BeEquivalentTo(
+            "am-lme-run-old-hybrid-9999", "am-lme-run-old-base-9999");
         decision.Skipped.Should().Contain(skip =>
             skip.Name == "am-lme-run-a-structured-1111" && skip.Reason.Contains("age"));
+        decision.Skipped.Should().Contain(skip =>
+            skip.Name == "am-lme-run-a-base-1111" && skip.Reason.Contains("age"));
     }
 
     [Fact]
@@ -81,6 +87,39 @@ public sealed class LongMemEvalOrphanSweepTests
             "am-lme-run-old-base-1111", "am-lme-run-new-structured-2222");
         decision.Skipped.Should().Contain(skip =>
             skip.Name == "am-lme-run-new-base-2222" && skip.Reason.Contains("newest"));
+    }
+
+    [Fact]
+    public void ACloneWithNoSurvivingBaseIsKeptBecauseItCannotBeRegenerated()
+    {
+        // This rule exists because its absence destroyed a real artifact: a lone retained
+        // pre-vocabulary Structured clone whose base had already been removed was swept as a
+        // "regenerable clone". Cheap-to-recreate is only true while the base it was cloned from
+        // still exists.
+        var decision = Select(
+            Volume("am-lme-orphaned-structured-1111", hoursAgo: 20),
+            Volume("am-lme-paired-structured-2222", hoursAgo: 20),
+            Volume("am-lme-paired-base-2222", hoursAgo: 20),
+            Volume("am-lme-newest-base-3333", hoursAgo: 5));
+
+        decision.Removable.Should().BeEquivalentTo(
+            "am-lme-paired-structured-2222", "am-lme-paired-base-2222");
+        decision.Skipped.Should().Contain(skip =>
+            skip.Name == "am-lme-orphaned-structured-1111" && skip.Reason.Contains("regenerated"));
+    }
+
+    [Fact]
+    public void APinnedVolumeIsNeverRemovedHoweverOldItIs()
+    {
+        var decision = LongMemEvalOrphanSweep.Select(
+            [Volume("am-lme-run-a-hybrid-1111", hoursAgo: 900)],
+            protectedVolumeName: null,
+            Now,
+            minimumAge: null,
+            pinned: ["am-lme-run-a-hybrid-1111"]);
+
+        decision.Removable.Should().BeEmpty();
+        decision.Skipped.Should().ContainSingle(skip => skip.Reason.Contains("pinned"));
     }
 
     [Fact]
