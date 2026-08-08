@@ -87,11 +87,24 @@ public sealed class RelationVocabularyCoherenceTests
         // it. Retiring must stop new writes without making the existing facts unreachable, so the
         // retired name survives as a surface form of the relation it merged into — reachable through
         // the survivor rather than through a canonical key that no longer exists.
+        // Independent review caught this test passing VACUOUSLY: asserting that a retired name is
+        // absent from the canonical set is trivially true once it has been demoted, and proves
+        // nothing about reachability. The real property is that it resolves to a DIFFERENT, live
+        // relation — the survivor it merged into.
+        MemoryRelationSeedTable.RetiredRelations.Should().NotBeEmpty(
+            "a vacuous loop over an empty set would assert nothing at all");
+
         foreach (var retired in MemoryRelationSeedTable.RetiredRelations)
         {
-            MemoryRelationLexicon.Default.Resolve(retired).Should().NotBeNullOrEmpty(
-                "facts stored under a retired relation must stay reachable");
-            MemoryRelationLexicon.Default.CanonicalRelations.Should().NotContain(retired);
+            var survivor = MemoryRelationLexicon.Default.Resolve(retired);
+
+            survivor.Should().NotBeNullOrEmpty(
+                $"facts stored under '{retired}' must stay reachable after retirement");
+            survivor.Should().NotBe(retired, "retirement merges a relation into another");
+            MemoryRelationLexicon.Default.CanonicalRelations.Should().Contain(survivor!);
+            // And expansion of the survivor must actually fetch the retired key, or the facts are
+            // resolvable in name only.
+            MemoryRelationLexicon.Default.StoredFormsOf(survivor).Should().Contain(retired);
             MemoryPredicateSeedVocabulary.Create().Snapshot()
                 .Select(MemoryTripleCanonicalizer.Canonical)
                 .Should().NotContain(retired);

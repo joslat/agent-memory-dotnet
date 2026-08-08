@@ -48,6 +48,7 @@
       "surfaceForms": [
         "applied to",
         "applies for",
+        "apply",
         "apply for",
         "apply to",
         "applying for"
@@ -75,7 +76,9 @@
         "assemble",
         "assembles",
         "assembling",
-        "put together"
+        "put together",
+        "puts together",
+        "putting together"
       ]
     },
     "ate": {
@@ -85,6 +88,7 @@
       ],
       "surfaceForms": [
         "eat",
+        "eaten",
         "eating",
         "eats"
       ]
@@ -108,7 +112,11 @@
         "participates in",
         "participating in",
         "present at",
+        "take part",
+        "take part in",
         "takes part",
+        "taking part",
+        "taking part in",
         "took part",
         "took part in"
       ]
@@ -157,9 +165,12 @@
         "hand-authored"
       ],
       "surfaceForms": [
-        "book",
+        "book a",
+        "book the",
         "booking",
-        "books",
+        "bookings",
+        "reservation",
+        "reservations",
         "reserve",
         "reserved",
         "reserves",
@@ -241,9 +252,19 @@
         "schema.org:ReplaceAction"
       ],
       "surfaceForms": [
+        "change",
         "change to",
         "changes to",
         "changing to"
+      ]
+    },
+    "cleaned": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "clean"
       ]
     },
     "completed": {
@@ -310,11 +331,7 @@
         "built",
         "create",
         "creates",
-        "creating",
-        "made",
-        "make",
-        "makes",
-        "making"
+        "creating"
       ]
     },
     "decided": {
@@ -344,7 +361,15 @@
         "decreases",
         "decreases to",
         "decreasing",
-        "fell to"
+        "drop to",
+        "dropped to",
+        "drops to",
+        "fell to",
+        "go down",
+        "goes down",
+        "going down",
+        "gone down",
+        "went down"
       ]
     },
     "diagnosed with": {
@@ -397,6 +422,41 @@
         "divorce",
         "divorces",
         "divorcing"
+      ]
+    },
+    "drank": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "drink"
+      ]
+    },
+    "earned": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "earn",
+        "income",
+        "salary"
+      ]
+    },
+    "exercised": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "exercise",
+        "exercises",
+        "exercising",
+        "work out",
+        "worked out",
+        "working out",
+        "works out"
       ]
     },
     "feels": {
@@ -472,19 +532,33 @@
         "having"
       ]
     },
+    "hired": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "hire"
+      ]
+    },
     "increased to": {
       "family": "state",
       "sources": [
         "hand-authored"
       ],
       "surfaceForms": [
+        "go up",
+        "goes up",
+        "going up",
+        "gone up",
         "increase",
         "increase to",
         "increased",
         "increases",
         "increases to",
         "increasing",
-        "rose to"
+        "rose to",
+        "went up"
       ]
     },
     "installed": {
@@ -496,6 +570,17 @@
         "install",
         "installing",
         "installs"
+      ]
+    },
+    "invested in": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "invest in",
+        "investing in",
+        "invests in"
       ]
     },
     "is": {
@@ -600,6 +685,7 @@
         "hand-authored"
       ],
       "surfaceForms": [
+        "listen",
         "listen to",
         "listening to",
         "listens to"
@@ -612,6 +698,7 @@
       ],
       "surfaceForms": [
         "has resided in",
+        "live",
         "live in",
         "lived in",
         "lives at",
@@ -652,7 +739,6 @@
         "marrying",
         "spouse",
         "spouses",
-        "wed",
         "wedded",
         "wedded to"
       ]
@@ -674,6 +760,7 @@
         "schema.org:MoveAction"
       ],
       "surfaceForms": [
+        "move",
         "move to",
         "moves to",
         "moving to",
@@ -759,16 +846,44 @@
         "preferring"
       ]
     },
+    "prescribed": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "prescribe"
+      ]
+    },
+    "promised": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "promise"
+      ]
+    },
     "rated": {
       "family": "event",
       "sources": [
         "schema.org:ReviewAction"
       ],
       "surfaceForms": [
-        "rate",
-        "rates",
-        "rating",
-        "reviewed"
+        "rate it",
+        "rate the",
+        "rate them",
+        "rating"
+      ]
+    },
+    "read": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "reading",
+        "reads"
       ]
     },
     "received": {
@@ -802,7 +917,17 @@
         "relates to"
       ],
       "storedOnly": [
-        "related"
+        "related",
+        "related to"
+      ]
+    },
+    "renewed": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "renew"
       ]
     },
     "rented": {
@@ -878,6 +1003,10 @@
         "hand-authored"
       ],
       "surfaceForms": [
+        "came back from",
+        "come back from",
+        "get back from",
+        "gets back from",
         "got back from",
         "return from",
         "returning from",
@@ -890,6 +1019,8 @@
         "schema.org:ScheduleAction"
       ],
       "surfaceForms": [
+        "appointment",
+        "appointments",
         "schedule",
         "schedules",
         "scheduling"
@@ -905,12 +1036,34 @@
         "emailed",
         "emailing",
         "emails",
+        "messaged",
         "send",
         "sending",
         "sends",
+        "text",
         "texted",
         "texting",
         "texts"
+      ]
+    },
+    "signed": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "sign",
+        "sign up for",
+        "signed up for"
+      ]
+    },
+    "slept": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "sleep"
       ]
     },
     "sold": {
@@ -945,6 +1098,7 @@
         "hand-authored"
       ],
       "surfaceForms": [
+        "stay",
         "stay at",
         "stay in",
         "stayed in",
@@ -959,12 +1113,43 @@
       ],
       "surfaceForms": [
         "gave up",
+        "give up",
+        "gives up",
+        "giving up",
         "quit",
         "quits",
         "quitting",
+        "resign",
         "stop",
         "stopping",
         "stops"
+      ]
+    },
+    "subscribed to": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "subscribe to",
+        "subscribes to",
+        "subscribing to",
+        "subscription",
+        "subscriptions"
+      ]
+    },
+    "threw away": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "get rid of",
+        "got rid of",
+        "threw out",
+        "throw away",
+        "throw out",
+        "thrown away"
       ]
     },
     "told": {
@@ -988,14 +1173,22 @@
       ],
       "surfaceForms": [
         "been to",
+        "drive to",
+        "drives to",
+        "driving to",
+        "drove to",
+        "flew",
         "flew to",
         "flies to",
         "fly to",
         "flying to",
         "go to",
+        "travel",
         "travel to",
         "traveled to",
         "traveling to",
+        "travelled",
+        "travelling",
         "travelling to",
         "travels to",
         "went to"
@@ -1074,6 +1267,16 @@
         "watching"
       ]
     },
+    "weighs": {
+      "family": "state",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "weigh",
+        "weight"
+      ]
+    },
     "works at": {
       "family": "state",
       "sources": [
@@ -1084,6 +1287,7 @@
         "employed at",
         "employed by",
         "location of work",
+        "work",
         "work at",
         "worked at",
         "worked for",
@@ -1094,6 +1298,18 @@
         "workplace",
         "works for",
         "works from"
+      ]
+    },
+    "works on": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "work on",
+        "worked on",
+        "working on",
+        "works on"
       ]
     }
   }

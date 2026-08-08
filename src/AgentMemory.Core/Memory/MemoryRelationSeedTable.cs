@@ -38,9 +38,15 @@ internal static class MemoryRelationSeedTable
     /// </summary>
     /// <remarks>
     /// Retiring a relation must stop new writes without making facts already stored under it
-    /// unreachable - a graph does not rewrite itself when the vocabulary changes. Empty today; it
-    /// exists so that removing a key later is a recorded decision rather than a silent divergence
-    /// between the two sides, which is the failure this table was restructured to prevent.
+    /// unreachable - a graph does not rewrite itself when the vocabulary changes.
+    /// <para>
+    /// <b>Two mechanisms, and knowing which is in use matters.</b> <i>Demotion</i> removes the key and
+    /// keeps its name as a surface form of the relation it merged into, so the old facts are reached
+    /// through the survivor; this is what <c>finished</c> and <c>welcomed</c> did. <i>Flagging</i>
+    /// keeps the key but excludes it from the extraction vocabulary, which is what the filter over
+    /// this set does. Demotion is preferred where a survivor exists, because it leaves one name for
+    /// one meaning; flagging is for a relation being withdrawn with nothing to merge into.
+    /// </para>
     /// </remarks>
     internal static IReadOnlySet<string> RetiredRelations { get; } =
         RelationVocabularyDocument.Load().Retired.ToHashSet(StringComparer.Ordinal);
