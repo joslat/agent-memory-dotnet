@@ -544,4 +544,39 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             }).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsync(
+        IReadOnlyList<string> canonicalPredicates,
+        int limit,
+        MemoryScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalPredicates);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        if (canonicalPredicates.Count == 0)
+            return Array.Empty<Fact>();
+
+        var parameters = new Dictionary<string, object?>
+        {
+            // Owner-scoped: a relation query that crossed owners would leak one user's facts.
+            ["ownerKey"] = scope.OwnerId ?? OwnerKeyShared,
+            ["predicateKeys"] = canonicalPredicates.ToArray(),
+            ["limit"] = limit
+        };
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                FactQueries.SearchByCanonicalPredicates, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records
+                .Select(record =>
+                {
+                    var node = record["f"].As<INode>();
+                    return MapToFact(node, ReadEmbedding(node));
+                })
+                .ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
 }
