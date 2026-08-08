@@ -433,6 +433,43 @@ internal sealed class Neo4jLongMemEvalPreparationStore(IDriver driver)
         cancellationToken.ThrowIfCancellationRequested();
     }
 
+    /// <summary>
+    /// The preparation id sealed into this store, so an adopted volume describes itself.
+    /// </summary>
+    /// <remarks>
+    /// G3B.12-R. Reuse only receives a volume name; the run identity it needs to reproduce session
+    /// and owner scopes lives inside the graph. Reading it back is what lets a retained build be
+    /// evaluated without a rebuild — and every question would otherwise trip
+    /// <c>prepared-manifest-mismatch</c>, since scope hashes are derived from that id.
+    /// <para>
+    /// Exactly one manifest per store is required: more than one means volumes were mixed, which
+    /// would silently evaluate one graph against another's sealed expectations.
+    /// </para>
+    /// </remarks>
+    internal async Task<string> ReadSealedPreparationIdAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var session = driver.AsyncSession(
+            options => options.WithDefaultAccessMode(AccessMode.Read));
+        var ids = await session.ExecuteReadAsync(async transaction =>
+        {
+            var cursor = await transaction.RunAsync($"MATCH (m:{Label}) RETURN m.id AS id");
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(record => record["id"].As<string>()).ToList();
+        }).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return ids.Count switch
+        {
+            1 => ids[0],
+            0 => throw new InvalidOperationException(
+                "The reused volume holds no sealed LongMemEval preparation; it was never prepared, " +
+                "or preparation did not complete."),
+            _ => throw new InvalidOperationException(
+                $"The reused volume holds {ids.Count} sealed preparations; exactly one is required.")
+        };
+    }
+
     internal async Task<LongMemEvalPreparationManifest> ReadAsync(
         string preparationId,
         CancellationToken cancellationToken = default)

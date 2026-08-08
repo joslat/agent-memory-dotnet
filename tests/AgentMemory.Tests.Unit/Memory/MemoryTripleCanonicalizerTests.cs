@@ -68,4 +68,29 @@ public sealed class MemoryTripleCanonicalizerTests
         MemoryTripleCanonicalizer.Canonical("a few weeks before the session").Should()
             .NotBe(MemoryTripleCanonicalizer.Canonical("a few weeks before the potluck"));
     }
+
+    [Theory]
+    // Audit finding: separator folding is right for predicates and CORRUPTING for values. A fact
+    // recording minus five would have MERGEd onto five, silently merging a quantity with its
+    // negation — from a helper written to prevent silent duplication.
+    [InlineData("-5", "5")]
+    [InlineData("-1", "1")]
+    [InlineData("well-being", "well being")]
+    [InlineData("e-mail", "e mail")]
+    public void ValueCanonicalizationNeverRewritesPunctuation(string left, string right) =>
+        MemoryTripleCanonicalizer.CanonicalValue(left).Should()
+            .NotBe(MemoryTripleCanonicalizer.CanonicalValue(right));
+
+    [Fact]
+    public void ValueCanonicalizationStillFoldsCaseAndWhitespace()
+    {
+        // It must still collapse the differences that carry no meaning, or dedup stops working.
+        MemoryTripleCanonicalizer.CanonicalValue("  The   Blue  Sofa ").Should()
+            .Be(MemoryTripleCanonicalizer.CanonicalValue("the blue sofa"));
+    }
+
+    [Fact]
+    public void PredicateCanonicalizationStillFoldsSeparators() =>
+        MemoryTripleCanonicalizer.Canonical("was_born").Should()
+            .Be(MemoryTripleCanonicalizer.Canonical("was born"));
 }

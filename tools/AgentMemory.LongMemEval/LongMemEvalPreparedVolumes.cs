@@ -18,6 +18,7 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
     private readonly IVolume _hybridVolume;
     private readonly LongMemEvalPreparedVolumeLifecycle _lifecycle = new();
     private readonly bool _retain;
+    private readonly bool _adoptedBase;
 
     private LongMemEvalPreparedVolumes(
         string baseVolumeName,
@@ -26,9 +27,11 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
         IVolume structuredVolume,
         string hybridVolumeName,
         IVolume hybridVolume,
-        bool retain)
+        bool retain,
+        bool adoptedBase = false)
     {
         _retain = retain;
+        _adoptedBase = adoptedBase;
         BaseVolumeName = baseVolumeName;
         _baseVolume = baseVolume;
         StructuredVolumeName = structuredVolumeName;
@@ -42,6 +45,50 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
     internal string StructuredVolumeName { get; }
 
     internal string HybridVolumeName { get; }
+
+    /// <summary>
+    /// Adopts an existing retained base volume and creates fresh clone targets beside it.
+    /// </summary>
+    /// <remarks>
+    /// G3B.12-R. A cold build costs 121 provider calls and ~22 minutes; a killed run forfeits all of
+    /// it, and because extraction is non-deterministic (575 → 650 → 700 facts across builds of one
+    /// frozen plan) two runs are never a controlled comparison. Adopting a retained build makes a
+    /// retrieval-only change - which alters no stored fact - cost only its evaluation.
+    /// <para>
+    /// The base volume is never disposed here regardless of <paramref name="retain"/>: this object
+    /// did not create it, and destroying an input a caller supplied would be a surprising side
+    /// effect. Clone targets follow the usual retention rule.
+    /// </para>
+    /// </remarks>
+    internal static async Task<LongMemEvalPreparedVolumes> AdoptAsync(
+        string baseVolumeName,
+        CancellationToken cancellationToken,
+        bool retain = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseVolumeName);
+        var suffix = Guid.NewGuid().ToString("N");
+        var structuredName = $"{baseVolumeName}-reuse-structured-{suffix}";
+        var hybridName = $"{baseVolumeName}-reuse-hybrid-{suffix}";
+
+        // Referenced, not created: WithCleanUp(false) so disposal can never delete the adopted build.
+        var baseVolume = new VolumeBuilder().WithName(baseVolumeName).WithCleanUp(false).Build();
+        var structuredVolume = Build(structuredName, retain);
+        var hybridVolume = Build(hybridName, retain);
+        var volumes = new LongMemEvalPreparedVolumes(
+            baseVolumeName, baseVolume, structuredName, structuredVolume, hybridName, hybridVolume,
+            retain, adoptedBase: true);
+        try
+        {
+            await structuredVolume.CreateAsync(cancellationToken).ConfigureAwait(false);
+            await hybridVolume.CreateAsync(cancellationToken).ConfigureAwait(false);
+            return volumes;
+        }
+        catch
+        {
+            await volumes.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
 
     internal static async Task<LongMemEvalPreparedVolumes> CreateAsync(
         string preparationId,
@@ -135,7 +182,11 @@ internal sealed class LongMemEvalPreparedVolumes : IAsyncDisposable
         }
 
         List<Exception>? failures = null;
-        foreach (var volume in new[] { _hybridVolume, _structuredVolume, _baseVolume })
+        // An adopted base belongs to the caller and is never destroyed by this object.
+        var disposable = _adoptedBase
+            ? new[] { _hybridVolume, _structuredVolume }
+            : new[] { _hybridVolume, _structuredVolume, _baseVolume };
+        foreach (var volume in disposable)
         {
             try
             {

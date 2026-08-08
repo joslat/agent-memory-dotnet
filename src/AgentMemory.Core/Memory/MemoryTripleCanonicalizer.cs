@@ -41,6 +41,44 @@ public static class MemoryTripleCanonicalizer
     /// <remarks>
     /// The original text is always retained separately; this value is for matching, never display.
     /// </remarks>
+    /// <summary>
+    /// Canonical form for a <b>value</b> — a subject or object. Trims, lower-cases invariantly and
+    /// collapses whitespace, but <b>never rewrites punctuation</b>.
+    /// </summary>
+    /// <remarks>
+    /// Separator folding is correct for predicates, where <c>was_born</c> and <c>was born</c> are one
+    /// relation under two naming conventions. It is <b>corrupting</b> for values: <c>-5</c> and
+    /// <c>5</c> would fold into one fact, silently merging a quantity with its negation. Values carry
+    /// meaning in their punctuation; identifiers do not.
+    /// </remarks>
+    public static string CanonicalValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var builder = new StringBuilder(value.Length);
+        var pendingSpace = false;
+        foreach (var character in value.ToLowerInvariant())
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                pendingSpace = builder.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                pendingSpace = false;
+            }
+
+            builder.Append(character);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>Canonical form for a <b>predicate</b>, folding word separators.</summary>
     public static string Canonical(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

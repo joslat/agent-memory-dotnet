@@ -30,9 +30,9 @@ internal sealed partial class Neo4jFactRepository
             // The fused batch writer is the path extraction actually uses; the non-fused Upsert
             // carried these keys while this one did not, so canonical identity never reached a real
             // cold build.
-            ["subject_key"] = MemoryTripleCanonicalizer.Canonical(fact.Subject),
+            ["subject_key"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
             ["predicate_key"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
-            ["object_key"] = MemoryTripleCanonicalizer.Canonical(fact.Object),
+            ["object_key"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Object),
             ["object"] = fact.Object,
             ["owner_id"] = fact.OwnerId,
             ["owner_key"] = fact.OwnerId ?? OwnerKeyShared,

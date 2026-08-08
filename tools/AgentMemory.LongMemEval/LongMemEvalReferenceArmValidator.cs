@@ -24,7 +24,8 @@ internal static class LongMemEvalReferenceArmValidator
         IReadOnlyList<QuestionResult> questionResults,
         LongMemEvalChatCallSnapshot? answerCalls = null,
         LongMemEvalChatCallSnapshot? judgeCalls = null,
-        int diagnosticJudgeCalls = 0)
+        int diagnosticJudgeCalls = 0,
+        int agentEvalJudgeRetryAllowance = 0)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -45,16 +46,22 @@ internal static class LongMemEvalReferenceArmValidator
                 $"The reference arm recorded {telemetry.Count} question telemetry entries for {questionCount} AgentEval results.");
         }
 
-        // Same exact 2N base-call contract as the memory arms, including BUG-J1's separation of
-        // diagnostic judge retries. An answer call is expected for every question, including one the
-        // provider rejects: the call was made, and hiding it would hide the cost.
+        // Same contract as the memory arms — and it must track them. AgentEval retries an
+        // unparseable judge verdict internally under JudgeFailurePolicy.RetryThenInconclusive without
+        // reporting how many times, so an exact count is unachievable from outside the library. This
+        // validator kept the exact form after the memory-arm validator moved to a range, and a real
+        // no-memory floor run was discarded for it (12 judge calls over 10 questions). Correctness
+        // stays exact below: one answer call per question, one valid verdict per question.
+        var minimumCalls = questionCount * 2;
+        var maximumCalls = questionCount * (2 + agentEvalJudgeRetryAllowance);
         var baseLlmCalls = llmCalls - diagnosticJudgeCalls;
-        if (baseLlmCalls != questionCount * 2)
+        if (baseLlmCalls < minimumCalls || baseLlmCalls > maximumCalls)
         {
             issues.Add(
                 $"AgentEval reported {llmCalls} LLM calls ({baseLlmCalls} base after excluding " +
                 $"{diagnosticJudgeCalls} diagnostic judge retries) for {questionCount} questions; " +
-                $"expected exactly {questionCount * 2} base calls.");
+                $"expected between {minimumCalls} and {maximumCalls} base calls " +
+                $"({agentEvalJudgeRetryAllowance} internal judge retries permitted per question).");
         }
 
         if (answerCalls is not null && answerCalls.Calls != questionCount)
@@ -63,12 +70,16 @@ internal static class LongMemEvalReferenceArmValidator
                 $"Observed {answerCalls.Calls} answer calls for {questionCount} questions; expected exactly {questionCount}.");
         }
 
-        if (judgeCalls is not null && judgeCalls.Calls - diagnosticJudgeCalls != questionCount)
+        var baseJudgeCalls = (judgeCalls?.Calls ?? 0) - diagnosticJudgeCalls;
+        if (judgeCalls is not null &&
+            (baseJudgeCalls < questionCount ||
+             baseJudgeCalls > questionCount * (1 + agentEvalJudgeRetryAllowance)))
         {
             issues.Add(
-                $"Observed {judgeCalls.Calls} judge calls ({judgeCalls.Calls - diagnosticJudgeCalls} base " +
+                $"Observed {judgeCalls.Calls} judge calls ({baseJudgeCalls} base " +
                 $"after excluding {diagnosticJudgeCalls} diagnostic retries) for {questionCount} questions; " +
-                $"expected exactly {questionCount} base judge calls.");
+                $"expected between {questionCount} and {questionCount * (1 + agentEvalJudgeRetryAllowance)} " +
+                "base judge calls.");
         }
 
         var skipped = telemetry.Count(item =>

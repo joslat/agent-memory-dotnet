@@ -83,7 +83,8 @@ internal static class LongMemEvalReferenceArmProgram
                 result.QuestionResults,
                 answerCalls,
                 judgeCalls,
-                judgeRetries.Count);
+                judgeRetries.Count,
+                options.JudgeRetryAttempts);
 
             var destination = Path.GetFullPath(options.OutputPath ??
                 Path.Combine("artifacts", "evaluation", runId, "report.json"));
