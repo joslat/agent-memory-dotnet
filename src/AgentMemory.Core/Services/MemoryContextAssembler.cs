@@ -274,11 +274,18 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             await graphRagTask.ConfigureAwait(false);
 
         string? graphRagContext = null;
+        // K4: the items are retained, not only their joined text. They already carry SourceNodeIds,
+        // Score and Metadata, and discarding them here is what left GraphRAG unattributable, and so
+        // unmeasurable, in every quality run to date. The joined string is byte-identical to before.
+        IReadOnlyList<GraphRagContextItem> graphRagItems = Array.Empty<GraphRagContextItem>();
         if (graphRagTask != null)
         {
             var graphRagResult = await graphRagTask.ConfigureAwait(false);
             if (graphRagResult?.Items is { Count: > 0 } items)
+            {
                 graphRagContext = string.Join("\n\n", items.Select(i => i.Text));
+                graphRagItems = items;
+            }
         }
 
         // Apply context budget if configured
@@ -318,6 +325,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
             GraphRagContext = graphRagContext,
+            GraphRagItems = graphRagItems,
             BlendMode = blendMode,
             Truncated = truncated
         };
