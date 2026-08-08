@@ -113,6 +113,29 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 "Batched LongMemEval preparation requires an ordinary preparation run, the batch pipeline, deterministic planner, expected plan, and positive batch limits.",
                 nameof(options));
         }
+        if (_options.ExpandFactsByPredicate)
+        {
+            // Checked here rather than discovered mid-run: this exact overflow cost two full
+            // 121-call rebuilds to surface as an opaque diagnostics error. Worst case is every
+            // category filled plus every expanded fact, and AgentEval rejects the envelope above
+            // MaximumReferences.
+            var budget = LongMemEvalRecallBudget.For(
+                _options.MemoryMode, _options.MaxRelevantMessages);
+            var worstCaseReferences =
+                budget.Messages + budget.Entities + budget.Facts + budget.Preferences +
+                _options.MaxExpandedFacts;
+            if (worstCaseReferences > AgentEval.Memory.External.Models.QuestionEvidenceEnvelope.MaximumReferences)
+            {
+                throw new ArgumentException(
+                    $"Predicate expansion would produce up to {worstCaseReferences} evidence " +
+                    $"references, exceeding AgentEval's maximum of " +
+                    $"{AgentEval.Memory.External.Models.QuestionEvidenceEnvelope.MaximumReferences}. " +
+                    $"Lower MaxExpandedFacts (currently {_options.MaxExpandedFacts}) or the recall " +
+                    "budget so the total fits.",
+                    nameof(options));
+            }
+        }
+
         _questionNumber = _options.InitialQuestionNumber;
         _sessionId = ScopeId("session", _questionNumber);
         _ownerId = ScopeId("owner", _questionNumber);
@@ -1095,7 +1118,13 @@ public sealed record LongMemEvalAdapterOptions
     public bool ExpandFactsByPredicate { get; init; }
 
     /// <summary>Cap on expanded facts.</summary>
-    public int MaxExpandedFacts { get; init; } = 100;
+    /// <remarks>
+    /// Defaulted well below AgentEval's 100-reference evidence cap, which counts entities,
+    /// facts <i>and</i> preferences — not the fact budget alone. A structured arm already spends ~30
+    /// references before expansion adds any, so a 100-fact expansion guarantees the envelope
+    /// overflows and the run is rejected mid-flight.
+    /// </remarks>
+    public int MaxExpandedFacts { get; init; } = 60;
 
     /// <summary>Candidate over-fetch factor used only when synthetic exclusion is enabled.</summary>
     /// <remarks>

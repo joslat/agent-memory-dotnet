@@ -64,7 +64,7 @@ public sealed class LongMemEvalExpansionWiringTests
             new LongMemEvalAdapterOptions
             {
                 ExpandFactsByPredicate = expand,
-                MaxExpandedFacts = 77
+                MaxExpandedFacts = 50
             });
         await adapter.ResetSessionAsync();
         adapter.InjectConversationHistory([("a question was asked", "an answer was given")]);
@@ -72,6 +72,6 @@ public sealed class LongMemEvalExpansionWiringTests
 
         captured.Should().NotBeNull();
         captured!.Options.ExpandFactsByPredicate.Should().Be(expand);
-        captured.Options.MaxExpandedFacts.Should().Be(77);
+        captured.Options.MaxExpandedFacts.Should().Be(50);
     }
 }
