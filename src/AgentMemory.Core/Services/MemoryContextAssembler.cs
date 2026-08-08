@@ -243,7 +243,15 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
                 ? TimedAsync("memory.recall.traces",
-                    () => _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                    () => _reasoning.SearchSimilarTracesAsync(
+                        queryEmbedding,
+                        // K5: was a hardcoded null, so the outcome filter the repository and its
+                        // Cypher already supported could never be reached from automatic recall.
+                        // A recalled trace is shown to the reader as precedent with nothing marking
+                        // it as a failure, so imitating reasoning that did not work is worse than
+                        // recalling nothing. Default stays null - today's behaviour - until measured.
+                        recallOpts.SuccessfulTracesOnly,
+                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
                 : Empty<ReasoningTrace>();
 
             if (overrideRanking) _rankingContext!.Current = null;

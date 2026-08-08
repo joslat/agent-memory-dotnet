@@ -72,6 +72,24 @@ public sealed record RecallOptions
     public int MaxExpandedFacts { get; init; } = 100;
 
     /// <summary>
+    /// Restricts recalled reasoning traces by outcome: <c>true</c> successful only, <c>false</c>
+    /// failed only, <c>null</c> (default) no filter.
+    /// </summary>
+    /// <remarks>
+    /// The repository and its Cypher have always supported this, and automatic recall passed a
+    /// hardcoded <c>null</c>, so nothing could ever reach it — a built, plumbed, unreachable option.
+    /// <para>
+    /// It matters because a recalled trace is presented to the reader as precedent with nothing
+    /// marking it as a failure, so imitating reasoning that did not work is worse than recalling
+    /// nothing. Upstream <c>neo4j-labs/agent-memory</c> treats this as correctness rather than tuning
+    /// and defaults its equivalent to successful-only. The default here stays at today's behaviour
+    /// because nothing becomes a default before it is measured, and the trace surface has never been
+    /// measured at all — it has carried a recall budget of zero in every quality run to date.
+    /// </para>
+    /// </remarks>
+    public bool? SuccessfulTracesOnly { get; init; }
+
+    /// <summary>
     /// Also expand on the relations the query text itself names, not only those the top-K surfaced.
     /// </summary>
     /// <remarks>
