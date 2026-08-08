@@ -26,6 +26,23 @@ public sealed record AutomaticRecallDecision
     public RankingIntent? Intent { get; init; }
 
     /// <summary>
+    /// The question needs a relation returned <i>whole</i>, not merely its most similar members.
+    /// </summary>
+    /// <remarks>
+    /// Top-K is a relevance cutoff and gives no completeness guarantee, so an aggregation question is
+    /// unanswerable from it: miss one of five matching facts and the count is four, with nothing
+    /// signalling the loss. Setting this turns on predicate expansion and query-relation resolution
+    /// for the turn.
+    /// <para>
+    /// It is a routed decision rather than a global default because it is expensive — expansion
+    /// roughly triples the retrieved context — and because it only helps the questions that need
+    /// completeness. Measured: 73.3% to 90.0% on the questions it applies to, at a cost every other
+    /// turn would pay for nothing.
+    /// </para>
+    /// </remarks>
+    public bool RequiresRelationCompleteness { get; init; }
+
+    /// <summary>
     /// An explicit, complete override of the effective <see cref="Abstractions.Options.RecallOptions"/> for
     /// this turn. When set, <see cref="Categories"/> and <see cref="Intent"/> above are ignored -- this
     /// value is used verbatim (its <c>Scope</c> is still always cleared, the same invariant as before #88).

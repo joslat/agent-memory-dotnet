@@ -228,6 +228,13 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
             MaxEntities = decision.Categories.HasFlag(AutomaticRecallCategories.Entities) ? _recallOptions.MaxEntities : 0,
             MaxFacts = decision.Categories.HasFlag(AutomaticRecallCategories.Facts) ? _recallOptions.MaxFacts : 0,
             MaxPreferences = decision.Categories.HasFlag(AutomaticRecallCategories.Preferences) ? _recallOptions.MaxPreferences : 0,
+            // J4.1: the aggregation route. Top-K cannot answer "how many", so a routed decision
+            // turns on relation completeness for that turn only - it roughly triples the retrieved
+            // context, which is why it is routed rather than defaulted on.
+            ExpandFactsByPredicate =
+                _recallOptions.ExpandFactsByPredicate || decision.RequiresRelationCompleteness,
+            ResolveQueryRelations =
+                _recallOptions.ResolveQueryRelations || decision.RequiresRelationCompleteness,
             MaxTraces = decision.Categories.HasFlag(AutomaticRecallCategories.ReasoningTraces) ? _recallOptions.MaxTraces : 0,
             MaxGraphRagItems = decision.Categories.HasFlag(AutomaticRecallCategories.GraphRag) ? _recallOptions.MaxGraphRagItems : 0,
             Intent = decision.Intent ?? _recallOptions.Intent
