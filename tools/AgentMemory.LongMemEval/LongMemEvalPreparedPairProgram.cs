@@ -272,6 +272,12 @@ internal static class LongMemEvalPreparedPairProgram
                             embeddingDimensions,
                             options.MaxRelevantMessages,
                             options.PreparationWorkers,
+                            // Both provider-concurrency knobs belong here: they determine the wall
+                            // time this checkpoint projects, so omitting them let two runs with
+                            // different concurrency share a fingerprint and have their projections
+                            // compared as though equivalent.
+                            options.MaxConcurrentBatchesPerExtraction,
+                            options.MaxConcurrentExtractionBatches,
                             options.MaxSessionsPerBatch,
                             options.MaxInputTokens,
                             options.CheckpointTimeoutSeconds,
