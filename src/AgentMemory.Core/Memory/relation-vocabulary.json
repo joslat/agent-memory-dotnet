@@ -114,7 +114,7 @@
       ]
     },
     "avoids": {
-      "family": "event",
+      "family": "state",
       "sources": [
         "schema.org:IgnoreAction"
       ],
@@ -374,7 +374,7 @@
       ]
     },
     "dislikes": {
-      "family": "event",
+      "family": "state",
       "sources": [
         "schema.org:DislikeAction"
       ],
@@ -578,7 +578,7 @@
       ]
     },
     "likes": {
-      "family": "event",
+      "family": "state",
       "sources": [
         "schema.org:LikeAction"
       ],
@@ -749,7 +749,7 @@
       ]
     },
     "prefers": {
-      "family": "event",
+      "family": "state",
       "sources": [
         "schema.org:ChooseAction"
       ],
@@ -1016,7 +1016,7 @@
       ]
     },
     "uses": {
-      "family": "event",
+      "family": "state",
       "sources": [
         "schema.org:UseAction"
       ],
@@ -1038,7 +1038,7 @@
       ]
     },
     "wants": {
-      "family": "event",
+      "family": "state",
       "sources": [
         "schema.org:WantAction"
       ],

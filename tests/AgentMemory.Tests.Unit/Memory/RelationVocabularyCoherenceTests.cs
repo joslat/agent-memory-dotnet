@@ -99,6 +99,46 @@ public sealed class RelationVocabularyCoherenceTests
     }
 
     [Fact]
+    public void NoInflectionOfAListedFormResolvesToADifferentRelation()
+    {
+        // Reviewer finding 4. The stemmer strips suffixes, so a listed form's siblings can land on a
+        // DIFFERENT relation by accident. This is the mechanical gate that catches such a collision at
+        // build time instead of as a wrong retrieval in production.
+        var lexicon = MemoryRelationLexicon.Default;
+        var collisions = new List<string>();
+
+        foreach (var relation in lexicon.CanonicalRelations)
+        {
+            foreach (var form in lexicon.StoredFormsOf(relation))
+            {
+                foreach (var inflection in new[] { form + "s", form + "ing", form + "ed" })
+                {
+                    var resolved = lexicon.Resolve(inflection);
+                    // A miss is fine - not every inflection is real English. Landing on another
+                    // relation is not.
+                    if (resolved is not null && resolved != relation)
+                        collisions.Add($"'{inflection}' (from '{relation}') resolves to '{resolved}'");
+                }
+            }
+        }
+
+        collisions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void TheFamilyOfEveryRelationIsDeclaredAndUsable()
+    {
+        // Reviewer finding 3: the field was internally inconsistent, marking durable dispositions as
+        // events. A field a reviewer cannot trust is worse than no field.
+        var document = RelationVocabularyDocument.Load();
+
+        foreach (var stative in new[] { "likes", "prefers", "wants", "owns", "knows", "is" })
+            document.Canonical[stative].Family.Should().Be("state");
+        foreach (var episodic in new[] { "bought", "sold", "travelled to", "called" })
+            document.Canonical[episodic].Family.Should().Be("event");
+    }
+
+    [Fact]
     public void OpposingRelationsSurviveTheSharedSource()
     {
         // Carried over from the seed, where it is load-bearing: offering only one side of an opposing
