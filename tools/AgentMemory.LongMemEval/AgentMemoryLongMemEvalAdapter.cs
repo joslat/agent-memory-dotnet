@@ -577,6 +577,9 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                                 // G5 "hard" tier: a relation returned whole, for the aggregation
                                 // questions top-K structurally cannot answer.
                                 ExpandFactsByPredicate = _options.ExpandFactsByPredicate,
+                                // J2.2: also expand on the relations the question itself names, for
+                                // the multi-relation case top-K structurally cannot nominate.
+                                ResolveQueryRelations = _options.ResolveQueryRelations,
                                 MaxExpandedFacts = _options.MaxExpandedFacts,
                                 MaxGraphRagItems = budget.GraphRag,
                                 MinSimilarityScore = _options.MinSimilarityScore,
@@ -1116,6 +1119,9 @@ public sealed record LongMemEvalAdapterOptions
 
     /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
     public bool ExpandFactsByPredicate { get; init; }
+
+    /// <summary>J2.2. Also expands on relations resolved from the question text itself.</summary>
+    public bool ResolveQueryRelations { get; init; }
 
     /// <summary>Cap on expanded facts.</summary>
     /// <remarks>

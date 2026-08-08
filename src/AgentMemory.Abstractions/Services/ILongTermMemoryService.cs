@@ -222,4 +222,32 @@ public interface ILongTermMemoryService
         int expansionLimit,
         CancellationToken cancellationToken) =>
         SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+
+    /// <summary>
+    /// Fact recall with expansion driven by the relations the question itself names.
+    /// </summary>
+    /// <remarks>
+    /// Expansion alone can only widen predicates that similarity already surfaced in the top-K, so a
+    /// question naming several relations reaches only whichever of them retrieval happened to nominate.
+    /// <paramref name="questionRelations"/> supplies them from the question instead. An empty list
+    /// reproduces the previous overload exactly, which is what keeps this from ever being worse than
+    /// the existing behaviour.
+    /// <para>
+    /// A further default interface method for the same reason as the one above: adding optional
+    /// parameters to a published interface breaks every implementor, and the interface is locked
+    /// under SemVer.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            cancellationToken);
 }

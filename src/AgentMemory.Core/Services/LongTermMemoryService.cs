@@ -336,6 +336,19 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
     /// parameters to a published interface breaks every implementor, and the interface is locked
     /// under SemVer.
     /// </remarks>
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            Array.Empty<string>(), cancellationToken);
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
         float[] queryEmbedding,
         int limit,
@@ -343,12 +356,16 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope,
         bool expandByPredicate,
         int expansionLimit,
+        IReadOnlyList<string> questionRelations,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(questionRelations);
         var resolved = Resolve(scope, nameof(SearchFactsAsync));
         var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken).ConfigureAwait(false);
         var top = scored.Select(r => r.Fact).ToList();
-        if (!expandByPredicate || top.Count == 0)
+        // A question that names its relations outright does not need the top-K to nominate them, so an
+        // empty top-K is only a dead end when there is nothing else to expand on.
+        if (!expandByPredicate || (top.Count == 0 && questionRelations.Count == 0))
             return top;
 
         // G5 "hard" tier. Similarity decides *which* relation matters; this returns that relation
@@ -357,6 +374,11 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         // is four. Expansion is additive: the similarity-ranked facts stay, in order, at the front.
         var predicates = top
             .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
+            // J2.2. Relations the question named, each widened to every form it could be stored under:
+            // the write-side canonicalizer never folds morphology, so one relation lives under several
+            // keys and expanding only the canonical name would miss the smaller buckets.
+            .Concat(questionRelations.SelectMany(
+                relation => MemoryRelationLexicon.Default.StoredFormsOf(relation)))
             .Where(predicate => predicate.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();

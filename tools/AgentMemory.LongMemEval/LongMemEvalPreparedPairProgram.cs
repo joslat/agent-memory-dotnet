@@ -653,6 +653,7 @@ internal static class LongMemEvalPreparedPairProgram
                     // without them two runs over the same frozen graph are indistinguishable in the
                     // artifact - which is precisely the comparison reuse exists to make.
                     expandFactsByPredicate = options.ExpandFactsByPredicate,
+                    resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
                     maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                     // The vocabulary decides what is stored and the lexicon decides what is
@@ -788,6 +789,7 @@ internal static class LongMemEvalPreparedPairProgram
                 // questions received 0 and 2 real turns out of 15.
                 ExcludeSyntheticFormatterMessages = true,
                 ExpandFactsByPredicate = options.ExpandFactsByPredicate,
+                ResolveQueryRelations = options.ResolveQueryRelations,
                 MaxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                 ChronologicalAnswerContext = true,
                 RequireGraphReadBack = true,
@@ -1077,6 +1079,7 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
             Has("--expand-facts-by-predicate"),
+            Has("--resolve-query-relations"),
             Value("--reuse-prepared-volumes"),
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
@@ -1296,6 +1299,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
         bool ExpandFactsByPredicate,
+        bool ResolveQueryRelations,
         string? ReusePreparedVolume,
         int MaxItemsPerSourceSession,
         int? CheckpointQuestions,

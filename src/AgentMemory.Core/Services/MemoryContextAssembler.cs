@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Memory;
 using AgentMemory.Core.Services.Budgeting;
 
 namespace AgentMemory.Core.Services;
@@ -228,7 +229,14 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                     () => recallOpts.ExpandFactsByPredicate
                         ? _longTerm.SearchFactsAsync(
                             queryEmbedding, recallOpts.MaxFacts, minScore, scope,
-                            true, recallOpts.MaxExpandedFacts, cancellationToken)
+                            true, recallOpts.MaxExpandedFacts,
+                            // J2.2. Empty unless explicitly enabled, and an unrecognised verb resolves
+                            // to nothing, so both the option-off and the no-match paths reproduce the
+                            // previous call exactly.
+                            recallOpts.ResolveQueryRelations
+                                ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
+                                : Array.Empty<string>(),
+                            cancellationToken)
                         : _longTerm.SearchFactsAsync(
                             queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
                 : Empty<Fact>();

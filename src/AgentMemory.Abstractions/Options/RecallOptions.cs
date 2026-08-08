@@ -70,4 +70,16 @@ public sealed record RecallOptions
 
     /// <summary>Cap on facts returned by predicate expansion. Unbounded completeness would exhaust the budget.</summary>
     public int MaxExpandedFacts { get; init; } = 100;
+
+    /// <summary>
+    /// Also expand on the relations the query text itself names, not only those the top-K surfaced.
+    /// </summary>
+    /// <remarks>
+    /// Requires <see cref="ExpandFactsByPredicate"/>. Expansion makes one relation complete, but it can
+    /// only widen predicates similarity already nominated, so a question naming several relations
+    /// ("did I buy, assemble, sell, or fix...") reaches only whichever of them retrieval happened to
+    /// surface. This resolves the question's own verbs instead. Off by default: it widens the context,
+    /// and nothing is a default here until it has been measured.
+    /// </remarks>
+    public bool ResolveQueryRelations { get; init; }
 }
