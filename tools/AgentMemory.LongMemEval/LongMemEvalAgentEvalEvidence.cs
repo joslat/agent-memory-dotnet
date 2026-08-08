@@ -117,7 +117,19 @@ internal static class LongMemEvalAgentEvalEvidence
         var scores = Scores(context.RelevantFacts.RankedItems);
         foreach (var fact in context.RelevantFacts.Items)
         {
-            var source = StructuredOrigin(fact.SourceMessageIds, origins);
+            // A predicate-expanded fact is a relation drawn from the whole owner, so its provenance
+            // may sit outside this question's message window. That is expected, not corruption, and
+            // must not be resolved against a map that only covers this question — the throw in
+            // StructuredOrigin stays intact for every fact that is *not* so marked.
+            var expanded =
+                fact.Metadata.TryGetValue(Fact.RetrievalSourceMetadataKey, out var retrievalSource) &&
+                string.Equals(
+                    retrievalSource?.ToString(),
+                    Fact.RetrievalSourcePredicateExpansion,
+                    StringComparison.Ordinal);
+            var source = expanded
+                ? new StructuredSource(null, null, null)
+                : StructuredOrigin(fact.SourceMessageIds, origins);
             output.Add(new EvidenceCandidate(
                 $"fact:{fact.FactId}",
                 scores.GetValueOrDefault(fact.FactId),

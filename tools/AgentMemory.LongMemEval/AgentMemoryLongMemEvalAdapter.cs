@@ -657,14 +657,17 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                         recall.Context, originsByMessageId, _options.EvidenceDetail);
                 }
             }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
+                // Content-free but specific: the type and message locate the failing builder, which
+                // a bare status cannot. Diagnosing this by inspection previously cost two full
+                // 121-call rebuilds.
                 RecordTelemetry(
                     questionNumber,
                     messages.Count,
                     recall.TotalItemsRetrieved,
                     recall.Truncated,
-                    "retrieval-diagnostics-error",
+                    $"retrieval-diagnostics-error:{exception.GetType().Name}:{exception.Message}",
                     evidenceQuestion.QuestionId);
                 throw;
             }
