@@ -133,7 +133,6 @@
         "participated in the",
         "participates in",
         "participating in",
-        "played in the",
         "present at",
         "take part",
         "take part in",
@@ -143,8 +142,10 @@
         "took part",
         "took part in",
         "took part in the",
-        "was a participant in the",
         "was educated at"
+      ],
+      "storedOnly": [
+        "played in the"
       ]
     },
     "avoids": {
@@ -179,10 +180,8 @@
       "surfaceForms": [
         "belong to",
         "belonged to",
-        "belongs to the organization of",
         "is a member of",
         "is a member of the",
-        "is a player for",
         "is affiliated with",
         "is member of",
         "join",
@@ -234,9 +233,8 @@
         "buy",
         "buying",
         "buys",
-        "order a",
-        "order from",
-        "order the",
+        "did i order",
+        "do i order",
         "ordered",
         "ordering",
         "orders",
@@ -440,7 +438,6 @@
         "died in",
         "dies",
         "dying",
-        "expired at",
         "lost their life at",
         "pass away",
         "passed away",
@@ -449,6 +446,9 @@
         "passes away",
         "passing away",
         "succumbed at"
+      ],
+      "storedOnly": [
+        "expired at"
       ]
     },
     "dislikes": {
@@ -483,7 +483,8 @@
         "hand-authored"
       ],
       "surfaceForms": [
-        "drink"
+        "drink",
+        "drunk"
       ]
     },
     "earned": {
@@ -583,9 +584,7 @@
         "donates",
         "donating",
         "gifted",
-        "gifting",
-        "give my",
-        "give the"
+        "gifting"
       ],
       "storedOnly": [
         "give",
@@ -766,15 +765,19 @@
         "schema.org:LikeAction"
       ],
       "surfaceForms": [
+        "did i like",
+        "do i like",
         "enjoy",
         "enjoyed",
         "enjoys",
-        "like",
         "liked",
         "liking",
         "love",
         "loved",
         "loves"
+      ],
+      "storedOnly": [
+        "like"
       ]
     },
     "listened to": {
@@ -892,8 +895,6 @@
         "rel2text"
       ],
       "surfaceForms": [
-        "collection is owned by",
-        "currently owns the football team",
         "did i own",
         "do i own",
         "is owned by",
@@ -933,6 +934,8 @@
         "schema.org:PlanAction"
       ],
       "surfaceForms": [
+        "did i plan",
+        "do i plan",
         "plan to",
         "planning",
         "plans"
@@ -1002,12 +1005,15 @@
         "schema.org:ReviewAction"
       ],
       "surfaceForms": [
+        "did i rate",
+        "do i rate",
         "rate it",
         "rate my",
         "rate that",
         "rate the",
         "rate them",
         "rate this",
+        "rated it",
         "rating"
       ]
     },
@@ -1183,6 +1189,7 @@
         "hand-authored"
       ],
       "surfaceForms": [
+        "did i text",
         "email",
         "emailed",
         "emailing",
@@ -1191,10 +1198,12 @@
         "send",
         "sending",
         "sends",
-        "text",
         "texted",
         "texting",
         "texts"
+      ],
+      "storedOnly": [
+        "text"
       ]
     },
     "signed": {
@@ -1345,6 +1354,8 @@
       ],
       "surfaceForms": [
         "been to",
+        "did i go to",
+        "do i go to",
         "drive to",
         "drives to",
         "driving to",
@@ -1357,6 +1368,7 @@
         "fly to",
         "flying",
         "flying to",
+        "gone to",
         "travel",
         "travel to",
         "traveled to",
@@ -1492,6 +1504,7 @@
         "who is employed by",
         "who works for",
         "work at",
+        "worked",
         "worked at",
         "worked for",
         "worked from",
@@ -1500,12 +1513,13 @@
         "working for",
         "working from",
         "workplace",
-        "works for",
         "works from",
         "works in"
       ],
       "storedOnly": [
-        "work"
+        "work",
+        "working",
+        "works for"
       ]
     },
     "works on": {

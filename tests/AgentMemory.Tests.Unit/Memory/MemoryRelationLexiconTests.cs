@@ -123,6 +123,36 @@ public sealed class MemoryRelationLexiconTests
         Lexicon.StoredFormsOf("has").Should().Contain("had");
     }
 
+    [Theory]
+    // Independent review, verified: the stop list was checked against the raw form only, then the
+    // stemmer looked up its result WITHOUT re-checking it. So a suppressed bare verb was handed
+    // straight back through its own inflections - "Let me know if that works" resolved `works at`,
+    // pulling 28 predicate keys into a 100-fact budget. This silently weakened every suppression
+    // decision in the vocabulary, including any made later.
+    [InlineData("works")]
+    [InlineData("working")]
+    [InlineData("needing")]
+    public void SuppressionSurvivesTheStemmer(string form) =>
+        Lexicon.Resolve(form).Should().BeNull();
+
+    [Fact]
+    public void SuppressedVerbsAreStillReachableThroughTheirQuestionAnchor()
+    {
+        // The other half: suppression must cost no recall. The anchored phrase wins by
+        // longest-phrase-first before the bare verb is ever tried.
+        Lexicon.ResolveQuestion("Where do i work?").Should().Contain("works at");
+        Lexicon.ResolveQuestion("What did i plan for the weekend?").Should().Contain("planned");
+    }
+
+    [Fact]
+    public void AssistantBoilerplateResolvesToNothing()
+    {
+        // The probes that motivated the whole storedOnly mechanism.
+        Lexicon.ResolveQuestion("Let me know if that works").Should().BeEmpty();
+        Lexicon.ResolveQuestion("Give me the top five items").Should().BeEmpty();
+        Lexicon.ResolveQuestion("Order the results by date").Should().BeEmpty();
+    }
+
     [Fact]
     public void AQuestionAboutABirthDoesNotExpandTheCopula()
     {

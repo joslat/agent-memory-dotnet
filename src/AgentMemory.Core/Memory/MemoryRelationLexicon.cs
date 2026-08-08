@@ -77,9 +77,17 @@ internal sealed class MemoryRelationLexicon
 
         // Fallback only. Listed irregulars have already matched above.
         var stemmed = Stem(normalized);
-        return stemmed is not null && _surfaceToCanonical.TryGetValue(stemmed, out var stemMatch)
-            ? stemMatch
-            : null;
+        if (stemmed is null)
+            return null;
+
+        // The stem is re-checked against the stop list, not just the raw form. Without this a
+        // suppressed bare verb is handed straight back through its own inflections - "works" and
+        // "working" both stem to a suppressed "work" - which silently defeats every suppression
+        // decision in the vocabulary rather than only the one being read.
+        if (_queryStopForms.Contains(stemmed))
+            return null;
+
+        return _surfaceToCanonical.TryGetValue(stemmed, out var stemMatch) ? stemMatch : null;
     }
 
     /// <summary>
