@@ -557,18 +557,22 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (canonicalPredicates.Count == 0)
             return Array.Empty<Fact>();
 
+        // Same scope semantics as every other fact read: an owner filter only when one was asked
+        // for, and shared facts included unless explicitly excluded.
+        var hasOwner = scope?.HasOwnerFilter == true;
+        var includeShared = scope?.IncludeShared ?? true;
         var parameters = new Dictionary<string, object?>
         {
-            // Owner-scoped: a relation query that crossed owners would leak one user's facts.
-            ["ownerKey"] = scope.OwnerId ?? OwnerKeyShared,
             ["predicateKeys"] = canonicalPredicates.ToArray(),
             ["limit"] = limit
         };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
-                FactQueries.SearchByCanonicalPredicates, parameters).ConfigureAwait(false);
+                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared),
+                parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<Fact>)records
                 .Select(record =>

@@ -17,7 +17,7 @@ public sealed class FactPredicateExpansionQueryTests
     {
         // Matching raw text would reinstate exactly the fragmentation canonical identity removed:
         // "were_born_in" and "were born in" would once again fail to find each other.
-        var cypher = FactQueries.SearchByCanonicalPredicates;
+        var cypher = FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: true, includeShared: true);
 
         cypher.Should().Contain("f.predicate_key IN $predicateKeys");
         cypher.Should().NotContain("f.predicate IN");
@@ -27,20 +27,50 @@ public sealed class FactPredicateExpansionQueryTests
     public void ExpansionIsOwnerScoped()
     {
         // A relation query that crosses owners would leak one user's facts into another's context.
-        FactQueries.SearchByCanonicalPredicates.Should().Contain("owner_key");
+        // Scoping is by owner_id, matching every other fact read; the original owner_key form was
+        // the hard-coded version the audit found wrong.
+        FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: true, includeShared: true).Should()
+            .Contain("f.owner_id = $ownerId");
     }
 
     [Fact]
     public void ExpansionIsBounded()
     {
         // Unbounded completeness on a ~962-item graph is a denial of service on the context budget.
-        FactQueries.SearchByCanonicalPredicates.Should().Contain("LIMIT $limit");
+        FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: true, includeShared: true).Should().Contain("LIMIT $limit");
     }
 
     [Fact]
     public void ExpansionReturnsFactsInADeterministicOrder()
     {
         // Two runs of one question must select the same facts, or the comparison is unrepeatable.
-        FactQueries.SearchByCanonicalPredicates.Should().Contain("ORDER BY");
+        FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: true, includeShared: true).Should().Contain("ORDER BY");
+    }
+
+    [Fact]
+    public void SharedFactsAreIncludedWhenTheScopeAllowsThem()
+    {
+        // Audit finding: the first version matched only the owner's own bucket, so a shared fact was
+        // silently absent and the "relation whole" guarantee was false.
+        FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: true, includeShared: true)
+            .Should().Contain("f.owner_id IS NULL");
+    }
+
+    [Fact]
+    public void SharedFactsAreExcludedWhenTheScopeForbidsThem()
+    {
+        FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: true, includeShared: false)
+            .Should().NotContain("f.owner_id IS NULL");
+    }
+
+    [Fact]
+    public void NoOwnerFilterMeansNoOwnerPredicateAtAll()
+    {
+        // Audit finding: a null-owner scope was coerced to the shared bucket, so expansion returned
+        // nothing exactly where top-K returned everything.
+        var cypher = FactQueries.SearchByCanonicalPredicates(hasOwnerFilter: false, includeShared: true);
+
+        cypher.Should().NotContain("owner_id");
+        cypher.Should().NotContain("owner_key");
     }
 }

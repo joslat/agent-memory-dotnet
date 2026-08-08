@@ -58,14 +58,24 @@ internal static class FactQueries
     /// ~1,000 facts would simply exhaust the answer budget.
     /// </para>
     /// </remarks>
-    public const string SearchByCanonicalPredicates = @"
+    public static string SearchByCanonicalPredicates(bool hasOwnerFilter, bool includeShared)
+    {
+        // Mirrors GetBySubject's owner-conditional shape rather than inventing its own. The first
+        // version hard-coded `f.owner_key = $ownerKey` with `scope.OwnerId ?? OwnerKeyShared`, which
+        // (a) never matched shared facts even when IncludeShared was set, silently breaking the
+        // "relation whole" guarantee, and (b) coerced a null-owner scope to the shared bucket, so it
+        // returned nothing exactly where top-K returned everything.
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $@"
             MATCH (f:Fact)
-            WHERE f.owner_key = $ownerKey
-              AND f.predicate_key IN $predicateKeys
-              AND (f.invalidated_at IS NULL)
+            WHERE f.predicate_key IN $predicateKeys
+              AND f.invalidated_at IS NULL{owner}
             RETURN f
             ORDER BY f.confidence DESC, f.id ASC
             LIMIT $limit";
+    }
 
     // ── UpsertAsync ────────────────────────────────────────────────────
 
