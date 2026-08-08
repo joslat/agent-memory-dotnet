@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
+using AgentMemory.Core.Memory;
 using AgentMemory.Extraction.Llm;
 using AgentEval.Memory.Models;
 using AgentMemory.Abstractions.Services;
@@ -654,6 +655,11 @@ internal static class LongMemEvalPreparedPairProgram
                     expandFactsByPredicate = options.ExpandFactsByPredicate,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
                     maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
+                    // The vocabulary decides what is stored and the lexicon decides what is
+                    // retrieved, so a run under a different table is not comparable to this one.
+                    // Without these the artifact would not record which tables produced it.
+                    extractionVocabularySha256 = MemoryPredicateSeedVocabulary.Fingerprint,
+                    queryRelationLexiconSha256 = MemoryRelationSeedTable.Fingerprint,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,

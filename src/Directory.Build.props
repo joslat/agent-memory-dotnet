@@ -22,5 +22,6 @@
     <InternalsVisibleTo Include="AgentMemory.Benchmarks" />
     <InternalsVisibleTo Include="AgentMemory.Cli" />
     <InternalsVisibleTo Include="AgentMemory.TckBridge" />
+    <InternalsVisibleTo Include="AgentMemory.LongMemEval" />
   </ItemGroup>
 </Project>

@@ -32,6 +32,16 @@ namespace AgentMemory.Core.Memory;
 /// </remarks>
 internal static class MemoryRelationSeedTable
 {
+    /// <summary>
+    /// Content hash of the query lexicon, recorded in run reports.
+    /// </summary>
+    /// <remarks>
+    /// Surface forms never enter a prompt, but they change what a question resolves to and therefore
+    /// what is retrieved, so a run measured under a different table is not comparable to one measured
+    /// under this one.
+    /// </remarks>
+    internal static string Fingerprint => MemoryVocabularyFingerprint.OfTable(Table);
+
     internal static IReadOnlyDictionary<string, string[]> Table { get; } =
         new Dictionary<string, string[]>(StringComparer.Ordinal)
         {

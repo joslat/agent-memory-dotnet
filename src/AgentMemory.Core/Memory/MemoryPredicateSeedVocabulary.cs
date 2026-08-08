@@ -42,6 +42,16 @@ public static class MemoryPredicateSeedVocabulary
         "moved_to", "changed_to", "increased_to", "decreased_to", "updated_to"
     ];
 
+    /// <summary>
+    /// Content hash of this vocabulary, for recording which table produced a given extracted graph.
+    /// </summary>
+    /// <remarks>
+    /// This list is injected into every extraction prompt, so changing it changes what is stored. Two
+    /// graphs built under different vocabularies are not comparable, and without this the artifact
+    /// would not say which one produced it.
+    /// </remarks>
+    public static string Fingerprint { get; } = MemoryVocabularyFingerprint.Of(Seed);
+
     /// <summary>A vocabulary pre-populated with the curated seed relations.</summary>
     public static MemoryPredicateVocabulary Create()
     {
