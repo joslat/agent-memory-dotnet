@@ -100,6 +100,17 @@ internal static class LongMemEvalPreparedPairProgram
             // to rebuild one — and because extraction is non-deterministic, a rebuild would not
             // reproduce the graph being investigated anyway.
             var reusing = !string.IsNullOrWhiteSpace(options.ReusePreparedVolume);
+
+            // Before anything is created or adopted, so this run's own volumes can never be
+            // candidates. Retaining a build without ever sweeping is a disk leak, and a killed run
+            // never gets to clean up after itself.
+            if (!options.NoOrphanSweep)
+            {
+                await LongMemEvalOrphanSweep
+                    .RunAsync(options.ReusePreparedVolume, Console.Out, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+
             await using var volumes = reusing
                 ? await LongMemEvalPreparedVolumes
                     .AdoptAsync(
@@ -163,6 +174,30 @@ internal static class LongMemEvalPreparedPairProgram
                 }
 
                 var driver = baseProfile.Services.GetRequiredService<IDriver>();
+                if (reusing)
+                {
+                    // Reuse: the retained volume describes itself. preparationId MUST come from the
+                    // sealed manifest and never be generated - the per-question scope hashes derive
+                    // from it, so a generated one makes every question trip
+                    // prepared-manifest-mismatch. Preparation is skipped entirely; the clone and
+                    // both evaluation arms below are unchanged.
+                    var reuseStore = new Neo4jLongMemEvalPreparationStore(driver);
+                    preparationId = await reuseStore
+                        .ReadSealedPreparationIdAsync(CancellationToken.None)
+                        .ConfigureAwait(false);
+                    manifest = await reuseStore
+                        .ReadAsync(preparationId).ConfigureAwait(false);
+
+                    // A reused run performs no preparation, so its preparation timings are genuinely
+                    // empty rather than zeroed-out real work. Reporting them as empty keeps a reused
+                    // run from being mistaken for a cold build that happened to be instant.
+                    preparationTelemetry = Array.Empty<LongMemEvalQuestionTelemetry>();
+                    Console.WriteLine(
+                        $"longmemeval: reusing prepared build {preparationId}; " +
+                        $"fingerprint {manifest.Fingerprint}; no extraction will run.");
+                }
+                else
+                {
                 var adapter = new AgentMemoryLongMemEvalAdapter(
                     baseProfile.Services.GetRequiredService<IMemoryService>(),
                     extractionCalls,
@@ -495,6 +530,7 @@ internal static class LongMemEvalPreparedPairProgram
                     throw new InvalidOperationException(
                         "Prepared LongMemEval manifest read-back did not match the sealed fingerprint.");
                 }
+                }
             }
             finally
             {
@@ -565,13 +601,16 @@ internal static class LongMemEvalPreparedPairProgram
                 issues.Add("Prepared clone manifest fingerprints do not match the sealed base.");
             }
 
-            var destination = ResolveOutput(options.OutputPath, preparationId);
+            var runId = ResolveRunId(preparationId, reusing, DateTimeOffset.UtcNow);
+            var destination = ResolveOutput(options.OutputPath, runId);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             var extractionSnapshotFinal = extractionCalls.Snapshot();
             var report = new
             {
                 schemaVersion = 3,
-                runId = preparationId,
+                runId,
+                // The preparation this run measured, which for a reused run is an earlier run's.
+                scopeRunId = preparationId,
                 generatedAtUtc = DateTimeOffset.UtcNow,
                 accepted,
                 validationIssues = issues,
@@ -599,14 +638,22 @@ internal static class LongMemEvalPreparedPairProgram
                         : "unspecified",
                     extractionExecution = "unified-multi-session-batch",
                     preparationWorkers = options.PreparationWorkers,
+                    // Null on a reused run: this run observed no preparation concurrency because it
+                    // performed no preparation. The nullable type is compiler-verified.
                     maximumObservedPreparationConcurrency =
-                        batchExecution!.MaximumConcurrency,
+                        batchExecution?.MaximumConcurrency,
                     maxSessionsPerBatch = options.MaxSessionsPerBatch,
                     maxInputTokens = options.MaxInputTokens,
                     maxConcurrentBatchesPerExtraction = options.MaxConcurrentBatchesPerExtraction,
                     maxConcurrentExtractionBatches = options.MaxConcurrentExtractionBatches,
                     preparationWatchdogSeconds = options.CheckpointTimeoutSeconds,
                     providerNoProgressWatchdogSeconds = options.ProviderNoProgressTimeoutSeconds,
+                    // Retrieval-side settings belong in the fingerprint: they change the score, and
+                    // without them two runs over the same frozen graph are indistinguishable in the
+                    // artifact - which is precisely the comparison reuse exists to make.
+                    expandFactsByPredicate = options.ExpandFactsByPredicate,
+                    usePredicateVocabulary = options.UsePredicateVocabulary,
+                    maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
@@ -614,47 +661,19 @@ internal static class LongMemEvalPreparedPairProgram
                     agentEval = agentEvalRevision,
                     agentEvalDependency = "source-project:AgentEval.Memory"
                 },
-                preparation = new
-                {
-                    count = 1,
-                    manifest.SchemaVersion,
-                    manifest.PreparationId,
-                    manifest.Fingerprint,
-                    manifest.DatasetSha256,
-                    manifest.AgentEvalRevision,
-                    manifest.MessagesPrepared,
-                    manifest.ExtractionUnitsPrepared,
-                    manifest.InitialExtractionCalls,
-                    manifest.UseUnifiedExtraction,
-                    manifest.UseMultiSessionBatchExtraction,
-                    manifest.PreparationWorkers,
-                    manifest.MaxSessionsPerBatch,
-                    manifest.MaxInputTokens,
-                    manifest.MaxConcurrentBatchesPerExtraction,
-                    manifest.MaxConcurrentExtractionBatches,
-                    plannedEstimatedInputTokens =
-                        batchExecution!.EstimatedInputTokens,
-                    maximumObservedConcurrency =
-                        batchExecution.MaximumConcurrency,
-                    questions = manifest.Questions,
-                    extractionObserved = Project(extractionSnapshotFinal),
-                    extractionRetryCalls =
-                        Math.Max(0, extractionSnapshotFinal.Calls - manifest.InitialExtractionCalls),
-                    timings = new
-                    {
-                        profileStartupMs = profileStartup.Elapsed.TotalMilliseconds,
-                        storageAndEmbeddingMs = preparationTelemetry.Sum(item =>
-                            item.StageTimings?.StorageMs ?? 0),
-                        extractionAndPersistenceMs = preparationTelemetry.Sum(item =>
-                            item.StageTimings?.ExtractionPersistenceMs ?? 0),
-                        graphReadBackMs = preparationTelemetry.Sum(item =>
-                            item.StageTimings?.GraphReadBackMs ?? 0),
-                        manifestSealAndReadBackMs = manifestSealMilliseconds,
-                        baseVolumeStopMs = baseStopMilliseconds,
-                        structuredCloneMs = cloneTimings.StructuredMilliseconds,
-                        hybridCloneMs = cloneTimings.HybridMilliseconds
-                    }
-                },
+                preparation = LongMemEvalReportProjection.CreatePreparationSection(
+                    manifest,
+                    batchExecution,
+                    preparationTelemetry,
+                    Project(extractionSnapshotFinal),
+                    extractionSnapshotFinal.Calls,
+                    new LongMemEvalPreparationTimings(
+                        profileStartup.Elapsed.TotalMilliseconds,
+                        reusing ? null : manifestSealMilliseconds,
+                        baseStopMilliseconds,
+                        cloneTimings.StructuredMilliseconds,
+                        cloneTimings.HybridMilliseconds),
+                    options.ReusePreparedVolume),
                 arms = new
                 {
                     structured = ProjectArm(structured, options.EvidenceDetail),
@@ -1061,23 +1080,20 @@ internal static class LongMemEvalPreparedPairProgram
                 "--checkpoint-timeout-seconds"),
             ParsePositive(Value("--provider-no-progress-timeout-seconds"),
                 DefaultProviderNoProgressTimeoutSeconds,
-                "--provider-no-progress-timeout-seconds"));
+                "--provider-no-progress-timeout-seconds"),
+            Has("--no-orphan-sweep"));
     }
 
     private static void Validate(PreparedPairOptions options)
     {
-        if (!string.IsNullOrWhiteSpace(options.ReusePreparedVolume))
+        if (!string.IsNullOrWhiteSpace(options.ReusePreparedVolume) &&
+            (options.IsDiagnostic || options.PreflightOnly || options.CheckpointQuestions is not null))
         {
-            // Volume adoption works, but the program flow that skips preparation does not exist yet.
-            // Without it the run would attach to a retained build and then extract on top of it,
-            // destroying the graph the operator asked to keep. Fail closed rather than half-run:
-            // the seam is at the preparation try/finally, and the reused preparationId must come
-            // from the sealed manifest, never be generated, or every question trips
-            // prepared-manifest-mismatch.
+            // Every one of these exists to exercise the preparation path, which reuse skips
+            // entirely; combining them would report on work that never ran.
             throw new ArgumentException(
-                "--reuse-prepared-volumes is not implemented yet. Adoption and manifest read-back " +
-                "exist, but the preparation-skipping branch does not, and running without it would " +
-                "extract into the retained volume instead of reusing it.");
+                "--reuse-prepared-volumes cannot be combined with diagnostic, preflight-only or " +
+                "checkpoint execution: those measure preparation, and reuse performs none.");
         }
 
         if (options.ProviderNoProgressTimeoutSeconds > options.CheckpointTimeoutSeconds)
@@ -1232,6 +1248,20 @@ internal static class LongMemEvalPreparedPairProgram
             : throw new InvalidOperationException(
                 $"{name} is required; refusing to create a synthetic LongMemEval score.");
 
+    /// <summary>
+    /// The identity of the run itself, which is not the identity of the preparation it measured.
+    /// </summary>
+    /// <remarks>
+    /// A reused run must keep the sealed <c>preparationId</c> as its scope run id - the per-question
+    /// scope hashes derive from it - but it must not inherit it as its own run id, because the report
+    /// path is keyed on that and the reused run would overwrite the accepted report of the cold build
+    /// it attached to.
+    /// </remarks>
+    internal static string ResolveRunId(string preparationId, bool reusing, DateTimeOffset now) =>
+        reusing
+            ? $"{preparationId}-reuse-{now:yyyyMMddTHHmmssZ}"
+            : preparationId;
+
     private static string ResolveOutput(string? requested, string runId) =>
         Path.GetFullPath(requested ??
             Path.Combine(
@@ -1264,7 +1294,8 @@ internal static class LongMemEvalPreparedPairProgram
         int MaxItemsPerSourceSession,
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
-        int ProviderNoProgressTimeoutSeconds)
+        int ProviderNoProgressTimeoutSeconds,
+        bool NoOrphanSweep)
     {
         internal bool IsDiagnostic =>
             DiagnosticQuestionPosition is not null &&

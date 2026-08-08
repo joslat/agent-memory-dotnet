@@ -2,6 +2,18 @@ using AgentEval.Memory.External.Models;
 
 namespace AgentMemory.LongMemEval;
 
+/// <summary>
+/// Wall-clock stages of one prepared-pair run. <see cref="ManifestSealAndReadBackMs"/> is nullable
+/// because a reused run seals nothing, and reporting an unperformed stage as 0 ms would read as a
+/// measurement of instant work rather than of work that never happened.
+/// </summary>
+internal sealed record LongMemEvalPreparationTimings(
+    double ProfileStartupMs,
+    double? ManifestSealAndReadBackMs,
+    double BaseVolumeStopMs,
+    double StructuredCloneMs,
+    double HybridCloneMs);
+
 internal static class LongMemEvalReportProjection
 {
     public static object CreateAcceptedResult(
@@ -57,6 +69,72 @@ internal static class LongMemEvalReportProjection
         reference.SourceTimestamp,
         reference.AnswerContextOrder
     };
+
+    /// <summary>
+    /// The prepared-pair report's <c>preparation</c> section.
+    /// </summary>
+    /// <remarks>
+    /// Extracted from the inline report so the reuse path can be covered by a test. A run started
+    /// with <c>--reuse-prepared-volumes</c> performs no preparation at all, so
+    /// <paramref name="batchExecution"/> is null for it.
+    /// </remarks>
+    internal static object CreatePreparationSection(
+        LongMemEvalPreparationManifest manifest,
+        LongMemEvalPreparedBatchExecution? batchExecution,
+        IReadOnlyList<LongMemEvalQuestionTelemetry> preparationTelemetry,
+        object extractionObserved,
+        long extractionCalls,
+        LongMemEvalPreparationTimings timings,
+        string? reusedPreparedVolume)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(preparationTelemetry);
+        ArgumentNullException.ThrowIfNull(timings);
+
+        return new
+        {
+            count = 1,
+            manifest.SchemaVersion,
+            manifest.PreparationId,
+            manifest.Fingerprint,
+            manifest.DatasetSha256,
+            manifest.AgentEvalRevision,
+            manifest.MessagesPrepared,
+            manifest.ExtractionUnitsPrepared,
+            manifest.InitialExtractionCalls,
+            manifest.UseUnifiedExtraction,
+            manifest.UseMultiSessionBatchExtraction,
+            manifest.PreparationWorkers,
+            manifest.MaxSessionsPerBatch,
+            manifest.MaxInputTokens,
+            manifest.MaxConcurrentBatchesPerExtraction,
+            manifest.MaxConcurrentExtractionBatches,
+            performedByThisRun = batchExecution is not null,
+            reusedPreparedVolume,
+            plannedEstimatedInputTokens =
+                batchExecution?.EstimatedInputTokens,
+            maximumObservedConcurrency =
+                batchExecution?.MaximumConcurrency,
+            questions = manifest.Questions,
+            extractionObserved,
+            extractionRetryCalls =
+                Math.Max(0, extractionCalls - manifest.InitialExtractionCalls),
+            timings = new
+            {
+                profileStartupMs = timings.ProfileStartupMs,
+                storageAndEmbeddingMs = preparationTelemetry.Sum(item =>
+                    item.StageTimings?.StorageMs ?? 0),
+                extractionAndPersistenceMs = preparationTelemetry.Sum(item =>
+                    item.StageTimings?.ExtractionPersistenceMs ?? 0),
+                graphReadBackMs = preparationTelemetry.Sum(item =>
+                    item.StageTimings?.GraphReadBackMs ?? 0),
+                manifestSealAndReadBackMs = timings.ManifestSealAndReadBackMs,
+                baseVolumeStopMs = timings.BaseVolumeStopMs,
+                structuredCloneMs = timings.StructuredCloneMs,
+                hybridCloneMs = timings.HybridCloneMs
+            }
+        };
+    }
 
     private static object ProjectDiagnostics(
         QuestionEvidenceDiagnostics diagnostics) => new
