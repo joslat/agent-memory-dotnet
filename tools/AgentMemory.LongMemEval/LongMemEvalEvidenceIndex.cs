@@ -165,6 +165,9 @@ internal sealed class LongMemEvalEvidenceIndex
             // continuation and pads a trailing user-only turn with a synthetic assistant acknowledgment.
             // Both are legitimate structured-history shapes and must retain unambiguous provenance.
             var usedSourceTurns = new HashSet<int>();
+            // The source turn most recently matched, so a padding "I understand." can be validated
+            // against what it actually follows rather than against the end of the session.
+            var lastConsumedTurnIndex = -1;
             while (formattedIndex < formatted.Count && !IsSessionBoundary(formatted[formattedIndex]))
             {
                 var formattedTurn = formatted[formattedIndex++];
@@ -185,6 +188,7 @@ internal sealed class LongMemEvalEvidenceIndex
                     }
 
                     usedSourceTurns.Add(turnIndex);
+                    lastConsumedTurnIndex = turnIndex;
                     origins.Add(Origin(
                         source.Content,
                         source.Role,
@@ -195,12 +199,22 @@ internal sealed class LongMemEvalEvidenceIndex
                     return;
                 }
 
-                var trailingSource = session.Count == 0 ? null : session[^1];
+                // The formatter pads an unanswered user turn with "I understand." in TWO places, not
+                // one: at the end of a session, and mid-session whenever two user turns are
+                // consecutive (LongMemEvalHistoryFormatter flushes the pending user on the next user
+                // turn). This previously accepted only the trailing case, so any question containing
+                // back-to-back user turns failed alignment outright - 8 of the 500 dataset questions,
+                // which is why the fixed ten never hit it.
+                //
+                // This is not a relaxation of the provenance guard: a mid-session pad has exactly the
+                // same provenance as a trailing one - synthetic formatter output following a user
+                // turn - so it is recorded as synthetic padding either way. What changes is that the
+                // check now matches the formatter's real contract instead of a subset of it.
                 if (string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(content, "I understand.", StringComparison.Ordinal) &&
-                    trailingSource is not null &&
-                    string.Equals(trailingSource.Role, "user", StringComparison.OrdinalIgnoreCase) &&
-                    usedSourceTurns.Contains(session.Count - 1))
+                    lastConsumedTurnIndex >= 0 &&
+                    string.Equals(
+                        session[lastConsumedTurnIndex].Role, "user", StringComparison.OrdinalIgnoreCase))
                 {
                     origins.Add(Origin(content, role, null, false, true, false));
                     return;
