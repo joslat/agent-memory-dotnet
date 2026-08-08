@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- The reviewed relation vocabulary. Embedded, not content: this ships as a package, so a
+         file dependency would be a deployment hazard and a startup I/O failure mode. -->
+    <EmbeddedResource Include="Memory/relation-vocabulary.json"
+                      LogicalName="AgentMemory.Core.Memory.relation-vocabulary.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
   </ItemGroup>
 
