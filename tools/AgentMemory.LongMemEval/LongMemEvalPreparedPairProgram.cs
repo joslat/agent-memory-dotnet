@@ -96,12 +96,23 @@ internal static class LongMemEvalPreparedPairProgram
                 $"longmemeval-prepared-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
             var overall = Stopwatch.StartNew();
 
-            await using var volumes = await LongMemEvalPreparedVolumes
-                .CreateAsync(
-                    preparationId,
-                    CancellationToken.None,
-                    retain: options.RetainPreparedVolumes)
-                .ConfigureAwait(false);
+            // G3B.12-R. Reuse attaches to a retained cold build instead of paying 121 provider calls
+            // to rebuild one — and because extraction is non-deterministic, a rebuild would not
+            // reproduce the graph being investigated anyway.
+            var reusing = !string.IsNullOrWhiteSpace(options.ReusePreparedVolume);
+            await using var volumes = reusing
+                ? await LongMemEvalPreparedVolumes
+                    .AdoptAsync(
+                        options.ReusePreparedVolume!,
+                        CancellationToken.None,
+                        retain: options.RetainPreparedVolumes)
+                    .ConfigureAwait(false)
+                : await LongMemEvalPreparedVolumes
+                    .CreateAsync(
+                        preparationId,
+                        CancellationToken.None,
+                        retain: options.RetainPreparedVolumes)
+                    .ConfigureAwait(false);
             if (options.RetainPreparedVolumes)
             {
                 // Printed so the retained build can be re-attached and inspected, and so the operator
@@ -1041,6 +1052,7 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
             Has("--expand-facts-by-predicate"),
+            Value("--reuse-prepared-volumes"),
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             ParseOptionalPositive(Value("--checkpoint-questions"), "--checkpoint-questions"),
             ParsePositive(
@@ -1054,6 +1066,20 @@ internal static class LongMemEvalPreparedPairProgram
 
     private static void Validate(PreparedPairOptions options)
     {
+        if (!string.IsNullOrWhiteSpace(options.ReusePreparedVolume))
+        {
+            // Volume adoption works, but the program flow that skips preparation does not exist yet.
+            // Without it the run would attach to a retained build and then extract on top of it,
+            // destroying the graph the operator asked to keep. Fail closed rather than half-run:
+            // the seam is at the preparation try/finally, and the reused preparationId must come
+            // from the sealed manifest, never be generated, or every question trips
+            // prepared-manifest-mismatch.
+            throw new ArgumentException(
+                "--reuse-prepared-volumes is not implemented yet. Adoption and manifest read-back " +
+                "exist, but the preparation-skipping branch does not, and running without it would " +
+                "extract into the retained volume instead of reusing it.");
+        }
+
         if (options.ProviderNoProgressTimeoutSeconds > options.CheckpointTimeoutSeconds)
         {
             throw new ArgumentException(
@@ -1234,6 +1260,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
         bool ExpandFactsByPredicate,
+        string? ReusePreparedVolume,
         int MaxItemsPerSourceSession,
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
