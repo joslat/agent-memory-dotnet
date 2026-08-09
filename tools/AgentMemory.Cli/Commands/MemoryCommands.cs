@@ -84,12 +84,58 @@ public sealed class SchemaCheckCommand(
             return records.Count;
         }, cancellationToken);
 
+        // L10. Presence is not health. A FAILED index still appears in SHOW INDEXES by name, so the
+        // name-only check above reports OK on precisely the condition an operator opens this command
+        // to diagnose: a failed index does not stop queries, it drops them to full scans, and the
+        // only symptom is unexplained slowness.
+        var failedIndexes = await txRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(SchemaQueries.ShowIndexStates);
+            var records = await cursor.ToListAsync();
+            return records
+                .Where(record => string.Equals(
+                    record["state"].As<string>(), "FAILED", StringComparison.OrdinalIgnoreCase))
+                .Select(record => $"{record["name"].As<string>()} ({record["type"].As<string>()})")
+                .ToArray();
+        }, cancellationToken) ?? [];
+
+        // Same helper the bootstrapper uses, so the command and the startup check cannot disagree
+        // about which indexes are ours.
+        var failedOwned = SchemaConformance.SelectOwnedFailures(
+            failedIndexes, options.Value.EmbeddingDimensions);
+        var failedForeign = failedIndexes.Except(failedOwned, StringComparer.Ordinal).ToList();
+
+        if (failedForeign.Count > 0)
+        {
+            // Reported but not fatal: on a shared database this is someone else's index, and treating
+            // it as our conformance failure would mean schema-check could never pass there.
+            output.WriteLine(
+                $"schema-check: note — {failedForeign.Count} FAILED index(es) in database '{database}' were " +
+                "not created by AgentMemory, so they are not counted against this check:");
+            foreach (var descriptor in failedForeign)
+                output.WriteLine($"  - {descriptor}");
+        }
+
         var missing = SchemaConformance.MissingObjects(expected, existing);
-        if (missing.Count == 0 && legacyFacts == 0)
+        if (missing.Count == 0 && legacyFacts == 0 && failedOwned.Count == 0)
         {
             output.WriteLine(
                 $"schema-check: OK — all {expected.Count} expected constraints/indexes are present in database '{database}'.");
             return 0;
+        }
+
+        if (failedOwned.Count > 0)
+        {
+            output.WriteLine(
+                $"schema-check: FAILED — {failedOwned.Count} AgentMemory index(es) in database '{database}' are in " +
+                "the FAILED state. They are present by name but not usable, so queries silently fall back to " +
+                "full scans:");
+            foreach (var descriptor in failedOwned)
+                output.WriteLine($"  - {descriptor}");
+            output.WriteLine(
+                "Drop and recreate them; if the index covers long text properties, note that Neo4j limits " +
+                "index keys to roughly 8 KB.");
+            if (missing.Count == 0 && legacyFacts == 0) return 1;
         }
 
         if (legacyFacts > 0)

@@ -173,13 +173,35 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
             },
             cancellationToken).ConfigureAwait(false) ?? [];
 
-        if (failed.Length > 0)
+        // L10. Only the indexes this library creates. Failing on ANY failed index turns a
+        // neighbouring application's broken index into a startup crash here - on precisely the
+        // shared-instance deployment the multi-tenant work supports - and names the wrong owner.
+        var owned = SchemaConformance.SelectOwnedFailures(failed, _embeddingDimensions);
+
+        // Scoping must not turn into silence. A neighbour's failed index is not ours to fail on, but
+        // it is still a broken index on a database we are about to query, and the operator has to
+        // hear about it from somewhere.
+        if (failed.Length > owned.Count)
         {
-            throw new InvalidOperationException(
-                $"Neo4j reports {failed.Length} index(es) in the FAILED state: {string.Join(", ", failed)}. " +
+            _logger.LogWarning(
+                "Neo4j reports {Count} index(es) in the FAILED state that AgentMemory did not create: {Indexes}. " +
+                "Startup continues because they are not ours, but a failed index falls back to full scans, " +
+                "so queries touching them will be slow.",
+                failed.Length - owned.Count,
+                string.Join(", ", failed.Except(owned, StringComparer.Ordinal)));
+        }
+
+        if (owned.Count > 0)
+        {
+            // Typed, with an error code, so a caller can catch this distinguishably instead of
+            // string-matching an InvalidOperationException from an unknown layer.
+            throw new SchemaInitializationException(
+                $"Neo4j reports {owned.Count} AgentMemory index(es) in the FAILED state: {string.Join(", ", owned)}. " +
                 "A failed index does not stop queries — they fall back to full scans — so this would " +
                 "otherwise surface only as unexplained slowness. Drop and recreate the index; if it " +
-                "covers long text properties, note that Neo4j limits index keys to roughly 8 KB.");
+                "covers long text properties, note that Neo4j limits index keys to roughly 8 KB.",
+                schemaOperation: "validate-index-state",
+                code: MemoryErrorCodes.SchemaBootstrapFailed);
         }
     }
 

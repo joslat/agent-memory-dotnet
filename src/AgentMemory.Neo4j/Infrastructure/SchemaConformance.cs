@@ -12,6 +12,43 @@ namespace AgentMemory.Neo4j.Infrastructure;
 internal static class SchemaConformance
 {
     /// <summary>
+    /// L10. Of the FAILED indexes Neo4j reports, the ones AgentMemory is responsible for.
+    /// </summary>
+    /// <remarks>
+    /// A failed index does not stop queries — they fall back to full scans — so it surfaces as
+    /// unexplained slowness rather than an error, which is why bootstrap fails closed on it.
+    /// <para>
+    /// But failing on <b>any</b> failed index in the database turns an unrelated application's broken
+    /// index into a startup crash in this library, on exactly the shared-instance deployment the
+    /// multi-tenant work exists to support — and points the operator at the wrong owner. Scoping to
+    /// the names this library creates keeps every failure we are responsible for and declines the
+    /// rest. It reuses <see cref="ExpectedObjectNames"/>, so this and <c>schema-check</c> agree by
+    /// construction rather than by two lists kept in step by hand.
+    /// </para>
+    /// <param name="failedDescriptors">Reported as <c>name (TYPE)</c>, the shape bootstrap collects.</param>
+    /// </remarks>
+    public static IReadOnlyList<string> SelectOwnedFailures(
+        IReadOnlyList<string> failedDescriptors,
+        int dimensions)
+    {
+        ArgumentNullException.ThrowIfNull(failedDescriptors);
+        if (failedDescriptors.Count == 0)
+            return Array.Empty<string>();
+
+        var owned = ExpectedObjectNames(dimensions).ToHashSet(StringComparer.Ordinal);
+        return failedDescriptors
+            .Where(descriptor => owned.Contains(NameOf(descriptor)))
+            .ToArray();
+    }
+
+    /// <summary>The bare index name from a <c>name (TYPE)</c> descriptor.</summary>
+    private static string NameOf(string descriptor)
+    {
+        var space = descriptor.IndexOf(' ', StringComparison.Ordinal);
+        return space < 0 ? descriptor : descriptor[..space];
+    }
+
+    /// <summary>
     /// The names of every constraint and index the bootstrap creates for the given embedding
     /// <paramref name="dimensions"/> (constraints + fulltext + vector + property/point indexes).
     /// </summary>
