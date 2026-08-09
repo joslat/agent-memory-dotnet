@@ -37,6 +37,14 @@ public static class ServiceCollectionExtensions
     /// of a public type on a SemVer-locked surface and break binary compatibility for anyone already
     /// compiled against it. This is purely additive.
     /// </para>
+    /// <para>
+    /// <b>Limitation, stated rather than left to be discovered.</b> This replaces the registration of
+    /// <see cref="IOptions{TOptions}"/> only. A host resolving <c>IOptionsMonitor&lt;MemoryOptions&gt;</c>
+    /// or <c>IOptionsSnapshot&lt;MemoryOptions&gt;</c> would still go through the options factory and
+    /// receive defaults. Nothing in this product resolves either — every consumer takes
+    /// <c>IOptions&lt;MemoryOptions&gt;</c> — but a host that does would see two different values for
+    /// the same options type, which is worth knowing before it happens rather than after.
+    /// </para>
     /// </remarks>
     public static IServiceCollection AddAgentMemoryCore(
         this IServiceCollection services,
