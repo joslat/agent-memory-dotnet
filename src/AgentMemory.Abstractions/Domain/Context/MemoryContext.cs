@@ -53,6 +53,22 @@ public sealed record MemoryContext
     /// </summary>
     public string? GraphRagContext { get; init; }
 
+
+    /// <summary>
+    /// The canonical relations this turn's question resolved to, empty when resolution was off or
+    /// matched nothing.
+    /// </summary>
+    /// <remarks>
+    /// Distinguishes "predicate expansion had nothing to expand" from "expansion ran and did not
+    /// help", which need opposite responses — a missing vocabulary entry versus a retrieval or
+    /// reading problem. The resolution was previously computed inline and discarded, so no report
+    /// could tell the two apart: a question failing because its verb is absent from the table looked
+    /// identical to one failing for any other reason. Verified by hand on the n=50 losses, where
+    /// <c>service</c>/<c>serviced</c> turned out to be absent entirely and <c>has</c> is a
+    /// deliberate query stop form.
+    /// </remarks>
+    public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();
+
     /// <summary>
     /// The GraphRAG passages behind <see cref="GraphRagContext"/>, with their scores and source ids.
     /// </summary>

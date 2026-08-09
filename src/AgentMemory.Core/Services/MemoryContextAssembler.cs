@@ -164,6 +164,16 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
         IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
 
+        // J2.2 resolution, computed once at method scope so it can be both used by the fact search
+        // and reported on the context. Which relations a question resolved to is the difference
+        // between "expansion had nothing to expand" and "expansion ran and did not help", and those
+        // need opposite responses. It was computed inline and discarded, so no report could tell
+        // them apart.
+        var resolvedQueryRelations = recallOpts.ExpandFactsByPredicate &&
+                                     recallOpts.ResolveQueryRelations
+            ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
+            : Array.Empty<string>();
+
         if (includeMemory)
         {
             // Generate embedding if not provided (only needed for memory-layer semantic search).
@@ -226,6 +236,12 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 ? TimedAsync("memory.recall.facts",
                     // Only the expansion path takes the wider overload. Off by default, the call is
                     // byte-for-byte the original, so no existing behaviour or contract shifts.
+                    // Hoisted out of the call so the decision is observable. Which relations a
+                    // question resolved to is the difference between "expansion had nothing to
+                    // expand" and "expansion ran and did not help", and the two need opposite
+                    // responses. It was computed inline and discarded, so no report could tell them
+                    // apart - a multi-session question failing because its verb is absent from the
+                    // table looked identical to one failing for any other reason.
                     () => recallOpts.ExpandFactsByPredicate
                         ? _longTerm.SearchFactsAsync(
                             queryEmbedding, recallOpts.MaxFacts, minScore, scope,
@@ -233,9 +249,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                             // J2.2. Empty unless explicitly enabled, and an unrecognised verb resolves
                             // to nothing, so both the option-off and the no-match paths reproduce the
                             // previous call exactly.
-                            recallOpts.ResolveQueryRelations
-                                ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
-                                : Array.Empty<string>(),
+                            resolvedQueryRelations,
                             cancellationToken)
                         : _longTerm.SearchFactsAsync(
                             queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
@@ -326,6 +340,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
+            ResolvedQueryRelations = resolvedQueryRelations,
             BlendMode = blendMode,
             Truncated = truncated
         };

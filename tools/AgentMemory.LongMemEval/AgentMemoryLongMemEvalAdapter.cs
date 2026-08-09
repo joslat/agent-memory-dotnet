@@ -818,6 +818,9 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // inside `if (!PreparedMemory)`, so every prepared-pair report has a null coverage
                 // and the n=50 result could not say why Structured loses multi-session questions.
                 RetrievedGoldCoverage = retrievedGoldCoverage,
+                // Makes "expansion had nothing to expand" visible per question, instead of
+                // requiring the lexicon to be consulted by hand after a run.
+                ResolvedQueryRelations = context?.ResolvedQueryRelations ?? [],
                 GraphRagItemsRetrieved = context?.GraphRagItems.Count ?? 0,
                 GraphRagFactsAlreadyRetrieved = context is null
                     ? 0
@@ -1348,6 +1351,9 @@ public sealed record LongMemEvalQuestionTelemetry(
     /// question has no gold messages.
     /// </summary>
     public double? RetrievedGoldCoverage { get; init; }
+
+    /// <summary>Canonical relations this question resolved to; empty means expansion had nothing.</summary>
+    public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();
 
     /// <summary>K6. Passages GraphRAG actually returned.</summary>
     public int GraphRagItemsRetrieved { get; init; }
