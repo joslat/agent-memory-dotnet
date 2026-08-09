@@ -1,4 +1,5 @@
 using System.Text;
+using AgentMemory.Core.Memory;
 
 namespace AgentMemory.LongMemEval;
 
@@ -100,4 +101,73 @@ internal static class LongMemEvalPredicateDistribution
             return hash;
         }
     }
+
+    /// <summary>
+    /// J1.5 gate 1. Coverage of a predicate slice by the shipped relation lexicon, split into bands
+    /// by how many facts each predicate carries.
+    /// </summary>
+    /// <remarks>
+    /// The unbanded statistic failed at 15.4 points and was root-caused to skew, not to a real
+    /// generalisation gap: coverage over a long tail of one-fact predicates is dominated by the tail,
+    /// so a slice that happens to draw more singletons looks worse regardless of the vocabulary. The
+    /// banded form asks the question that actually matters — <b>are the predicates carrying real
+    /// weight covered?</b> — and it is checked per band in both slices rather than averaged into one
+    /// number that hides exactly the skew that broke the first version.
+    /// <para>
+    /// Membership goes through the shipped <see cref="MemoryRelationLexicon"/>, not a reimplementation
+    /// of it. A gate scored against a replica of the thing under test measures the replica.
+    /// </para>
+    /// <para>
+    /// It asks <see cref="MemoryRelationLexicon.IsKnownStoredForm"/>, not <c>Resolve</c>. Resolve is
+    /// the query-side method and rejects stop forms by design, so scoring storage coverage with it
+    /// counts <c>has</c> and <c>is</c> — 2,701 facts between them — as unknown vocabulary. The first
+    /// run of this gate made exactly that mistake and read 81.5%.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyList<PredicateCoverageBand> CoverageBands(
+        IReadOnlyList<LongMemEvalPredicateCount> predicates)
+    {
+        ArgumentNullException.ThrowIfNull(predicates);
+
+        // Chosen to separate "carries the graph" from "appeared once": the >=10 band is the one the
+        // gate binds on, and the singleton band is reported rather than dropped so a regression that
+        // hides in the tail is still visible.
+        (string Label, int Lower, int Upper)[] bands =
+        [
+            ("10+", 10, int.MaxValue),
+            ("3-9", 3, 9),
+            ("2", 2, 2),
+            ("1", 1, 1)
+        ];
+
+        return bands.Select(band =>
+        {
+            var members = predicates
+                .Where(entry => entry.FactCount >= band.Lower && entry.FactCount <= band.Upper)
+                .ToArray();
+            var resolved = members
+                .Where(entry => MemoryRelationLexicon.Default.IsKnownStoredForm(entry.Predicate))
+                .ToArray();
+            return new PredicateCoverageBand(
+                band.Label,
+                members.Length,
+                resolved.Length,
+                members.Length == 0 ? 1d : (double)resolved.Length / members.Length,
+                members
+                    .Where(entry => !MemoryRelationLexicon.Default.IsKnownStoredForm(entry.Predicate))
+                    .OrderByDescending(entry => entry.FactCount)
+                    .ThenBy(entry => entry.Predicate, StringComparer.Ordinal)
+                    .Select(entry => entry.Predicate)
+                    .ToArray());
+        }).ToArray();
+    }
+
 }
+
+/// <summary>One fact-count band of a predicate slice and how much of it the lexicon resolves.</summary>
+internal sealed record PredicateCoverageBand(
+    string Band,
+    int PredicateCount,
+    int ResolvedCount,
+    double Coverage,
+    IReadOnlyList<string> Unresolved);

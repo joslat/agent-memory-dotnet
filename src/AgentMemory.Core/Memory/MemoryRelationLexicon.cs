@@ -117,6 +117,35 @@ internal sealed class MemoryRelationLexicon
         return _surfaceToCanonical.TryGetValue(stemmed, out var stemMatch) ? stemMatch : null;
     }
 
+
+    /// <summary>
+    /// Whether a <b>stored</b> predicate key is a form the vocabulary knows.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="Resolve"/>. That method answers a query-side question and rejects
+    /// stop forms on purpose, so a question mentioning "is" does not expand into the whole graph.
+    /// Those same forms are perfectly legitimate <i>stored</i> predicates — the measured graph holds
+    /// <c>has</c> with 1,583 facts and <c>is</c> with 1,118 — and scoring storage coverage with the
+    /// query-side method reports them as unknown vocabulary when they are nothing of the kind.
+    /// <para>
+    /// Written for J1.5 gate 1 after exactly that mistake made the gate read 81.5% when the genuine
+    /// gap was far smaller. The two questions are different and need different methods; the fix is
+    /// not to make the stop forms resolvable, which would defeat the suppression they exist for.
+    /// </para>
+    /// </remarks>
+    internal bool IsKnownStoredForm(string? predicateKey)
+    {
+        var normalized = MemoryTripleCanonicalizer.Canonical(predicateKey);
+        if (normalized.Length == 0)
+            return false;
+        if (_surfaceToCanonical.ContainsKey(normalized) || _canonical.Contains(normalized))
+            return true;
+
+        var stemmed = Stem(normalized);
+        return stemmed is not null &&
+               (_surfaceToCanonical.ContainsKey(stemmed) || _canonical.Contains(stemmed));
+    }
+
     /// <summary>
     /// Every form of a relation that could appear as a stored <c>predicate_key</c>, including itself.
     /// </summary>

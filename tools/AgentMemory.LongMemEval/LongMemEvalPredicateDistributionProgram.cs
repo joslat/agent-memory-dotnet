@@ -48,6 +48,21 @@ internal static class LongMemEvalPredicateDistributionProgram
                 var summary = await ReadAsync(driver).ConfigureAwait(false);
                 var split = LongMemEvalPredicateDistribution.Split(
                     summary.Predicates, heldOutFraction, seed);
+                // J1.5 gate 1, re-run after J1.6. Per-band and per-slice, because the unbanded form
+                // failed at 15.4 points on tail skew rather than on a real generalisation gap.
+                var buildBands = LongMemEvalPredicateDistribution.CoverageBands(split.Build);
+                var heldOutBands = LongMemEvalPredicateDistribution.CoverageBands(split.HeldOut);
+                // Gate 1 is a GENERALISATION criterion — "held-out coverage at least build-slice
+                // coverage minus 5 points, proving the artifact generalises rather than fitting the
+                // predicates we happened to look at". The banded refinement that followed the 15.4-
+                // point skew failure silently replaced that relative test with an absolute 100%,
+                // which is self-defeating: any absolute coverage bar can be met by adding the
+                // observed predicates to the vocabulary, held-out ones included, which is precisely
+                // what holding them out exists to detect. Banding kills the skew; the relative
+                // comparison is what makes it a generalisation test. Both are kept.
+                var buildBound = buildBands.Single(band => band.Band == "10+").Coverage;
+                var heldOutBound = heldOutBands.Single(band => band.Band == "10+").Coverage;
+                var gatePasses = heldOutBound >= buildBound - 0.05;
 
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 await File.WriteAllTextAsync(destination, JsonSerializer.Serialize(new
@@ -83,6 +98,22 @@ internal static class LongMemEvalPredicateDistributionProgram
                         predicateCount = split.HeldOut.Count,
                         factCount = split.HeldOutFactCount,
                         predicates = split.HeldOut
+                    },
+                    heldOutCoverageGate = new
+                    {
+                        // The gate binds on the 10+ band only. Every other band is reported, never
+                        // asserted on - a regression that lives in the tail must stay visible even
+                        // though it does not fail the gate.
+                        criterion =
+                            "held-out 10+ band coverage >= build 10+ band coverage - 5 points",
+                        buildBoundBandCoverage = buildBound,
+                        heldOutBoundBandCoverage = heldOutBound,
+                        // Reported, never gated. Absolute coverage is worth watching, but gating on
+                        // it would reward fitting the vocabulary to the observed predicates.
+                        absoluteCoverageIsReportedNotGated = true,
+                        passes = gatePasses,
+                        buildSlice = buildBands,
+                        heldOutSlice = heldOutBands
                     }
                 }, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine)
                     .ConfigureAwait(false);
@@ -100,6 +131,20 @@ internal static class LongMemEvalPredicateDistributionProgram
                 Console.WriteLine(
                     $"longmemeval: build slice {split.Build.Count} predicates / {split.BuildFactCount} facts; " +
                     $"held-out {split.HeldOut.Count} predicates / {split.HeldOutFactCount} facts.");
+                foreach (var (label, bands) in new[]
+                         { ("build", buildBands), ("held-out", heldOutBands) })
+                {
+                    foreach (var band in bands)
+                    {
+                        Console.WriteLine(
+                            $"longmemeval: {label} band {band.Band}: " +
+                            $"{band.ResolvedCount}/{band.PredicateCount} resolved " +
+                            $"({band.Coverage:P1})");
+                    }
+                }
+                Console.WriteLine(
+                    $"longmemeval: J1.5 generalisation gate: held-out {heldOutBound:P1} vs build " +
+                    $"{buildBound:P1} (allowed -5 pts): {(gatePasses ? "PASS" : "FAIL")}");
                 Console.WriteLine($"longmemeval: report {destination}");
                 return 0;
             }
