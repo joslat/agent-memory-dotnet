@@ -217,7 +217,15 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         {
             throw;
         }
-        catch (Exception ex) when (batch.Count > 1)
+        // FormatException only, deliberately. Every failure the batch's own shape causes arrives as
+        // one - BatchValidationException derives from it, covering the token budget, the
+        // acknowledgement check and the source-session-key check, as does an unparseable response -
+        // and halving the batch is a real remedy for each. A provider transport failure is not that:
+        // re-sending each half puts the same request shape at the same endpoint that just failed, so
+        // the split neither diagnoses nor fixes it, and it doubles the call count. That broke a
+        // 37-minute n=50 preparation at question 20 ("observed 14 calls ... expected exactly 12")
+        // over one ClientResultException. Transport failures belong to the configured retry policy.
+        catch (FormatException ex) when (batch.Count > 1)
         {
             _batchDiagnostics?.RecordSplit(ex, batch.Count);
             _logger.LogWarning(

@@ -1,3 +1,4 @@
+using System.Globalization;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 
@@ -69,11 +70,25 @@ public sealed partial class AgentMemoryLongMemEvalAdapter
             unifiedBatchCalls != plan.BatchCount ||
             otherCalls != 0)
         {
+            // The provider status is what separates "we are being rate limited" from "the request
+            // was malformed" or "the service failed", and they need opposite responses: lower
+            // concurrency, fix the request, or retry. Without it a 37-minute preparation aborts with
+            // an exception type and no way to choose. Status codes carry no content.
+            var failureSummary = string.Join(
+                ',',
+                callsAfter.Failures > callsBefore.Failures
+                    ? callMeter.Snapshot().FailureDetails
+                        .Select(failure =>
+                            $"{failure.Purpose}:{failure.ExceptionType}" +
+                            $":status={failure.ProviderStatus?.ToString(CultureInfo.InvariantCulture) ?? "none"}")
+                        .Distinct(StringComparer.Ordinal)
+                    : []);
             throw new LongMemEvalExtractionAccountingException(
                 $"LongMemEval batched extraction accounting mismatch at question {questionNumber}: " +
                 $"observed {callDelta} calls, {failureDelta} failures, " +
                 $"{unifiedBatchCalls} unified-batch calls, and {otherCalls} other calls; " +
-                $"expected exactly {plan.BatchCount} unified-batch calls and zero failures.");
+                $"expected exactly {plan.BatchCount} unified-batch calls and zero failures." +
+                (failureSummary.Length == 0 ? "" : $" Provider failures: {failureSummary}."));
         }
 
         var plannedSessions = plan.Batches
