@@ -1,3 +1,4 @@
+using AgentMemory.Core.Memory;
 using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
@@ -725,6 +726,21 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             throw;
         }
 
+        // L2. Ask the graph how many live facts exist under the relation(s) this question named.
+        // Null when no probe is wired or nothing resolved - "not measured", never "complete".
+        var relationStoredKeys = (recall.Context.ResolvedQueryRelations ?? [])
+            .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
+            .Where(key => !string.IsNullOrEmpty(key))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        IReadOnlyDictionary<string, int>? relationGraphCounts = null;
+        if (_options.GraphProbe is not null && relationStoredKeys.Length > 0)
+        {
+            relationGraphCounts = await _options.GraphProbe
+                .ReadRelationFactCountsAsync(ownerId, relationStoredKeys, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         RecordTelemetry(
             questionNumber,
             messagesStored,
@@ -743,6 +759,19 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             goldCoverage: goldCoverage,
             // Computed here rather than inside RecordTelemetry, which has neither the gold message
             // origins nor the evidence question in scope.
+            // L2. The stored predicate keys expansion would have searched, widened exactly as
+            // LongTermMemoryService does - canonical relation -> every stored form - or the metric
+            // would measure a different query than the one that ran.
+            // Absent, not an all-null object, when nothing was measured - the same convention
+            // ReadGoldCoverageAsync uses, and what keeps "no probe wired" distinguishable from
+            // "measured and found nothing".
+            relationCompleteness: relationGraphCounts is null
+                ? null
+                : ComputeRelationCompleteness(
+                    relationStoredKeys,
+                    relationGraphCounts,
+                    recall.Context.RelevantFacts.Items,
+                    _options.MaxExpandedFacts),
             retrievedGoldCoverage: RetrievedGoldCoverage(
                 recall.Context.RelevantFacts.Items,
                 originsByMessageId
@@ -791,6 +820,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         int extractionCallsPlanned = 0,
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null,
         double? retrievedGoldCoverage = null,
+        LongMemEvalRelationCompleteness? relationCompleteness = null,
         string? answerPromptText = null)
     {
         lock (_stateLock)
@@ -818,6 +848,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // inside `if (!PreparedMemory)`, so every prepared-pair report has a null coverage
                 // and the n=50 result could not say why Structured loses multi-session questions.
                 RetrievedGoldCoverage = retrievedGoldCoverage,
+                RelationCompleteness = relationCompleteness,
                 // Makes "expansion had nothing to expand" visible per question, instead of
                 // requiring the lexicon to be consulted by hand after a run.
                 ResolvedQueryRelations = context?.ResolvedQueryRelations ?? [],
@@ -856,6 +887,70 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     internal static RetrievalBlendMode BlendModeFor(int graphRagBudget) =>
         graphRagBudget > 0 ? RetrievalBlendMode.Blended : RetrievalBlendMode.MemoryOnly;
 
+
+
+    /// <summary>
+    /// L2. Whether the context received every live fact under the relation(s) the question names.
+    /// </summary>
+    /// <remarks>
+    /// The instrument Phase L exists to build, and the two numbers do different jobs.
+    /// <para>
+    /// <b>Denominator</b> counts the graph and is a <b>deterministic extraction-quality signal</b>:
+    /// a Cypher <c>count()</c>, immune to answer-model and judge non-determinism. If a change stops
+    /// learning a relation the questions need, it drops and says so. Nothing else in this repository
+    /// can see that — the deterministic fixture sits at 1.000 by construction, and the LongMemEval
+    /// channel carries sd 9.3 cold-build.
+    /// </para>
+    /// <para>
+    /// <b>Numerator</b> counts the context and is a retrieval signal. Keeping them apart is the
+    /// point: <c>Denominator = 0</c> with a non-empty key set means the relation was never
+    /// extracted, while <c>Numerator &lt; Denominator</c> means it was extracted and retrieval left
+    /// some behind. A single ratio renders an extraction bug and a retrieval bug identical, which is
+    /// how the saturated message-coverage metric misled this track once already.
+    /// </para>
+    /// </remarks>
+    internal static LongMemEvalRelationCompleteness ComputeRelationCompleteness(
+        IReadOnlyList<string> storedPredicateKeys,
+        IReadOnlyDictionary<string, int>? graphCounts,
+        IReadOnlyCollection<Fact> retrievedFacts,
+        int expansionLimit = 0)
+    {
+        ArgumentNullException.ThrowIfNull(storedPredicateKeys);
+        ArgumentNullException.ThrowIfNull(retrievedFacts);
+
+        // No relation resolved, or the probe could not answer: null throughout. "Not measured" must
+        // never be reported as complete, and it must never be reported as zero either.
+        if (storedPredicateKeys.Count == 0 || graphCounts is null)
+            return new LongMemEvalRelationCompleteness { StoredPredicateKeys = storedPredicateKeys };
+
+        var keys = storedPredicateKeys.ToHashSet(StringComparer.Ordinal);
+        var denominator = graphCounts
+            .Where(pair => keys.Contains(pair.Key))
+            .Sum(pair => pair.Value);
+        var numerator = retrievedFacts
+            .Where(fact => keys.Contains(MemoryTripleCanonicalizer.Canonical(fact.Predicate)))
+            .Select(fact => fact.FactId)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+
+        return new LongMemEvalRelationCompleteness
+        {
+            StoredPredicateKeys = storedPredicateKeys,
+            PerKeyGraphCounts = graphCounts.Where(p => keys.Contains(p.Key))
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            Denominator = denominator,
+            Numerator = numerator,
+            // A relation the graph does not hold is an extraction miss, not a retrieval one, so the
+            // ratio stays null rather than becoming a misleading 0.0.
+            Ratio = denominator == 0 ? null : (double)numerator / denominator,
+            Complete = denominator == 0 ? null : numerator >= denominator,
+            RelationAbsentFromGraph = denominator == 0,
+            // Completeness is arithmetically impossible when the graph holds more than the single
+            // shared LIMIT can return. That is a budget fact, not a retrieval defect.
+            LimitBinding = expansionLimit > 0 && denominator > expansionLimit,
+            ExpansionLimit = expansionLimit,
+        };
+    }
 
     /// <summary>
     /// How much of a question's gold evidence the <b>retrieved facts</b> actually carry.
@@ -1352,6 +1447,9 @@ public sealed record LongMemEvalQuestionTelemetry(
     /// </summary>
     public double? RetrievedGoldCoverage { get; init; }
 
+    /// <summary>L2. Graph truth vs context for the relation(s) this question named.</summary>
+    public LongMemEvalRelationCompleteness? RelationCompleteness { get; init; }
+
     /// <summary>Canonical relations this question resolved to; empty means expansion had nothing.</summary>
     public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();
 
@@ -1516,4 +1614,36 @@ internal sealed record LongMemEvalRecallBudget(
         var each = remaining / 3;
         return new(messages, each, remaining - each * 2, each, 0);
     }
+}
+
+/// <summary>L2. Relation completeness for one question: graph truth vs what reached the context.</summary>
+public sealed record LongMemEvalRelationCompleteness
+{
+    /// <summary>The stored predicate keys expansion would have searched, widened from the question.</summary>
+    public IReadOnlyList<string> StoredPredicateKeys { get; init; } = Array.Empty<string>();
+
+    /// <summary>Per-key graph counts, reported raw so a partial miss is attributable to a key.</summary>
+    public IReadOnlyDictionary<string, int> PerKeyGraphCounts { get; init; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>Live facts in the graph under those keys. Null when not measured.</summary>
+    public int? Denominator { get; init; }
+
+    /// <summary>Distinct facts in the context under those keys. Null when not measured.</summary>
+    public int? Numerator { get; init; }
+
+    /// <summary>Numerator / Denominator, or null when there is nothing to divide.</summary>
+    public double? Ratio { get; init; }
+
+    /// <summary>Whether the context held every one. Null when not measured or nothing to hold.</summary>
+    public bool? Complete { get; init; }
+
+    /// <summary>The relation resolved but the graph holds none of it — an EXTRACTION miss.</summary>
+    public bool RelationAbsentFromGraph { get; init; }
+
+    /// <summary>The graph holds more than the expansion budget could ever return.</summary>
+    public bool LimitBinding { get; init; }
+
+    /// <summary>The MaxExpandedFacts in force, recorded so LimitBinding is checkable.</summary>
+    public int ExpansionLimit { get; init; }
 }

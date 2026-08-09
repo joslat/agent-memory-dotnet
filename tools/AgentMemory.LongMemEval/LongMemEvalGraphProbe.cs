@@ -29,10 +29,78 @@ internal interface ILongMemEvalGraphProbe
         IReadOnlyList<string> goldSourceMessageIds,
         CancellationToken cancellationToken = default) =>
         Task.FromResult<LongMemEvalGoldEvidenceCoverage?>(null);
+
+    /// <summary>
+    /// L2. How many live facts the owner's graph holds under each given stored predicate key.
+    /// </summary>
+    /// <remarks>
+    /// The denominator of relation completeness, and the reason Phase L exists. It is a
+    /// deterministic <c>count()</c> over the graph, so unlike an accuracy score it is not subject to
+    /// answer-model or judge non-determinism: if an extraction change stops learning a relation the
+    /// questions need, this number drops and says so. That is the extraction-quality signal the
+    /// deterministic fixture (pinned at 1.000 by construction) and the LongMemEval channel
+    /// (sd 9.3 cold-build) both fail to provide.
+    /// </remarks>
+    /// <remarks>
+    /// Defaults to <see langword="null"/> meaning <b>not measured</b>, matching
+    /// <see cref="ReadGoldCoverageAsync"/>. A probe that cannot answer must not be able to assert a
+    /// completeness it never checked. An empty <paramref name="predicateKeys"/> returns an empty
+    /// dictionary instead — "nothing to count" is a measured answer, not an absent one.
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, int>?> ReadRelationFactCountsAsync(
+        string ownerId,
+        IReadOnlyList<string> predicateKeys,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyDictionary<string, int>?>(null);
 }
+
 
 internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalGraphProbe
 {
+
+    /// <summary>
+    /// Mirrors <c>FactQueries.SearchByCanonicalPredicates</c>' WHERE clause exactly, minus
+    /// ORDER BY/LIMIT, so the denominator counts precisely the rows expansion could have returned.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT <c>coalesce(f.predicate_key, toLower(f.predicate))</c>, which the predicate
+    /// distribution program uses: a fact whose <c>predicate_key</c> is null is invisible to
+    /// expansion, so counting it here would report an unreachable fact as a retrieval miss.
+    /// </remarks>
+    private const string RelationFactCountQuery =
+        """
+        MATCH (f:Fact)
+        WHERE f.predicate_key IN $predicateKeys
+          AND f.invalidated_at IS NULL
+          AND (f.owner_id = $ownerId OR f.owner_id IS NULL)
+        RETURN f.predicate_key AS predicateKey, count(f) AS factCount
+        """;
+
+    public async Task<IReadOnlyDictionary<string, int>?> ReadRelationFactCountsAsync(
+        string ownerId,
+        IReadOnlyList<string> predicateKeys,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(predicateKeys);
+        if (predicateKeys.Count == 0)
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        var (records, _, _) = await driver.ExecutableQuery(RelationFactCountQuery)
+            .WithParameters(new Dictionary<string, object?>
+            {
+                ["ownerId"] = ownerId,
+                ["predicateKeys"] = predicateKeys.ToList()
+            })
+            .WithConfig(new QueryConfig(routing: RoutingControl.Readers))
+            .ExecuteAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return records.ToDictionary(
+            record => record["predicateKey"].As<string>(),
+            record => record["factCount"].As<int>(),
+            StringComparer.Ordinal);
+    }
+
     private const string SnapshotQuery =
         """
         CALL {
