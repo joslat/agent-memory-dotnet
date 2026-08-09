@@ -734,11 +734,25 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         IReadOnlyDictionary<string, int>? relationGraphCounts = null;
+        int? relationUnionGraphTotal = null;
         if (_options.GraphProbe is not null && relationStoredKeys.Length > 0)
         {
             relationGraphCounts = await _options.GraphProbe
                 .ReadRelationFactCountsAsync(ownerId, relationStoredKeys, cancellationToken)
                 .ConfigureAwait(false);
+
+            // L13a. The budget is shared with the top-K hits' own predicates, so the union - not the
+            // question's relations alone - is what decides whether it was exhausted.
+            var unionKeys = recall.Context.RelevantFacts.Items
+                .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
+                .Concat(relationStoredKeys)
+                .Where(key => !string.IsNullOrEmpty(key))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var unionCounts = await _options.GraphProbe
+                .ReadRelationFactCountsAsync(ownerId, unionKeys, cancellationToken)
+                .ConfigureAwait(false);
+            relationUnionGraphTotal = unionCounts?.Values.Sum();
         }
 
         RecordTelemetry(
@@ -771,7 +785,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     relationStoredKeys,
                     relationGraphCounts,
                     recall.Context.RelevantFacts.Items,
-                    _options.MaxExpandedFacts),
+                    _options.MaxExpandedFacts,
+                    // The union expansion actually searched: the question's relations PLUS the
+                    // canonical predicate of every top-K hit, which is what shares the one budget.
+                    unionGraphTotal: relationUnionGraphTotal),
             retrievedGoldCoverage: RetrievedGoldCoverage(
                 recall.Context.RelevantFacts.Items,
                 originsByMessageId
@@ -913,7 +930,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         IReadOnlyList<string> storedPredicateKeys,
         IReadOnlyDictionary<string, int>? graphCounts,
         IReadOnlyCollection<Fact> retrievedFacts,
-        int expansionLimit = 0)
+        int expansionLimit = 0,
+        int? unionGraphTotal = null)
     {
         ArgumentNullException.ThrowIfNull(storedPredicateKeys);
         ArgumentNullException.ThrowIfNull(retrievedFacts);
@@ -945,9 +963,20 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             Ratio = denominator == 0 ? null : (double)numerator / denominator,
             Complete = denominator == 0 ? null : numerator >= denominator,
             RelationAbsentFromGraph = denominator == 0,
-            // Completeness is arithmetically impossible when the graph holds more than the single
-            // shared LIMIT can return. That is a budget fact, not a retrieval defect.
-            LimitBinding = expansionLimit > 0 && denominator > expansionLimit,
+            // L13a. The budget is ONE shared LIMIT over the whole predicate union - the question's
+            // relations plus the canonical predicate of every top-K vector hit - ordered globally by
+            // confidence. So it binds when the UNION exceeds it, not when this relation alone does.
+            //
+            // The first definition compared `denominator > expansionLimit`, i.e. this relation
+            // against the budget, and reported false on every real question while the budget was
+            // exhausted on all of them: one question held 49 facts under its relation, had a 60-row
+            // budget, and received 22 because 38 slots went to unrelated higher-confidence
+            // predicates. Null when the union total was not measured, because "unknown" must never
+            // read as "the budget was fine" - that is precisely the error being corrected.
+            LimitBinding = unionGraphTotal is null || expansionLimit <= 0
+                ? null
+                : unionGraphTotal > expansionLimit,
+            UnionGraphTotal = unionGraphTotal,
             ExpansionLimit = expansionLimit,
         };
     }
@@ -1641,8 +1670,14 @@ public sealed record LongMemEvalRelationCompleteness
     /// <summary>The relation resolved but the graph holds none of it — an EXTRACTION miss.</summary>
     public bool RelationAbsentFromGraph { get; init; }
 
-    /// <summary>The graph holds more than the expansion budget could ever return.</summary>
-    public bool LimitBinding { get; init; }
+    /// <summary>
+    /// Whether the shared expansion budget was exhausted by the whole predicate union. Null when the
+    /// union total was not measured — never <see langword="false"/> by default.
+    /// </summary>
+    public bool? LimitBinding { get; init; }
+
+    /// <summary>Live facts under the ENTIRE predicate union the expansion query searched.</summary>
+    public int? UnionGraphTotal { get; init; }
 
     /// <summary>The MaxExpandedFacts in force, recorded so LimitBinding is checkable.</summary>
     public int ExpansionLimit { get; init; }
