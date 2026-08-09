@@ -65,9 +65,17 @@ public sealed partial class AgentMemoryLongMemEvalAdapter
         var otherCalls = purposeDelta
             .Where(pair => !string.Equals(pair.Key, "unified_batch", StringComparison.Ordinal))
             .Sum(pair => pair.Value);
-        if (callDelta != plan.BatchCount ||
-            failureDelta != 0 ||
-            unifiedBatchCalls != plan.BatchCount ||
+        // The invariant is "every batch produced exactly one SUCCESSFUL unified-batch call", not "no
+        // provider error ever occurred". The latter is not something a 614-call run over a network
+        // can promise, and requiring it made two n=50 preparations abort mid-run on one transient.
+        // A recovered transport retry is exactly one extra call plus one failure, so subtracting
+        // failures recovers the successful count without loosening what is actually being checked:
+        // an unrecovered failure still throws before reaching here, and a spurious extra call still
+        // trips the comparison. Failures are reported rather than required to be zero.
+        var successfulCalls = callDelta - failureDelta;
+        var successfulUnifiedBatchCalls = unifiedBatchCalls - failureDelta;
+        if (successfulCalls != plan.BatchCount ||
+            successfulUnifiedBatchCalls != plan.BatchCount ||
             otherCalls != 0)
         {
             // The provider status is what separates "we are being rate limited" from "the request
@@ -85,9 +93,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter
                     : []);
             throw new LongMemEvalExtractionAccountingException(
                 $"LongMemEval batched extraction accounting mismatch at question {questionNumber}: " +
-                $"observed {callDelta} calls, {failureDelta} failures, " +
-                $"{unifiedBatchCalls} unified-batch calls, and {otherCalls} other calls; " +
-                $"expected exactly {plan.BatchCount} unified-batch calls and zero failures." +
+                $"observed {callDelta} calls ({successfulCalls} successful), {failureDelta} " +
+                $"recovered failures, {unifiedBatchCalls} unified-batch calls, and {otherCalls} " +
+                $"other calls; expected exactly {plan.BatchCount} SUCCESSFUL unified-batch calls " +
+                $"and no other calls." +
                 (failureSummary.Length == 0 ? "" : $" Provider failures: {failureSummary}."));
         }
 

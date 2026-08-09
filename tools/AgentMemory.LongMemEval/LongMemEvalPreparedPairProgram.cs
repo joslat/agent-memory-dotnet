@@ -717,7 +717,14 @@ internal static class LongMemEvalPreparedPairProgram
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"longmemeval: prepared pair failed: {exception.Message}");
+            // The whole chain, not just the outermost message. A stage wrapper says "LongMemEval
+            // batched extraction stage failed." and nothing else, so a 26-minute run reported its
+            // own death with no cause attached. Types and messages only - no stack traces.
+            var chain = new List<string>();
+            for (var current = exception; current is not null; current = current.InnerException)
+                chain.Add($"{current.GetType().Name}: {current.Message}");
+            Console.Error.WriteLine(
+                $"longmemeval: prepared pair failed: {string.Join(" <- ", chain)}");
             return 1;
         }
     }

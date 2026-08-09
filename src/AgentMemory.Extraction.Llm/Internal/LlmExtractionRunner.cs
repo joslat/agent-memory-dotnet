@@ -55,7 +55,8 @@ internal sealed class LlmExtractionRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, cancellationToken)
+            var response = await GetResponseWithTransportRetryAsync(
+                    chatMessages, chatOptions, cancellationToken)
                 .ConfigureAwait(false);
             var raw = response.Text;
 
@@ -79,6 +80,57 @@ internal sealed class LlmExtractionRunner
 
 
         return Array.Empty<T>();
+    }
+
+
+    /// <summary>
+    /// Calls the provider, retrying transport failures with backoff.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the parse-retry loop above, and for a different failure. That loop re-prompts a
+    /// model that answered with unparseable JSON; this one re-sends an identical request that never
+    /// got an answer at all. Before this existed there was no transport retry anywhere in the
+    /// extraction path, and two 614-call preparations died mid-run on a single transient, at 37 and
+    /// 26 minutes each.
+    /// <para>
+    /// A <see cref="FormatException"/> is deliberately not retried: it is caused by the request's own
+    /// shape, so re-sending it unchanged cannot help. That mirrors the batch splitter, which splits
+    /// on exactly that set and nothing else. Cancellation is never retried — retrying it would make
+    /// the preparation watchdog's timeout unenforceable.
+    /// </para>
+    /// </remarks>
+    private async Task<ChatResponse> GetResponseWithTransportRetryAsync(
+        List<ChatMessage> chatMessages,
+        ChatOptions chatOptions,
+        CancellationToken cancellationToken)
+    {
+        int maxAttempts = _options.MaxRetries < 0 ? 1 : _options.MaxRetries + 1;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await _chatClient
+                    .GetResponseAsync(chatMessages, chatOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (FormatException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (attempt < maxAttempts)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "LLM extraction transport failure (attempt {Attempt}/{MaxAttempts}); retrying.",
+                    attempt, maxAttempts);
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
     }
 
     private ChatOptions BuildChatOptions(ChatResponseFormat? responseFormat)
