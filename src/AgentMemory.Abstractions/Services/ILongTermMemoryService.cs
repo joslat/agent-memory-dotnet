@@ -204,4 +204,50 @@ public interface ILongTermMemoryService
 
     /// <summary>Supersedes the loser preference with the winner (D7). See <see cref="SupersedeFactAsync"/>.</summary>
     Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fact recall with optional canonical-predicate expansion — a relation returned <b>whole</b>.
+    /// </summary>
+    /// <remarks>
+    /// A default interface method, not extra optional parameters on the method above: adding optional
+    /// parameters to a published interface breaks every implementor. The default ignores expansion,
+    /// so a store that cannot retrieve by relation behaves exactly as before.
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+
+    /// <summary>
+    /// Fact recall with expansion driven by the relations the question itself names.
+    /// </summary>
+    /// <remarks>
+    /// Expansion alone can only widen predicates that similarity already surfaced in the top-K, so a
+    /// question naming several relations reaches only whichever of them retrieval happened to nominate.
+    /// <paramref name="questionRelations"/> supplies them from the question instead. An empty list
+    /// reproduces the previous overload exactly, which is what keeps this from ever being worse than
+    /// the existing behaviour.
+    /// <para>
+    /// A further default interface method for the same reason as the one above: adding optional
+    /// parameters to a published interface breaks every implementor, and the interface is locked
+    /// under SemVer.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            cancellationToken);
 }

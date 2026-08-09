@@ -27,11 +27,12 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// the cost is one <see cref="ActivitySource.HasListeners"/> check per transaction.
 /// </para>
 /// </remarks>
-internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
+internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner
 {
     private readonly INeo4jSessionFactory _sessionFactory;
     private readonly ILogger<Neo4jTransactionRunner> _logger;
 
+    private readonly AsyncLocal<IAsyncQueryRunner?> _ambientWriteTransaction = new();
     public Neo4jTransactionRunner(INeo4jSessionFactory sessionFactory, ILogger<Neo4jTransactionRunner> logger)
     {
         _sessionFactory = sessionFactory;
@@ -41,15 +42,20 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
     public async Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (_ambientWriteTransaction.Value is { } ambient)
+            return await work(ambient).ConfigureAwait(false);
+
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
         activity?.SetTag("db.mode", "read");
         var payload = activity is null ? null : new PayloadAccumulator();
+        var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
 
         var session = _sessionFactory.OpenSession(AccessMode.Read);
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteReadAsync(Instrument(work, "read", activity, payload)).ConfigureAwait(false);
+            return await session.ExecuteReadAsync(
+                Instrument(work, "read", activity, payload, transactionEntryStartedAt)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -75,15 +81,20 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
     public async Task<T> WriteAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (_ambientWriteTransaction.Value is { } ambient)
+            return await work(ambient).ConfigureAwait(false);
+
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
         activity?.SetTag("db.mode", "write");
         var payload = activity is null ? null : new PayloadAccumulator();
+        var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
 
         var session = _sessionFactory.OpenSession(AccessMode.Write);
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
-            return await session.ExecuteWriteAsync(Instrument(work, "write", activity, payload)).ConfigureAwait(false);
+            return await session.ExecuteWriteAsync(
+                Instrument(work, "write", activity, payload, transactionEntryStartedAt)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -93,6 +104,77 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         }
         finally
         {
+            TagPayload(activity, payload);
+        }
+    }
+
+    public async Task<T> ExecuteAtomicWriteAsync<T>(
+        Func<CancellationToken, Task<T>> work,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Nested logical units join the outer unit. This also keeps the transaction boundary
+        // well-defined when a higher-level persistence workflow composes another one.
+        if (_ambientWriteTransaction.Value is not null)
+            return await work(cancellationToken).ConfigureAwait(false);
+
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
+        activity?.SetTag("db.mode", "write");
+        activity?.SetTag("db.transaction.logical_unit", true);
+        var payload = activity is null ? null : new PayloadAccumulator();
+        var transactionEntryStartedAt = activity is null ? 0 : Stopwatch.GetTimestamp();
+
+        var session = _sessionFactory.OpenSession(AccessMode.Write);
+        await using var _ = session.ConfigureAwait(false);
+        IAsyncTransaction? transaction = null;
+        try
+        {
+            // Explicit rather than managed transaction: the callback mutates in-memory outcome state
+            // and must execute exactly once. The caller owns any whole-operation retry after rollback.
+            transaction = await session.BeginTransactionAsync().ConfigureAwait(false);
+            activity?.SetTag(
+                "db.transaction_entry_ms_est",
+                Stopwatch.GetElapsedTime(transactionEntryStartedAt).TotalMilliseconds);
+
+            IAsyncQueryRunner ambientRunner = activity is null
+                ? transaction
+                : new CountingQueryRunner(transaction, "write", activity, payload!);
+            _ambientWriteTransaction.Value = ambientRunner;
+
+            var result = await work(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync().ConfigureAwait(false);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error);
+            Exception? rollbackFailure = null;
+            if (transaction is not null)
+            {
+                try
+                {
+                    await transaction.RollbackAsync().ConfigureAwait(false);
+                }
+                catch (Exception rollbackException)
+                {
+                    rollbackFailure = rollbackException;
+                    _logger.LogWarning(rollbackException, "Failed to roll back atomic memory transaction.");
+                }
+            }
+
+            if (rollbackFailure is not null)
+                throw new AggregateException(
+                    "Atomic memory transaction failed and rollback could not be confirmed.", ex, rollbackFailure);
+
+            _logger.LogError(ex, "Error executing atomic memory transaction.");
+            throw;
+        }
+        finally
+        {
+            _ambientWriteTransaction.Value = null;
+            if (transaction is not null)
+                await transaction.DisposeAsync().ConfigureAwait(false);
             TagPayload(activity, payload);
         }
     }
@@ -116,13 +198,25 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner
         Func<IAsyncQueryRunner, Task<T>> work,
         string mode,
         Activity? transaction,
-        PayloadAccumulator? payload) =>
+        PayloadAccumulator? payload,
+        long transactionEntryStartedAt) =>
         transaction is null
             ? work
-            : runner => work(new CountingQueryRunner(runner, mode, transaction, payload!));
+            : runner =>
+            {
+                // The driver's public API exposes acquisition counts and a timeout, but not wait duration.
+                // This upper-bound estimate starts immediately before ExecuteRead/WriteAsync and stops when
+                // its transaction callback begins. It therefore includes connection acquisition, routing,
+                // and transaction begin; the `_est` suffix is permanent and prevents a pure-pool-wait claim.
+                transaction.SetTag(
+                    "db.transaction_entry_ms_est",
+                    Stopwatch.GetElapsedTime(transactionEntryStartedAt).TotalMilliseconds);
+                return work(new CountingQueryRunner(runner, mode, transaction, payload!));
+            };
 
     private static void TagPayload(Activity? activity, PayloadAccumulator? payload)
     {
+
         if (activity is null || payload is null) return;
         activity.SetTag("db.records", payload.RecordCount);
         activity.SetTag("db.bytes_est", payload.BytesEstimate);

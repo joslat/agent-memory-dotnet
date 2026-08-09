@@ -323,6 +323,21 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void LlmExtractionOptions_Default_MultiSessionBatchConcurrencyPreservesCompatibility()
+    {
+        var options = new LlmExtractionOptions();
+
+        options.MaxConcurrentBatchesPerExtraction.Should().Be(1);
+        options.MaxConcurrentExtractionBatches.Should().Be(0);
+    }
+
+    [Fact]
+    public void LlmExtractionOptions_Default_UseJsonResponseFormatIsTrue()
+    {
+        new LlmExtractionOptions().UseJsonResponseFormat.Should().BeTrue();
+    }
+
+    [Fact]
     public void LlmExtractionOptions_Default_ModelIdIsNull()
     {
         new LlmExtractionOptions().ModelId.Should().BeNull();
@@ -393,6 +408,12 @@ public sealed class ConfigurationValidationTests
     public void Neo4jOptions_Default_EmbeddingDimensionsIs1536()
     {
         new Neo4jOptions().EmbeddingDimensions.Should().Be(1536);
+    }
+
+    [Fact]
+    public void Neo4jOptions_Default_UseOptimizedMessageBatchWritesIsTrue()
+    {
+        new Neo4jOptions().UseOptimizedMessageBatchWrites.Should().BeTrue();
     }
 
     [Fact]

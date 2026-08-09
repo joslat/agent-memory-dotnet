@@ -25,9 +25,24 @@ public class SchemaBootstrapperTests
     }
 
     private static void StubWriteRunner(INeo4jTransactionRunner txRunner)
-        => txRunner
+    {
+        txRunner
             .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+    }
+
+    /// <summary>
+    /// Bootstrap now also backfills canonical fact keys, which reads a page of unkeyed facts. An
+    /// already-migrated store returns none, which is the state every one of these DDL tests assumes.
+    /// </summary>
+    private static void StubEmptyCanonicalKeyBackfill(INeo4jTransactionRunner txRunner)
+    {
+        txRunner
+            .ReadAsync(
+                Arg.Any<Func<IAsyncQueryRunner, Task<List<CanonicalKeyBackfillRow>>>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<CanonicalKeyBackfillRow>()));
+    }
 
     private static void StubVectorIndexRead(
         INeo4jTransactionRunner txRunner, params VectorIndexDimension[] indexes)
@@ -41,6 +56,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_ExecutesExpectedTotalNumberOfStatements()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         var executedStatements = new List<string>();
 
         txRunner
@@ -70,6 +86,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_ExecutesAllConstraints()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         var executedStatements = new List<string>();
 
         txRunner
@@ -109,6 +126,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_ExecutesAllFulltextIndexes()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         var executedStatements = new List<string>();
 
         txRunner
@@ -139,6 +157,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_ExecutesAllVectorIndexes()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         var executedStatements = new List<string>();
 
         txRunner
@@ -172,6 +191,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_ExecutesAllPropertyIndexes()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         var executedStatements = new List<string>();
 
         txRunner
@@ -275,6 +295,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_WhenExistingVectorIndexDimensionsMatch_DoesNotThrow()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         StubWriteRunner(txRunner);
         StubVectorIndexRead(txRunner,
             new VectorIndexDimension("fact_embedding_idx", 1536),
@@ -289,6 +310,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_WhenExistingVectorIndexDimensionsMismatch_Throws()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         StubWriteRunner(txRunner);
         StubVectorIndexRead(txRunner,
             new VectorIndexDimension("fact_embedding_idx", 1536),
@@ -306,6 +328,7 @@ public class SchemaBootstrapperTests
     public async Task BootstrapAsync_WhenValidationDisabled_SkipsTheReadAndDoesNotThrow()
     {
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         StubWriteRunner(txRunner);
         // Even with a mismatch staged, validation is off, so it must not be consulted.
         StubVectorIndexRead(txRunner, new VectorIndexDimension("fact_embedding_idx", 3072));
@@ -325,6 +348,7 @@ public class SchemaBootstrapperTests
     {
         const int customDimensions = 3072;
         var txRunner = Substitute.For<INeo4jTransactionRunner>();
+        StubEmptyCanonicalKeyBackfill(txRunner);
         var executedStatements = new List<string>();
 
         txRunner

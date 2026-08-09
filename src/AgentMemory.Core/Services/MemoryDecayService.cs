@@ -92,8 +92,16 @@ internal sealed class MemoryDecayService : IMemoryDecayService
         double daysSinceAccess = Math.Max(0, (now - reference).TotalDays);
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
 
-        return confidence * Math.Exp(-lambda * daysSinceAccess)
-            + _options.AccessBoostFactor * accessCount;
+        // BUG-R7. The access term was linear, unbounded, and — unlike confidence — never decayed, so
+        // access_count alone decided retention: 10,000 accesses scored 2,000 against a [0,1] cosine
+        // blend, and a single recall reached 0.2, permanently above MinRetentionScore (0.1) however
+        // stale the memory became. Damp it logarithmically, cap its contribution, and decay it on the
+        // same curve as confidence, so frequent access slows forgetting instead of preventing it.
+        double boost = Math.Min(
+            _options.AccessBoostFactor * Math.Log(1 + Math.Max(0, accessCount)),
+            _options.MaxAccessBoost);
+
+        return (confidence + boost) * Math.Exp(-lambda * daysSinceAccess);
     }
 
     /// <inheritdoc />

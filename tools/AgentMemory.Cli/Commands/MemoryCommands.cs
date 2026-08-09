@@ -71,12 +71,34 @@ public sealed class SchemaCheckCommand(
             return names;
         }, cancellationToken) ?? new HashSet<string>(StringComparer.Ordinal);
 
+        // A store written by 1.3.0 or earlier has no canonical fact keys, because the *_key
+        // properties did not exist. Facts are now MERGEd on {subject_key, predicate_key, object_key,
+        // owner_key}, so until BootstrapAsync has backfilled them, an upsert of an existing triple
+        // matches nothing and silently creates a DUPLICATE. BootstrapAsync is the documented startup
+        // step and does run the backfill - but a host that skips it gets no signal at all, and
+        // schema-check is exactly where an operator looks for that signal.
+        var legacyFacts = await txRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(FactQueries.SelectFactsMissingCanonicalKeys, new { limit = 1 });
+            var records = await cursor.ToListAsync();
+            return records.Count;
+        }, cancellationToken);
+
         var missing = SchemaConformance.MissingObjects(expected, existing);
-        if (missing.Count == 0)
+        if (missing.Count == 0 && legacyFacts == 0)
         {
             output.WriteLine(
                 $"schema-check: OK — all {expected.Count} expected constraints/indexes are present in database '{database}'.");
             return 0;
+        }
+
+        if (legacyFacts > 0)
+        {
+            output.WriteLine(
+                $"schema-check: facts in database '{database}' are missing canonical keys (pre-1.4 data). " +
+                "Run ISchemaBootstrapper.BootstrapAsync() before writing, or upserts will create duplicates " +
+                "instead of matching the existing facts.");
+            if (missing.Count == 0) return 1;
         }
 
         output.WriteLine(

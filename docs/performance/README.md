@@ -75,8 +75,15 @@ the per-fingerprint totals exactly matched `neo4j.queries`.
 ### Quality guards — deterministic and enforced
 
 Every performance run also executes 19 judged retrieval cases and 20 judged extraction cases. Retrieval
-is scored with Recall@K, MRR, and forbidden-result checks; extraction is scored with precision and
-recall per memory kind plus false positives on six turns that should teach the system nothing.
+is scored with **deterministic-plumbing Recall@K/MRR** and forbidden-result checks; extraction is
+scored with precision and recall per memory kind plus false positives on six turns that should teach
+the system nothing.
+
+That label is permanent, like `bytes_est`. The fixture uses the deterministic FNV-1a test embedder and
+deliberately disjoint vocabulary, so 1.000 / 1.000 proves that retrieval wiring, ranking, scoping and
+guard enforcement still behave exactly—not that a production embedding model has perfect semantic
+quality. Sampled real-embedding/real-model quality belongs to M-27 (LongMemEval), with its model,
+dataset, seed and retrieval configuration fingerprinted.
 
 Five fresh-container runs produced identical values for every guarded metric, so the committed
 tolerance is the observed variance: **zero**. The gate is on by default and returns a non-zero exit when
@@ -109,13 +116,58 @@ connection pool, plus explicit Neo4j query-plan-cache clearing after scenario se
 claim to reset the Neo4j page cache or host filesystem cache; fixture setup may touch both. These local
 hermetic milliseconds are useful as an in-run ratio, not as deployment latency.
 
+### Concurrent correctness and local saturation
+
+`perf concurrency` is an opt-in reliability characterization against one fixed, fingerprinted product
+driver pool (16 connections by default). It self-asserts owner-isolated reads, concurrent fact
+dedup-on-create, and non-destructive owner-scoped supersession at 1, 10, and 100 logical sessions.
+
+The first red probe proved the command was capable of finding a real defect: 10 concurrent same-owner
+near-duplicate fact creates left 10 live facts. After serializing that process-local dedup decision and
+scoping exact cosine comparison before ranking, the unchanged test left exactly 1 live fact. Every
+other correctness guard stayed exact:
+
+| Sessions | Errors | Owner leaks / misses | Live near-duplicates | Losers present / closed | Edges / live winners | Cross-owner edges |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0 | 0 / 0 | 1 | 1 / 1 | 1 / 1 | 0 |
+| 10 | 0 | 0 / 0 | 1 | 10 / 10 | 10 / 10 | 0 |
+| 100 | 0 | 0 / 0 | 1 | 100 / 100 | 100 / 100 | 0 |
+
+The same accepted local run reported request p50/p99 and throughput as follows. These numbers describe
+that one hermetic run only; they are not deployment latency:
+
+| Workload | Sessions | p50 ms | p99 ms | operations/s |
+|---|---:|---:|---:|---:|
+| owner-isolation read | 10 | 14.342 | 14.613 | 662.17 |
+| dedup-on-create race | 10 | 202.582 | 255.409 | 38.92 |
+| owner-scoped supersession | 10 | 22.076 | 22.167 | 442.39 |
+| owner-isolation read | 100 | 1,537.608 | 3,060.237 | 32.65 |
+| dedup-on-create race | 100 | 527.468 | 1,295.569 | 76.23 |
+| owner-scoped supersession | 100 | 1,533.084 | 3,067.458 | 32.59 |
+
+The artifact also reports `transaction_entry_ms_est` percentiles. This is permanently labelled an
+upper-bound estimate: it includes connection acquisition, routing, and transaction begin, not exact
+pool queue time. The correctness claim covers concurrent sessions inside one application process;
+distributed dedup coordination across multiple application instances is not yet measured.
+
+### Fail-fast torn-write rollback
+
+Fail-fast extraction persistence prepares all external embeddings before opening one explicit Neo4j
+transaction. Entity, fact, preference, relationship, provenance, temporal, and supersession repository
+operations then join that transaction. Default best-effort mode retains its independent-write behavior.
+
+A dedicated live-Neo4j integration test kills the Neo4j JVM after the first repository write returns
+inside the transaction, verifies from a fresh driver that the database is unreachable, restarts the
+same container, and compares an isolated-owner graph snapshot with its pre-turn state. The red-first
+run without the atomic boundary left 1 entity and 1 provenance edge. With the boundary enabled, the
+post-failure snapshot was empty; one exact retry produced 2 entities, 1 fact, 1 preference,
+1 relationship, and 4 provenance edges, with no duplicates, invalidation, valid-time closure, or
+supersession artifacts. The test also self-asserts that model/embedding calls finish before the
+transaction opens and that the Neo4j coordinator and repositories share the same runner instance.
+
 ### Not yet measured
 
-Stated plainly rather than left for you to discover:
-
 - **Managed/hosted deployments** — no Aura or NAMS figures yet.
-- **Concurrency** — single-session only; no saturation or p99-under-load numbers.
-
 ### Scale-M validation
 
 `--scale M` adds exactly 250,000 foreign-scope distractor memories: 50,000 each of entities, facts,
@@ -125,13 +177,121 @@ counts after restore.
 
 On `PERF-R-04`, Scale S and Scale M performed the same structural work: 43 retrieved items, 25
 access-tracked items, 9 queries, 6 read transactions, 1 write transaction, and 43 materialized records.
-Recall@K, MRR, and every extraction-quality score remained 1.000. Estimated payload changed from
+Deterministic-plumbing Recall@K, MRR, and every extraction-quality score remained 1.000. Estimated payload changed from
 144,591 to 144,555 bytes (−36; −0.025%) and context length from 3,906 to 3,886 characters because the
 approximate vector index selected a different equally relevant near-tied fixture item. A second
 independent Scale-M restore reproduced 144,555 bytes and 3,886 characters exactly.
 
 The warm restore path completed in 52–60 seconds on the development machine, including a 3.2–3.3
 second Docker volume clone. This is a harness-usability result, **not deployment latency**.
+
+---
+
+## Matched `feat-01` before/after characterization
+
+The exact pre-`feat-01` harness commit (`b1d924e9929b`) and post-`feat-01` commit (`0455c584ce`) were
+rerun back-to-back on the same machine with zero provider latency, 10 measured iterations, and 3
+warm-ups. “Full phase” is the elapsed time for the complete recall or ingestion harness phase.
+
+| Full phase | Before p50 / p95 | After p50 / p95 | Movement | Interpretation |
+|---|---:|---:|---:|---|
+| Recall | **313.03 / 641.45 ms** | **50.59 / 113.11 ms** | **−262.44 ms (−83.8%) p50; −528.34 ms (−82.4%) p95** | Attributable to batching 25 access-tracking write transactions into 1; 43 retrieved and 25 tracked items held |
+| Ingestion | **336.83 / 2,859.29 ms** | **221.92 / 352.90 ms** | −114.91 ms (−34.1%) p50 | Control variance only: `feat-01` did not change ingestion |
+
+These are local hermetic characterization timings, not deployment latency. The portable causal result
+is recall write transactions **25 → 1**, queries **31 → 9**, and total database round trips **31 → 7**,
+with retrieved and access-tracked item guards unchanged.
+
+---
+
+## Measured improvements after the 1.3.0 baseline
+
+| Improvement | Scenario | Portable counter | Before | After | Change |
+|---|---|---|---:|---:|---:|
+| Combined single-message Neo4j persistence | `PERF-W-02` | queries per turn | 43 | **40** | **−3 (−7.0%)** |
+| Combined single-message Neo4j persistence | `PERF-W-03` | queries per turn | 88 | **70** | **−18 (−20.5%)** |
+| Skip redundant provenance re-writes | `PERF-W-02` | write transactions per turn | 18 | **8** | **−10 (−55.6%)** |
+| Skip redundant provenance re-writes | `PERF-W-02` | queries per turn | 40 | **30** | **−10 (−25.0%)** |
+| Skip redundant provenance re-writes | `PERF-W-03` | write transactions per turn | 48 | **13** | **−35 (−72.9%)** |
+| Skip redundant provenance re-writes | `PERF-W-03` | queries per turn | 70 | **35** | **−35 (−50.0%)** |
+| Batch memory upserts | `PERF-W-02` | write transactions per turn | 8 | **6** | **−2 (−25.0%)** |
+| Batch memory upserts | `PERF-W-02` | queries per turn | 30 | **28** | **−2 (−6.7%)** |
+| Batch memory upserts | `PERF-W-03` | write transactions per turn | 13 | **11** | **−2 (−15.4%)** |
+| Batch memory upserts | `PERF-W-03` | queries per turn | 35 | **33** | **−2 (−5.7%)** |
+| Batch memory upserts | `PERF-W-05` | write transactions per extraction | 7 | **5** | **−2 (−28.6%)** |
+| Batch memory upserts | `PERF-W-05` | queries per extraction | 28 | **26** | **−2 (−7.1%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | entity candidate reads per 40 sessions | 80 | **20** | **−60 (−75.0%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | total read transactions per 40 sessions | 120 | **60** | **−60 (−50.0%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | queries per 40 sessions | 930 | **870** | **−60 (−6.5%)** |
+| Batch entity-resolution snapshots | `PERF-W-12-X01` | estimated payload bytes per 40 sessions | 2,583,298 | **2,053,922** | **−529,376 (−20.5%)** |
+| Fused ordered source-session persistence | `PERF-W-12-X01` | queries per 40 sessions | 870 | **230** | **−640 (−73.6%)** |
+| Fused ordered source-session persistence | `PERF-W-12-X01` | read transactions per 40 sessions | 60 | **20** | **−40 (−66.7%)** |
+| Fused ordered source-session persistence | `PERF-W-12-X01` | write transactions per 40 sessions | 250 | **50** | **−200 (−80.0%)** |
+
+Message creation, optional embedding persistence, `HAS_MESSAGE`, `FIRST_MESSAGE`, and `NEXT_MESSAGE`
+maintenance now execute as one parameterized Cypher operation. Write transactions remain 18 / 48,
+message counts remain 1 / 6, and estimated payload remains 102,960 / 108,964 bytes. Deterministic
+retrieval and extraction quality guards remain unchanged at 1.000, with a 0% extraction false-positive
+rate. Local-container milliseconds are intentionally omitted because they are not deployment timings.
+
+Neo4j entity, fact, and preference upserts already create every `EXTRACTED_FROM` edge from the
+memory's source-message IDs. The core persistence stage now recognizes that internal capability and
+does not issue the same `MERGE` again in a separate transaction per memory/message pair. Repositories
+without the capability retain the existing explicit provenance behavior. The 50-message whole-session
+guard still reads back exactly 250 provenance edges (5 learned memories × 50 source messages), while
+payload, records, learned items, and deterministic quality stay unchanged.
+
+The remaining entity and fact writes now use one atomic `UNWIND` upsert per memory kind when the
+repository advertises batch support. The same opt-in capability also covers preferences and graph
+relationships when a turn contains more than one; live Neo4j tests verify their owner, temporal,
+embedding, metadata, and provenance fields. `ExtractionOptions.EnableBatchMemoryUpserts` can disable
+the optimization. Default best-effort mode rolls a failed atomic batch back and replays the existing
+item path so per-item outcomes are preserved; fail-fast mode intentionally keeps item writes inside
+its whole-turn transaction so an error still identifies the exact failing item. Two fresh-container
+runs reproduced every counter above exactly. Records, estimated bytes, learned items, and both
+zero-tolerance quality guards were unchanged.
+
+Multi-session extraction now fetches each owner/type entity candidate set once, prefetches independent
+types concurrently, and updates that request-local snapshot as chronological sessions are resolved.
+`ExtractionOptions.UseBatchEntityResolutionSnapshots` can disable the default-on optimization. A
+remote-latency-shaped, fresh-container control/candidate characterization moved the X01 extraction-wave
+p50 from **47,341.00 to 32,600.96 ms (−31.1%)** and X10 from **7,568.38 to 3,621.08 ms
+(−52.2%)**. Writes remained 250; model calls 10; embedding work 130 requests / 720 items; the learned
+80/40/40/40 entity/fact/preference/relationship graph, provenance, source order, owner isolation, and
+both zero-tolerance quality gates were unchanged. These milliseconds include injected provider delay
+and local Docker orchestration; they are controlled-host causal evidence, not deployment latency.
+The related five-worker scaling gate reached **2.991×** rather than the locked 3.000×, so the broader
+cold-build phase remains fail-closed pending the separate persistence candidate.
+
+That persistence candidate is now accepted. The pipeline keeps independent owners parallel and
+same-owner source sessions chronological, prepares embeddings outside the transaction, defers the
+resolver's duplicate entity writes, and commits each source session atomically. Neo4j entity, fact,
+and preference `UNWIND` queries now include embedding, message provenance, optional point data, and
+dynamic POLE+O labels; relationships were already one bounded query. A transaction-only intermediate
+was rejected because it regressed X05/X10. The accepted fused design reduced the query chain inside
+each commit and moved paired remote-shape p50 from **39,159.14 → 28,813.92 ms at X01 (−26.42%)**,
+**6,774.52 → 5,851.43 ms at X05 (−13.63%)**, and **3,807.44 → 3,788.83 ms at X10
+(−0.49%)**. Candidate X05/X10 scaling reached **4.924× / 7.605×**. Exact model, embedding,
+graph, provenance, ordering, isolation, and both quality guards held. These milliseconds include
+injected provider delay and local Docker; the portable causal result is the exact counter movement
+above.
+
+### Cold structured-memory build laboratory
+
+These opt-in laboratory arms measure preparation-workflow candidates; they are not yet shipped
+AgentMemory defaults and their controlled-host milliseconds are not deployment latency.
+
+| Candidate | Controlled comparison | Before p50 / p95 | After p50 / p95 | Movement | Correctness guards |
+|---|---|---:|---:|---:|---|
+| Batch 50 raw-message embeddings + writes | `PERF-W-06` control/candidate | 167.84 / 323.08 ms | 60.24 / 86.03 ms | **−64.1% / −73.4%** | 50 messages/vectors; requests 50 → 1; queries 102 → 1; quality 1.000 |
+| One typed extraction response | `PERF-W-07` → `PERF-W-09` | 903.66 / 909.96 ms | 908.79 / 916.96 ms | +0.6% / +0.8% wall; calls **4 → 1**; total tokens **979 → 353** | Exact 2/2/1/1 output; zero retries/failures; quality 1.000 |
+| Bounded independent-owner cold build | `PERF-W-10-C01` → `PERF-W-10-C10` | 34,202.82 / 47,516.61 ms | 3,195.68 / 4,732.44 ms | **10.70× / 10.04× faster** | Exact 10 calls, 10 messages, 20/20/10/10 learned graph, 80 embeddings, 40/70/270 reads/writes/queries, provenance/isolation, quality 1.000 |
+| Fused ordered source-session persistence | `PERF-W-12` feature off/on | X01 39,159.14 / 50,946.60 ms | X01 28,813.92 / 32,074.05 ms | **−26.42% / −37.04%**; queries 870 → 230; reads 60 → 20; writes 250 → 50 | Exact 10 calls, 130/720 embeddings, 80/40/40/40 graph, provenance/order/isolation, quality 1.000; X05/X10 scaling 4.924×/7.605× |
+
+The unified response reduces provider capacity and token cost, but not one-unit wall time because the
+four original category calls already overlap. The wall-time lever is bounded concurrency across
+independent owners. The next gate integrates that evidence into the prepared LongMemEval cold-build
+path and must project the fixed ten-question build below 15 minutes before another full build is run.
 
 ---
 
@@ -158,6 +318,20 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label graphrag \
 dotnet run --project tools/AgentMemory.Cli -- perf --label session-extraction \
   --scenarios PERF-W-05 --iterations 3
 
+
+# Isolates resolution, learned-memory embeddings, persistence, provenance, and owner isolation
+dotnet run --project tools/AgentMemory.Cli -- perf --label frozen-persistence \
+  --scenarios PERF-W-08 --iterations 10
+
+# Compares the shipped four-call extractor with one typed unified extraction call
+dotnet run --project tools/AgentMemory.Cli -- perf --label unified-extraction \
+  --scenarios PERF-W-07,PERF-W-09 --latency remote --iterations 10
+
+# Measures ten complete owner-isolated cold-build units at 1, 5, and 10 workers
+dotnet run --project tools/AgentMemory.Cli -- perf --label cold-build-concurrency \
+  --scenarios PERF-W-10-C01,PERF-W-10-C05,PERF-W-10-C10 \
+  --latency remote --iterations 3
+
 # Restores the reusable 250k-node Scale-M dataset, then runs the same guarded scenario
 dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
   --scale M --scenarios PERF-R-04 --iterations 1
@@ -165,6 +339,10 @@ dotnet run --project tools/AgentMemory.Cli -- perf --label scale-m \
 # Five fresh-process cold samples plus a separate three-warm-up reference
 dotnet run --project tools/AgentMemory.Cli -- perf cold --label cold-r04 \
   --scenarios PERF-R-04 --samples 5 --warmup 3
+
+# Opt-in concurrent correctness + local saturation (fixed 16-connection product pool)
+dotnet run --project tools/AgentMemory.Cli -- perf concurrency --label concurrency \
+  --levels 1,10,100 --pool-size 16
 
 # Compare two in-process recall configurations, with quality in the same report
 dotnet run --project tools/AgentMemory.Cli -- perf ab \
@@ -222,8 +400,16 @@ the complete memory result. The greeting scenario locks its current default-poli
 the per-turn ingestion scenarios verify message persistence and extraction outcomes. Whole-session
 extraction additionally requires exactly 50 source messages and reads the graph back after the measured
 turn to prove that two entities, two facts, one preference, and 250 provenance relationships were
-actually stored. Fixture setup and graph verification are outside the measured scope. Those failures
-are otherwise silent and would produce a confident, wrong number.
+actually stored. Fixture setup and graph verification are outside the measured scope.
+`PERF-W-08` separately bypasses model extraction for one harness-only marker, then exercises the real
+resolution-to-persistence product path. It requires zero model/storage/recall work inside the measured
+turn, exact 2/2/1/1 learned graph output, all supported source provenance, and zero cross-owner edges.
+Its deterministic embedding request count includes both semantic entity-resolution probes and
+learned-memory embeddings.
+`PERF-W-09` exercises the typed unified extractor directly over the same 2/2/1/1 shape as
+`PERF-W-07`, requires exactly one purpose-attributed model call with zero retries, and rejects any
+storage, resolution, embedding, persistence, or recall work. These self-assertions catch failures
+that would otherwise be silent and produce a confident, wrong number.
 
 ### Pull-request regression gate
 

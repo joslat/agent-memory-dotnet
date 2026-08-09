@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neo4j.Driver;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Core.Extraction;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Neo4j.Services;
@@ -36,7 +37,10 @@ public static class ServiceCollectionExtensions
         // INeo4jDriverFactory still owns creation and disposal.
         services.TryAddSingleton<IDriver>(sp => sp.GetRequiredService<INeo4jDriverFactory>().GetDriver());
         services.TryAddSingleton<INeo4jSessionFactory, Neo4jSessionFactory>();
-        services.TryAddTransient<INeo4jTransactionRunner, Neo4jTransactionRunner>();
+        // Singleton so repository instances in the same async flow can join the transaction opened
+        // for one logical extraction-persistence operation.
+        services.TryAddSingleton<INeo4jTransactionRunner, Neo4jTransactionRunner>();
+        services.Replace(ServiceDescriptor.Singleton<IMemoryPersistenceTransaction, Neo4jMemoryPersistenceTransaction>());
         services.TryAddTransient<ISchemaBootstrapper, SchemaBootstrapper>();
         services.TryAddTransient<IMigrationRunner, MigrationRunner>();
 

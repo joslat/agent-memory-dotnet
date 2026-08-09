@@ -16,6 +16,38 @@ public sealed class LlmExtractionOptions
     public int MaxRetries { get; set; } = 2;
 
     /// <summary>
+    /// Whether extraction requests should ask the chat provider for a JSON response.
+    /// Disable only for providers that do not support the portable response-format hint.
+    /// </summary>
+    public bool UseJsonResponseFormat { get; set; } = true;
+
+    /// <summary>
+    /// Uses one typed model response for entities, facts, preferences, and relationships.
+    /// Disabled by default until the unified path passes live extraction-quality acceptance;
+    /// the existing four-category extraction path remains the compatibility control.
+    /// </summary>
+    public bool UseUnifiedExtraction { get; set; }
+
+    /// <summary>
+    /// Enables token-bounded multi-session unified extraction through
+    /// <c>IMemoryExtractionPipeline.ExtractBatchAsync</c>. Disabled by default; single-session
+    /// extraction behavior is unchanged.
+    /// </summary>
+    public bool UseMultiSessionBatchExtraction { get; set; }
+
+    /// <summary>
+    /// Maximum number of planned multi-session batches that one extraction operation may send
+    /// concurrently. The default of one preserves the historical sequential provider-call order.
+    /// </summary>
+    public int MaxConcurrentBatchesPerExtraction { get; set; } = 1;
+
+    /// <summary>
+    /// Optional process-local cap shared by all multi-session extraction operations registered in
+    /// the same service provider. Zero disables the shared cap.
+    /// </summary>
+    public int MaxConcurrentExtractionBatches { get; set; }
+
+    /// <summary>
     /// Model identifier to use. <c>null</c> (the default) means use the <c>IChatClient</c> default.
     /// </summary>
     public string? ModelId { get; set; }
@@ -49,4 +81,15 @@ public sealed class LlmExtractionOptions
     /// When null the extractor's built-in default prompt is used.
     /// </summary>
     public string? PreferenceExtractionPrompt { get; set; }
+
+    /// <summary>
+    /// Offers the established relation vocabulary to the extractor so it reuses relation names
+    /// instead of inventing a phrasing per sentence. Default off.
+    /// </summary>
+    /// <remarks>
+    /// QUALITY-RISK: it changes what the model emits, and it lengthens the prompt, which moves the
+    /// frozen batch plan's estimated input totals. Opt-in so the effect can be measured against an
+    /// unchanged control before it becomes the default.
+    /// </remarks>
+    public bool UsePredicateVocabulary { get; set; }
 }

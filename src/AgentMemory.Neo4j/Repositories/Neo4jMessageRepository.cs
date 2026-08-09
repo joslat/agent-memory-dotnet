@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Neo4j.Infrastructure;
@@ -10,13 +11,22 @@ namespace AgentMemory.Neo4j.Repositories;
 
 internal sealed class Neo4jMessageRepository : IMessageRepository
 {
+    // Metadata-only filters run after the global vector candidate pool, so those searches must
+    // over-fetch before filtering. Session-scoped searches use an exact in-session query instead.
+    private const int ScopedOverFetchFactor = 5;
+    private const int ScopedOverFetchFloor = 50;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jMessageRepository> _logger;
+    private readonly bool _useOptimizedMessageBatchWrites;
 
-    public Neo4jMessageRepository(INeo4jTransactionRunner tx, ILogger<Neo4jMessageRepository> logger)
+    public Neo4jMessageRepository(
+        INeo4jTransactionRunner tx,
+        ILogger<Neo4jMessageRepository> logger,
+        IOptions<Neo4jOptions>? options = null)
     {
         _tx = tx;
         _logger = logger;
+        _useOptimizedMessageBatchWrites = options?.Value.UseOptimizedMessageBatchWrites ?? true;
     }
 
     public async Task<Message> AddAsync(Message message, CancellationToken cancellationToken = default)
@@ -35,30 +45,20 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
                 ["content"]        = message.Content,
                 ["timestamp"]      = message.TimestampUtc.ToString("O"),
                 ["toolCallIds"]    = message.ToolCallIds?.ToList() ?? new List<string>(),
-                ["metadata"]       = SerializeMetadata(message.Metadata)
+                ["metadata"]       = SerializeMetadata(message.Metadata),
+                ["embedding"]      = message.Embedding is { Length: > 0 }
+                    ? message.Embedding.ToList()
+                    : null
             };
 
             var cursor = await runner.RunAsync(MessageQueries.Add, createParams).ConfigureAwait(false);
             var record = await cursor.SingleAsync().ConfigureAwait(false);
-            var node = record["m"].As<INode>();
+            var returned = record["m"];
+            var properties = returned is INode node
+                ? node.Properties
+                : returned.As<IReadOnlyDictionary<string, object>>();
 
-            // Only persist a real (non-empty) vector; a degraded empty embedding leaves `embedding` NULL.
-            if (message.Embedding is { Length: > 0 })
-            {
-                await runner.RunAsync(
-                    SharedFragments.SetMessageEmbedding,
-                    new { id = message.MessageId, embedding = message.Embedding.ToList() }).ConfigureAwait(false);
-            }
-
-            // Create FIRST_MESSAGE if this is the first message in the conversation
-            await runner.RunAsync(
-                MessageQueries.CreateFirstMessageLink,
-                new { conversationId = message.ConversationId, id = message.MessageId }).ConfigureAwait(false);
-
-            // Establish NEXT_MESSAGE link from the previous last message
-            await runner.RunAsync(MessageQueries.LinkNextMessage, new { conversationId = message.ConversationId, id = message.MessageId }).ConfigureAwait(false);
-
-            return MapToMessage(node, message.Embedding);
+            return MapToMessage(properties, message.Embedding);
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -78,8 +78,31 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
             ["content"]         = m.Content,
             ["timestamp"]       = m.TimestampUtc.ToString("O"),
             ["tool_call_ids"]   = m.ToolCallIds?.ToList() ?? new List<string>(),
-            ["metadata"]        = SerializeMetadata(m.Metadata)
+            ["metadata"]        = SerializeMetadata(m.Metadata),
+            ["embedding"]       = m.Embedding is { Length: > 0 }
+                ? m.Embedding.ToList()
+                : null
         }).ToList();
+
+        var embeddingMap = ordered.ToDictionary(m => m.MessageId, m => m.Embedding);
+        if (_useOptimizedMessageBatchWrites)
+        {
+            return await _tx.WriteAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(
+                    MessageQueries.AddBatchOptimized,
+                    new { messages = msgParams }).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(record =>
+                {
+                    var node = record["m"].As<INode>();
+                    var id = node["id"].As<string>();
+                    return MapToMessage(
+                        node,
+                        embeddingMap.TryGetValue(id, out var embedding) ? embedding : null);
+                }).ToList();
+            }, cancellationToken).ConfigureAwait(false);
+        }
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -122,7 +145,6 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
                 new { ids = ordered.Select(m => m.MessageId).ToList() }).ConfigureAwait(false);
             var records = await readCursor.ToListAsync().ConfigureAwait(false);
 
-            var embeddingMap = ordered.ToDictionary(m => m.MessageId, m => m.Embedding);
             return records.Select(r =>
             {
                 var node = r["m"].As<INode>();
@@ -208,13 +230,17 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         _logger.LogDebug("Vector search messages, sessionId={SessionId}, limit={Limit}", sessionId, limit);
 
         var (filterClause, filterParams) = MetadataFilterBuilder.Build(metadataFilters, nodeAlias: "node");
-
-        var cypher = MessageQueries.SearchByVector(sessionId is not null, filterClause, limit);
+        var hasMetadataFilter = !string.IsNullOrWhiteSpace(filterClause);
+        var topK = sessionId is null && hasMetadataFilter
+            ? Math.Max(limit * ScopedOverFetchFactor, limit + ScopedOverFetchFloor)
+            : limit;
+        var cypher = MessageQueries.SearchByVector(sessionId is not null, filterClause, topK);
 
         var parameters = new Dictionary<string, object>
         {
             ["embedding"] = queryEmbedding.ToList(),
-            ["minScore"]  = minScore
+            ["minScore"]  = minScore,
+            ["limit"]     = limit
         };
         if (sessionId is not null) parameters["sessionId"] = sessionId;
         foreach (var (k, v) in filterParams) parameters[k] = v;
@@ -281,19 +307,22 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     }
 
     private static Message MapToMessage(INode node, float[]? embedding) =>
+        MapToMessage(node.Properties, embedding);
+
+    private static Message MapToMessage(IReadOnlyDictionary<string, object> properties, float[]? embedding) =>
         new()
         {
-            MessageId      = node["id"].As<string>(),
-            ConversationId = node["conversation_id"].As<string>(),
-            SessionId      = node["session_id"].As<string>(),
-            Role           = node["role"].As<string>(),
-            Content        = node["content"].As<string>(),
-            TimestampUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["timestamp"]),
+            MessageId      = properties["id"].As<string>(),
+            ConversationId = properties["conversation_id"].As<string>(),
+            SessionId      = properties["session_id"].As<string>(),
+            Role           = properties["role"].As<string>(),
+            Content        = properties["content"].As<string>(),
+            TimestampUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["timestamp"]),
             Embedding      = embedding,
-            ToolCallIds    = node.Properties.TryGetValue("tool_call_ids", out var tc)
+            ToolCallIds    = properties.TryGetValue("tool_call_ids", out var tc)
                                 ? tc.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : [],
-            Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            Metadata       = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
     private static float[]? ReadEmbedding(INode node)

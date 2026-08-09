@@ -24,9 +24,22 @@ public sealed record MemoryDecayOptions
     // MaxMemoriesPerSession property here was read nowhere and could not be coherently enforced, so it was removed.
 
     /// <summary>
-    /// Boost factor applied per access (recall hit) when computing the retention score.
+    /// Boost factor applied to the <b>logarithm</b> of the access count when computing the retention
+    /// score: <c>AccessBoostFactor × ln(1 + accessCount)</c>, capped by <see cref="MaxAccessBoost"/>.
     /// </summary>
+    /// <remarks>
+    /// The boost was applied linearly and undamped until BUG-R7, which let the access count alone
+    /// decide retention — one recall was enough to hold a memory above <see cref="MinRetentionScore"/>
+    /// permanently, however stale. It is now damped, capped, and subject to the same time decay as
+    /// confidence, so frequent access slows forgetting rather than preventing it.
+    /// </remarks>
     public double AccessBoostFactor { get; init; } = 0.2;
+
+    /// <summary>
+    /// Ceiling on the access-boost contribution to the retention score, so a very frequently recalled
+    /// memory cannot outweigh every other signal in the blend.
+    /// </summary>
+    public double MaxAccessBoost { get; init; } = 0.5;
 
     // NOTE: a documented-but-dead `EnableAutoPrune` option was removed (R6 cleanup). It promised
     // "automatically prune during extraction" but was read nowhere — auto-prune-on-extraction would wire

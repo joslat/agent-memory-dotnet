@@ -71,6 +71,57 @@ public sealed class LlmFactExtractorTests
     }
 
     [Fact]
+    public async Task ExtractAsync_DefaultRequest_RequiresJsonResponseFormat()
+    {
+        const string json =
+            """{"facts": [{"subject": "Alice", "predicate": "works_at", "object": "Acme Corp", "confidence": 0.95}]}""";
+        ChatOptions? captured = null;
+        var client = Substitute.For<IChatClient>();
+        client.GetResponseAsync(
+                Arg.Any<IEnumerable<ChatMessage>>(),
+                Arg.Any<ChatOptions>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                captured = call.ArgAt<ChatOptions>(1);
+                return Task.FromResult(
+                    new ChatResponse(new ChatMessage(ChatRole.Assistant, json)));
+            });
+
+        var sut = CreateSut(client);
+        var result = await sut.ExtractAsync(new[] { SampleMessage });
+
+        result.Should().ContainSingle();
+        captured.Should().NotBeNull();
+        captured!.ResponseFormat.Should().BeSameAs(ChatResponseFormat.Json);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_JsonResponseFormatDisabled_LeavesRequestUnspecified()
+    {
+        const string json =
+            """{"facts": [{"subject": "Alice", "predicate": "works_at", "object": "Acme Corp", "confidence": 0.95}]}""";
+        ChatOptions? captured = null;
+        var client = Substitute.For<IChatClient>();
+        client.GetResponseAsync(
+                Arg.Any<IEnumerable<ChatMessage>>(),
+                Arg.Any<ChatOptions>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                captured = call.ArgAt<ChatOptions>(1);
+                return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, json)));
+            });
+
+        var sut = CreateSut(client, options => options.UseJsonResponseFormat = false);
+        var result = await sut.ExtractAsync(new[] { SampleMessage });
+
+        result.Should().ContainSingle();
+        captured.Should().NotBeNull();
+        captured!.ResponseFormat.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ExtractAsync_MalformedJson_ReturnsEmpty()
     {
         var client = Substitute.For<IChatClient>();

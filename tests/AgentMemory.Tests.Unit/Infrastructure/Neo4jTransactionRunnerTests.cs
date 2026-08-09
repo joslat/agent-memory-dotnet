@@ -169,4 +169,98 @@ public sealed class Neo4jTransactionRunnerTests
                     because: "raw Cypher can contain parameters and must never enter telemetry artifacts");
         }
     }
+
+    [Fact]
+    public async Task ReadAsync_TransactionSpanReportsLabelledEntryDelayEstimate()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var driverRunner = Substitute.For<IAsyncQueryRunner>();
+        factory.OpenSession(AccessMode.Read).Returns(session);
+        session
+            .ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>())
+            .Returns(async call =>
+            {
+                await Task.Delay(25);
+                return await call.Arg<Func<IAsyncQueryRunner, Task<int>>>()(driverRunner);
+            });
+
+        Activity? transaction = null;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+                ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "memory.db.tx")
+                    transaction = activity;
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        await runner.ReadAsync(_ => Task.FromResult(42));
+
+        transaction.Should().NotBeNull();
+        transaction!.GetTagItem("db.transaction_entry_ms_est")
+            .Should().BeOfType<double>().Which.Should().BeGreaterThan(10);
+    }
+
+    [Fact]
+    public async Task ExecuteAtomicWriteAsync_RepositoryCallsJoinOneExplicitTransaction()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var transaction = Substitute.For<IAsyncTransaction>();
+        factory.OpenSession(AccessMode.Write).Returns(session);
+        session.BeginTransactionAsync().Returns(transaction);
+
+        var result = await runner.ExecuteAtomicWriteAsync(async cancellationToken =>
+        {
+            var writeResult = await runner.WriteAsync(queryRunner =>
+            {
+                queryRunner.Should().BeSameAs(transaction);
+                return Task.FromResult(20);
+            }, cancellationToken);
+            var readResult = await runner.ReadAsync(queryRunner =>
+            {
+                queryRunner.Should().BeSameAs(transaction);
+                return Task.FromResult(22);
+            }, cancellationToken);
+            return writeResult + readResult;
+        });
+
+        result.Should().Be(42);
+        factory.Received(1).OpenSession(AccessMode.Write);
+        await session.Received(1).BeginTransactionAsync();
+        await transaction.Received(1).CommitAsync();
+        await transaction.DidNotReceive().RollbackAsync();
+        await session.DidNotReceive().ExecuteWriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>());
+        await session.DidNotReceive().ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>());
+    }
+
+    [Fact]
+    public async Task ExecuteAtomicWriteAsync_CallbackFailure_RollsBackAndDoesNotCommit()
+    {
+        var (runner, factory) = Create();
+        var session = Substitute.For<IAsyncSession>();
+        var transaction = Substitute.For<IAsyncTransaction>();
+        factory.OpenSession(AccessMode.Write).Returns(session);
+        session.BeginTransactionAsync().Returns(transaction);
+
+        var act = async () => await runner.ExecuteAtomicWriteAsync<int>(async cancellationToken =>
+        {
+            await runner.WriteAsync(queryRunner =>
+            {
+                queryRunner.Should().BeSameAs(transaction);
+                return Task.CompletedTask;
+            }, cancellationToken);
+            throw new InvalidOperationException("injected persistence failure");
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("injected persistence failure");
+        await transaction.Received(1).RollbackAsync();
+        await transaction.DidNotReceive().CommitAsync();
+    }
 }

@@ -35,6 +35,12 @@ public sealed class ShortTermMemoryServiceTests
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[1536]));
 
+        _embeddingOrchestrator
+            .EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<float[]>>(
+                call.Arg<IReadOnlyList<string>>()
+                    .Select((_, index) => new[] { (float)(index + 1) }).ToArray()));
+
         _conversationRepo
             .UpsertAsync(Arg.Any<Conversation>(), Arg.Any<CancellationToken>())
             .Returns(ci => Task.FromResult(ci.Arg<Conversation>()));
@@ -138,7 +144,7 @@ public sealed class ShortTermMemoryServiceTests
     }
 
     [Fact]
-    public async Task AddMessagesAsync_EmbedsEachMessage()
+    public async Task AddMessagesAsync_UsesOneAlignedBatchEmbeddingByDefault()
     {
         var sut = CreateSut(Options.Create(new ShortTermMemoryOptions { GenerateEmbeddings = true }));
         var messages = new[]
@@ -151,8 +157,84 @@ public sealed class ShortTermMemoryServiceTests
         await sut.AddMessagesAsync(messages);
 
         await _embeddingOrchestrator
-            .Received(3)
+            .Received(1)
+            .EmbedBatchAsync(
+                Arg.Is<IReadOnlyList<string>>(texts =>
+                    texts.SequenceEqual(messages.Select(message => message.Content))),
+                Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator
+            .DidNotReceive()
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddMessagesAsync_BatchEmbeddingOptionOff_PreservesLegacyCalls()
+    {
+        var sut = CreateSut(Options.Create(new ShortTermMemoryOptions
+        {
+            GenerateEmbeddings = true,
+            UseBatchEmbeddingRequests = false,
+        }));
+        var messages = new[]
+        {
+            CreateMessage("msg-1"),
+            CreateMessage("msg-2"),
+            CreateMessage("msg-3"),
+        };
+
+        await sut.AddMessagesAsync(messages);
+
+        await _embeddingOrchestrator.Received(3).EmbedAsync(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive().EmbedBatchAsync(
+            Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddMessagesAsync_BatchEmbedding_PreservesProvidedVectorsAndInputOrder()
+    {
+        var provided = new[] { 42f };
+        var messages = new[]
+        {
+            CreateMessage("msg-1", withEmbedding: false),
+            CreateMessage("msg-2", withEmbedding: false) with { Embedding = provided },
+            CreateMessage("msg-3", withEmbedding: false),
+        };
+        IReadOnlyList<Message>? persisted = null;
+        _messageRepo
+            .AddBatchAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                persisted = call.Arg<IEnumerable<Message>>().ToList();
+                return Task.FromResult(persisted);
+            });
+        var sut = CreateSut(Options.Create(new ShortTermMemoryOptions { GenerateEmbeddings = true }));
+
+        await sut.AddMessagesAsync(messages);
+
+        await _embeddingOrchestrator.Received(1).EmbedBatchAsync(
+            Arg.Is<IReadOnlyList<string>>(texts =>
+                texts.SequenceEqual(new[] { messages[0].Content, messages[2].Content })),
+            Arg.Any<CancellationToken>());
+        persisted.Should().NotBeNull();
+        persisted!.Select(message => message.MessageId).Should().Equal("msg-1", "msg-2", "msg-3");
+        persisted[0].Embedding.Should().Equal(1f);
+        persisted[1].Embedding.Should().BeSameAs(provided);
+        persisted[2].Embedding.Should().Equal(2f);
+    }
+
+    [Fact]
+    public async Task AddMessagesAsync_DisabledEmbeddings_MakesNoEmbeddingCalls()
+    {
+        var sut = CreateSut(Options.Create(new ShortTermMemoryOptions { GenerateEmbeddings = false }));
+        var messages = new[] { CreateMessage("msg-1"), CreateMessage("msg-2") };
+
+        await sut.AddMessagesAsync(messages);
+
+        await _embeddingOrchestrator.DidNotReceive().EmbedBatchAsync(
+            Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+        await _embeddingOrchestrator.DidNotReceive().EmbedAsync(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -41,12 +41,12 @@
         "items.relevant": 5,
         "items.retrieved": 43,
         "items.traces": 3,
-        "neo4j.bytes_est": 144591,
+        "neo4j.bytes_est": 145625,
         "neo4j.queries": 9,
         "neo4j.records": 43,
         "neo4j.tx.read": 6,
         "neo4j.tx.write": 1,
-        "recall.chars": 3823
+        "recall.chars": 3828
       }
     },
     "PERF-R-07": {
@@ -68,12 +68,12 @@
         "items.relevant": 5,
         "items.retrieved": 43,
         "items.traces": 3,
-        "neo4j.bytes_est": 144591,
+        "neo4j.bytes_est": 145625,
         "neo4j.queries": 9,
         "neo4j.records": 43,
         "neo4j.tx.read": 6,
         "neo4j.tx.write": 1,
-        "recall.chars": 3823
+        "recall.chars": 3828
       }
     },
     "PERF-R-08": {
@@ -95,29 +95,29 @@
         "items.relevant": 5,
         "items.retrieved": 43,
         "items.traces": 3,
-        "neo4j.bytes_est": 144591,
+        "neo4j.bytes_est": 145625,
         "neo4j.queries": 9,
         "neo4j.records": 43,
         "neo4j.tx.read": 6,
         "neo4j.tx.write": 1,
-        "recall.chars": 3934
+        "recall.chars": 3939
       }
     },
     "PERF-W-02": {
       "counters": {
         "embed.chars": 201,
         "embed.items": 4,
-        "embed.requests": 4,
+        "embed.requests": 2,
         "extract.candidate_entities": 2,
         "extract.source_messages": 2,
         "llm.calls": 4,
         "llm.tokens_in": 947,
         "llm.tokens_out": 668,
-        "neo4j.bytes_est": 102960,
-        "neo4j.queries": 43,
-        "neo4j.records": 32,
-        "neo4j.tx.read": 4,
-        "neo4j.tx.write": 18,
+        "neo4j.bytes_est": 99132,
+        "neo4j.queries": 8,
+        "neo4j.records": 30,
+        "neo4j.tx.read": 2,
+        "neo4j.tx.write": 2,
         "persist.entities": 2,
         "persist.facts": 2,
         "persist.preferences": 1,
@@ -129,17 +129,17 @@
       "counters": {
         "embed.chars": 378,
         "embed.items": 9,
-        "embed.requests": 9,
+        "embed.requests": 7,
         "extract.candidate_entities": 2,
         "extract.source_messages": 7,
         "llm.calls": 4,
         "llm.tokens_in": 1170,
         "llm.tokens_out": 668,
-        "neo4j.bytes_est": 108964,
-        "neo4j.queries": 88,
-        "neo4j.records": 37,
-        "neo4j.tx.read": 4,
-        "neo4j.tx.write": 48,
+        "neo4j.bytes_est": 103856,
+        "neo4j.queries": 13,
+        "neo4j.records": 35,
+        "neo4j.tx.read": 2,
+        "neo4j.tx.write": 7,
         "persist.entities": 2,
         "persist.facts": 2,
         "persist.preferences": 1,
@@ -151,21 +151,95 @@
       "counters": {
         "embed.chars": 159,
         "embed.items": 7,
-        "embed.requests": 7,
+        "embed.requests": 3,
         "extract.candidate_entities": 2,
         "extract.source_messages": 50,
         "llm.calls": 4,
         "llm.tokens_in": 7774,
         "llm.tokens_out": 668,
-        "neo4j.bytes_est": 43218,
-        "neo4j.queries": 278,
-        "neo4j.records": 57,
-        "neo4j.tx.read": 5,
-        "neo4j.tx.write": 257,
+        "neo4j.bytes_est": 53274,
+        "neo4j.queries": 8,
+        "neo4j.records": 55,
+        "neo4j.tx.read": 3,
+        "neo4j.tx.write": 1,
         "persist.entities": 2,
         "persist.facts": 2,
         "persist.preferences": 1,
         "persist.relationships": 0
+      }
+    },
+    "PERF-W-06": {
+      "counters": {
+        "embed.chars": 6250,
+        "embed.items": 50,
+        "embed.requests": 1,
+        "neo4j.bytes_est": 173950,
+        "neo4j.queries": 1,
+        "neo4j.records": 50,
+        "neo4j.tx.write": 1,
+        "store.messages": 50
+      }
+    },
+    "PERF-W-07": {
+      "counters": {
+        "extract.entities": 2,
+        "extract.facts": 2,
+        "extract.input_messages": 1,
+        "extract.preferences": 1,
+        "extract.relationships": 1,
+        "llm.calls": 4,
+        "llm.entity.calls": 1,
+        "llm.entity.retries": 0,
+        "llm.entity.tokens_in": 234,
+        "llm.entity.tokens_out": 35,
+        "llm.fact.calls": 1,
+        "llm.fact.retries": 0,
+        "llm.fact.tokens_in": 198,
+        "llm.fact.tokens_out": 49,
+        "llm.preference.calls": 1,
+        "llm.preference.retries": 0,
+        "llm.preference.tokens_in": 204,
+        "llm.preference.tokens_out": 28,
+        "llm.relationship.calls": 1,
+        "llm.relationship.retries": 0,
+        "llm.relationship.tokens_in": 203,
+        "llm.relationship.tokens_out": 28,
+        "llm.tokens_in": 839,
+        "llm.tokens_out": 140
+      }
+    },
+    "PERF-W-08": {
+      "counters": {
+        "embed.chars": 157,
+        "embed.items": 7,
+        "embed.requests": 3,
+        "extract.candidate_entities": 2,
+        "extract.source_messages": 1,
+        "neo4j.bytes_est": 17520,
+        "neo4j.queries": 8,
+        "neo4j.records": 6,
+        "neo4j.tx.read": 2,
+        "neo4j.tx.write": 1,
+        "persist.entities": 2,
+        "persist.facts": 2,
+        "persist.preferences": 1,
+        "persist.relationships": 1
+      }
+    },
+    "PERF-W-09": {
+      "counters": {
+        "extract.entities": 2,
+        "extract.facts": 2,
+        "extract.input_messages": 1,
+        "extract.preferences": 1,
+        "extract.relationships": 1,
+        "llm.calls": 1,
+        "llm.tokens_in": 188,
+        "llm.tokens_out": 165,
+        "llm.unified.calls": 1,
+        "llm.unified.retries": 0,
+        "llm.unified.tokens_in": 188,
+        "llm.unified.tokens_out": 165
       }
     }
   },
@@ -179,6 +253,8 @@
     "factRecall": 1,
     "preferencePrecision": 1,
     "preferenceRecall": 1,
-    "extractionFalsePositiveRate": 0
+    "extractionFalsePositiveRate": 0,
+    "retrievalMeasurement": "deterministic-plumbing",
+    "semanticQualityClaim": false
   }
 }

@@ -48,6 +48,19 @@ public sealed class HeuristicAutomaticRecallPolicy : IAutomaticRecallPolicy
         @"\b(debug|troubleshoot|workflow|steps to|how do i|walk me through|implement|error|bug|incident|root cause)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>
+    /// Questions that need a relation returned whole rather than its top-K most similar members.
+    /// </summary>
+    /// <remarks>
+    /// Both of the failures this track spent the most effort on open with "how many", which is what
+    /// makes a lexical route sufficient here instead of a model call. Compiled and anchored on word
+    /// boundaries; no repeating group, so it cannot backtrack catastrophically the way an earlier
+    /// greeting pattern in this file did.
+    /// </remarks>
+    private static readonly Regex AggregationOriented = new(
+        @"\b(how many|how much|count|total|list all|all the|every|number of)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     /// <inheritdoc/>
     public ValueTask<AutomaticRecallDecision> DecideAsync(
         AutomaticRecallContext context, CancellationToken cancellationToken = default)
@@ -77,7 +90,10 @@ public sealed class HeuristicAutomaticRecallPolicy : IAutomaticRecallPolicy
         {
             ShouldRecall = true,
             Categories = categories,
-            Intent = intent
+            Intent = intent,
+            // G5's aggregation route. Deterministic and free, so it can run on every turn, and it
+            // catches the shape top-K structurally cannot answer.
+            RequiresRelationCompleteness = AggregationOriented.IsMatch(query)
         });
     }
 

@@ -9,12 +9,83 @@ namespace AgentMemory.Neo4j.Queries;
 /// </summary>
 internal static class FactQueries
 {
+    // ── Canonical-key backfill (Phase 1.1) ─────────────────────────────
+
+    /// <summary>Facts written before canonical identity, in bounded batches.</summary>
+    /// <remarks>
+    /// Selecting on <c>predicate_key IS NULL</c> makes the backfill idempotent by construction: once
+    /// every fact is keyed, a re-run selects nothing. Bounded so a large store migrates in batches
+    /// rather than one transaction.
+    /// </remarks>
+    public const string SelectFactsMissingCanonicalKeys = @"
+            MATCH (f:Fact)
+            WHERE f.predicate_key IS NULL
+            RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate, f.object AS object
+            LIMIT $limit";
+
+    /// <summary>
+    /// Writes canonical keys computed <b>in C#</b> onto facts identified by id.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately contains no <c>toLower()</c> or string rewriting: Cypher's <c>toLower()</c> and
+    /// .NET's <c>ToLowerInvariant()</c> disagree on U+0130, so a key computed here would not match
+    /// the one the write path produces, silently reintroducing the duplication canonical identity
+    /// exists to remove. That is also why this is not a .cypher migration file.
+    /// </remarks>
+    public const string ApplyCanonicalKeys = @"
+            UNWIND $items AS item
+            MATCH (f:Fact {id: item.id})
+            SET f.subject_key   = item.subject_key,
+                f.predicate_key = item.predicate_key,
+                f.object_key    = item.object_key
+            RETURN count(f) AS updated";
+
+    // ── Predicate expansion (G3B.13) ───────────────────────────────────
+
+    /// <summary>
+    /// Every fact an owner holds under the given canonical predicates, bounded.
+    /// </summary>
+    /// <remarks>
+    /// Top-K vector search answers "what is most relevant"; it cannot answer "how many", because a
+    /// relevance cutoff gives no completeness guarantee — miss one of five births and the count is
+    /// four. This retrieves a <i>relation</i> whole so aggregation questions become answerable, and
+    /// composes with top-K rather than replacing it: similarity finds which predicate matters, this
+    /// makes that predicate complete.
+    /// <para>
+    /// Matches <c>predicate_key</c>, never the raw predicate: raw text would reinstate the exact
+    /// fragmentation canonical identity removed, where "were_born_in" and "were born in" fail to
+    /// find each other. Owner-scoped and explicitly limited — unbounded completeness over a graph of
+    /// ~1,000 facts would simply exhaust the answer budget.
+    /// </para>
+    /// </remarks>
+    public static string SearchByCanonicalPredicates(bool hasOwnerFilter, bool includeShared)
+    {
+        // Mirrors GetBySubject's owner-conditional shape rather than inventing its own. The first
+        // version hard-coded `f.owner_key = $ownerKey` with `scope.OwnerId ?? OwnerKeyShared`, which
+        // (a) never matched shared facts even when IncludeShared was set, silently breaking the
+        // "relation whole" guarantee, and (b) coerced a null-owner scope to the shared bucket, so it
+        // returned nothing exactly where top-K returned everything.
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return $@"
+            MATCH (f:Fact)
+            WHERE f.predicate_key IN $predicateKeys
+              AND f.invalidated_at IS NULL{owner}
+            RETURN f
+            ORDER BY f.confidence DESC, f.id ASC
+            LIMIT $limit";
+    }
+
     // ── UpsertAsync ────────────────────────────────────────────────────
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
     public const string Upsert = @"
-            MERGE (f:Fact {subject: $subject, predicate: $predicate, object: $object, owner_key: $ownerKey})
+            MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey})
             ON CREATE SET
+                f.subject            = $subject,
+                f.predicate          = $predicate,
+                f.object             = $object,
                 f.id                 = $id,
                 f.owner_id           = $ownerId,
                 f.category           = $category,
@@ -49,8 +120,11 @@ internal static class FactQueries
     /// </summary>
     public const string UpsertBatch = @"
             UNWIND $items AS item
-            MERGE (f:Fact {subject: item.subject, predicate: item.predicate, object: item.object, owner_key: item.owner_key})
+            MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key})
             ON CREATE SET
+                f.subject            = item.subject,
+                f.predicate          = item.predicate,
+                f.object             = item.object,
                 f.id                 = item.id,
                 f.owner_id           = item.owner_id,
                 f.category           = item.category,
@@ -90,18 +164,19 @@ internal static class FactQueries
     // ── Dedup-on-create ────────────────────────────────────────────────
 
     /// <summary>
-    /// Finds the most-similar existing fact with the same subject+predicate within the same owner
-    /// (matched by <c>owner_key</c>) whose cosine score ≥ <c>$threshold</c> — used to reinforce instead
-    /// of creating a near-duplicate node. Over-fetches <paramref name="topK"/> candidates, returns top 1.
+    /// Scopes live candidates to the same owner + case-insensitive subject/predicate before exact cosine
+    /// scoring, then returns the best match above <c>$threshold</c>. Scoped exact scoring gives a caller
+    /// holding the process-local dedup lock read-after-commit behavior without vector-index refresh lag.
     /// </summary>
-    public static string FindDuplicate(int topK) => $@"
-            CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
-            YIELD node, score
-            WHERE score >= $threshold
-              AND node.invalidated_at IS NULL
+    public static string FindDuplicate() => @"
+            MATCH (node:Fact)
+            WHERE node.invalidated_at IS NULL
+              AND node.owner_key = $ownerKey
               AND toLower(node.subject) = toLower($subject)
               AND toLower(node.predicate) = toLower($predicate)
-              AND node.owner_key = $ownerKey
+              AND node.embedding IS NOT NULL
+            WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
+            WHERE score >= $threshold
             RETURN node, score
             ORDER BY score DESC
             LIMIT 1";

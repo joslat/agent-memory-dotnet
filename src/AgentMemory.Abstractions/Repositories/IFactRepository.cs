@@ -119,4 +119,23 @@ public interface IFactRepository
         MemoryScope? scope = null,
         DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every fact under the given canonical predicates, bounded — a relation retrieved <b>whole</b>.
+    /// </summary>
+    /// <remarks>
+    /// Top-K vector search is a relevance cutoff and gives no completeness guarantee, so it cannot
+    /// answer "how many": miss one of five births and the count is four. This composes with top-K
+    /// rather than replacing it — similarity finds which relation matters, this returns all of it.
+    /// <para>
+    /// Defaults to empty so existing implementations remain source-compatible; a store that cannot
+    /// retrieve by relation simply contributes nothing rather than failing.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsync(
+        IReadOnlyList<string> canonicalPredicates,
+        int limit,
+        MemoryScope scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
 }

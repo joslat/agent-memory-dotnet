@@ -862,6 +862,26 @@ public sealed class MemoryContextAssemblerTests
         result.RecentMessages.Items.Should().BeEmpty();
     }
 
+    [Fact]
+    public void BuildRankedItems_PreservesProviderRankAndAssignsPostBudgetContextRank()
+    {
+        var first = CreateMessage("first", "first", _fixedTime);
+        var removedByBudget = CreateMessage("removed", "removed", _fixedTime.AddMinutes(-1));
+        var third = CreateMessage("third", "third", _fixedTime.AddMinutes(-2));
+        IReadOnlyList<(Message Message, double Score)> retrieved =
+        [
+            (first, 0.99),
+            (removedByBudget, 0.88),
+            (third, 0.77)
+        ];
+
+        var ranked = MemoryContextAssembler.BuildRankedItems([first, third], retrieved);
+
+        ranked.Should().Equal(
+            new MemoryContextRankedItem("first", 0.99, RetrievalRank: 1, ContextRank: 1),
+            new MemoryContextRankedItem("third", 0.77, RetrievalRank: 3, ContextRank: 2));
+    }
+
     // ---- Helpers ----
 
     private static Entity CreateEntity(string id, string name, DateTimeOffset createdAt) => new()

@@ -11,7 +11,8 @@ internal static class MessageQueries
 {
     // ── AddAsync ───────────────────────────────────────────────────────
 
-    /// <summary>Create a message and link it to its conversation via HAS_MESSAGE. The conversation
+    /// <summary>Create a message, persist its optional embedding, and maintain its conversation/order
+    /// links in one query. The conversation
     /// is MERGE-d so persisting a message never silently no-ops when the conversation was not
     /// explicitly created first (e.g. from the MAF context/history providers); a thin conversation
     /// is created and later enriched by ConversationQueries.Upsert.
@@ -36,8 +37,26 @@ internal static class MessageQueries
                 m.timestamp       = datetime($timestamp),
                 m.tool_call_ids   = $toolCallIds,
                 m.metadata        = $metadata
+            WITH conv, m, m { .* } AS persisted
+            SET m.embedding = CASE
+                WHEN $embedding IS NOT NULL THEN $embedding
+                ELSE m.embedding
+            END
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m";
+            WITH conv, m, persisted
+            OPTIONAL MATCH (conv)-[:FIRST_MESSAGE]->(first:Message)
+            FOREACH (_ IN CASE WHEN first IS NULL THEN [1] ELSE [] END |
+                MERGE (conv)-[:FIRST_MESSAGE]->(m)
+            )
+            WITH conv, m, persisted
+            OPTIONAL MATCH (conv)-[:HAS_MESSAGE]->(prev:Message)
+            WHERE prev.id <> $id
+            WITH m, persisted, prev ORDER BY prev.timestamp DESC
+            WITH m, persisted, head(collect(prev)) AS prev
+            FOREACH (_ IN CASE WHEN prev IS NULL THEN [] ELSE [1] END |
+                MERGE (prev)-[:NEXT_MESSAGE]->(m)
+            )
+            RETURN persisted AS m";
 
     /// <summary>Link the first message in a conversation via FIRST_MESSAGE.</summary>
     public const string CreateFirstMessageLink = @"
@@ -87,6 +106,62 @@ internal static class MessageQueries
                 m.metadata        = msg.metadata
             MERGE (conv)-[:HAS_MESSAGE]->(m)
             RETURN m";
+
+    /// <summary>
+    /// One-query batch write preserving <see cref="AddBatch"/>'s behavior: first-write-wins message
+    /// properties, unconditional overwrite for supplied embeddings, intra-batch ordering, connection to
+    /// the prior conversation tail, and ordered read-back. The input must already be timestamp ordered.
+    /// </summary>
+    public static string AddBatchOptimized { get; } = @"
+            WITH $messages AS messages,
+                 [msg IN $messages | msg.id] AS batchIds
+            UNWIND messages AS msg
+            MERGE (conv:Conversation {id: msg.conversation_id})
+            ON CREATE SET conv.session_id = msg.session_id,
+                          conv.created_at = datetime(msg.timestamp),
+                          conv.updated_at = datetime(msg.timestamp)
+            MERGE (m:Message {id: msg.id})
+            ON CREATE SET
+                m.conversation_id = msg.conversation_id,
+                m.session_id      = msg.session_id,
+                m.role            = msg.role,
+                m.content         = msg.content,
+                m.timestamp       = datetime(msg.timestamp),
+                m.tool_call_ids   = msg.tool_call_ids,
+                m.metadata        = msg.metadata
+            FOREACH (_ IN CASE WHEN msg.embedding IS NULL THEN [] ELSE [1] END |
+                SET m.embedding = msg.embedding
+            )
+            MERGE (conv)-[:HAS_MESSAGE]->(m)
+            WITH messages, batchIds
+            CALL {
+                WITH messages
+                UNWIND CASE
+                    WHEN size(messages) > 1 THEN range(1, size(messages) - 1)
+                    ELSE []
+                END AS i
+                MATCH (prev:Message {id: messages[i - 1].id})
+                MATCH (next:Message {id: messages[i].id})
+                MERGE (prev)-[:NEXT_MESSAGE]->(next)
+                RETURN count(*) AS linked
+            }
+            WITH messages, batchIds
+            MATCH (conv:Conversation {id: messages[0].conversation_id})
+            MATCH (first:Message {id: messages[0].id})
+            OPTIONAL MATCH (conv)-[:HAS_MESSAGE]->(prev:Message)
+            WHERE NOT prev.id IN batchIds
+            WITH messages, first, prev
+            ORDER BY prev.timestamp DESC
+            WITH messages, first, head(collect(prev)) AS prev
+            FOREACH (_ IN CASE WHEN prev IS NULL THEN [] ELSE [1] END |
+                MERGE (prev)-[:NEXT_MESSAGE]->(first)
+            )
+            WITH messages
+            UNWIND messages AS msg
+            WITH DISTINCT msg.id AS id
+            MATCH (m:Message {id: id})
+            RETURN m
+            ORDER BY m.timestamp";
 
     /// <summary>Create NEXT_MESSAGE link between two specific messages. MERGE (not CREATE) for the same
     /// idempotency guarantee as <see cref="LinkNextMessage"/>.</summary>
@@ -142,22 +217,39 @@ internal static class MessageQueries
 
     /// <summary>
     /// Builds a vector similarity search query for messages with optional session and metadata filters.
-    /// The <paramref name="topK"/> value is embedded in the CALL as a literal integer.
+    /// Session-scoped search uses the indexed Conversation session id, traverses HAS_MESSAGE, and
+    /// calculates exact cosine inside that session; unscoped search uses the global vector index.
     /// </summary>
-    /// <param name="hasSessionFilter">When true, adds an AND clause for <c>node.session_id = $sessionId</c>.</param>
+    /// <param name="hasSessionFilter">When true, scopes traversal through <c>Conversation.session_id</c>.</param>
     /// <param name="metadataFilterFragment">
     /// Optional pre-formatted AND condition lines from <see cref="MetadataFilterBuilder.Build"/>.
     /// </param>
-    /// <param name="topK">Number of candidates to retrieve from the vector index.</param>
-    public static string SearchByVector(bool hasSessionFilter, string? metadataFilterFragment = null, int topK = 10) =>
-        new CypherBuilder()
+    /// <param name="topK">Number of candidates to retrieve from the unscoped vector index.</param>
+    public static string SearchByVector(bool hasSessionFilter, string? metadataFilterFragment = null, int topK = 10)
+    {
+        if (hasSessionFilter)
+        {
+            return $$"""
+                MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)
+                WHERE node.embedding IS NOT NULL AND size(node.embedding) = size($embedding)
+                {{metadataFilterFragment}}
+                WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score
+                WHERE score >= $minScore
+                RETURN node, score
+                ORDER BY score DESC
+                LIMIT $limit
+                """;
+        }
+
+        return new CypherBuilder()
             .WithVectorSearch("message_embedding_idx", "$embedding", "node", topK)
             .Where("score >= $minScore")
-            .And("node.session_id = $sessionId", when: hasSessionFilter)
             .AndRawFragment(metadataFilterFragment)
             .Return("node, score")
             .OrderBy("score DESC")
+            .Limit("$limit", when: !string.IsNullOrWhiteSpace(metadataFilterFragment))
             .Build();
+    }
 
     // ── DeleteBySessionAsync ───────────────────────────────────────────
 

@@ -11,6 +11,8 @@
     "toleranceDerivation": "Every guarded metric was identical across five fresh containers, so tolerance equals observed variance: zero."
   },
   "retrieval": {
+    "measurement": "deterministic-plumbing",
+    "semanticQualityClaim": false,
     "recallAtK": 1.0,
     "mrr": 1.0,
     "cases": 19,

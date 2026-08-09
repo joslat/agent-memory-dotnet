@@ -13,7 +13,7 @@ namespace AgentMemory.Core.Extraction;
 /// Embeds and persists the resolved items from <see cref="ExtractionStage"/>.
 /// Responsibility: generate embeddings, upsert to repositories, wire EXTRACTED_FROM provenance.
 /// </summary>
-internal sealed class PersistenceStage : IPersistenceStage
+internal sealed partial class PersistenceStage : IPersistenceStage
 {
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IEntityRepository _entityRepository;
@@ -23,6 +23,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
+    private readonly IMemoryPersistenceTransaction _persistenceTransaction;
     private readonly ILogger<PersistenceStage> _logger;
 
     public PersistenceStage(
@@ -34,6 +35,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         IClock clock,
         IIdGenerator idGenerator,
         ILogger<PersistenceStage> logger,
+        IMemoryPersistenceTransaction persistenceTransaction,
         IOptions<ExtractionOptions>? extractionOptions = null)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
@@ -44,6 +46,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         _clock = clock;
         _idGenerator = idGenerator;
         _logger = logger;
+        _persistenceTransaction = persistenceTransaction ?? throw new ArgumentNullException(nameof(persistenceTransaction));
         _options = extractionOptions?.Value ?? new ExtractionOptions();
     }
 
@@ -53,11 +56,9 @@ internal sealed class PersistenceStage : IPersistenceStage
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
     {
-        // Spans the whole persistence stage. The four per-kind blocks below are sequential loops that
-        // embed and upsert one item at a time, so the stage's cost grows with how much the turn produced
-        // -- the candidate counts are tagged here so that growth is attributable without needing four
-        // more spans. (Per-kind TIMING would mean restructuring those loops; the counts plus the stage
-        // total answer "is persistence expensive, and because of how many of what" already.)
+        // External embedding work is deliberately completed before the storage transaction opens.
+        // Holding a database transaction while waiting on a model/provider would amplify contention
+        // and make provider latency part of the database failure surface.
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.persist.total");
         if (activity is not null)
         {
@@ -67,70 +68,126 @@ internal sealed class PersistenceStage : IPersistenceStage
             activity.SetTag("memory.persist.relationships", extraction.FilteredRelationships.Count);
         }
 
+        var prepared = await PrepareEmbeddingsAsync(extraction, cancellationToken).ConfigureAwait(false);
+        if (_options.FailureMode == IngestionFailureMode.FailFast)
+        {
+            try
+            {
+                return await _persistenceTransaction.ExecuteAsync(
+                    ct => PersistPreparedAsync(extraction, ownerId, trustLevel, prepared, ct),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (MemoryIngestionException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Transaction-entry, commit, and rollback-confirmation failures occur outside the
+                // per-item catch blocks below. Preserve the documented fail-fast boundary while
+                // retaining the provider/transaction failure as the inner cause. Outcomes created
+                // inside the rolled-back transaction are deliberately excluded as non-durable.
+                var completedOutcomes = extraction.Outcomes.Concat(prepared.Outcomes).ToList();
+                throw new MemoryIngestionException(
+                    "Atomic memory persistence failed.", completedOutcomes, ex);
+            }
+        }
+
+        if (!_options.UseCoalescedPersistenceTransactions ||
+            !_persistenceTransaction.SupportsAtomicRollback)
+        {
+            return await PersistPreparedAsync(
+                extraction, ownerId, trustLevel, prepared, cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await _persistenceTransaction.ExecuteAsync(
+                async ct =>
+                {
+                    var result = await PersistPreparedAsync(
+                        extraction, ownerId, trustLevel, prepared, ct).ConfigureAwait(false);
+                    if (result.Outcomes.Any(outcome => outcome.Status == IngestionItemStatus.Failed))
+                        throw new ReplayBestEffortPersistenceException();
+                    return result;
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (ReplayBestEffortPersistenceException)
+        {
+            // ExecuteAsync may surface this marker only after its provider rollback completed. Reuse
+            // the already prepared embeddings and replay through today's item-isolated best-effort path.
+            return await PersistPreparedAsync(
+                extraction, ownerId, trustLevel, prepared, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private sealed class ReplayBestEffortPersistenceException : Exception;
+
+    private async Task<PersistenceResult> PersistPreparedAsync(
+        ExtractionStageResult extraction,
+        string? ownerId,
+        MemoryTrustLevel trustLevel,
+        PreparedEmbeddings prepared,
+        CancellationToken cancellationToken)
+    {
         var sourceMessageIds = extraction.SourceMessageIds;
         var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
         var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
+        outcomes.AddRange(prepared.Outcomes);
 
         // 1. Embed + upsert entities; build a name→persisted Entity map for relationship resolution.
         var persistedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, entity) in extraction.ResolvedEntityMap)
+        var entityInputs = prepared.Entities.Select(pair =>
         {
-            // Trust is monotonic, never silently downgraded: when entity resolution (auto-merge/SAME_AS)
-            // resolves this mention onto an EXISTING, previously-persisted entity, `entity` already carries
-            // that entity's own prior Metadata/trust level. An unrelated later mention at a lower trust
-            // level (e.g. an ordinary chat turn) must not erase a deliberately-elevated trust stamp (e.g.
-            // from a curated ApplicationTrusted import) -- take whichever of the two is higher.
-            var effectiveTrustLevel = MaxTrustLevel(entity.Metadata.GetTrustLevel(), trustLevel);
-            var entityToSave = entity with { OwnerId = ownerId, Metadata = entity.Metadata.WithTrustLevel(effectiveTrustLevel) };
+            var effectiveTrustLevel = MaxTrustLevel(pair.Value.Metadata.GetTrustLevel(), trustLevel);
+            return (Name: pair.Key, Item: pair.Value with
+            {
+                OwnerId = ownerId,
+                Metadata = pair.Value.Metadata.WithTrustLevel(effectiveTrustLevel)
+            });
+        }).ToList();
 
-            if (entityToSave.Embedding is null)
+        async Task RecordPersistedEntityAsync(string name, Entity persisted)
+        {
+            persistedEntityMap[name] = persisted;
+            RecordSuccess(outcomes, MemoryItemKind.Entity, name, persisted.EntityId);
+
+            foreach (var msgId in ExplicitProvenanceMessageIds(_entityRepository, sourceMessageIds))
             {
                 try
                 {
-                    var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
-                        entityToSave.Name, cancellationToken).ConfigureAwait(false);
-                    entityToSave = entityToSave with { Embedding = embedding };
+                    await _entityRepository.CreateExtractedFromRelationshipAsync(
+                        persisted.EntityId, msgId, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
-                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
-                        MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
-                        $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
-                    continue; // no embedding — nothing to persist for this entity
+                    _logger.LogWarning(ex,
+                        "Failed to create EXTRACTED_FROM for entity '{Id}' → message '{MsgId}'.",
+                        persisted.EntityId, msgId);
+                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Provenance,
+                        MemoryErrorCodes.ProvenancePersistenceFailed, name, persisted.EntityId, ex,
+                        $"Ingestion failed fast: provenance failed for entity '{name}'.");
                 }
             }
 
+            _logger.LogDebug("Persisted entity '{Name}' (id={Id}).", persisted.Name, persisted.EntityId);
+        }
+
+        async Task PersistEntityIndividuallyAsync(string name, Entity item)
+        {
             try
             {
-                entityToSave = await _entityRepository.UpsertAsync(entityToSave, cancellationToken).ConfigureAwait(false);
-                persistedEntityMap[name] = entityToSave;
-                RecordSuccess(outcomes, MemoryItemKind.Entity, name, entityToSave.EntityId);
-
-                foreach (var msgId in sourceMessageIds)
-                {
-                    try
-                    {
-                        await _entityRepository.CreateExtractedFromRelationshipAsync(
-                            entityToSave.EntityId, msgId, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Failed to create EXTRACTED_FROM for entity '{Id}' → message '{MsgId}'.",
-                            entityToSave.EntityId, msgId);
-                        RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Provenance,
-                            MemoryErrorCodes.ProvenancePersistenceFailed, name, entityToSave.EntityId, ex,
-                            $"Ingestion failed fast: provenance failed for entity '{name}'.");
-                    }
-                }
-
-                _logger.LogDebug("Persisted entity '{Name}' (id={Id}).", entityToSave.Name, entityToSave.EntityId);
+                var persisted = await _entityRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
+                await RecordPersistedEntityAsync(name, persisted).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (MemoryIngestionException) { throw; } // already recorded + wrapped above — propagate as-is
+            catch (MemoryIngestionException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error persisting entity '{Name}'.", name);
@@ -140,79 +197,61 @@ internal sealed class PersistenceStage : IPersistenceStage
             }
         }
 
-        // 2. Embed + upsert facts.
-        var persistedFactCount = 0;
-        foreach (var extracted in extraction.FilteredFacts)
+        Dictionary<string, Entity>? batchedEntitiesById = null;
+        var fusedEntityRepository = _options.UseCoalescedPersistenceTransactions
+            ? _entityRepository as IFusedBatchMemoryRepository<Entity> : null;
+        var batchEntityRepository = _entityRepository as IBatchMemoryRepository<Entity>;
+        var canBatchEntities = _options.EnableBatchMemoryUpserts && !failFast &&
+            entityInputs.Count > 0 &&
+            entityInputs.Select(input => input.Item.EntityId).Distinct(StringComparer.Ordinal).Count() == entityInputs.Count &&
+            (fusedEntityRepository is not null || (entityInputs.Count > 1 && batchEntityRepository is not null));
+        if (canBatchEntities)
         {
-            // factSourceKey (outcome/log identification) and the embedding below are both computed from the
-            // freshly-extracted casing, even though the fact ultimately persisted may use an existing
-            // record's casing instead when the #92 Phase 5 pre-fetch finds a case-insensitive match (see
-            // below) -- a disclosed, cosmetic-only inconsistency (found in a post-Phase-5 holistic audit):
-            // an outcome/log entry for a casing-only re-extraction won't textually match what was persisted,
-            // and the surviving node's Embedding and Subject/Predicate/Object can reflect two different
-            // casings of the same triple. Embeddings are semantically robust to case, so this hasn't been
-            // observed to affect retrieval quality; not fixed here to keep this phase's blast radius narrow.
-            var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
-
-            float[] factEmbedding;
             try
             {
-                factEmbedding = await _embeddingOrchestrator.EmbedFactAsync(
-                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
+                var items = entityInputs.Select(input => input.Item).ToList();
+                var persisted = fusedEntityRepository is not null
+                    ? await fusedEntityRepository.UpsertFusedBatchAsync(items, cancellationToken)
+                        .ConfigureAwait(false)
+                    : await batchEntityRepository!.UpsertBatchAsync(items, cancellationToken)
+                        .ConfigureAwait(false);
+                batchedEntitiesById = persisted.ToDictionary(entity => entity.EntityId, StringComparer.Ordinal);
+                if (entityInputs.Any(input => !batchedEntitiesById.ContainsKey(input.Item.EntityId)))
+                    throw new InvalidOperationException("The entity batch result omitted one or more input identifiers.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", factSourceKey);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, factSourceKey, null, ex,
-                    $"Ingestion failed fast: embedding generation failed for fact '{factSourceKey}'.");
-                continue;
+                _logger.LogWarning(ex,
+                    "Atomic entity batch failed; replaying {Count} entities through the item path.",
+                    entityInputs.Count);
+                batchedEntitiesById = null;
             }
+        }
 
+        if (batchedEntitiesById is not null)
+        {
+            foreach (var input in entityInputs)
+                await RecordPersistedEntityAsync(input.Name, batchedEntitiesById[input.Item.EntityId]).ConfigureAwait(false);
+        }
+        else
+        {
+            foreach (var input in entityInputs)
+                await PersistEntityIndividuallyAsync(input.Name, input.Item).ConfigureAwait(false);
+        }
+        // 2. Embed + upsert facts.
+        var persistedFactCount = 0;
+
+        async Task<(Fact Item, string SourceKey)?> PrepareFactAsync(PreparedFact preparedFact)
+        {
+            var extracted = preparedFact.Item;
+            var factSourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
             try
             {
-                // Trust is monotonic for owner-scoped facts too (#92 Phase 5), mirroring entities (Phase 3):
-                // the repository's Upsert MERGEs on the exact {subject,predicate,object,owner} triple and its
-                // Cypher ON MATCH unconditionally overwrites metadata, so re-extracting the identical triple
-                // at a lower trust level (e.g. an ordinary chat turn re-stating a fact originally imported at
-                // ApplicationTrusted) would otherwise silently erase the earlier elevation. Unlike entities,
-                // facts have no upstream resolution step that hands PersistenceStage the prior record for
-                // free, so this pre-fetch is the "one extra round-trip" the Phase 3 doc flagged as needed.
-                // A lookup failure falls through to the same catch below as an ordinary persistence failure.
-                //
-                // Disclosed, unaddressed limitation (found in a post-Phase-5 holistic audit): this pre-fetch
-                // and the Upsert below are two separate, non-atomic Neo4j round-trips, not one atomic
-                // read-modify-write. Two concurrent extractions racing on the identical triple (e.g. a
-                // curated ApplicationTrusted import racing an ordinary chat-turn extraction) could each read
-                // the same stale prior state and independently compute their own "effective" trust, so
-                // whichever Upsert commits last wins outright rather than the two being reconciled -- a
-                // narrow, real gap in "never decreases" under genuine concurrency on the same triple.
-                // Matches this codebase's existing precedent of disclosing rather than solving multi-step,
-                // non-atomic writes (see the threat model's TT-12, record+provenance-edge non-atomicity).
-                //
-                // Only performed when ownerId is set (string.IsNullOrEmpty, matching how the rest of this
-                // codebase treats an empty owner id the same as a null one -- e.g. DefaultMemoryIsolationPolicy):
-                // FindByTripleAsync's MemoryScope? parameter follows the read/recall convention where an
-                // unscoped lookup (null, or a scope with no OwnerId) means "search across every owner" -- the
-                // opposite of what a null ownerId means on the WRITE side (the shared/global bucket). Passing
-                // an owner-less scope here would risk adopting another owner's trust level into a shared fact
-                // -- a cross-tenant leak. Unlike FindDuplicateAsync (whose raw ownerId parameter is documented
-                // as "null -> shared bucket only"), there is no existing repository primitive for a safe
-                // shared-bucket-only lookup, so shared/global facts don't get this protection yet -- a
-                // disclosed, narrower-than-ideal limitation for this phase.
-                //
-                // includeShared: false -- deliberately excludes shared/global facts from the pre-fetch even
-                // though MemoryScope.For defaults to including them. The default is right for READS (surface
-                // everything the caller may see), but wrong here: with no ORDER BY, a shared fact and this
-                // owner's own fact could both match the same triple, and picking up the shared one would
-                // graft an unrelated record's ENTIRE metadata (not just its trust level) onto this owner's
-                // fact -- conflating two conceptually distinct records that merely share text.
-                //
-                // FindByTripleAsync matches case-insensitively but Upsert's MERGE key is an exact-string
-                // match -- if a match is found, this fact is built from the EXISTING record's Subject/
-                // Predicate/Object (not the freshly-extracted casing) so the subsequent Upsert's MERGE
-                // still targets the SAME node instead of creating a same-triple, different-casing duplicate.
+                // Trust is monotonic for owner-scoped facts. The pre-fetch deliberately excludes shared
+                // facts and carries an existing triple's casing forward so an exact MERGE cannot create a
+                // casing-only duplicate. Rank 20 will make this read-modify-write atomic; feat-04 leaves
+                // that owner boundary and trust behavior unchanged.
                 Fact? existingFact = string.IsNullOrEmpty(ownerId)
                     ? null
                     : await _factRepository.FindByTripleAsync(
@@ -225,7 +264,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                     ? MemoryTrustMetadataExtensions.CreateWithTrustLevel(effectiveFactTrustLevel)
                     : existingFact.Metadata.WithTrustLevel(effectiveFactTrustLevel);
 
-                var fact = new Fact
+                return (new Fact
                 {
                     FactId = _idGenerator.GenerateId(),
                     Subject = existingFact?.Subject ?? extracted.Subject,
@@ -234,129 +273,254 @@ internal sealed class PersistenceStage : IPersistenceStage
                     Confidence = extracted.Confidence,
                     ValidFrom = extracted.ValidFrom,
                     ValidUntil = extracted.ValidUntil,
-                    Embedding = factEmbedding,
+                    Embedding = preparedFact.Embedding,
                     OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
                     CreatedAtUtc = _clock.UtcNow,
                     Metadata = factMetadata
-                };
-
-                // Facts MERGE on the natural {subject,predicate,object,owner_key} triple, and ON MATCH
-                // deliberately never rewrites the surviving node's id (Neo4jFactRepository's own contract) --
-                // so on a re-extraction hit, fact.FactId (the freshly-generated guid above) is orphaned and
-                // was never actually persisted. Reassign from the repository's return value, mirroring the
-                // entity block above, so RecordSuccess and the EXTRACTED_FROM loop below use the real,
-                // surviving node's id.
-                fact = await _factRepository.UpsertAsync(fact, cancellationToken).ConfigureAwait(false);
-                RecordSuccess(outcomes, MemoryItemKind.Fact, factSourceKey, fact.FactId);
-
-                foreach (var msgId in sourceMessageIds)
-                {
-                    try
-                    {
-                        await _factRepository.CreateExtractedFromRelationshipAsync(
-                            fact.FactId, msgId, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Failed to create EXTRACTED_FROM for fact '{Id}' → message '{MsgId}'.",
-                            fact.FactId, msgId);
-                        RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Provenance,
-                            MemoryErrorCodes.ProvenancePersistenceFailed, factSourceKey, fact.FactId, ex,
-                            $"Ingestion failed fast: provenance failed for fact '{factSourceKey}'.");
-                    }
-                }
-
-                persistedFactCount++;
-                _logger.LogDebug("Persisted fact '{S} {P} {O}'.", fact.Subject, fact.Predicate, fact.Object);
+                }, factSourceKey);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (MemoryIngestionException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error persisting fact '{Key}'.", factSourceKey);
+                _logger.LogError(ex, "Error preparing fact '{Key}' for persistence.", factSourceKey);
                 RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Persistence,
                     MemoryErrorCodes.FactPersistenceFailed, factSourceKey, null, ex,
                     $"Ingestion failed fast: persistence failed for fact '{factSourceKey}'.");
+                return null;
             }
         }
 
-        // 3. Embed + upsert preferences.
-        var persistedPrefCount = 0;
-        foreach (var extracted in extraction.FilteredPreferences)
+        async Task RecordPersistedFactAsync(string sourceKey, Fact persisted)
         {
-            float[] prefEmbedding;
-            try
-            {
-                prefEmbedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
-                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
-                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
-                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
-                    "Ingestion failed fast: embedding generation failed for a preference.");
-                continue;
-            }
+            // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
+            // the repository result for outcomes and provenance rather than the fresh caller id.
+            RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
 
-            try
+            foreach (var msgId in ExplicitProvenanceMessageIds(_factRepository, sourceMessageIds))
             {
-                var preference = new Preference
+                try
                 {
-                    PreferenceId = _idGenerator.GenerateId(),
-                    Category = extracted.Category,
-                    PreferenceText = extracted.PreferenceText,
-                    Context = extracted.Context,
-                    Confidence = extracted.Confidence,
-                    Embedding = prefEmbedding,
-                    OwnerId = ownerId,
-                    SourceMessageIds = sourceMessageIds,
-                    CreatedAtUtc = _clock.UtcNow,
-                    Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
-                };
-
-                await _preferenceRepository.UpsertAsync(preference, cancellationToken).ConfigureAwait(false);
-                RecordSuccess(outcomes, MemoryItemKind.Preference, extracted.PreferenceText, preference.PreferenceId);
-
-                foreach (var msgId in sourceMessageIds)
-                {
-                    try
-                    {
-                        await _preferenceRepository.CreateExtractedFromRelationshipAsync(
-                            preference.PreferenceId, msgId, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Failed to create EXTRACTED_FROM for preference '{Id}' → message '{MsgId}'.",
-                            preference.PreferenceId, msgId);
-                        RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Provenance,
-                            MemoryErrorCodes.ProvenancePersistenceFailed, extracted.PreferenceText, preference.PreferenceId, ex,
-                            "Ingestion failed fast: provenance failed for a preference.");
-                    }
+                    await _factRepository.CreateExtractedFromRelationshipAsync(
+                        persisted.FactId, msgId, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to create EXTRACTED_FROM for fact '{Id}' → message '{MsgId}'.",
+                        persisted.FactId, msgId);
+                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Provenance,
+                        MemoryErrorCodes.ProvenancePersistenceFailed, sourceKey, persisted.FactId, ex,
+                        $"Ingestion failed fast: provenance failed for fact '{sourceKey}'.");
+                }
+            }
 
-                persistedPrefCount++;
-                _logger.LogDebug("Persisted preference in category '{Category}'.", preference.Category);
+            persistedFactCount++;
+            _logger.LogDebug("Persisted fact '{S} {P} {O}'.",
+                persisted.Subject, persisted.Predicate, persisted.Object);
+        }
+
+        async Task PersistFactIndividuallyAsync(Fact item, string sourceKey)
+        {
+            try
+            {
+                var persisted = await _factRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
+                await RecordPersistedFactAsync(sourceKey, persisted).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (MemoryIngestionException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error persisting preference '{Text}'.", extracted.PreferenceText);
+                _logger.LogError(ex, "Error persisting fact '{Key}'.", sourceKey);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Persistence,
+                    MemoryErrorCodes.FactPersistenceFailed, sourceKey, null, ex,
+                    $"Ingestion failed fast: persistence failed for fact '{sourceKey}'.");
+            }
+        }
+
+        static (string Subject, string Predicate, string Object, string? OwnerId) FactKey(Fact fact) =>
+            (fact.Subject, fact.Predicate, fact.Object, fact.OwnerId);
+
+        var distinctExtractedTriples = extraction.FilteredFacts
+            .Select(fact => (fact.Subject, fact.Predicate, fact.Object))
+            .Distinct(FactTripleComparer.OrdinalIgnoreCase)
+            .Count() == extraction.FilteredFacts.Count;
+        var fusedFactRepository = _options.UseCoalescedPersistenceTransactions
+            ? _factRepository as IFusedBatchMemoryRepository<Fact> : null;
+        var batchFactRepository = _factRepository as IBatchMemoryRepository<Fact>;
+        var canAttemptFactBatch = _options.EnableBatchMemoryUpserts && !failFast && distinctExtractedTriples &&
+            (fusedFactRepository is not null ||
+             (prepared.Facts.Count > 1 && batchFactRepository is not null));
+
+        if (canAttemptFactBatch)
+        {
+            var factInputs = new List<(Fact Item, string SourceKey)>(prepared.Facts.Count);
+            foreach (var preparedFact in prepared.Facts)
+            {
+                if (await PrepareFactAsync(preparedFact).ConfigureAwait(false) is { } input)
+                    factInputs.Add(input);
+            }
+
+            Dictionary<(string Subject, string Predicate, string Object, string? OwnerId), Fact>? batchedFactsByKey = null;
+            if (factInputs.Count > 0 &&
+                factInputs.Select(input => FactKey(input.Item)).Distinct().Count() == factInputs.Count)
+            {
+                try
+                {
+                    var items = factInputs.Select(input => input.Item).ToList();
+                    var persisted = fusedFactRepository is not null
+                        ? await fusedFactRepository.UpsertFusedBatchAsync(items, cancellationToken).ConfigureAwait(false)
+                        : await batchFactRepository!.UpsertBatchAsync(items, cancellationToken).ConfigureAwait(false);
+                    batchedFactsByKey = persisted.ToDictionary(FactKey);
+                    if (factInputs.Any(input => !batchedFactsByKey.ContainsKey(FactKey(input.Item))))
+                        throw new InvalidOperationException("The fact batch result omitted one or more input triples.");
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Atomic fact batch failed; replaying {Count} facts through the item path.",
+                        factInputs.Count);
+                    batchedFactsByKey = null;
+                }
+            }
+
+            if (batchedFactsByKey is not null)
+            {
+                foreach (var input in factInputs)
+                    await RecordPersistedFactAsync(
+                        input.SourceKey, batchedFactsByKey[FactKey(input.Item)]).ConfigureAwait(false);
+            }
+            else
+            {
+                foreach (var input in factInputs)
+                    await PersistFactIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            // Preserve the exact original read→write order for non-capable repositories, disabled/fail-fast
+            // mode, and duplicate triples. The ordering is observable because the next fact's trust/casing
+            // pre-fetch may intentionally see the fact just written by the previous item.
+            foreach (var preparedFact in prepared.Facts)
+            {
+                if (await PrepareFactAsync(preparedFact).ConfigureAwait(false) is { } input)
+                    await PersistFactIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
+            }
+        }
+        // 3. Embed + upsert preferences.
+        var preferenceInputs = prepared.Preferences.Select(preparedPreference =>
+        {
+            var extracted = preparedPreference.Item;
+            return (Item: new Preference
+            {
+                PreferenceId = _idGenerator.GenerateId(),
+                Category = extracted.Category,
+                PreferenceText = extracted.PreferenceText,
+                Context = extracted.Context,
+                Confidence = extracted.Confidence,
+                Embedding = preparedPreference.Embedding,
+                OwnerId = ownerId,
+                SourceMessageIds = sourceMessageIds,
+                CreatedAtUtc = _clock.UtcNow,
+                Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
+            }, SourceKey: extracted.PreferenceText);
+        }).ToList();
+
+        var persistedPrefCount = 0;
+
+        async Task RecordPersistedPreferenceAsync(string sourceKey, Preference persisted)
+        {
+            RecordSuccess(outcomes, MemoryItemKind.Preference, sourceKey, persisted.PreferenceId);
+
+            foreach (var msgId in ExplicitProvenanceMessageIds(_preferenceRepository, sourceMessageIds))
+            {
+                try
+                {
+                    await _preferenceRepository.CreateExtractedFromRelationshipAsync(
+                        persisted.PreferenceId, msgId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to create EXTRACTED_FROM for preference '{Id}' → message '{MsgId}'.",
+                        persisted.PreferenceId, msgId);
+                    RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Provenance,
+                        MemoryErrorCodes.ProvenancePersistenceFailed, sourceKey, persisted.PreferenceId, ex,
+                        "Ingestion failed fast: provenance failed for a preference.");
+                }
+            }
+
+            persistedPrefCount++;
+            _logger.LogDebug("Persisted preference in category '{Category}'.", persisted.Category);
+        }
+
+        async Task PersistPreferenceIndividuallyAsync(Preference item, string sourceKey)
+        {
+            try
+            {
+                var persisted = await _preferenceRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
+                await RecordPersistedPreferenceAsync(sourceKey, persisted).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (MemoryIngestionException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error persisting preference '{Text}'.", sourceKey);
                 RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Persistence,
-                    MemoryErrorCodes.PreferencePersistenceFailed, extracted.PreferenceText, null, ex,
+                    MemoryErrorCodes.PreferencePersistenceFailed, sourceKey, null, ex,
                     "Ingestion failed fast: persistence failed for a preference.");
             }
         }
 
+        Dictionary<string, Preference>? batchedPreferencesById = null;
+        var fusedPreferenceRepository = _options.UseCoalescedPersistenceTransactions
+            ? _preferenceRepository as IFusedBatchMemoryRepository<Preference> : null;
+        var batchPreferenceRepository = _preferenceRepository as IBatchMemoryRepository<Preference>;
+        var canBatchPreferences = _options.EnableBatchMemoryUpserts && !failFast &&
+            preferenceInputs.Count > 0 &&
+            preferenceInputs.Select(input => input.Item.PreferenceId).Distinct(StringComparer.Ordinal).Count() == preferenceInputs.Count &&
+            (fusedPreferenceRepository is not null ||
+             (preferenceInputs.Count > 1 && batchPreferenceRepository is not null));
+        if (canBatchPreferences)
+        {
+            try
+            {
+                var items = preferenceInputs.Select(input => input.Item).ToList();
+                var persisted = fusedPreferenceRepository is not null
+                    ? await fusedPreferenceRepository.UpsertFusedBatchAsync(items, cancellationToken).ConfigureAwait(false)
+                    : await batchPreferenceRepository!.UpsertBatchAsync(items, cancellationToken).ConfigureAwait(false);
+                batchedPreferencesById = persisted.ToDictionary(
+                    preference => preference.PreferenceId, StringComparer.Ordinal);
+                if (preferenceInputs.Any(input => !batchedPreferencesById.ContainsKey(input.Item.PreferenceId)))
+                    throw new InvalidOperationException("The preference batch result omitted one or more input identifiers.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Atomic preference batch failed; replaying {Count} preferences through the item path.",
+                    preferenceInputs.Count);
+                batchedPreferencesById = null;
+            }
+        }
+
+        if (batchedPreferencesById is not null)
+        {
+            foreach (var input in preferenceInputs)
+                await RecordPersistedPreferenceAsync(
+                    input.SourceKey, batchedPreferencesById[input.Item.PreferenceId]).ConfigureAwait(false);
+        }
+        else
+        {
+            foreach (var input in preferenceInputs)
+                await PersistPreferenceIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
+        }
         // 4. Persist relationships — resolve entity IDs from the upserted entity map.
-        var persistedRelCount = 0;
+        var relationshipInputs = new List<(Relationship Item, string SourceKey)>(
+            extraction.FilteredRelationships.Count);
         foreach (var extracted in extraction.FilteredRelationships)
         {
             var relSourceKey = $"{extracted.SourceEntity}-{extracted.RelationshipType}->{extracted.TargetEntity}";
@@ -395,43 +559,86 @@ internal sealed class PersistenceStage : IPersistenceStage
                 continue;
             }
 
+            relationshipInputs.Add((new Relationship
+            {
+                RelationshipId = _idGenerator.GenerateId(),
+                SourceEntityId = sourceEntity.EntityId,
+                TargetEntityId = targetEntity.EntityId,
+                RelationshipType = extracted.RelationshipType,
+                Description = extracted.Description,
+                Confidence = extracted.Confidence,
+                Attributes = extracted.Attributes,
+                OwnerId = ownerId,
+                SourceMessageIds = sourceMessageIds,
+                CreatedAtUtc = _clock.UtcNow
+            }, relSourceKey));
+        }
+
+        var persistedRelCount = 0;
+
+        void RecordPersistedRelationship(string sourceKey, Relationship persisted)
+        {
+            persistedRelCount++;
+            RecordSuccess(outcomes, MemoryItemKind.Relationship, sourceKey, persisted.RelationshipId);
+            _logger.LogDebug("Persisted relationship '{SourceKey}'.", sourceKey);
+        }
+
+        async Task PersistRelationshipIndividuallyAsync(Relationship item, string sourceKey)
+        {
             try
             {
-                var relationship = new Relationship
-                {
-                    RelationshipId = _idGenerator.GenerateId(),
-                    SourceEntityId = sourceEntity.EntityId,
-                    TargetEntityId = targetEntity.EntityId,
-                    RelationshipType = extracted.RelationshipType,
-                    Description = extracted.Description,
-                    Confidence = extracted.Confidence,
-                    Attributes = extracted.Attributes,
-                    OwnerId = ownerId,
-                    SourceMessageIds = sourceMessageIds,
-                    CreatedAtUtc = _clock.UtcNow
-                };
-
-                await _relationshipRepository.UpsertAsync(relationship, cancellationToken).ConfigureAwait(false);
-                persistedRelCount++;
-                RecordSuccess(outcomes, MemoryItemKind.Relationship, relSourceKey, relationship.RelationshipId);
-
-                _logger.LogDebug(
-                    "Persisted relationship '{Src}-{Type}->{Tgt}'.",
-                    extracted.SourceEntity, extracted.RelationshipType, extracted.TargetEntity);
+                var persisted = await _relationshipRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
+                RecordPersistedRelationship(sourceKey, persisted);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (MemoryIngestionException) { throw; } // consistent with the other item kinds (#101 review)
+            catch (MemoryIngestionException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
-                    "Error persisting relationship '{Src}->{Tgt}'.",
-                    extracted.SourceEntity, extracted.TargetEntity);
+                _logger.LogError(ex, "Error persisting relationship '{SourceKey}'.", sourceKey);
                 RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Relationship, IngestionStage.Persistence,
-                    MemoryErrorCodes.RelationshipPersistenceFailed, relSourceKey, null, ex,
-                    $"Ingestion failed fast: persistence failed for relationship '{relSourceKey}'.");
+                    MemoryErrorCodes.RelationshipPersistenceFailed, sourceKey, null, ex,
+                    $"Ingestion failed fast: persistence failed for relationship '{sourceKey}'.");
             }
         }
 
+        Dictionary<string, Relationship>? batchedRelationshipsById = null;
+        var canBatchRelationships = _options.EnableBatchMemoryUpserts && !failFast &&
+            relationshipInputs.Count > 1 &&
+            relationshipInputs.Select(input => input.Item.RelationshipId).Distinct(StringComparer.Ordinal).Count() == relationshipInputs.Count &&
+            _relationshipRepository is IBatchMemoryRepository<Relationship>;
+        if (canBatchRelationships)
+        {
+            try
+            {
+                var persisted = await ((IBatchMemoryRepository<Relationship>)_relationshipRepository)
+                    .UpsertBatchAsync(relationshipInputs.Select(input => input.Item).ToList(), cancellationToken)
+                    .ConfigureAwait(false);
+                batchedRelationshipsById = persisted.ToDictionary(
+                    relationship => relationship.RelationshipId, StringComparer.Ordinal);
+                if (relationshipInputs.Any(input => !batchedRelationshipsById.ContainsKey(input.Item.RelationshipId)))
+                    throw new InvalidOperationException("The relationship batch result omitted one or more input identifiers.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Atomic relationship batch failed; replaying {Count} relationships through the item path.",
+                    relationshipInputs.Count);
+                batchedRelationshipsById = null;
+            }
+        }
+
+        if (batchedRelationshipsById is not null)
+        {
+            foreach (var input in relationshipInputs)
+                RecordPersistedRelationship(
+                    input.SourceKey, batchedRelationshipsById[input.Item.RelationshipId]);
+        }
+        else
+        {
+            foreach (var input in relationshipInputs)
+                await PersistRelationshipIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
+        }
         return new PersistenceResult
         {
             EntityCount = persistedEntityMap.Count,
@@ -442,11 +649,116 @@ internal sealed class PersistenceStage : IPersistenceStage
         };
     }
 
+    private async Task<PreparedEmbeddings> PrepareEmbeddingsIndividuallyAsync(
+        ExtractionStageResult extraction,
+        CancellationToken cancellationToken)
+    {
+        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
+        var outcomes = new List<IngestionItemOutcome>();
+        var entities = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
+        var facts = new List<PreparedFact>(extraction.FilteredFacts.Count);
+        var preferences = new List<PreparedPreference>(extraction.FilteredPreferences.Count);
+
+        foreach (var (name, entity) in extraction.ResolvedEntityMap)
+        {
+            if (entity.Embedding is not null)
+            {
+                entities[name] = entity;
+                continue;
+            }
+
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedEntityAsync(
+                    entity.Name, cancellationToken).ConfigureAwait(false);
+                entities[name] = entity with { Embedding = embedding };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for entity '{Name}'.", name);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Entity, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, name, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for entity '{name}'.");
+            }
+        }
+
+        foreach (var extracted in extraction.FilteredFacts)
+        {
+            var sourceKey = $"{extracted.Subject} {extracted.Predicate} {extracted.Object}";
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedFactAsync(
+                    extracted.Subject, extracted.Predicate, extracted.Object, cancellationToken).ConfigureAwait(false);
+                facts.Add(new PreparedFact(extracted, embedding));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for fact '{Key}'.", sourceKey);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Fact, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, sourceKey, null, ex,
+                    $"Ingestion failed fast: embedding generation failed for fact '{sourceKey}'.");
+            }
+        }
+
+        foreach (var extracted in extraction.FilteredPreferences)
+        {
+            try
+            {
+                var embedding = await _embeddingOrchestrator.EmbedPreferenceAsync(
+                    extracted.PreferenceText, cancellationToken).ConfigureAwait(false);
+                preferences.Add(new PreparedPreference(extracted, embedding));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating embedding for preference '{Text}'.", extracted.PreferenceText);
+                RecordFailureAndMaybeThrow(outcomes, failFast, MemoryItemKind.Preference, IngestionStage.Embedding,
+                    MemoryErrorCodes.EmbeddingGenerationFailed, extracted.PreferenceText, null, ex,
+                    "Ingestion failed fast: embedding generation failed for a preference.");
+            }
+        }
+
+        return new PreparedEmbeddings(entities, facts, preferences, outcomes);
+    }
+
+    private sealed class FactTripleComparer : IEqualityComparer<(string Subject, string Predicate, string Object)>
+    {
+        public static FactTripleComparer OrdinalIgnoreCase { get; } = new();
+
+        public bool Equals(
+            (string Subject, string Predicate, string Object) left,
+            (string Subject, string Predicate, string Object) right) =>
+            StringComparer.OrdinalIgnoreCase.Equals(left.Subject, right.Subject) &&
+            StringComparer.OrdinalIgnoreCase.Equals(left.Predicate, right.Predicate) &&
+            StringComparer.OrdinalIgnoreCase.Equals(left.Object, right.Object);
+
+        public int GetHashCode((string Subject, string Predicate, string Object) value) =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Subject),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Predicate),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(value.Object));
+    }
+    private sealed record PreparedEmbeddings(
+        IReadOnlyDictionary<string, Entity> Entities,
+        IReadOnlyList<PreparedFact> Facts,
+        IReadOnlyList<PreparedPreference> Preferences,
+        IReadOnlyList<IngestionItemOutcome> Outcomes);
+
+    private sealed record PreparedFact(ExtractedFact Item, float[] Embedding);
+
+    private sealed record PreparedPreference(ExtractedPreference Item, float[] Embedding);
+
     /// <summary>
     /// Trust is monotonic (#92 Phase 3): re-touching an already-persisted entity must never silently lower
     /// its trust level below whatever it already had.
     /// </summary>
     private static MemoryTrustLevel MaxTrustLevel(MemoryTrustLevel a, MemoryTrustLevel b) => a > b ? a : b;
+
+    private static IEnumerable<string> ExplicitProvenanceMessageIds(
+        object repository, IReadOnlyList<string> sourceMessageIds) =>
+        repository is IUpsertPersistsProvenance ? Array.Empty<string>() : sourceMessageIds;
 
     /// <summary>Appends a <see cref="IngestionItemStatus.Succeeded"/> outcome (#101).</summary>
     private static void RecordSuccess(

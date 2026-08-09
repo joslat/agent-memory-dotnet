@@ -280,6 +280,44 @@ public static class PerfFixture
         long Preferences,
         long ProvenanceRelationships);
 
+    public sealed record RawBatchStorageShape(
+        long Messages,
+        long MessagesWithExpectedEmbedding,
+        long DistinctIds,
+        IReadOnlyList<string> Ids);
+
+    /// <summary>
+    /// Reads raw messages after the measured turn to prove the batch and every expected-size embedding
+    /// reached Neo4j. The raw driver keeps verification work out of the measured product counters.
+    /// </summary>
+    public static async Task<RawBatchStorageShape> InspectRawBatchStorageAsync(
+        HermeticProfile profile,
+        string sessionId,
+        int dimensions)
+    {
+        const string cypher = """
+            MATCH (m:Message {session_id: $sessionId})
+            WITH m ORDER BY m.id
+            RETURN count(m) AS messages,
+                   count(CASE WHEN m.embedding IS NOT NULL
+                                   AND size(m.embedding) = $dimensions THEN 1 END)
+                       AS messagesWithExpectedEmbedding,
+                   count(DISTINCT m.id) AS distinctIds,
+                   collect(m.id) AS ids
+            """;
+
+        await using var session = profile.Driver.AsyncSession();
+        var cursor = await session.RunAsync(
+            cypher,
+            new { sessionId, dimensions }).ConfigureAwait(false);
+        var record = await cursor.SingleAsync().ConfigureAwait(false);
+        return new RawBatchStorageShape(
+            record["messages"].As<long>(),
+            record["messagesWithExpectedEmbedding"].As<long>(),
+            record["distinctIds"].As<long>(),
+            record["ids"].As<List<object>>().Select(value => value.As<string>()).ToArray());
+    }
+
     /// <summary>
     /// Reads the graph after the measured turn to prove extraction actually learned the expected items.
     /// Raw-driver verification is intentional: it runs outside the turn and must not inflate product cost.

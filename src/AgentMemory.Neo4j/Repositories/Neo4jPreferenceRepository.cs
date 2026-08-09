@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -11,7 +12,8 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
+internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository, IUpsertPersistsProvenance,
+    IBatchMemoryRepository<Preference>, IFusedBatchMemoryRepository<Preference>
 {
     private const int OwnerOverFetchFactor = Neo4jFactRepository.OwnerOverFetchFactor;
     private const int OwnerOverFetchFloor = Neo4jFactRepository.OwnerOverFetchFloor;
@@ -44,15 +46,15 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             var parameters = new Dictionary<string, object?>
             {
-                ["id"]               = preference.PreferenceId,
-                ["ownerId"]          = preference.OwnerId,
-                ["category"]         = preference.Category,
-                ["preferenceText"]   = preference.PreferenceText,
-                ["context"]          = (object?)preference.Context,
-                ["confidence"]       = preference.Confidence,
+                ["id"] = preference.PreferenceId,
+                ["ownerId"] = preference.OwnerId,
+                ["category"] = preference.Category,
+                ["preferenceText"] = preference.PreferenceText,
+                ["context"] = (object?)preference.Context,
+                ["confidence"] = preference.Confidence,
                 ["sourceMessageIds"] = preference.SourceMessageIds.ToList(),
-                ["createdAtUtc"]     = preference.CreatedAtUtc.ToString("O"),
-                ["metadata"]         = SerializeMetadata(preference.Metadata)
+                ["createdAtUtc"] = preference.CreatedAtUtc.ToString("O"),
+                ["metadata"] = SerializeMetadata(preference.Metadata)
             };
 
             var cursor = await runner.RunAsync(PreferenceQueries.Upsert, parameters).ConfigureAwait(false);
@@ -80,6 +82,55 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<Preference>> UpsertBatchAsync(
+        IReadOnlyList<Preference> preferences,
+        CancellationToken cancellationToken = default)
+    {
+        if (preferences.Count == 0) return Array.Empty<Preference>();
+
+        _logger.LogDebug("Batch upserting {Count} preferences", preferences.Count);
+        var items = preferences.Select(preference => new Dictionary<string, object?>
+        {
+            ["id"] = preference.PreferenceId,
+            ["owner_id"] = preference.OwnerId,
+            ["category"] = preference.Category,
+            ["preference"] = preference.PreferenceText,
+            ["context"] = preference.Context,
+            ["confidence"] = preference.Confidence,
+            ["source_message_ids"] = preference.SourceMessageIds.ToList(),
+            ["created_at"] = preference.CreatedAtUtc.ToString("O"),
+            ["metadata"] = SerializeMetadata(preference.Metadata)
+        }).ToList();
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(PreferenceQueries.UpsertBatch, new { items }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+
+            foreach (var preference in preferences.Where(item => item.Embedding is { Length: > 0 }))
+            {
+                await runner.RunAsync(
+                    PreferenceQueries.SetEmbedding,
+                    new { id = preference.PreferenceId, embedding = preference.Embedding!.ToList() }).ConfigureAwait(false);
+            }
+
+            foreach (var preference in preferences.Where(item => item.SourceMessageIds.Count > 0))
+            {
+                await runner.RunAsync(
+                    PreferenceQueries.CreateExtractedFromMessages,
+                    new { id = preference.PreferenceId, sourceMessageIds = preference.SourceMessageIds.ToList() })
+                    .ConfigureAwait(false);
+            }
+
+            var byId = preferences.ToDictionary(item => item.PreferenceId, StringComparer.Ordinal);
+            return records.Select(record =>
+            {
+                var node = record["p"].As<INode>();
+                var id = node["id"].As<string>();
+                return MapToPreference(node, byId.TryGetValue(id, out var source) ? source.Embedding : null);
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
     public async Task<Preference?> GetByIdAsync(string preferenceId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting preference {Id}", preferenceId);
@@ -150,7 +201,7 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();
@@ -172,7 +223,7 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
         {
             ["embedding"] = embedding.ToList(),
             ["threshold"] = threshold,
-            ["category"]  = category,
+            ["category"] = category,
         };
         if (!ownerIsShared) parameters["ownerId"] = ownerId;
 
@@ -292,18 +343,18 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
     private static Preference MapToPreference(INode node, float[]? embedding) =>
         new()
         {
-            PreferenceId     = node["id"].As<string>(),
-            OwnerId          = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Category         = node["category"].As<string>(),
-            PreferenceText   = node["preference"].As<string>(),
-            Context          = node.Properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,
-            Confidence       = node["confidence"].As<double>(),
-            Embedding        = embedding,
+            PreferenceId = node["id"].As<string>(),
+            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Category = node["category"].As<string>(),
+            PreferenceText = node["preference"].As<string>(),
+            Context = node.Properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,
+            Confidence = node["confidence"].As<double>(),
+            Embedding = embedding,
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
+            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
     private static float[]? ReadEmbedding(INode node)
@@ -372,9 +423,9 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
         var cypher = TemporalQueries.SearchPreferencesAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"]  = queryEmbedding.ToList(),
-            ["limit"]      = limit,
-            ["minScore"]   = minScore,
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
             // D6: preferences have only the transaction clock, so the AsOf timestamp binds $systemAsOf.
             ["systemAsOf"] = asOf.UtcDateTime.ToString("O")
         };
@@ -386,7 +437,7 @@ internal sealed class Neo4jPreferenceRepository : IPreferenceRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();

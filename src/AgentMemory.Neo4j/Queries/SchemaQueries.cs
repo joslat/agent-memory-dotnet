@@ -224,6 +224,17 @@ internal static class SchemaQueries
         "SHOW VECTOR INDEXES YIELD name, options " +
         "RETURN name AS name, options['indexConfig']['vector.dimensions'] AS dimensions";
 
+    /// <summary>
+    /// Lists indexes in the terminal FAILED state. Bootstrap previously validated only vector-index
+    /// dimensions, so a range index that failed to populate — for example when a composite key
+    /// exceeds Neo4j's ~8 KB key-size limit — degraded silently: queries kept working through full
+    /// scans and nothing ever reported the index missing. POPULATING is deliberately not treated as
+    /// a failure; it is the normal asynchronous build state.
+    /// </summary>
+    public const string ShowIndexStates =
+        "SHOW INDEXES YIELD name, state, type " +
+        "RETURN name AS name, state AS state, type AS type";
+
     // ── Schema-conformance introspection (CLI `schema-check`) ────
 
     /// <summary>Lists the names of all constraints in the current database.</summary>

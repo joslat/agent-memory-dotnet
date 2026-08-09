@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -12,6 +13,10 @@ namespace AgentMemory.Core.Services;
 /// </summary>
 internal sealed class LongTermMemoryService : ILongTermMemoryService
 {
+    private const int FactDedupLockStripeCount = 256;
+    private static readonly SemaphoreSlim[] FactDedupLockStripes =
+        Enumerable.Range(0, FactDedupLockStripeCount).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
     private readonly IEntityRepository _entityRepo;
     private readonly IFactRepository _factRepo;
     private readonly IPreferenceRepository _prefRepo;
@@ -232,7 +237,17 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         // (zero-dimension) vector, which would otherwise be handed to db.index.vector.queryNodes and throw a
         // dimension mismatch — aborting the whole add. An empty embedding has no semantic signal, so skip
         // dedup and fall through to a plain create (the node persists with a NULL, re-queueable embedding).
-        if (_options.DeduplicateOnCreate && embedding is { Length: > 0 })
+        var toSave = embedding is null ? fact : fact with { Embedding = embedding };
+        if (!_options.DeduplicateOnCreate || embedding is not { Length: > 0 })
+            return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+
+        // Find + reinforce/create is otherwise a TOCTOU race across concurrent request scopes. A bounded
+        // process-wide stripe set serializes the same owner + case-insensitive subject/predicate key without
+        // retaining one lock per memory forever. This deliberately provides in-process session correctness;
+        // it does not claim distributed coordination between separate application instances.
+        var dedupLock = FactDedupLock(toSave);
+        await dedupLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             var dup = await _factRepo.FindDuplicateAsync(
                 fact.Subject, fact.Predicate, embedding, fact.OwnerId,
@@ -251,10 +266,22 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
                 // create the new node instead of failing the add.
                 _logger.LogDebug("Dedup target fact {Id} vanished before reinforce; creating new node.", dup.FactId);
             }
-        }
 
-        var toSave = embedding is null ? fact : fact with { Embedding = embedding };
-        return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+            return await _factRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            dedupLock.Release();
+        }
+    }
+
+    private static SemaphoreSlim FactDedupLock(Fact fact)
+    {
+        var hash = new HashCode();
+        hash.Add(fact.OwnerId, StringComparer.Ordinal);
+        hash.Add(fact.Subject, StringComparer.OrdinalIgnoreCase);
+        hash.Add(fact.Predicate, StringComparer.OrdinalIgnoreCase);
+        return FactDedupLockStripes[(uint)hash.ToHashCode() % FactDedupLockStripeCount];
     }
 
     /// <summary>Reinforced confidence on a dedup hit: max(existing, incoming) + configured bump, capped at 1.0.</summary>
@@ -292,15 +319,91 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
         float[] queryEmbedding,
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, false, 0, cancellationToken);
+
+    /// <summary>
+    /// Fact recall with optional canonical-predicate expansion (G5 "hard" tier).
+    /// </summary>
+    /// <remarks>
+    /// A separate overload rather than optional parameters on the interface method: adding optional
+    /// parameters to a published interface breaks every implementor, and the interface is locked
+    /// under SemVer.
+    /// </remarks>
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            Array.Empty<string>(), cancellationToken);
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken)
     {
-        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchFactsAsync)), cancellationToken).ConfigureAwait(false);
-        return scored.Select(r => r.Fact).ToList();
+        ArgumentNullException.ThrowIfNull(questionRelations);
+        var resolved = Resolve(scope, nameof(SearchFactsAsync));
+        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken).ConfigureAwait(false);
+        var top = scored.Select(r => r.Fact).ToList();
+        // A question that names its relations outright does not need the top-K to nominate them, so an
+        // empty top-K is only a dead end when there is nothing else to expand on.
+        if (!expandByPredicate || (top.Count == 0 && questionRelations.Count == 0))
+            return top;
+
+        // G5 "hard" tier. Similarity decides *which* relation matters; this returns that relation
+        // whole. Top-K is a relevance cutoff and carries no completeness guarantee, so a question
+        // like "how many babies were born" is unanswerable from it - miss one of five and the count
+        // is four. Expansion is additive: the similarity-ranked facts stay, in order, at the front.
+        var predicates = top
+            .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
+            // J2.2. Relations the question named, each widened to every form it could be stored under:
+            // the write-side canonicalizer never folds morphology, so one relation lives under several
+            // keys and expanding only the canonical name would miss the smaller buckets.
+            .Concat(questionRelations.SelectMany(
+                relation => MemoryRelationLexicon.Default.StoredFormsOf(relation)))
+            .Where(predicate => predicate.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
+            predicates, expansionLimit, resolved, cancellationToken).ConfigureAwait(false);
+
+        var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
+        foreach (var fact in expanded)
+        {
+            if (!seen.Add(fact.FactId))
+                continue;
+
+            // Marked because expansion returns a relation across the whole owner, so a fact may
+            // legitimately carry provenance outside the current query's window. A consumer
+            // resolving provenance must be able to tell that apart from a source that genuinely
+            // cannot be resolved, which is corruption — marking the former keeps the latter
+            // detectable rather than silencing both.
+            var metadata = new Dictionary<string, object>(fact.Metadata, StringComparer.Ordinal)
+            {
+                [Fact.RetrievalSourceMetadataKey] = Fact.RetrievalSourcePredicateExpansion
+            };
+            top.Add(fact with { Metadata = metadata });
+        }
+
+        return top;
     }
 
     /// <inheritdoc/>

@@ -9,6 +9,9 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal interface IExtractionStage
 {
+    IDisposable? BeginResolutionBatch();
+    void InvalidateResolutionBatch();
+
     /// <summary>
     /// Extracts, merges, filters, validates, and resolves items from the given messages. When
     /// <paramref name="scope"/> is supplied (R1) entity resolution is confined to the owner's own and
@@ -16,6 +19,17 @@ internal interface IExtractionStage
     /// </summary>
     Task<ExtractionStageResult> ExtractAsync(
         IReadOnlyList<Message> messages,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies the normal validation, owner-scoped resolution, and filtering stages to a unified
+    /// result that was already extracted by a validated multi-session batch.
+    /// </summary>
+    Task<ExtractionStageResult> ProcessUnifiedAsync(
+        IReadOnlyList<Message> messages,
+        UnifiedExtractionResult extracted,
         ExtractionTypes typesToExtract,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);

@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -11,7 +12,8 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jEntityRepository : IEntityRepository
+internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsertPersistsProvenance,
+    IBatchMemoryRepository<Entity>, IFusedBatchMemoryRepository<Entity>
 {
     private const int OwnerOverFetchFactor = Neo4jFactRepository.OwnerOverFetchFactor;
     private const int OwnerOverFetchFloor = Neo4jFactRepository.OwnerOverFetchFloor;
@@ -44,19 +46,19 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
         {
             var parameters = new Dictionary<string, object?>
             {
-                ["id"]             = entity.EntityId,
-                ["ownerId"]        = entity.OwnerId,
-                ["name"]           = entity.Name,
-                ["canonicalName"]  = (object?)entity.CanonicalName,
-                ["type"]           = entity.Type,
-                ["subtype"]        = (object?)entity.Subtype,
-                ["description"]    = (object?)entity.Description,
-                ["confidence"]     = entity.Confidence,
-                ["aliases"]        = entity.Aliases.ToList(),
-                ["attributes"]     = SerializeMetadata(entity.Attributes),
+                ["id"] = entity.EntityId,
+                ["ownerId"] = entity.OwnerId,
+                ["name"] = entity.Name,
+                ["canonicalName"] = (object?)entity.CanonicalName,
+                ["type"] = entity.Type,
+                ["subtype"] = (object?)entity.Subtype,
+                ["description"] = (object?)entity.Description,
+                ["confidence"] = entity.Confidence,
+                ["aliases"] = entity.Aliases.ToList(),
+                ["attributes"] = SerializeMetadata(entity.Attributes),
                 ["sourceMessageIds"] = entity.SourceMessageIds.ToList(),
-                ["createdAtUtc"]   = entity.CreatedAtUtc.ToString("O"),
-                ["metadata"]       = SerializeMetadata(entity.Metadata)
+                ["createdAtUtc"] = entity.CreatedAtUtc.ToString("O"),
+                ["metadata"] = SerializeMetadata(entity.Metadata)
             };
 
             var cursor = await runner.RunAsync(EntityQueries.Upsert, parameters).ConfigureAwait(false);
@@ -178,7 +180,7 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
@@ -270,9 +272,9 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node       = r["other"].As<INode>();
+                var node = r["other"].As<INode>();
                 var confidence = r["confidence"].As<double>();
-                var matchType  = r["matchType"].As<string>();
+                var matchType = r["matchType"].As<string>();
                 return (MapToEntity(node, ReadEmbedding(node)), confidence, matchType);
             }).ToList();
         }, cancellationToken).ConfigureAwait(false);
@@ -286,19 +288,19 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
 
         var items = entities.Select(e => new Dictionary<string, object?>
         {
-            ["id"]                = e.EntityId,
-            ["owner_id"]          = e.OwnerId,
-            ["name"]              = e.Name,
-            ["canonical_name"]    = (object?)e.CanonicalName,
-            ["type"]              = e.Type,
-            ["subtype"]           = (object?)e.Subtype,
-            ["description"]       = (object?)e.Description,
-            ["confidence"]        = e.Confidence,
-            ["aliases"]           = e.Aliases.ToList(),
-            ["attributes"]        = SerializeMetadata(e.Attributes),
+            ["id"] = e.EntityId,
+            ["owner_id"] = e.OwnerId,
+            ["name"] = e.Name,
+            ["canonical_name"] = (object?)e.CanonicalName,
+            ["type"] = e.Type,
+            ["subtype"] = (object?)e.Subtype,
+            ["description"] = (object?)e.Description,
+            ["confidence"] = e.Confidence,
+            ["aliases"] = e.Aliases.ToList(),
+            ["attributes"] = SerializeMetadata(e.Attributes),
             ["source_message_ids"] = e.SourceMessageIds.ToList(),
-            ["created_at"]        = e.CreatedAtUtc.ToString("O"),
-            ["metadata"]          = SerializeMetadata(e.Metadata)
+            ["created_at"] = e.CreatedAtUtc.ToString("O"),
+            ["metadata"] = SerializeMetadata(e.Metadata)
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
@@ -349,7 +351,7 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
             return records.Select(r =>
             {
                 var node = r["e"].As<INode>();
-                var id   = node["id"].As<string>();
+                var id = node["id"].As<string>();
                 if (!byId.TryGetValue(id, out var src))
                     return MapToEntity(node, null);
                 return MapToEntity(node, src.Embedding) with { Latitude = src.Latitude, Longitude = src.Longitude };
@@ -424,35 +426,35 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
         if (node.Properties.TryGetValue("location", out var locValue) && locValue is Point pt)
         {
             // WGS-84: X = longitude, Y = latitude
-            latitude  = pt.Y;
+            latitude = pt.Y;
             longitude = pt.X;
         }
 
         return new Entity
         {
-            EntityId       = node["id"].As<string>(),
-            OwnerId        = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Name           = node["name"].As<string>(),
-            CanonicalName  = node.Properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
-            Type           = node["type"].As<string>(),
-            Subtype        = node.Properties.TryGetValue("subtype", out var st) ? st.As<string>() : null,
-            Description    = node.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
-            Confidence     = node["confidence"].As<double>(),
-            Embedding      = embedding,
-            Latitude       = latitude,
-            Longitude      = longitude,
-            Aliases        = node.Properties.TryGetValue("aliases", out var al)
+            EntityId = node["id"].As<string>(),
+            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Name = node["name"].As<string>(),
+            CanonicalName = node.Properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
+            Type = node["type"].As<string>(),
+            Subtype = node.Properties.TryGetValue("subtype", out var st) ? st.As<string>() : null,
+            Description = node.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
+            Confidence = node["confidence"].As<double>(),
+            Embedding = embedding,
+            Latitude = latitude,
+            Longitude = longitude,
+            Aliases = node.Properties.TryGetValue("aliases", out var al)
                                 ? al.As<IList<object>>().Select(a => a.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            Attributes     = DeserializeMetadata(node.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
+            Attributes = DeserializeMetadata(node.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc   = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            UpdatedAtUtc   = node.Properties.TryGetValue("updated_at", out var ua) && ua is not null
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
+            UpdatedAtUtc = node.Properties.TryGetValue("updated_at", out var ua) && ua is not null
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ua)
                                 : null,
-            Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
     }
 
@@ -497,7 +499,11 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
             var cursor = hasOwner
                 ? await runner.RunAsync(cypher, new Dictionary<string, object>
                 {
-                    ["lat"] = latitude, ["lon"] = longitude, ["radiusMeters"] = radiusKm * 1000.0, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
+                    ["lat"] = latitude,
+                    ["lon"] = longitude,
+                    ["radiusMeters"] = radiusKm * 1000.0,
+                    ["limit"] = limit,
+                    ["ownerId"] = scope!.OwnerId!,
                 }).ConfigureAwait(false)
                 : await runner.RunAsync(cypher, new { lat = latitude, lon = longitude, radiusMeters = radiusKm * 1000.0, limit }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -530,7 +536,12 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
             var cursor = hasOwner
                 ? await runner.RunAsync(cypher, new Dictionary<string, object>
                 {
-                    ["minLat"] = minLat, ["minLon"] = minLon, ["maxLat"] = maxLat, ["maxLon"] = maxLon, ["limit"] = limit, ["ownerId"] = scope!.OwnerId!,
+                    ["minLat"] = minLat,
+                    ["minLon"] = minLon,
+                    ["maxLat"] = maxLat,
+                    ["maxLon"] = maxLon,
+                    ["limit"] = limit,
+                    ["ownerId"] = scope!.OwnerId!,
                 }).ConfigureAwait(false)
                 : await runner.RunAsync(cypher, new { minLat, minLon, maxLat, maxLon, limit }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -722,9 +733,9 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
         var cypher = TemporalQueries.SearchEntitiesAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"]  = queryEmbedding.ToList(),
-            ["limit"]      = limit,
-            ["minScore"]   = minScore,
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
             // D6: entities have only the transaction clock, so the AsOf timestamp binds $systemAsOf.
             ["systemAsOf"] = asOf.UtcDateTime.ToString("O")
         };
@@ -736,7 +747,7 @@ internal sealed class Neo4jEntityRepository : IEntityRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();

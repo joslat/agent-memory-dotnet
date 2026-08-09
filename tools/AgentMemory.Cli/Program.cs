@@ -72,6 +72,22 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
                 cli.Get("output"));
         }
 
+        if (string.Equals(cli.Subcommand, "ledger", StringComparison.OrdinalIgnoreCase))
+        {
+            if (cli.Positionals.Count < 2 ||
+                !string.Equals(cli.Positionals[1], "add", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine("error: perf ledger requires the 'add' operation.");
+                return 1;
+            }
+
+            return await new AgentMemory.Cli.Commands.PerfLedgerCommand(Console.Out).ExecuteAsync(
+                cli.Get("run"),
+                cli.Get("compared-to"),
+                cli.Get("verdict"),
+                cli.Get("ledger"));
+        }
+
         if (string.Equals(cli.Subcommand, "cold", StringComparison.OrdinalIgnoreCase))
         {
             return await new AgentMemory.Cli.Commands.PerfColdCommand(Console.Out).ExecuteAsync(
@@ -85,11 +101,22 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
                 cli.Get("output"));
         }
 
+        if (string.Equals(cli.Subcommand, "concurrency", StringComparison.OrdinalIgnoreCase))
+        {
+            return await new AgentMemory.Cli.Commands.PerfConcurrencyCommand(Console.Out).ExecuteAsync(
+                cli.Get("label"),
+                cli.Get("levels"),
+                cli.Get("pool-size"),
+                cli.Get("embedding-dimensions"),
+                cli.Get("output"));
+        }
+
+
         if (cli.Subcommand is not null &&
             !string.Equals(cli.Subcommand, "run", StringComparison.OrdinalIgnoreCase))
         {
             Console.Error.WriteLine(
-                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'cold', 'ab', 'baseline', or 'gate'.");
+                $"error: unknown perf subcommand '{cli.Subcommand}'. Use 'run', 'cold', 'concurrency', 'ab', 'ledger', 'baseline', or 'gate'.");
             return 1;
         }
 
@@ -105,7 +132,10 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
             cli.Get("quality-gate"),
             cli.HasFlag("single-shot")
                 ? cli.Get("single-shot") ?? bool.TrueString
-                : null);
+                : null,
+            cli.Get("batch-resolution-snapshots"),
+            cli.Get("coalesced-persistence"),
+            cli.Get("pool-size"));
     }
     catch (Exception ex)
     {

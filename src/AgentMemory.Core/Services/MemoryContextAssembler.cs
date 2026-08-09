@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Memory;
 using AgentMemory.Core.Services.Budgeting;
 
 namespace AgentMemory.Core.Services;
@@ -156,10 +157,22 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
         IReadOnlyList<Message> recentMessages = Array.Empty<Message>();
         IReadOnlyList<Message> relevantMessages = Array.Empty<Message>();
+        IReadOnlyList<(Message Message, double Score)> relevantMessageScores =
+            Array.Empty<(Message, double)>();
         IReadOnlyList<Entity> entities = Array.Empty<Entity>();
         IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
         IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
+
+        // J2.2 resolution, computed once at method scope so it can be both used by the fact search
+        // and reported on the context. Which relations a question resolved to is the difference
+        // between "expansion had nothing to expand" and "expansion ran and did not help", and those
+        // need opposite responses. It was computed inline and discarded, so no report could tell
+        // them apart.
+        var resolvedQueryRelations = recallOpts.ExpandFactsByPredicate &&
+                                     recallOpts.ResolveQueryRelations
+            ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
+            : Array.Empty<string>();
 
         if (includeMemory)
         {
@@ -193,8 +206,14 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             var relevantTask = hasEmbedding && recallOpts.MaxRelevantMessages > 0
                 ? TimedAsync("memory.recall.messages",
-                    () => _shortTerm.SearchMessagesAsync(request.SessionId, queryEmbedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken))
-                : Empty<Message>();
+                    () => SearchRelevantMessagesAsync(
+                        request.SessionId,
+                        queryEmbedding,
+                        recallOpts.MaxRelevantMessages,
+                        minScore,
+                        recallOpts.IncludeDiagnostics,
+                        cancellationToken))
+                : Task.FromResult(RelevantMessageSearchResult.Empty);
 
             // D3 — apply the per-request query intent (latest/analog) as an ambient ranking override for
             // the long-term vector searches below. The long-term repositories read it synchronously while
@@ -215,12 +234,38 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
                 ? TimedAsync("memory.recall.facts",
-                    () => _longTerm.SearchFactsAsync(queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
+                    // Only the expansion path takes the wider overload. Off by default, the call is
+                    // byte-for-byte the original, so no existing behaviour or contract shifts.
+                    // Hoisted out of the call so the decision is observable. Which relations a
+                    // question resolved to is the difference between "expansion had nothing to
+                    // expand" and "expansion ran and did not help", and the two need opposite
+                    // responses. It was computed inline and discarded, so no report could tell them
+                    // apart - a multi-session question failing because its verb is absent from the
+                    // table looked identical to one failing for any other reason.
+                    () => recallOpts.ExpandFactsByPredicate
+                        ? _longTerm.SearchFactsAsync(
+                            queryEmbedding, recallOpts.MaxFacts, minScore, scope,
+                            true, recallOpts.MaxExpandedFacts,
+                            // J2.2. Empty unless explicitly enabled, and an unrecognised verb resolves
+                            // to nothing, so both the option-off and the no-match paths reproduce the
+                            // previous call exactly.
+                            resolvedQueryRelations,
+                            cancellationToken)
+                        : _longTerm.SearchFactsAsync(
+                            queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
                 : Empty<Fact>();
 
             var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
                 ? TimedAsync("memory.recall.traces",
-                    () => _reasoning.SearchSimilarTracesAsync(queryEmbedding, null, recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                    () => _reasoning.SearchSimilarTracesAsync(
+                        queryEmbedding,
+                        // K5: was a hardcoded null, so the outcome filter the repository and its
+                        // Cypher already supported could never be reached from automatic recall.
+                        // A recalled trace is shown to the reader as precedent with nothing marking
+                        // it as a failure, so imitating reasoning that did not work is worse than
+                        // recalling nothing. Default stays null - today's behaviour - until measured.
+                        recallOpts.SuccessfulTracesOnly,
+                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
                 : Empty<ReasoningTrace>();
 
             if (overrideRanking) _rankingContext!.Current = null;
@@ -230,7 +275,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 preferencesTask, factsTask, tracesTask).ConfigureAwait(false);
 
             recentMessages = await recentTask.ConfigureAwait(false);
-            relevantMessages = await relevantTask.ConfigureAwait(false);
+            var relevantResult = await relevantTask.ConfigureAwait(false);
+            relevantMessages = relevantResult.Messages;
+            relevantMessageScores = relevantResult.ScoredMessages;
             entities = await entitiesTask.ConfigureAwait(false);
             preferences = await preferencesTask.ConfigureAwait(false);
             facts = await factsTask.ConfigureAwait(false);
@@ -241,11 +288,18 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             await graphRagTask.ConfigureAwait(false);
 
         string? graphRagContext = null;
+        // K4: the items are retained, not only their joined text. They already carry SourceNodeIds,
+        // Score and Metadata, and discarding them here is what left GraphRAG unattributable, and so
+        // unmeasurable, in every quality run to date. The joined string is byte-identical to before.
+        IReadOnlyList<GraphRagContextItem> graphRagItems = Array.Empty<GraphRagContextItem>();
         if (graphRagTask != null)
         {
             var graphRagResult = await graphRagTask.ConfigureAwait(false);
             if (graphRagResult?.Items is { Count: > 0 } items)
+            {
                 graphRagContext = string.Join("\n\n", items.Select(i => i.Text));
+                graphRagItems = items;
+            }
         }
 
         // Apply context budget if configured
@@ -266,17 +320,27 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
+        var rankedRelevantItems = recallOpts.IncludeDiagnostics
+            ? BuildRankedItems(relevantMessages, relevantMessageScores)
+            : Array.Empty<MemoryContextRankedItem>();
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
-            RelevantMessages = new MemoryContextSection<Message> { Items = relevantMessages },
+            RelevantMessages = new MemoryContextSection<Message>
+            {
+                Items = relevantMessages,
+                RankedItems = rankedRelevantItems
+            },
             RelevantEntities = new MemoryContextSection<Entity> { Items = entities },
             RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
             RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
             SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
             GraphRagContext = graphRagContext,
+            GraphRagItems = graphRagItems,
+            ResolvedQueryRelations = resolvedQueryRelations,
             BlendMode = blendMode,
             Truncated = truncated
         };
@@ -461,6 +525,69 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             _logger.LogWarning(ex, "GraphRAG retrieval failed for session {SessionId}", request.SessionId);
             return null;
         }
+    }
+
+    private async Task<RelevantMessageSearchResult> SearchRelevantMessagesAsync(
+        string sessionId,
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        bool includeDiagnostics,
+        CancellationToken cancellationToken)
+    {
+        if (includeDiagnostics && _shortTerm is IScoredMessageSearch scoredSearch)
+        {
+            var scoredMessages = await scoredSearch.SearchMessagesWithScoresAsync(
+                sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
+            return new RelevantMessageSearchResult(
+                scoredMessages.Select(result => result.Message).ToArray(),
+                scoredMessages);
+        }
+
+        var messages = await _shortTerm.SearchMessagesAsync(
+            sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
+        return new RelevantMessageSearchResult(messages, Array.Empty<(Message, double)>());
+    }
+
+    internal static IReadOnlyList<MemoryContextRankedItem> BuildRankedItems(
+        IReadOnlyList<Message> contextMessages,
+        IReadOnlyList<(Message Message, double Score)> retrievedMessages)
+    {
+        if (contextMessages.Count == 0 || retrievedMessages.Count == 0)
+            return Array.Empty<MemoryContextRankedItem>();
+
+        var retrievedById = retrievedMessages
+            .Select((result, index) => new
+            {
+                result.Message.MessageId,
+                result.Score,
+                RetrievalRank = index + 1
+            })
+            .ToDictionary(result => result.MessageId, StringComparer.Ordinal);
+
+        var ranked = new List<MemoryContextRankedItem>(contextMessages.Count);
+        for (var index = 0; index < contextMessages.Count; index++)
+        {
+            var message = contextMessages[index];
+            if (!retrievedById.TryGetValue(message.MessageId, out var retrieved))
+                continue;
+            ranked.Add(new MemoryContextRankedItem(
+                message.MessageId,
+                retrieved.Score,
+                retrieved.RetrievalRank,
+                ContextRank: index + 1));
+        }
+
+        return ranked.AsReadOnly();
+    }
+
+    private sealed record RelevantMessageSearchResult(
+        IReadOnlyList<Message> Messages,
+        IReadOnlyList<(Message Message, double Score)> ScoredMessages)
+    {
+        public static RelevantMessageSearchResult Empty { get; } = new(
+            Array.Empty<Message>(),
+            Array.Empty<(Message, double)>());
     }
 
     private sealed record AssembledSections(

@@ -13,6 +13,8 @@ internal sealed record QualityBaseline(
     ExtractionQualityBaseline Extraction);
 
 internal sealed record RetrievalQualityBaseline(
+    string Measurement,
+    bool SemanticQualityClaim,
     double RecallAtK,
     double Mrr,
     int Cases,
@@ -51,6 +53,8 @@ internal sealed record QualityGateResult(
 /// </remarks>
 internal static class QualityGate
 {
+    internal const string DeterministicPlumbingMeasurement = "deterministic-plumbing";
+
     internal const string DefaultBaselinePath = "eng/perf/baselines/quality.json";
 
     private static readonly JsonSerializerOptions Json = new()
@@ -175,6 +179,15 @@ internal static class QualityGate
         if (baseline.SchemaVersion != 1)
             throw new InvalidOperationException(
                 $"Unsupported quality baseline schemaVersion {baseline.SchemaVersion}; expected 1.");
+        if (!string.Equals(
+                baseline.Retrieval.Measurement,
+                DeterministicPlumbingMeasurement,
+                StringComparison.Ordinal) ||
+            baseline.Retrieval.SemanticQualityClaim)
+        {
+            throw new InvalidOperationException(
+                "Retrieval quality baseline must identify Recall@K/MRR as deterministic-plumbing metrics with semanticQualityClaim=false.");
+        }
         if (!double.IsFinite(baseline.Tolerance) || baseline.Tolerance < 0)
             throw new InvalidOperationException("Quality baseline tolerance must be finite and non-negative.");
         if (baseline.Retrieval.Cases <= 0 || baseline.Extraction.Cases <= 0 ||

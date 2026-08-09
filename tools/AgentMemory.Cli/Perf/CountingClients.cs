@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.Cli.Perf;
@@ -16,7 +17,7 @@ public sealed class CountingEmbeddingGenerator : IEmbeddingGenerator<string, Emb
 
     public CountingEmbeddingGenerator(IEmbeddingGenerator<string, Embedding<float>> inner) => _inner = inner;
 
-    public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+    public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
         IEnumerable<string> values,
         EmbeddingGenerationOptions? options = null,
         CancellationToken cancellationToken = default)
@@ -33,7 +34,13 @@ public sealed class CountingEmbeddingGenerator : IEmbeddingGenerator<string, Emb
             turn.Add("embed.chars", materialized.Sum(v => (long)(v?.Length ?? 0)));
         }
 
-        return _inner.GenerateAsync(materialized, options, cancellationToken);
+        var startedAt = Stopwatch.GetTimestamp();
+        var response = await _inner.GenerateAsync(materialized, options, cancellationToken)
+            .ConfigureAwait(false);
+        turn?.RecordSpan(
+            "provider.embedding",
+            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        return response;
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) =>
@@ -57,8 +64,10 @@ public sealed class CountingChatClient : IChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        var purpose = ExtractionPurpose(Activity.Current?.OperationName);
+        var startedAt = Stopwatch.GetTimestamp();
         var response = await _inner.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        Record(response);
+        Record(response, purpose, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
         return response;
     }
 
@@ -67,7 +76,11 @@ public sealed class CountingChatClient : IChatClient
         ChatOptions? options = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        PerfCollector.Current?.Add("llm.calls");
+        var turn = PerfCollector.Current;
+        var purpose = ExtractionPurpose(Activity.Current?.OperationName);
+        turn?.Add("llm.calls");
+        if (purpose is not null)
+            turn?.Add($"llm.{purpose}.calls");
         await foreach (var update in _inner
             .GetStreamingResponseAsync(messages, options, cancellationToken)
             .WithCancellation(cancellationToken)
@@ -77,18 +90,42 @@ public sealed class CountingChatClient : IChatClient
         }
     }
 
-    private static void Record(ChatResponse response)
+    private static void Record(ChatResponse response, string? purpose, double durationMs)
     {
         var turn = PerfCollector.Current;
         if (turn is null) return;
 
         turn.Add("llm.calls");
+        if (purpose is not null)
+        {
+            turn.Add($"llm.{purpose}.calls");
+            turn.RecordSpan($"provider.llm.{purpose}", durationMs);
+        }
+
         if (response.Usage is { } usage)
         {
-            turn.Add("llm.tokens_in", usage.InputTokenCount ?? 0);
-            turn.Add("llm.tokens_out", usage.OutputTokenCount ?? 0);
+            var inputTokens = usage.InputTokenCount ?? 0;
+            var outputTokens = usage.OutputTokenCount ?? 0;
+            turn.Add("llm.tokens_in", inputTokens);
+            turn.Add("llm.tokens_out", outputTokens);
+            if (purpose is not null)
+            {
+                turn.Add($"llm.{purpose}.tokens_in", inputTokens);
+                turn.Add($"llm.{purpose}.tokens_out", outputTokens);
+            }
         }
     }
+
+    private static string? ExtractionPurpose(string? operationName) => operationName switch
+    {
+        "memory.extraction.entities" or "lab.extraction.entity" => "entity",
+        "memory.extraction.facts" or "lab.extraction.fact" => "fact",
+        "memory.extraction.preferences" or "lab.extraction.preference" => "preference",
+        "memory.extraction.relationships" or "lab.extraction.relationship" => "relationship",
+        "memory.extract.unified" or "lab.extraction.unified" => "unified",
+        "memory.extract.unified_batch" => "unified_batch",
+        _ => null,
+    };
 
     public object? GetService(Type serviceType, object? serviceKey = null) =>
         serviceType.IsInstanceOfType(this) ? this : _inner.GetService(serviceType, serviceKey);

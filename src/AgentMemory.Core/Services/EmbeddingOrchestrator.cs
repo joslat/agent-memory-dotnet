@@ -36,7 +36,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
 
         try
         {
-            var result = await _generator.GenerateAsync([text], cancellationToken: cancellationToken).ConfigureAwait(false);
+            var result = await _generator.GenerateAsync([CapInputLength(text)], cancellationToken: cancellationToken).ConfigureAwait(false);
             return result[0].Vector.ToArray();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -70,7 +70,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
             if (!string.IsNullOrWhiteSpace(texts[i]))
             {
                 nonBlankIndices.Add(i);
-                nonBlankTexts.Add(texts[i]);
+                nonBlankTexts.Add(CapInputLength(texts[i]));
             }
         }
 
@@ -97,10 +97,46 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Batch embedding generation failed for {Count} texts; returning empty vectors.", nonBlankTexts.Count);
-            // results already initialized to empty vectors — positional alignment preserved.
+            // One unusable input fails the whole provider call, so leaving every slot empty lets a
+            // single bad message silently blank an entire batch — which is exactly how one
+            // 41,855-character turn made all 596 messages of a LongMemEval question unsearchable.
+            // Retry item by item so the blast radius is the offending input, not its neighbours.
+            _logger.LogWarning(
+                ex,
+                "Batch embedding generation failed for {Count} texts; retrying individually so one bad input cannot blank the rest.",
+                nonBlankTexts.Count);
+
+            for (int j = 0; j < nonBlankIndices.Count; j++)
+            {
+                results[nonBlankIndices[j]] = await EmbedAsync(nonBlankTexts[j], cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Caps embedding input length. Embedding models reject inputs beyond a fixed token budget
+    /// (ada-002 allows 8,191), and the provider rejects the <em>whole request</em> when a single
+    /// input exceeds it. Stored content is never truncated — only the text handed to the embedder —
+    /// so an unusually long message stays complete and remains searchable.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately conservative and character-based: an exact tokenizer is not available at this
+    /// abstraction boundary, and ~4 characters per token is a safe upper bound for the models in use.
+    /// </remarks>
+    private const int MaxEmbeddingInputCharacters = 32_000;
+
+    private string CapInputLength(string text)
+    {
+        if (text.Length <= MaxEmbeddingInputCharacters)
+            return text;
+
+        _logger.LogWarning(
+            "Embedding input of {Length} characters exceeds the {Cap}-character cap; embedding its leading section. Stored content is unchanged.",
+            text.Length,
+            MaxEmbeddingInputCharacters);
+        return text[..MaxEmbeddingInputCharacters];
     }
 }

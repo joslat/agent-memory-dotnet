@@ -37,9 +37,12 @@ public sealed class CypherQuerySnapshotTests
     // ── Expected query inventory count ────────────────────────────────────────
     // Update this constant whenever queries are deliberately added or removed.
 
-    private const int ExpectedQueryCount = 143; // base + ConsolidationQueries/SchemaQueries/TOUCHED/ConflictQueries consts. +MessageQueries.GetAllBySession (cycle-3); +SchemaQueries.ShowConstraintNames/ShowIndexNames (schema-check CLI); +SchemaPersistenceQueries.Save/DeactivateByName/LoadActiveByName/LoadByNameVersion/List/Exists/DeleteById (G4 schema-node CRUD, 7); +MemoryReadAudit constraint/index. Owner-conditional queries are *methods* (excluded): EntityQueries.ApplyConfidenceDelta/Delete/MergeEntities/SearchByLocation/SearchInBoundingBox/GetByType/FindSimilarByEmbedding, FactQueries.Delete/FindByTriple, PreferenceQueries.Delete, DecayQueries.PruneEntities/PruneFacts/PrunePreferences, ExtractorQueries.GetEntityProvenance, ReasoningQueries.ListTracesBySession (R2 owner-scoped 2026-06-13), ReasoningQueries.DeleteBySession (R6-C owner-scoped 2026-06-20: const→method, −1).
+    private const int ExpectedQueryCount = 148; // -1: SearchByCanonicalPredicates became an owner-conditional *method* (excluded, like GetBySubject) when the audit found it ignored IncludeShared and coerced a null-owner scope to the shared bucket. // +FactQueries.SelectFactsMissingCanonicalKeys/ApplyCanonicalKeys (Phase 1.1: canonical identity needs a C#-driven backfill, since Cypher's toLower diverges from ToLowerInvariant on U+0130). // +FactQueries.SearchByCanonicalPredicates (G3B.13: top-K is a relevance cutoff and cannot answer "how many", so a relation is retrieved whole via predicate_key). // +SchemaQueries.ShowIndexStates (BUG-S1: only vector-index dimensions were validated at bootstrap, so a FAILED range index degraded silently into full scans). base + ConsolidationQueries/SchemaQueries/TOUCHED/ConflictQueries consts. +MessageQueries.GetAllBySession (cycle-3); +SchemaQueries.ShowConstraintNames/ShowIndexNames (schema-check CLI); +SchemaPersistenceQueries.Save/DeactivateByName/LoadActiveByName/LoadByNameVersion/List/Exists/DeleteById (G4 schema-node CRUD, 7); +MemoryReadAudit constraint/index. Owner-conditional queries are *methods* (excluded): EntityQueries.ApplyConfidenceDelta/Delete/MergeEntities/SearchByLocation/SearchInBoundingBox/GetByType/FindSimilarByEmbedding, FactQueries.Delete/FindByTriple, PreferenceQueries.Delete, DecayQueries.PruneEntities/PruneFacts/PrunePreferences, ExtractorQueries.GetEntityProvenance, ReasoningQueries.ListTracesBySession (R2 owner-scoped 2026-06-13), ReasoningQueries.DeleteBySession (R6-C owner-scoped 2026-06-20: const→method, −1); +PreferenceQueries.UpsertBatch/RelationshipQueries.UpsertBatch (feat-04, +2).
 
     // ── MemberData source ─────────────────────────────────────────────────────
+
+    // W1.1 adds one fused statement for each node memory kind.
+    private const int FusedPersistenceQueryCount = 3;
 
     public static IEnumerable<object[]> GetAllCypherQueries()
         => CypherQueryRegistry.GetAll().Select(q => new object[] { q.Name, q.Cypher });
@@ -96,9 +99,9 @@ public sealed class CypherQuerySnapshotTests
     {
         var queries = CypherQueryRegistry.GetAll();
 
-        queries.Should().HaveCount(ExpectedQueryCount,
+        queries.Should().HaveCount(ExpectedQueryCount + FusedPersistenceQueryCount,
             because:
-                $"the catalog must contain exactly {ExpectedQueryCount} Cypher query constants. " +
+                $"the catalog must contain exactly {ExpectedQueryCount + FusedPersistenceQueryCount} Cypher query constants. " +
                 "Update CypherQuerySnapshotTests.ExpectedQueryCount if the change was intentional.");
     }
 

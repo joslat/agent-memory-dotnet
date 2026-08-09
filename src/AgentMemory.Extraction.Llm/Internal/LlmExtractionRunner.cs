@@ -38,14 +38,16 @@ internal sealed class LlmExtractionRunner
         string userInstruction,
         string conversationText,
         Func<LlmExtractionResponse, IReadOnlyList<T>> project,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool failOnParseExhaustion = false,
+        ChatResponseFormat? responseFormat = null)
     {
         var chatMessages = new List<ChatMessage>
         {
             new(ChatRole.System, systemPrompt),
             new(ChatRole.User, $"{userInstruction}\n\n{conversationText}")
         };
-        var chatOptions = BuildChatOptions();
+        var chatOptions = BuildChatOptions(responseFormat);
 
         int maxAttempts = _options.MaxRetries < 0 ? 1 : _options.MaxRetries + 1;
 
@@ -53,7 +55,8 @@ internal sealed class LlmExtractionRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var response = await _chatClient.GetResponseAsync(chatMessages, chatOptions, cancellationToken)
+            var response = await GetResponseWithTransportRetryAsync(
+                    chatMessages, chatOptions, cancellationToken)
                 .ConfigureAwait(false);
             var raw = response.Text;
 
@@ -72,15 +75,116 @@ internal sealed class LlmExtractionRunner
                     "That response was not valid JSON. Reply with ONLY the JSON object — no markdown fences, no prose."));
             }
         }
+        if (failOnParseExhaustion)
+            throw new FormatException("LLM extraction exhausted its parse retries without valid JSON.");
+
 
         return Array.Empty<T>();
     }
 
-    private ChatOptions BuildChatOptions()
+
+    /// <summary>
+    /// Calls the provider, retrying transport failures with backoff.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the parse-retry loop above, and for a different failure. That loop re-prompts a
+    /// model that answered with unparseable JSON; this one re-sends an identical request that never
+    /// got an answer at all. Before this existed there was no transport retry anywhere in the
+    /// extraction path, and two 614-call preparations died mid-run on a single transient, at 37 and
+    /// 26 minutes each.
+    /// <para>
+    /// A <see cref="FormatException"/> is deliberately not retried: it is caused by the request's own
+    /// shape, so re-sending it unchanged cannot help. That mirrors the batch splitter, which splits
+    /// on exactly that set and nothing else. Cancellation is never retried — retrying it would make
+    /// the preparation watchdog's timeout unenforceable.
+    /// </para>
+    /// </remarks>
+
+    /// <summary>
+    /// Whether a provider failure is worth re-sending an identical request for.
+    /// </summary>
+    /// <remarks>
+    /// Retrying a permanent failure is not merely useless, it is expensive: an n=50 preparation spent
+    /// its 60-minute budget re-sending requests the provider had already rejected with
+    /// <b>HTTP 400</b>, and the watchdog fired with 7 failures and 544 of 614 calls done. A 400 says
+    /// the request is wrong — most often too large — and the same request will be just as wrong the
+    /// third time.
+    /// <para>
+    /// Retryable: 408, 429, and 5xx, plus transport-level exceptions that never reached the service
+    /// and so carry no status. Everything else is permanent. An oversized request is separately
+    /// recoverable by splitting the batch, which is a different mechanism and the right one.
+    /// </para>
+    /// </remarks>
+    internal static bool IsTransient(Exception exception)
+    {
+        var status = TryGetStatus(exception);
+        if (status is null)
+            return true;   // never reached the service: a connection reset, a DNS failure, a timeout
+        return status is 408 or 429 || status >= 500;
+    }
+
+    /// <summary>
+    /// The HTTP status behind a provider exception, or null when the call never got one.
+    /// </summary>
+    /// <remarks>
+    /// Read reflectively rather than by referencing System.ClientModel: the status lives on
+    /// <c>ClientResultException.Status</c> for Azure/OpenAI clients and on
+    /// <c>HttpRequestException.StatusCode</c> for raw HTTP, and this library should not take a
+    /// package dependency to classify an error.
+    /// </remarks>
+    internal static int? TryGetStatus(Exception exception)
+    {
+        if (exception is HttpRequestException { StatusCode: { } code })
+            return (int)code;
+
+        var property = exception.GetType().GetProperty("Status");
+        if (property?.GetValue(exception) is int status && status > 0)
+            return status;
+
+        return exception.InnerException is null ? null : TryGetStatus(exception.InnerException);
+    }
+
+    private async Task<ChatResponse> GetResponseWithTransportRetryAsync(
+        List<ChatMessage> chatMessages,
+        ChatOptions chatOptions,
+        CancellationToken cancellationToken)
+    {
+        int maxAttempts = _options.MaxRetries < 0 ? 1 : _options.MaxRetries + 1;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await _chatClient
+                    .GetResponseAsync(chatMessages, chatOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (FormatException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (attempt < maxAttempts && IsTransient(exception))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "LLM extraction transport failure (attempt {Attempt}/{MaxAttempts}); retrying.",
+                    attempt, maxAttempts);
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    private ChatOptions BuildChatOptions(ChatResponseFormat? responseFormat)
     {
         var opts = new ChatOptions { Temperature = _options.Temperature };
         if (!string.IsNullOrEmpty(_options.ModelId))
             opts.ModelId = _options.ModelId;
+        if (_options.UseJsonResponseFormat)
+            opts.ResponseFormat = responseFormat ?? ChatResponseFormat.Json;
         return opts;
     }
 

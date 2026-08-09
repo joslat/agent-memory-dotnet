@@ -92,6 +92,8 @@ public sealed class PerfCollector : IDisposable
                     turn.Add("neo4j.records", records);
                 if (activity.GetTagItem("db.bytes_est") is long bytesEstimate)
                     turn.Add("neo4j.bytes_est", bytesEstimate);
+                if (activity.GetTagItem("db.transaction_entry_ms_est") is double entryEstimate)
+                    turn.RecordSample("neo4j.transaction_entry_ms_est", entryEstimate);
                 break;
 
             case "memory.db.query":

@@ -62,6 +62,7 @@ public sealed class ExtractionStageTests
             factExtractors ?? Array.Empty<IFactExtractor>(),
             prefExtractors ?? Array.Empty<IPreferenceExtractor>(),
             relExtractors ?? Array.Empty<IRelationshipExtractor>(),
+            Array.Empty<IUnifiedMemoryExtractor>(),
             _resolver,
             Options.Create(options ?? new ExtractionOptions()),
             NullLogger<ExtractionStage>.Instance);

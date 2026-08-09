@@ -28,6 +28,27 @@ internal static class PreferenceQueries
                 p.metadata           = $metadata
             RETURN p";
 
+    /// <summary>Batch upsert preferences by id via UNWIND.</summary>
+    public const string UpsertBatch = @"
+            UNWIND $items AS item
+            MERGE (p:Preference {id: item.id})
+            ON CREATE SET
+                p.owner_id           = item.owner_id,
+                p.category           = item.category,
+                p.preference         = item.preference,
+                p.context            = item.context,
+                p.confidence         = item.confidence,
+                p.source_message_ids = item.source_message_ids,
+                p.created_at         = datetime(item.created_at),
+                p.metadata           = item.metadata
+            ON MATCH SET
+                p.category           = item.category,
+                p.preference         = item.preference,
+                p.context            = item.context,
+                p.confidence         = item.confidence,
+                p.source_message_ids = item.source_message_ids,
+                p.metadata           = item.metadata
+            RETURN p";
     /// <summary>Set the embedding vector on a Preference node.</summary>
     public const string SetEmbedding = "MATCH (p:Preference {id: $id}) SET p.embedding = $embedding";
 

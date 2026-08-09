@@ -45,6 +45,9 @@ public sealed class PerfCommand
         string? outputRoot,
         string? qualityGateValue,
         string? singleShotValue,
+        string? batchResolutionSnapshotsValue,
+        string? coalescedPersistenceValue,
+        string? poolSizeValue = null,
         CancellationToken cancellationToken = default)
     {
         var runLabel = Sanitize(label) ?? "baseline";
@@ -55,6 +58,10 @@ public sealed class PerfCommand
         var qualityGateEnabled = ParseDefaultTrue(qualityGateValue, "quality-gate");
         var qualityBaseline = qualityGateEnabled ? QualityGate.LoadBaseline() : null;
         var singleShot = ParseDefaultFalse(singleShotValue, "single-shot");
+        var batchResolutionSnapshots = ParseDefaultTrue(
+            batchResolutionSnapshotsValue, "batch-resolution-snapshots");
+        var coalescedPersistence = ParseDefaultTrue(
+            coalescedPersistenceValue, "coalesced-persistence");
 
         var (embeddingLatency, modelLatency) = ResolveLatency(latency);
 
@@ -68,6 +75,31 @@ public sealed class PerfCommand
             _output.WriteLine($"error: {ex.Message}");
             return 1;
         }
+
+        var extractionModes = scenarios
+            .Select(scenario => scenario.RequiresUnifiedExtraction)
+            .Distinct()
+            .ToArray();
+        if (extractionModes.Length != 1)
+        {
+            _output.WriteLine(
+                "error: unified-extraction cold-build labs cannot share one perf run with default-path " +
+                "scenarios. Select only PERF-W-10-C01/C05/C10, or run the default catalog separately.");
+            return 1;
+        }
+        var useUnifiedExtraction = extractionModes[0];
+        int maxConnectionPoolSize;
+        try
+        {
+            maxConnectionPoolSize = ResolveMaxConnectionPoolSize(
+                poolSizeValue, useUnifiedExtraction, scenarios.Select(s => s.Id).ToArray());
+        }
+        catch (ArgumentException ex)
+        {
+            _output.WriteLine($"error: {ex.Message}");
+            return 1;
+        }
+        var poolSizeExplicitlyConfigured = poolSizeValue is not null;
 
         if (singleShot &&
             (scenarios.Count != 1 || iterations != 1 || warmup != 0 || qualityGateEnabled))
@@ -91,7 +123,8 @@ public sealed class PerfCommand
 
         using var trace = new TraceLogWriter(Path.Combine(runDir, "trace.ndjson"));
         var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions, scaleName,
-            embeddingLatency, modelLatency, scenarios, singleShot);
+            embeddingLatency, modelLatency, scenarios, singleShot, useUnifiedExtraction,
+            maxConnectionPoolSize, batchResolutionSnapshots, coalescedPersistence);
         trace.RunStart(runId, manifest);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "run.json"), JsonSerializer.Serialize(manifest, Json), cancellationToken)
@@ -107,7 +140,9 @@ public sealed class PerfCommand
 
         await using var profile = await HermeticProfile
             .StartAsync(dimensions, embeddingLatency, modelLatency, _output, scale,
-                scriptedRules, cancellationToken)
+                scriptedRules, cancellationToken, maxConnectionPoolSize,
+                useUnifiedExtraction, batchResolutionSnapshots, coalescedPersistence,
+                poolSizeExplicitlyConfigured)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
@@ -283,10 +318,40 @@ public sealed class PerfCommand
             profile, record, 0, "measure", null, cancellationToken)).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Resolves the fingerprinted Neo4j driver pool size. Without an override the historical
+    /// defaults hold exactly: 16 for the unified cold-build laboratory, 100 for the default catalog.
+    /// An explicit override exists only for the D1 pool-curve arms and is therefore restricted to
+    /// integrated cold-build (<c>PERF-W-12-*</c>) selections, where the scenario self-assertion and
+    /// the manifest both record the deliberate value.
+    /// </summary>
+    private static int ResolveMaxConnectionPoolSize(
+        string? poolSizeValue, bool useUnifiedExtraction, IReadOnlyList<string> scenarioIds)
+    {
+        var defaultPoolSize = useUnifiedExtraction ? 16 : 100;
+        if (poolSizeValue is null)
+            return defaultPoolSize;
+        if (!int.TryParse(poolSizeValue, NumberStyles.None, CultureInfo.InvariantCulture, out var poolSize) ||
+            poolSize <= 0)
+        {
+            throw new ArgumentException(
+                $"--pool-size must be a positive integer; got '{poolSizeValue}'.");
+        }
+        if (scenarioIds.Count == 0 ||
+            scenarioIds.Any(id => !id.StartsWith("PERF-W-12-", StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "--pool-size is a D1 pool-curve override and requires selecting only the " +
+                "integrated cold-build scenarios (PERF-W-12-*).");
+        }
+        return poolSize;
+    }
+
     private static object BuildManifest(
         string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions, string scale,
         TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios,
-        bool singleShot) => new
+        bool singleShot, bool useUnifiedExtraction, int maxConnectionPoolSize,
+        bool batchResolutionSnapshots, bool coalescedPersistence) => new
         {
             runId,
             label,
@@ -316,6 +381,11 @@ public sealed class PerfCommand
                 embeddingDimensions = dimensions,
                 embeddingLatencyMs = embeddingLatency.TotalMilliseconds,
                 modelLatencyMs = modelLatency.TotalMilliseconds,
+                unifiedExtraction = useUnifiedExtraction,
+                batchEntityResolutionSnapshots = batchResolutionSnapshots,
+                coalescedPersistenceTransactions = coalescedPersistence,
+                learnedEmbeddingBatching = true,
+                neo4jMaxConnectionPoolSize = maxConnectionPoolSize,
                 neo4jImage = "neo4j:5.26",
                 os = Environment.OSVersion.ToString(),
                 processorCount = Environment.ProcessorCount,
@@ -394,6 +464,8 @@ public sealed class PerfCommand
             },
             quality = new
             {
+                retrievalMeasurement = QualityGate.DeterministicPlumbingMeasurement,
+                semanticQualityClaim = false,
                 recallAtK = quality.RecallAtK,
                 mrr = quality.Mrr,
                 cases = quality.Cases,
@@ -536,6 +608,7 @@ public sealed class PerfCommand
             counters = r.Counters,
             spansMs = r.SpanMilliseconds,
             queryFingerprints = r.QueryFingerprints,
+            samples = r.Samples,
         }));
         await File.WriteAllLinesAsync(Path.Combine(runDir, "samples.ndjson"), lines, cancellationToken)
             .ConfigureAwait(false);
@@ -561,6 +634,7 @@ public sealed class PerfCommand
                 counters = sample.Counters,
                 spansMs = sample.SpanMilliseconds,
                 queryFingerprints = sample.QueryFingerprints,
+                samples = sample.Samples,
             },
         };
         await File.WriteAllTextAsync(
@@ -637,14 +711,18 @@ public sealed class PerfCommand
             sb.AppendLine();
         }
 
-        sb.AppendLine("## Retrieval quality (deterministic — no model involved)");
+        sb.AppendLine("## Retrieval guard (deterministic plumbing — FNV-1a embedder, not semantic quality)");
+        sb.AppendLine();
+        sb.AppendLine(
+            "**Scope:** these scores self-assert retrieval wiring, ranking and forbidden-result handling. " +
+            "They are not a real-embedding semantic-retrieval claim; sampled real-model quality belongs to M-27.");
         sb.AppendLine();
         sb.AppendLine(CultureInfo.InvariantCulture,
-            $"**Recall@K {quality.RecallAtK:F3}** · **MRR {quality.Mrr:F3}** · {quality.Cases} judged cases · " +
+            $"**Deterministic-plumbing Recall@K {quality.RecallAtK:F3}** · **deterministic-plumbing MRR {quality.Mrr:F3}** · {quality.Cases} judged cases · " +
             $"{quality.CasesWithViolations} with forbidden retrievals · " +
             $"{(quality.Clean ? "✅ clean" : "⚠️ **see failures below**")}");
         sb.AppendLine();
-        sb.AppendLine("| Category | Recall@K |");
+        sb.AppendLine("| Category | Deterministic-plumbing Recall@K |");
         sb.AppendLine("|---|---:|");
         foreach (var (category, recall) in quality.RecallByCategory.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             sb.AppendLine(CultureInfo.InvariantCulture, $"| {category} | {recall:F3} |");
@@ -657,7 +735,7 @@ public sealed class PerfCommand
         {
             sb.AppendLine("Cases not scoring perfectly — these are the rows a quality-risk change moves:");
             sb.AppendLine();
-            sb.AppendLine("| Case | Kind | Recall@K | 1/rank | Retrieved | Forbidden retrieved |");
+            sb.AppendLine("| Case | Kind | Deterministic-plumbing Recall@K | 1/rank | Retrieved | Forbidden retrieved |");
             sb.AppendLine("|---|---|---:|---:|---:|---|");
             foreach (var c in imperfect)
             {
@@ -844,7 +922,10 @@ public sealed class PerfCommand
             // Reproduces the shape of a same-region remote deployment, so ordering and overlap
             // optimizations are measurable without a network dependency.
             "remote" => (TimeSpan.FromMilliseconds(120), TimeSpan.FromMilliseconds(900)),
-            _ => throw new ArgumentException($"unknown --latency '{latency}'. Use 'zero' or 'remote'."),
+            // Isolates model fan-out changes from an unchanged embedding/persistence path.
+            "model-remote" => (TimeSpan.Zero, TimeSpan.FromMilliseconds(900)),
+            _ => throw new ArgumentException(
+                $"unknown --latency '{latency}'. Use 'zero', 'model-remote', or 'remote'."),
         };
 
     private static string LatencyName(string? latency) =>

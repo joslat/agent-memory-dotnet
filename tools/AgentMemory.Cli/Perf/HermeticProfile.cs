@@ -1,4 +1,5 @@
 using AgentMemory;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using Microsoft.Extensions.AI;
@@ -38,15 +39,42 @@ public sealed class HermeticProfile : IAsyncDisposable
     private AsyncServiceScope _scope;
     private bool _scopeCreated;
 
-    private HermeticProfile(int dimensions, PerfScale scale, ScaleMRunVolume? scaleRunVolume)
+    private HermeticProfile(
+        int dimensions,
+        PerfScale scale,
+        ScaleMRunVolume? scaleRunVolume,
+        int maxConnectionPoolSize,
+        bool useBatchEntityResolutionSnapshots,
+        bool useCoalescedPersistenceTransactions,
+        bool poolSizeExplicitlyConfigured)
     {
         Dimensions = dimensions;
         Scale = scale;
         _scaleRunVolume = scaleRunVolume;
+        MaxConnectionPoolSize = maxConnectionPoolSize;
+        UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
+        UseCoalescedPersistenceTransactions = useCoalescedPersistenceTransactions;
+        PoolSizeExplicitlyConfigured = poolSizeExplicitlyConfigured;
     }
 
     /// <summary>Embedding dimensionality. Small by design — vector width is not what is being measured.</summary>
     public int Dimensions { get; }
+
+    /// <summary>Fixed product-driver pool size fingerprinted by concurrency artifacts.</summary>
+    public int MaxConnectionPoolSize { get; }
+
+    /// <summary>
+    /// True only when an operator explicitly selected the pool size (the D1 pool-curve arms).
+    /// Lab self-assertions treat any non-16 pool without this deliberate, fingerprinted selection
+    /// as a wiring error.
+    /// </summary>
+    public bool PoolSizeExplicitlyConfigured { get; }
+
+    /// <summary>Whether batch-scoped owner/type entity candidate snapshots are enabled.</summary>
+    public bool UseBatchEntityResolutionSnapshots { get; }
+
+    /// <summary>Whether successful logical persistence operations share one atomic transaction.</summary>
+    public bool UseCoalescedPersistenceTransactions { get; }
 
     /// <summary>Scoped service provider for resolving memory services.</summary>
     public IServiceProvider Services => _scope.ServiceProvider;
@@ -59,6 +87,9 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     /// <summary>Raw driver, for bulk fixture seeding that would be pointlessly slow through the services.</summary>
     public IDriver Driver { get; private set; } = null!;
+
+    /// <summary>Container identifier exposed only to explicit resource-capacity laboratory scenarios.</summary>
+    internal string ContainerId => _container?.Id ?? throw new InvalidOperationException("Neo4j is not running.");
 
     /// <summary>Scenario-scoped dependency latency; unset outside an explicitly degraded scenario.</summary>
     public PerfDependencyLatency DependencyLatency { get; } = new();
@@ -86,15 +117,27 @@ public sealed class HermeticProfile : IAsyncDisposable
         TextWriter log,
         PerfScale scale,
         IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int maxConnectionPoolSize = 100,
+        bool useUnifiedExtraction = false,
+        bool useBatchEntityResolutionSnapshots = true,
+        bool useCoalescedPersistenceTransactions = true,
+        bool poolSizeExplicitlyConfigured = false)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
             ? await ScaleMDataset.PrepareRunVolumeAsync(dimensions, log, cancellationToken).ConfigureAwait(false)
             : null;
-        var profile = new HermeticProfile(dimensions, scale, scaleRunVolume);
+        var profile = new HermeticProfile(
+            dimensions, scale, scaleRunVolume, maxConnectionPoolSize,
+            useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions,
+            poolSizeExplicitlyConfigured);
         try
         {
-            await profile.InitializeAsync(embeddingLatency, modelLatency, log, scriptedRules, cancellationToken)
+            await profile.InitializeAsync(
+                    embeddingLatency, modelLatency, log, scriptedRules, useUnifiedExtraction,
+                    useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions,
+                    cancellationToken)
                 .ConfigureAwait(false);
             return profile;
         }
@@ -107,7 +150,10 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     private async Task InitializeAsync(
         TimeSpan embeddingLatency, TimeSpan modelLatency, TextWriter log,
-        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, CancellationToken cancellationToken)
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, bool useUnifiedExtraction,
+        bool useBatchEntityResolutionSnapshots,
+        bool useCoalescedPersistenceTransactions,
+        CancellationToken cancellationToken)
     {
         log.WriteLine($"perf: starting {Image} (Testcontainers)…");
         var builder = new Neo4jBuilder(Image)
@@ -125,7 +171,13 @@ public sealed class HermeticProfile : IAsyncDisposable
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
 
         services.AddNeo4jAgentMemory(
-            memory => { /* shipped defaults — measuring anything else would measure a strawman */ },
+            memory =>
+            {
+                memory.Extraction.UseBatchEmbeddingRequests = true;
+                memory.Extraction.UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
+                memory.Extraction.UseCoalescedPersistenceTransactions =
+                    useCoalescedPersistenceTransactions;
+            },
             neo4j =>
             {
                 neo4j.Uri = uri;
@@ -133,10 +185,19 @@ public sealed class HermeticProfile : IAsyncDisposable
                 neo4j.Password = ContainerPassword;
                 neo4j.Database = "neo4j";
                 neo4j.EmbeddingDimensions = Dimensions;
+                neo4j.MaxConnectionPoolSize = MaxConnectionPoolSize;
             },
             // A non-null delegate is what opts the LLM extractors in; without it the Core no-op stubs
             // stay registered and a post-turn scenario would measure extraction that never happens.
-            llm => { });
+            llm =>
+            {
+                llm.UseUnifiedExtraction = useUnifiedExtraction;
+                llm.UseMultiSessionBatchExtraction = useUnifiedExtraction;
+            });
+
+        // LAB-P0 intercepts only its explicit source marker and delegates every other extraction.
+        // Register before the provider is built so the real pipeline still owns resolution/persistence.
+        FrozenExtractionOverrides.Decorate(services);
 
         // Registered exactly as a host source would be, but the shared MemoryOptions keep GraphRAG
         // disabled. PERF-R-08 builds an isolated production assembler with EnableGraphRag=true; every
@@ -276,10 +337,11 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// Inserts deterministic waiting inside the real transaction span. The original work delegate still
     /// receives the product's instrumented query runner, so query counting and behavior are unchanged.
     /// </summary>
-    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner
+    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner
     {
         private readonly INeo4jTransactionRunner _inner;
         private readonly PerfDependencyLatency _dependencyLatency;
+        private readonly INeo4jAtomicTransactionRunner _atomicInner;
 
         public LatencyInjectingTransactionRunner(
             INeo4jTransactionRunner inner,
@@ -287,6 +349,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         {
             _inner = inner;
             _dependencyLatency = dependencyLatency;
+            _atomicInner = inner as INeo4jAtomicTransactionRunner
+                ?? throw new InvalidOperationException("The decorated Neo4j runner must support atomic write units.");
         }
 
         public Task<T> ReadAsync<T>(
@@ -332,6 +396,11 @@ public sealed class HermeticProfile : IAsyncDisposable
                     await work(runner).ConfigureAwait(false);
                 },
                 cancellationToken);
+
+        public Task<T> ExecuteAtomicWriteAsync<T>(
+            Func<CancellationToken, Task<T>> work,
+            CancellationToken cancellationToken = default) =>
+            _atomicInner.ExecuteAtomicWriteAsync(work, cancellationToken);
 
         private async Task DelayAsync(CancellationToken cancellationToken)
         {

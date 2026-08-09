@@ -53,6 +53,40 @@ public sealed record MemoryContext
     /// </summary>
     public string? GraphRagContext { get; init; }
 
+
+    /// <summary>
+    /// The canonical relations this turn's question resolved to, empty when resolution was off or
+    /// matched nothing.
+    /// </summary>
+    /// <remarks>
+    /// Distinguishes "predicate expansion had nothing to expand" from "expansion ran and did not
+    /// help", which need opposite responses — a missing vocabulary entry versus a retrieval or
+    /// reading problem. The resolution was previously computed inline and discarded, so no report
+    /// could tell the two apart: a question failing because its verb is absent from the table looked
+    /// identical to one failing for any other reason. Verified by hand on the n=50 losses, where
+    /// <c>service</c>/<c>serviced</c> turned out to be absent entirely and <c>has</c> is a
+    /// deliberate query stop form.
+    /// </remarks>
+    public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// The GraphRAG passages behind <see cref="GraphRagContext"/>, with their scores and source ids.
+    /// </summary>
+    /// <remarks>
+    /// Every other memory surface contributes typed items that evidence accounting can attribute;
+    /// GraphRAG contributed one opaque string, so it could not be scored, attributed, or shown to
+    /// have helped or harmed - which is the most plausible reason its recall budget was set to zero
+    /// and left there.
+    /// <para>
+    /// The information was never missing. <c>GraphRagContextItem</c> already carried
+    /// <c>SourceNodeIds</c>, <c>Score</c> and <c>Metadata</c>; the assembler joined the text and
+    /// discarded the rest. This retains them. <see cref="GraphRagContext"/> is unchanged, so nothing
+    /// the reader sees moves - the addition is instrumentation, not a retrieval change.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<GraphRagContextItem> GraphRagItems { get; init; } =
+        Array.Empty<GraphRagContextItem>();
+
     /// <summary>
     /// The blend mode that produced this context. Determines which sources were retrieved
     /// (see <see cref="RetrievalBlendMode"/>) and the order in which memory and GraphRAG-derived

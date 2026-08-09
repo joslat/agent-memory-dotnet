@@ -10,7 +10,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for short-term (conversational) memory operations.
 /// </summary>
-internal sealed class ShortTermMemoryService : IShortTermMemoryService
+internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredMessageSearch
 {
     private readonly IConversationRepository _conversationRepo;
     private readonly IMessageRepository _messageRepo;
@@ -90,21 +90,90 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService
         CancellationToken cancellationToken = default)
     {
         var messageList = messages.ToList();
-        var results = new List<Message>(messageList.Count);
-
-        foreach (var message in messageList)
+        if (!_options.GenerateEmbeddings)
         {
-            var finalMessage = message;
-            if (_options.GenerateEmbeddings && message.Embedding is null)
-            {
-                var embedding = await _embeddingOrchestrator.EmbedMessageAsync(message.Content, cancellationToken).ConfigureAwait(false);
-                finalMessage = message with { Embedding = embedding };
-            }
-            results.Add(finalMessage);
+            _logger.LogDebug("Batch adding {Count} messages", messageList.Count);
+            return await _messageRepo.AddBatchAsync(messageList, cancellationToken).ConfigureAwait(false);
         }
 
-        _logger.LogDebug("Batch adding {Count} messages", results.Count);
-        return await _messageRepo.AddBatchAsync(results, cancellationToken).ConfigureAwait(false);
+        if (!_options.UseBatchEmbeddingRequests)
+        {
+            var legacyResults = new List<Message>(messageList.Count);
+            foreach (var message in messageList)
+            {
+                var finalMessage = message;
+                if (message.Embedding is null)
+                {
+                    var embedding = await _embeddingOrchestrator
+                        .EmbedMessageAsync(message.Content, cancellationToken)
+                        .ConfigureAwait(false);
+                    finalMessage = message with { Embedding = embedding };
+                }
+                legacyResults.Add(finalMessage);
+            }
+
+            _logger.LogDebug("Batch adding {Count} messages", legacyResults.Count);
+            return await _messageRepo.AddBatchAsync(legacyResults, cancellationToken).ConfigureAwait(false);
+        }
+
+        var missingIndices = Enumerable.Range(0, messageList.Count)
+            .Where(index => messageList[index].Embedding is null)
+            .ToArray();
+        if (missingIndices.Length > 0)
+        {
+            var texts = missingIndices.Select(index => messageList[index].Content).ToArray();
+            var embeddings = await _embeddingOrchestrator
+                .EmbedBatchAsync(texts, cancellationToken)
+                .ConfigureAwait(false);
+            if (embeddings.Count != missingIndices.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Batch embedding returned {embeddings.Count} vectors for " +
+                    $"{missingIndices.Length} messages; positional alignment cannot be guaranteed.");
+            }
+
+            for (var index = 0; index < missingIndices.Length; index++)
+            {
+                var messageIndex = missingIndices[index];
+                var vector = embeddings[index];
+
+                // BUG-M1. The count check above cannot see an empty vector, and an empty list is not
+                // null — so such a message passes recall's `embedding IS NOT NULL` filter, then
+                // cosine yields null and the score comparison drops it. The message would be stored
+                // and permanently unretrievable with no error raised. Replay that slot alone, and if
+                // it still comes back unusable, fail the write: a message is the only copy of itself,
+                // so losing the write is recoverable and storing an unsearchable one is not.
+                // Blank content has no embedding by definition — the orchestrator returns an empty
+                // vector for it deliberately. That is a property of the input, not a provider
+                // failure, so it is stored as-is and simply never matches a semantic search.
+                var contentIsBlank = string.IsNullOrWhiteSpace(messageList[messageIndex].Content);
+                if (!contentIsBlank && (vector is null || vector.Length == 0))
+                {
+                    _logger.LogWarning(
+                        "Batch embedding returned an unusable vector for message {MessageId}; replaying it individually.",
+                        messageList[messageIndex].MessageId);
+                    vector = await _embeddingOrchestrator
+                        .EmbedMessageAsync(messageList[messageIndex].Content, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (vector is null || vector.Length == 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"Embedding for message {messageList[messageIndex].MessageId} was empty after an " +
+                            "individual replay, although its content is not blank; refusing to persist a " +
+                            "message that could never be retrieved.");
+                    }
+                }
+
+                messageList[messageIndex] = messageList[messageIndex] with
+                {
+                    Embedding = vector,
+                };
+            }
+        }
+
+        _logger.LogDebug("Batch adding {Count} messages", messageList.Count);
+        return await _messageRepo.AddBatchAsync(messageList, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -147,10 +216,24 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService
         double minScore = 0.0,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _messageRepo.SearchByVectorAsync(
-            queryEmbedding, sessionId, limit, minScore, null, cancellationToken).ConfigureAwait(false);
-        return scored.Select(r => r.Message).ToList();
+        var scored = await SearchMessagesWithScoresAsync(
+            sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
+        return scored.Select(result => result.Message).ToList();
     }
+
+    /// <summary>
+    /// Returns the repository's existing ranked message results without a second query. This internal
+    /// contract is used only when a recall explicitly requests diagnostics; the public short-term service
+    /// remains source-compatible for custom implementations.
+    /// </summary>
+    public Task<IReadOnlyList<(Message Message, double Score)>> SearchMessagesWithScoresAsync(
+        string? sessionId,
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        CancellationToken cancellationToken) =>
+        _messageRepo.SearchByVectorAsync(
+            queryEmbedding, sessionId, limit, minScore, null, cancellationToken);
 
     /// <inheritdoc/>
     public async Task ClearSessionAsync(
@@ -176,4 +259,18 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService
         var cappedLimit = Math.Min(limit, _options.MaxMessagesPerQuery);
         return await _messageRepo.GetRecentBySessionAsOfAsync(sessionId, asOf, cappedLimit, cancellationToken).ConfigureAwait(false);
     }
+}
+
+/// <summary>
+/// Internal scored-search capability implemented by the built-in short-term memory service. Keeping this
+/// separate from <see cref="IShortTermMemoryService"/> avoids a breaking interface addition for providers.
+/// </summary>
+internal interface IScoredMessageSearch
+{
+    Task<IReadOnlyList<(Message Message, double Score)>> SearchMessagesWithScoresAsync(
+        string? sessionId,
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        CancellationToken cancellationToken);
 }

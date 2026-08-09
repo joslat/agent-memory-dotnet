@@ -91,10 +91,31 @@ public sealed class QualityGateTests
         result.Violations.Should().NotBeEmpty();
     }
 
+    [Fact]
+    public void Evaluate_RejectsRetrievalBaselineThatClaimsSemanticQuality()
+    {
+        var baseline = Baseline();
+        baseline = baseline with
+        {
+            Retrieval = baseline.Retrieval with
+            {
+                Measurement = "semantic-retrieval",
+                SemanticQualityClaim = true
+            }
+        };
+
+        var act = () => QualityGate.Evaluate(baseline, Retrieval(), Extraction());
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*deterministic-plumbing*");
+    }
+
     private static QualityBaseline Baseline() => new(
         SchemaVersion: 1,
         Tolerance: 0,
         Retrieval: new RetrievalQualityBaseline(
+            Measurement: "deterministic-plumbing",
+            SemanticQualityClaim: false,
             RecallAtK: 1,
             Mrr: 1,
             Cases: 19,

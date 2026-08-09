@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.Cli.Perf;
@@ -45,9 +47,9 @@ public sealed class ScriptedChatClient : IChatClient
         }
         """;
 
-    /// <summary>A per-input scripted answer: when <see cref="MatchOn"/> appears in the prompt, return
-    /// <see cref="Payload"/>.</summary>
-    public sealed record Rule(string MatchOn, string Payload);
+    /// <summary>A scripted answer selected when <see cref="MatchOn"/> and, when supplied,
+    /// <see cref="MatchAlsoOn"/> both appear in the prompt.</summary>
+    public sealed record Rule(string MatchOn, string Payload, string? MatchAlsoOn = null);
 
     private readonly TimeSpan _delay;
     private readonly string _payload;
@@ -99,9 +101,18 @@ public sealed class ScriptedChatClient : IChatClient
         if (_rules.Count == 0) return _payload;
 
         var prompt = string.Join("\n", messages.Select(m => m.Text ?? string.Empty));
+        if (prompt.Contains("LAB-N1 source", StringComparison.Ordinal))
+            return MultiSessionPayload(prompt, useLexicalIdentity: true, useCapacityLabels: true);
+        if (prompt.Contains("LAB-X1 source", StringComparison.Ordinal))
+            return MultiSessionPayload(prompt, useLexicalIdentity: true);
+        if (prompt.Contains("LAB-B1 source", StringComparison.Ordinal))
+            return MultiSessionPayload(prompt, useLexicalIdentity: false);
+
         foreach (var rule in _rules)
         {
-            if (prompt.Contains(rule.MatchOn, StringComparison.OrdinalIgnoreCase))
+            if (prompt.Contains(rule.MatchOn, StringComparison.OrdinalIgnoreCase) &&
+                (rule.MatchAlsoOn is null ||
+                 prompt.Contains(rule.MatchAlsoOn, StringComparison.OrdinalIgnoreCase)))
                 return rule.Payload;
         }
 
@@ -114,6 +125,164 @@ public sealed class ScriptedChatClient : IChatClient
     /// <summary>A well-formed response that extracts nothing.</summary>
     public const string EmptyPayload =
         """{"entities": [], "facts": [], "preferences": [], "relations": []}""";
+
+    private static readonly string[] IntegratedLabels =
+    [
+        "amber", "birch", "cobalt", "dahlia", "ember", "fjord", "garnet", "harbor",
+        "indigo", "juniper", "kelp", "lilac", "maple", "nectar", "onyx", "pebble",
+        "quartz", "raven", "saffron", "thistle", "umber", "violet", "willow", "xenon",
+        "yarrow", "zephyr", "acorn", "breeze", "cedar", "drift", "elm", "fern",
+        "glacier", "hazel", "iris", "jade", "lotus", "moss", "opal", "pine",
+    ];
+
+    private const int CapacityLabelCount = 320;
+    private const int CapacityEmbeddingDimensions = 384;
+    private static readonly string[] CapacityLabels = CreateCapacityLabels();
+
+    private static string[] CreateCapacityLabels()
+    {
+        var labels = new List<string>(CapacityLabelCount);
+        var usedSlots = new HashSet<int>
+        {
+            LabelSlot("person"), LabelSlot("company"),
+        };
+
+        for (var candidate = 0; labels.Count < CapacityLabelCount; candidate++)
+        {
+            var label = PseudoWord(candidate);
+            if (usedSlots.Add(LabelSlot(label)))
+                labels.Add(label);
+        }
+
+        return labels.ToArray();
+    }
+
+    private static string PseudoWord(int value)
+    {
+        Span<char> characters = stackalloc char[12];
+        var state = unchecked((uint)value * 747_796_405u + 2_891_336_453u);
+        for (var index = 0; index < characters.Length; index++)
+        {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            characters[index] = (char)('a' + state % 26);
+        }
+        // Prevent the conservative harness stemmer from trimming a generated suffix.
+        characters[^1] = 'q';
+        return new string(characters);
+    }
+
+    private static int LabelSlot(string text)
+    {
+        const uint offset = 2166136261;
+        const uint prime = 16777619;
+        var hash = offset;
+        foreach (var character in text)
+        {
+            hash ^= character;
+            hash *= prime;
+        }
+        return (int)(hash % CapacityEmbeddingDimensions);
+    }
+
+    /// <summary>
+    /// One batched source session as the provider sees it: an opaque request-local alias key plus the
+    /// session's own transcript.
+    /// </summary>
+    /// <remarks>
+    /// Under <c>batch-source-alias-schema-v1</c> the key is a deterministic short alias (<c>s1</c>…
+    /// <c>sN</c>) that the product maps back to the immutable real session id after the response, so it
+    /// carries no session identity at all. A stand-in must therefore recover identity the way a real
+    /// model does — by reading the block's own content — and echo the alias back unchanged.
+    /// </remarks>
+    private static readonly Regex SourceSessionBlock = new(
+        "<source_session key=\"([^\"]+)\">(.*?)</source_session>",
+        RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex SourceUnitMarker = new(
+        @"LAB-[A-Z0-9]+ source (\d+)",
+        RegexOptions.Compiled);
+
+    private static string MultiSessionPayload(
+        string prompt, bool useLexicalIdentity, bool useCapacityLabels = false)
+    {
+        var blocks = SourceSessionBlock.Matches(prompt)
+            .Select(match => (Key: match.Groups[1].Value, Body: match.Groups[2].Value))
+            .DistinctBy(block => block.Key, StringComparer.Ordinal)
+            .ToArray();
+        if (blocks.Length == 0)
+            throw new InvalidOperationException(
+                "Multi-session stand-in found no <source_session> block; returning an empty payload " +
+                "would measure a no-op that looks healthy.");
+
+        var keys = blocks.Select(block => block.Key).ToArray();
+        var identities = blocks.ToDictionary(
+            block => block.Key,
+            block =>
+            {
+                var marker = SourceUnitMarker.Match(block.Body);
+                if (!marker.Success)
+                    throw new InvalidOperationException(
+                        "Multi-session stand-in could not recover a source ordinal from a batched " +
+                        "session body; the laboratory fixture and alias contract disagree.");
+                var digits = marker.Groups[1].Value;
+                if (!useLexicalIdentity)
+                    return digits;
+                var index = int.Parse(digits, System.Globalization.CultureInfo.InvariantCulture);
+                var labels = useCapacityLabels ? CapacityLabels : IntegratedLabels;
+                return index < labels.Length
+                    ? labels[index]
+                    : throw new InvalidOperationException("Integrated capacity label range exceeded.");
+            },
+            StringComparer.Ordinal);
+        string Identity(string key) => identities[key];
+
+        return JsonSerializer.Serialize(new
+        {
+            processed_source_sessions = keys,
+            entities = keys.SelectMany(key =>
+            {
+                var identity = Identity(key);
+                return new[]
+                {
+                    new { source_session = key, name = $"Person {identity}", type = "PERSON", confidence = 0.95 },
+                    new { source_session = key, name = $"Company {identity}", type = "ORGANIZATION", confidence = 0.95 },
+                };
+            }),
+            facts = keys.Select(key =>
+            {
+                var identity = Identity(key);
+                return new
+                {
+                    source_session = key,
+                    subject = $"Person {identity}",
+                    predicate = "works_at",
+                    @object = $"Company {identity}",
+                    confidence = 0.9,
+                };
+            }),
+            preferences = keys.Select(key => new
+            {
+                source_session = key,
+                category = "drink",
+                preference = useLexicalIdentity ? $"prefers {Identity(key)} tea" : "prefers tea",
+                confidence = 0.9,
+            }),
+            relations = keys.Select(key =>
+            {
+                var identity = Identity(key);
+                return new
+                {
+                    source_session = key,
+                    source = $"Person {identity}",
+                    target = $"Company {identity}",
+                    relation_type = "WORKS_AT",
+                    confidence = 0.9,
+                };
+            }),
+        });
+    }
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,

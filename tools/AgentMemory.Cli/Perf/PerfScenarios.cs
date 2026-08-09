@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
@@ -23,7 +25,9 @@ public sealed record PerfScenario(
     bool SupportsInterleavedAb = true,
     PerfDependencyLatencyPreset? DependencyLatency = null,
     Func<ScenarioSetupContext, Task>? SetupAsync = null,
-    Func<ScenarioVerificationContext, Task>? VerifyAsync = null)
+    Func<ScenarioVerificationContext, Task>? VerifyAsync = null,
+    bool IncludeInDefaultRun = true,
+    bool RequiresUnifiedExtraction = false)
 {
     public async Task ExecuteAsync(ScenarioContext context)
     {
@@ -75,7 +79,7 @@ public sealed record ScenarioVerificationContext(
 /// defaults. Together they replace estimates with facts about recall cost before the model runs and
 /// ingestion cost after it, including turns that exercise policy and workload extremes.
 /// </summary>
-public static class PerfScenarios
+public static partial class PerfScenarios
 {
     public static IReadOnlyList<PerfScenario> All { get; } =
     [
@@ -112,12 +116,177 @@ public static class PerfScenarios
             SupportsInterleavedAb: false,
             SetupAsync: PrepareWholeSessionAsync,
             VerifyAsync: VerifyWholeSessionAsync),
+        new(
+            "PERF-W-06",
+            "50-message raw storage with message embedding and extraction disabled",
+            StoreRawBatchAsync,
+            SupportsInterleavedAb: false,
+            VerifyAsync: VerifyRawBatchAsync),
+        new(
+            "PERF-W-07",
+            "Four category extraction calls over one fixed session with no persistence",
+            ExtractOnlyAsync),
+        new(
+            "PERF-W-08",
+            "Frozen extraction output through resolution, embeddings, and learned-memory persistence",
+            PersistFrozenExtractionAsync,
+            SupportsInterleavedAb: false,
+            SetupAsync: PrepareFrozenPersistenceAsync,
+            VerifyAsync: VerifyFrozenPersistenceAsync),
+        new(
+            "PERF-W-09",
+            "One typed unified extraction call over one fixed session with no persistence",
+            ExtractUnifiedOnlyAsync),
+        new(
+            "PERF-W-10-C01",
+            "Full cold-build wave over ten isolated owners with 1 worker",
+            ctx => RunConcurrentColdBuildAsync(ctx, 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-10-C05",
+            "Full cold-build wave over ten isolated owners with 5 workers",
+            ctx => RunConcurrentColdBuildAsync(ctx, 5),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 5),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-10-C10",
+            "Full cold-build wave over ten isolated owners with 10 workers",
+            ctx => RunConcurrentColdBuildAsync(ctx, 10),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyConcurrentColdBuildAsync(ctx, 10),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-11-B01",
+            "Full cold-build over eight multi-session sources at batch size 1",
+            ctx => RunMultiSessionBatchAsync(ctx, 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyMultiSessionBatchAsync(ctx, 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-11-B02",
+            "Full cold-build over eight multi-session sources at batch size 2",
+            ctx => RunMultiSessionBatchAsync(ctx, 2),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyMultiSessionBatchAsync(ctx, 2),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-11-B04",
+            "Full cold-build over eight multi-session sources at batch size 4",
+            ctx => RunMultiSessionBatchAsync(ctx, 4),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyMultiSessionBatchAsync(ctx, 4),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-12-X01",
+            "Integrated cold-build over ten owner lanes with 1 worker",
+            ctx => RunIntegratedColdBuildAsync(ctx, 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyIntegratedColdBuildAsync(ctx, 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-12-X05",
+            "Integrated cold-build over ten owner lanes with 5 workers",
+            ctx => RunIntegratedColdBuildAsync(ctx, 5),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyIntegratedColdBuildAsync(ctx, 5),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-12-X10",
+            "Integrated cold-build over ten owner lanes with 10 workers",
+            ctx => RunIntegratedColdBuildAsync(ctx, 10),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyIntegratedColdBuildAsync(ctx, 10),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-W01",
+            "Neo4j capacity width 1x: 10 owners, 40 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "width", 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "width", 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-W02",
+            "Neo4j capacity width 2x: 20 owners, 80 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "width", 2),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "width", 2),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-W04",
+            "Neo4j capacity width 4x: 40 owners, 160 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "width", 4),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "width", 4),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-W08",
+            "Neo4j capacity width 8x: 80 owners, 320 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "width", 8),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "width", 8),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-D01",
+            "Neo4j capacity depth 1x: 10 owners, 40 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "depth", 1),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "depth", 1),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-D02",
+            "Neo4j capacity depth 2x: 10 owners, 80 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "depth", 2),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "depth", 2),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-D04",
+            "Neo4j capacity depth 4x: 10 owners, 160 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "depth", 4),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "depth", 4),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
+        new(
+            "PERF-W-13-D08",
+            "Neo4j capacity depth 8x: 10 owners, 320 source sessions, 10 workers",
+            ctx => RunNeo4jCapacityAsync(ctx, "depth", 8),
+            SupportsInterleavedAb: false,
+            VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "depth", 8),
+            IncludeInDefaultRun: false,
+            RequiresUnifiedExtraction: true),
     ];
 
     internal const string StoreProbeUserMessage =
         "Alice Martin just moved to the Acme Corporation platform team and prefers concise updates.";
+    internal const string ExtractionOnlyProbeMessage =
+        "LAB-E0 source: Alice Martin works at Acme Corporation and prefers concise written summaries.";
+
+    private const string ExtractionOnlyEntityPayload = """{"entities":[{"name":"Acme Corporation","type":"ORGANIZATION","confidence":0.92},{"name":"Alice Martin","type":"PERSON","confidence":0.95}]}""";
+    private const string ExtractionOnlyFactPayload = """{"facts":[{"subject":"Alice Martin","predicate":"works_at","object":"Acme Corporation","confidence":0.9},{"subject":"Alice Martin","predicate":"leads","object":"platform team","confidence":0.85}]}""";
+    private const string ExtractionOnlyPreferencePayload = """{"preferences":[{"category":"communication","preference":"prefers concise written summaries","confidence":0.88}]}""";
+    private const string ExtractionOnlyRelationshipPayload = """{"relations":[{"source":"Alice Martin","target":"Acme Corporation","relation_type":"WORKS_AT","confidence":0.9}]}""";
 
     private const int SessionExtractionMessageCount = 50;
+    private const int RawBatchMessageCount = 50;
 
     /// <summary>
     /// Input-keyed model responses required by cost scenarios. Kept separate from judged fixture rules:
@@ -125,12 +294,22 @@ public static class PerfScenarios
     /// into a no-op that its self-assertion rejects.
     /// </summary>
     internal static IReadOnlyList<ScriptedChatClient.Rule> ScriptedRules { get; } =
-        [new(StoreProbeUserMessage, ScriptedChatClient.ExtractionPayload)];
+        [
+            new("structured long-term memory", UnifiedExtractionPayload, UnifiedExtractionProbeMessage),
+            new("entity extraction assistant", ExtractionOnlyEntityPayload, ExtractionOnlyProbeMessage),
+            new("fact extraction assistant", ExtractionOnlyFactPayload, ExtractionOnlyProbeMessage),
+            new("preference extraction assistant", ExtractionOnlyPreferencePayload, ExtractionOnlyProbeMessage),
+            new("relationship extraction assistant", ExtractionOnlyRelationshipPayload, ExtractionOnlyProbeMessage),
+            new(StoreProbeUserMessage, ScriptedChatClient.ExtractionPayload),
+        ];
 
     public static IReadOnlyList<PerfScenario> Select(string? filter)
     {
-        if (string.IsNullOrWhiteSpace(filter) || filter.Equals("all", StringComparison.OrdinalIgnoreCase))
-            return All;
+        if (string.IsNullOrWhiteSpace(filter) ||
+            filter.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            return All.Where(scenario => scenario.IncludeInDefaultRun).ToList();
+        }
 
         var wanted = filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var selected = All.Where(s => wanted.Contains(s.Id, StringComparer.OrdinalIgnoreCase)).ToList();
@@ -571,6 +750,216 @@ public static class PerfScenarios
 
     private static string SessionExtractionOwnerId(string phase, int iteration) =>
         $"{SessionExtractionSessionId(phase, iteration)}-owner";
+
+    /// <summary>
+    /// PERF-W-06 — isolates the raw message-storage path that LongMemEval preparation pays before any
+    /// extraction. The product API embeds each message and persists the batch; extraction is not invoked.
+    /// </summary>
+    private static async Task StoreRawBatchAsync(ScenarioContext ctx)
+    {
+        var sessionId = RawBatchSessionId(ctx.Phase, ctx.Iteration);
+        var conversationId = $"{sessionId}-conv";
+        var startedAt = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var messages = Enumerable.Range(0, RawBatchMessageCount)
+            .Select(index => new Message
+            {
+                MessageId = $"{sessionId}-msg-{index:D2}",
+                ConversationId = conversationId,
+                SessionId = sessionId,
+                Role = index % 2 == 0 ? "user" : "assistant",
+                Content = $"Raw storage fixture message {index:D2}: Alice Martin works on the " +
+                          "Acme Corporation platform team and prefers concise written updates.",
+                TimestampUtc = startedAt.AddSeconds(index),
+            })
+            .ToList();
+
+        var memory = ctx.Profile.Services.GetRequiredService<IMemoryService>();
+        var stored = await memory.AddMessagesAsync(messages, ctx.CancellationToken).ConfigureAwait(false);
+        ctx.Turn.Add("store.messages", stored.Count);
+
+        var storedIds = stored.Select(message => message.MessageId).ToArray();
+        var expectedIds = messages.Select(message => message.MessageId).ToArray();
+        var embeddingsComplete = stored.All(message =>
+            message.Embedding is { Length: > 0 } embedding &&
+            embedding.Length == ctx.Profile.Dimensions);
+        var idsInOrder = storedIds.SequenceEqual(expectedIds, StringComparer.Ordinal);
+        var embeddingRequests = ctx.Turn.Counter("embed.requests");
+        var embeddedItems = ctx.Turn.Counter("embed.items");
+        var modelCalls = ctx.Turn.Counter("llm.calls");
+        var queries = ctx.Turn.Counter("neo4j.queries");
+        var writeTransactions = ctx.Turn.Counter("neo4j.tx.write");
+
+        if (stored.Count != RawBatchMessageCount ||
+            !idsInOrder ||
+            !embeddingsComplete ||
+            embeddingRequests != 1 ||
+            embeddedItems != RawBatchMessageCount ||
+            modelCalls != 0 ||
+            queries != 1 ||
+            writeTransactions != 1)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-06 did not exercise its raw-storage contract (stored={stored.Count}/" +
+                $"{RawBatchMessageCount}, ids_in_order={idsInOrder}, " +
+                $"embeddings_complete={embeddingsComplete}, embed.requests/items=" +
+                $"{embeddingRequests}/{embeddedItems}, expected 1/{RawBatchMessageCount}; " +
+                $"llm.calls={modelCalls}/0, neo4j.queries/write tx={queries}/{writeTransactions}, " +
+                "expected 1/1). This scenario must measure " +
+                "message embedding and persistence without extraction.");
+        }
+    }
+
+    private static async Task VerifyRawBatchAsync(ScenarioVerificationContext ctx)
+    {
+        var sessionId = RawBatchSessionId(ctx.Phase, ctx.Iteration);
+        var expectedIds = Enumerable.Range(0, RawBatchMessageCount)
+            .Select(index => $"{sessionId}-msg-{index:D2}")
+            .ToArray();
+        var shape = await PerfFixture.InspectRawBatchStorageAsync(
+            ctx.Profile,
+            sessionId,
+            ctx.Profile.Dimensions).ConfigureAwait(false);
+        var idsInOrder = shape.Ids.SequenceEqual(expectedIds, StringComparer.Ordinal);
+
+        if (shape.Messages != RawBatchMessageCount ||
+            shape.MessagesWithExpectedEmbedding != RawBatchMessageCount ||
+            shape.DistinctIds != RawBatchMessageCount ||
+            !idsInOrder)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-06 graph read-back failed (messages={shape.Messages}/" +
+                $"{RawBatchMessageCount}, expected-dimension embeddings=" +
+                $"{shape.MessagesWithExpectedEmbedding}/{RawBatchMessageCount}, distinct ids=" +
+                $"{shape.DistinctIds}/{RawBatchMessageCount}, ids_in_order={idsInOrder}). Counters " +
+                "alone cannot prove that the raw messages and embeddings were persisted.");
+        }
+    }
+
+    /// <summary>
+    /// PERF-W-07 — isolates the four shipped LLM category extractors over one fixed in-memory source
+    /// session. It deliberately bypasses resolution, embeddings, persistence, recall, answer, and judge.
+    /// </summary>
+    private static async Task ExtractOnlyAsync(ScenarioContext ctx)
+    {
+        var messages = new[]
+        {
+            new Message
+            {
+                MessageId = "perf-w07-source-00",
+                ConversationId = "perf-w07-conversation",
+                SessionId = "perf-w07-session",
+                Role = "user",
+                Content = ExtractionOnlyProbeMessage,
+                TimestampUtc = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero),
+            },
+        };
+
+        var entityExtractor = ctx.Profile.Services.GetRequiredService<IEntityExtractor>();
+        var factExtractor = ctx.Profile.Services.GetRequiredService<IFactExtractor>();
+        var preferenceExtractor = ctx.Profile.Services.GetRequiredService<IPreferenceExtractor>();
+        var relationshipExtractor = ctx.Profile.Services.GetRequiredService<IRelationshipExtractor>();
+
+        var entityTask = MeasureExtractorAsync("entity",
+            () => entityExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+        var factTask = MeasureExtractorAsync("fact",
+            () => factExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+        var preferenceTask = MeasureExtractorAsync("preference",
+            () => preferenceExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+        var relationshipTask = MeasureExtractorAsync("relationship",
+            () => relationshipExtractor.ExtractAsync(messages, ctx.CancellationToken), ctx.Turn);
+
+        await Task.WhenAll(entityTask, factTask, preferenceTask, relationshipTask).ConfigureAwait(false);
+
+        var entities = await entityTask.ConfigureAwait(false);
+        var facts = await factTask.ConfigureAwait(false);
+        var preferences = await preferenceTask.ConfigureAwait(false);
+        var relationships = await relationshipTask.ConfigureAwait(false);
+
+        ctx.Turn.Add("extract.input_messages", messages.Length);
+        ctx.Turn.Add("extract.entities", entities.Count);
+        ctx.Turn.Add("extract.facts", facts.Count);
+        ctx.Turn.Add("extract.preferences", preferences.Count);
+        ctx.Turn.Add("extract.relationships", relationships.Count);
+
+        var purposeMetricsComplete = true;
+        foreach (var purpose in new[] { "entity", "fact", "preference", "relationship" })
+        {
+            var calls = ctx.Turn.Counter($"llm.{purpose}.calls");
+            ctx.Turn.Add($"llm.{purpose}.retries", Math.Max(0, calls - 1));
+            purposeMetricsComplete &=
+                calls == 1 &&
+                ctx.Turn.Counter($"llm.{purpose}.tokens_in") > 0 &&
+                ctx.Turn.Counter($"llm.{purpose}.tokens_out") > 0 &&
+                ctx.Turn.SpanCounts.GetValueOrDefault($"provider.llm.{purpose}") == 1;
+        }
+
+        var outputsExact =
+            entities.Count == 2 &&
+            entities[0].Name == "Acme Corporation" &&
+            entities[1].Name == "Alice Martin" &&
+            facts.Count == 2 &&
+            facts[0].Predicate == "works_at" &&
+            facts[1].Predicate == "leads" &&
+            preferences.Count == 1 &&
+            preferences[0].Category == "communication" &&
+            relationships.Count == 1 &&
+            relationships[0].RelationshipType == "WORKS_AT";
+
+        var extractionSpansExact =
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.entity") == 1 &&
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.fact") == 1 &&
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.preference") == 1 &&
+            ctx.Turn.SpanCounts.GetValueOrDefault("lab.extractor.relationship") == 1;
+
+        var excludedWork =
+            ctx.Turn.Counter("embed.requests") +
+            ctx.Turn.Counter("embed.items") +
+            ctx.Turn.Counter("neo4j.queries") +
+            ctx.Turn.Counter("neo4j.tx.read") +
+            ctx.Turn.Counter("neo4j.tx.write") +
+            ctx.Turn.Counter("store.messages") +
+            ctx.Turn.Counter("persist.entities") +
+            ctx.Turn.Counter("persist.facts") +
+            ctx.Turn.Counter("persist.preferences") +
+            ctx.Turn.Counter("persist.relationships") +
+            ctx.Turn.Counter("items.retrieved");
+
+        if (ctx.Turn.Counter("llm.calls") != 4 ||
+            !purposeMetricsComplete ||
+            !outputsExact ||
+            !extractionSpansExact ||
+            excludedWork != 0)
+        {
+            throw new InvalidOperationException(
+                $"PERF-W-07 extraction-only contract failed (llm.calls={ctx.Turn.Counter("llm.calls")}/4, " +
+                $"purpose_metrics_complete={purposeMetricsComplete}, outputs=" +
+                $"{entities.Count}/{facts.Count}/{preferences.Count}/{relationships.Count}, expected 2/2/1/1, " +
+                $"extraction_spans_exact={extractionSpansExact}, excluded_work={excludedWork}/0). " +
+                "This arm must measure four non-empty category calls without storage, resolution, " +
+                "embedding, persistence, recall, answer, or judge work.");
+        }
+    }
+
+    private static async Task<IReadOnlyList<T>> MeasureExtractorAsync<T>(
+        string purpose,
+        Func<Task<IReadOnlyList<T>>> extractAsync,
+        TurnRecord turn)
+    {
+        using var activity = new Activity($"lab.extraction.{purpose}").Start();
+        var startedAt = Stopwatch.GetTimestamp();
+        try
+        {
+            return await extractAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            turn.RecordSpan($"lab.extractor.{purpose}",
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        }
+    }
+
+    private static string RawBatchSessionId(string phase, int iteration) =>
+        $"perf-w06-{phase}-{iteration}";
 
     private static void AssertScriptedExtraction(ScenarioContext ctx, string scenarioId)
     {

@@ -203,6 +203,7 @@ public sealed class MetaPackageDiRegistrationTests
         services.Should().Contain(d => d.ServiceType == typeof(IPreferenceExtractor) && d.ImplementationType == typeof(LlmPreferenceExtractor));
         services.Should().Contain(d => d.ServiceType == typeof(IRelationshipExtractor) && d.ImplementationType == typeof(LlmRelationshipExtractor));
 
+        services.Should().Contain(d => d.ServiceType == typeof(IUnifiedMemoryExtractor) && d.ImplementationType == typeof(LlmUnifiedMemoryExtractor));
         // The stub must NOT remain registered: Replace removed it, so the IEnumerable<IEntityExtractor>
         // the ExtractionStage receives contains only the real extractor, not the empty-returning stub.
         services.Should().NotContain(d => d.ServiceType == typeof(IEntityExtractor) && d.ImplementationType == typeof(AgentMemory.Core.Stubs.StubEntityExtractor));
@@ -252,7 +253,11 @@ public sealed class MetaPackageDiRegistrationTests
     public void AddNeo4jAgentMemory_NullConfigureMemory_ThrowsArgumentNull()
     {
         var services = new ServiceCollection();
-        var act = () => services.AddNeo4jAgentMemory(null!, _ => { });
+        // The cast is load-bearing, not noise. K9.1 added an overload taking a MemoryOptions
+        // instance, and an untyped null converts to both that and Action<MemoryOptions>. This is the
+        // one call site in the whole solution affected, and only because passing a bare null is a
+        // null-guard test idiom rather than something production code does.
+        var act = () => services.AddNeo4jAgentMemory((Action<MemoryOptions>)null!, _ => { });
         act.Should().Throw<ArgumentNullException>();
     }
 

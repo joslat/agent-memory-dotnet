@@ -8,6 +8,13 @@ public sealed record ShortTermMemoryOptions
     /// <summary>Whether to generate embeddings for messages automatically.</summary>
     public bool GenerateEmbeddings { get; init; } = true;
 
+    /// <summary>
+    /// Whether <c>AddMessagesAsync</c> generates missing message embeddings in one provider batch.
+    /// Enabled by default; disable only for provider compatibility or controlled A/B measurement.
+    /// Positional alignment and already-provided embeddings are preserved in either mode.
+    /// </summary>
+    public bool UseBatchEmbeddingRequests { get; init; } = true;
+
     /// <summary>Default number of recent messages to retrieve.</summary>
     public int DefaultRecentMessageLimit { get; init; } = 10;
 

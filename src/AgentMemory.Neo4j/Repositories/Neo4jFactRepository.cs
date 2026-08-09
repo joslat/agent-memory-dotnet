@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -11,7 +13,8 @@ using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
 namespace AgentMemory.Neo4j.Repositories;
 
-internal sealed class Neo4jFactRepository : IFactRepository
+internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance,
+    IBatchMemoryRepository<Fact>, IFusedBatchMemoryRepository<Fact>
 {
     // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
     // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).
@@ -50,20 +53,24 @@ internal sealed class Neo4jFactRepository : IFactRepository
         {
             var parameters = new Dictionary<string, object?>
             {
-                ["id"]               = fact.FactId,
-                ["subject"]          = fact.Subject,
-                ["predicate"]        = fact.Predicate,
-                ["object"]           = fact.Object,
-                ["ownerId"]          = fact.OwnerId,
-                ["ownerKey"]         = fact.OwnerId ?? OwnerKeyShared,
-                ["category"]         = fact.Category,
-                ["confidence"]       = fact.Confidence,
-                ["validFrom"]        = (object?)(fact.ValidFrom?.ToString("O")),
-                ["validUntil"]       = (object?)(fact.ValidUntil?.ToString("O")),
+                ["id"] = fact.FactId,
+                ["subject"] = fact.Subject,
+                ["predicate"] = fact.Predicate,
+                // Identity is the canonical trio; the raw strings above stay for display and audit.
+                ["subjectKey"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
+                ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
+                ["objectKey"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Object),
+                ["object"] = fact.Object,
+                ["ownerId"] = fact.OwnerId,
+                ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
+                ["category"] = fact.Category,
+                ["confidence"] = fact.Confidence,
+                ["validFrom"] = (object?)(fact.ValidFrom?.ToString("O")),
+                ["validUntil"] = (object?)(fact.ValidUntil?.ToString("O")),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
-                ["createdAtUtc"]     = fact.CreatedAtUtc.ToString("O"),
-                ["updatedAtUtc"]     = DateTimeOffset.UtcNow.ToString("O"),
-                ["metadata"]         = SerializeMetadata(fact.Metadata)
+                ["createdAtUtc"] = fact.CreatedAtUtc.ToString("O"),
+                ["updatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["metadata"] = SerializeMetadata(fact.Metadata)
             };
 
             var cursor = await runner.RunAsync(FactQueries.Upsert, parameters).ConfigureAwait(false);
@@ -116,20 +123,23 @@ internal sealed class Neo4jFactRepository : IFactRepository
         var updatedAt = DateTimeOffset.UtcNow.ToString("O");
         var items = deduped.Select(f => new Dictionary<string, object?>
         {
-            ["id"]                = f.FactId,
-            ["subject"]           = f.Subject,
-            ["predicate"]         = f.Predicate,
-            ["object"]            = f.Object,
-            ["owner_id"]          = f.OwnerId,
-            ["owner_key"]         = f.OwnerId ?? OwnerKeyShared,
-            ["category"]          = f.Category,
-            ["confidence"]        = f.Confidence,
-            ["valid_from"]        = (object?)(f.ValidFrom?.ToString("O")),
-            ["valid_until"]       = (object?)(f.ValidUntil?.ToString("O")),
+            ["id"] = f.FactId,
+            ["subject"] = f.Subject,
+            ["predicate"] = f.Predicate,
+            ["subject_key"] = MemoryTripleCanonicalizer.CanonicalValue(f.Subject),
+            ["predicate_key"] = MemoryTripleCanonicalizer.Canonical(f.Predicate),
+            ["object_key"] = MemoryTripleCanonicalizer.CanonicalValue(f.Object),
+            ["object"] = f.Object,
+            ["owner_id"] = f.OwnerId,
+            ["owner_key"] = f.OwnerId ?? OwnerKeyShared,
+            ["category"] = f.Category,
+            ["confidence"] = f.Confidence,
+            ["valid_from"] = (object?)(f.ValidFrom?.ToString("O")),
+            ["valid_until"] = (object?)(f.ValidUntil?.ToString("O")),
             ["source_message_ids"] = f.SourceMessageIds.ToList(),
-            ["created_at"]        = f.CreatedAtUtc.ToString("O"),
-            ["updated_at"]        = updatedAt,
-            ["metadata"]          = SerializeMetadata(f.Metadata)
+            ["created_at"] = f.CreatedAtUtc.ToString("O"),
+            ["updated_at"] = updatedAt,
+            ["metadata"] = SerializeMetadata(f.Metadata)
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
@@ -178,7 +188,7 @@ internal sealed class Neo4jFactRepository : IFactRepository
             return records.Select(r =>
             {
                 var node = r["f"].As<INode>();
-                var key  = TripleKey(node["subject"].As<string>(), node["predicate"].As<string>(),
+                var key = TripleKey(node["subject"].As<string>(), node["predicate"].As<string>(),
                                      node["object"].As<string>(), node["owner_key"].As<string>());
                 return MapToFact(node, embeddingByTriple.TryGetValue(key, out var emb) ? emb : null);
             }).ToList();
@@ -255,16 +265,12 @@ internal sealed class Neo4jFactRepository : IFactRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
-
-    // Small candidate set for dedup lookups: a near-duplicate by subject+predicate is rare, so a
-    // modest over-fetch is enough to find the best match above the (high) similarity threshold.
-    private const int DedupOverFetch = 10;
 
     public async Task<Fact?> FindDuplicateAsync(
         string subject, string predicate, float[] embedding, string? ownerId, double threshold,
@@ -273,14 +279,14 @@ internal sealed class Neo4jFactRepository : IFactRepository
         // Boundary invariant: a zero-dimension (empty/degraded) embedding can't address the vector index;
         // there is no duplicate to find, so short-circuit (caller then creates a new node).
         if (embedding is not { Length: > 0 }) return null;
-        var cypher = FactQueries.FindDuplicate(DedupOverFetch);
+        var cypher = FactQueries.FindDuplicate();
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"]  = embedding.ToList(),
-            ["threshold"]  = threshold,
-            ["subject"]    = subject,
-            ["predicate"]  = predicate,
-            ["ownerKey"]   = ownerId ?? OwnerKeyShared,
+            ["embedding"] = embedding.ToList(),
+            ["threshold"] = threshold,
+            ["subject"] = subject,
+            ["predicate"] = predicate,
+            ["ownerKey"] = ownerId ?? OwnerKeyShared,
         };
 
         return await _tx.ReadAsync(async runner =>
@@ -354,25 +360,25 @@ internal sealed class Neo4jFactRepository : IFactRepository
     private static Fact MapToFact(INode node, float[]? embedding) =>
         new()
         {
-            FactId           = node["id"].As<string>(),
-            Subject          = node["subject"].As<string>(),
-            Predicate        = node["predicate"].As<string>(),
-            Object           = node["object"].As<string>(),
-            OwnerId          = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Category         = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
-            Confidence       = node["confidence"].As<double>(),
-            ValidFrom        = node.Properties.TryGetValue("valid_from", out var vf)
+            FactId = node["id"].As<string>(),
+            Subject = node["subject"].As<string>(),
+            Predicate = node["predicate"].As<string>(),
+            Object = node["object"].As<string>(),
+            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Category = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
+            Confidence = node["confidence"].As<double>(),
+            ValidFrom = node.Properties.TryGetValue("valid_from", out var vf)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil       = node.Properties.TryGetValue("valid_until", out var vu)
+            ValidUntil = node.Properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
-            Embedding        = embedding,
+            Embedding = embedding,
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc     = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            Metadata         = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
+            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
     private static float[]? ReadEmbedding(INode node)
@@ -518,10 +524,10 @@ internal sealed class Neo4jFactRepository : IFactRepository
         var cypher = TemporalQueries.SearchFactsAsOf(hasOwner, includeShared, topK);
         var parameters = new Dictionary<string, object?>
         {
-            ["embedding"]  = queryEmbedding.ToList(),
-            ["limit"]      = limit,
-            ["minScore"]   = minScore,
-            ["validAsOf"]  = asOf.UtcDateTime.ToString("O"),
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
+            ["validAsOf"] = asOf.UtcDateTime.ToString("O"),
             ["systemAsOf"] = (systemAsOf ?? asOf).UtcDateTime.ToString("O")
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
@@ -532,10 +538,49 @@ internal sealed class Neo4jFactRepository : IFactRepository
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
-                var node  = r["node"].As<INode>();
+                var node = r["node"].As<INode>();
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsync(
+        IReadOnlyList<string> canonicalPredicates,
+        int limit,
+        MemoryScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalPredicates);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        if (canonicalPredicates.Count == 0)
+            return Array.Empty<Fact>();
+
+        // Same scope semantics as every other fact read: an owner filter only when one was asked
+        // for, and shared facts included unless explicitly excluded.
+        var hasOwner = scope?.HasOwnerFilter == true;
+        var includeShared = scope?.IncludeShared ?? true;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["predicateKeys"] = canonicalPredicates.ToArray(),
+            ["limit"] = limit
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared),
+                parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records
+                .Select(record =>
+                {
+                    var node = record["f"].As<INode>();
+                    return MapToFact(node, ReadEmbedding(node));
+                })
+                .ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 }

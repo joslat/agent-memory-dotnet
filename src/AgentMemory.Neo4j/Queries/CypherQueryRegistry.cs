@@ -39,7 +39,18 @@ internal static class CypherQueryRegistry
                 : "DecayQueries.UpdateAccessTimestamp";
         }
 
-        if (Has("CALL db.index.vector.queryNodes('message_embedding_idx'") &&
+        if (Has("WITH $messages AS messages") &&
+            Has("[msg IN $messages | msg.id] AS batchIds") &&
+            Has("WITH DISTINCT msg.id AS id"))
+        {
+            return "MessageQueries.AddBatchOptimized";
+        }
+
+        var isMessageVectorSearch =
+            Has("CALL db.index.vector.queryNodes('message_embedding_idx'") ||
+            (Has("MATCH (:Conversation {session_id: $sessionId})-[:HAS_MESSAGE]->(node:Message)") &&
+             Has("vector.similarity.cosine(node.embedding, $embedding)"));
+        if (isMessageVectorSearch &&
             Has("RETURN node, score"))
         {
             return "MessageQueries.SearchByVector";
@@ -54,6 +65,12 @@ internal static class CypherQueryRegistry
             if (Has("score >= $minScore"))
                 return "EntityQueries.SearchByVector";
         }
+
+        if (Has("MATCH (node:Fact)") &&
+            Has("vector.similarity.cosine(node.embedding, $embedding)") &&
+            Has("toLower(node.subject) = toLower($subject)") &&
+            Has("toLower(node.predicate) = toLower($predicate)"))
+            return "FactQueries.FindDuplicate";
 
         if (Has("CALL db.index.vector.queryNodes('fact_embedding_idx'"))
         {

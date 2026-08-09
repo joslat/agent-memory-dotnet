@@ -22,6 +22,10 @@ public static class ServiceCollectionExtensions
         llmOptions
             .Validate(o => o.Temperature >= 0.0f, "LlmExtraction Temperature must be non-negative.")
             .Validate(o => o.MaxRetries >= 0, "LlmExtraction MaxRetries must be non-negative.")
+            .Validate(o => o.MaxConcurrentBatchesPerExtraction > 0,
+                "LlmExtraction MaxConcurrentBatchesPerExtraction must be positive.")
+            .Validate(o => o.MaxConcurrentExtractionBatches >= 0,
+                "LlmExtraction MaxConcurrentExtractionBatches must be non-negative.")
             .ValidateOnStart();
 
         // Replace (not TryAdd) so the real extractors authoritatively override the Core no-op stub
@@ -33,6 +37,10 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Scoped<IFactExtractor, LlmFactExtractor>());
         services.Replace(ServiceDescriptor.Scoped<IPreferenceExtractor, LlmPreferenceExtractor>());
         services.Replace(ServiceDescriptor.Scoped<IRelationshipExtractor, LlmRelationshipExtractor>());
+        services.TryAddSingleton<LlmExtractionBatchDiagnostics>();
+        services.TryAddScoped<IUnifiedMemoryExtractor, LlmUnifiedMemoryExtractor>();
+        services.TryAddSingleton<LlmExtractionBatchConcurrencyLimiter>();
+        services.TryAddScoped<IMultiSessionUnifiedMemoryExtractor, LlmMultiSessionUnifiedMemoryExtractor>();
 
         return services;
     }

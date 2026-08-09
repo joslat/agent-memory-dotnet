@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Judged retrieval-quality fixture. Five topics with deliberately disjoint vocabulary, so a query about one topic should retrieve that topic's memories and not another's. Scored with Recall@K and MRR against hand-labelled relevant ids. Deterministic: no model is involved anywhere in scoring.",
+  "description": "Deterministic-plumbing retrieval fixture. Five topics have deliberately disjoint vocabulary so the FNV-1a test embedder makes expected neighbors construction-stable. Recall@K/MRR assert wiring, ranking, and forbidden-result handling; they are explicitly not a real-embedding semantic-quality claim. Sampled real-model quality belongs to M-27.",
   "ownerId": "perf-quality-owner",
   "sessionId": "perf-quality-session",
 

@@ -353,6 +353,66 @@ public sealed class LongTermMemoryServiceTests
     }
 
     [Fact]
+    public async Task AddFactAsync_ConcurrentSameKeyAcrossServiceInstances_SerializesDedupDecision()
+    {
+        var sync = new object();
+        Fact? persisted = null;
+        var activeLookups = 0;
+        var maxActiveLookups = 0;
+        var upserts = 0;
+        var reinforcements = 0;
+
+        _factRepo
+            .FindDuplicateAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<float[]>(), Arg.Any<string?>(),
+                Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                Fact? observed;
+                lock (sync)
+                {
+                    activeLookups++;
+                    maxActiveLookups = Math.Max(maxActiveLookups, activeLookups);
+                    observed = persisted;
+                }
+
+                await Task.Delay(50);
+                lock (sync) activeLookups--;
+                return observed;
+            });
+        _factRepo
+            .UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var fact = call.Arg<Fact>();
+                lock (sync)
+                {
+                    upserts++;
+                    persisted = fact;
+                }
+                return Task.FromResult(fact);
+            });
+        _factRepo
+            .MarkDeduplicatedAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                lock (sync)
+                {
+                    reinforcements++;
+                    return Task.FromResult<Fact?>(persisted! with { Confidence = call.ArgAt<double>(1) });
+                }
+            });
+
+        var first = CreateSut().AddFactAsync(CreateFact("f-race-1") with { OwnerId = "race-owner" });
+        var second = CreateSut().AddFactAsync(CreateFact("f-race-2") with { OwnerId = "race-owner" });
+        await Task.WhenAll(first, second);
+
+        maxActiveLookups.Should().Be(1, "same-key dedup must be serialized across service scopes");
+        upserts.Should().Be(1);
+        reinforcements.Should().Be(1);
+    }
+
+    [Fact]
     public async Task AddPreferenceAsync_WhenDuplicateFound_ReinforcesInsteadOfCreating()
     {
         var existing = CreatePreference("p-existing");
