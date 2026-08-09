@@ -166,9 +166,10 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             }
             : null;
         services.AddNeo4jAgentMemory(
-            // Deliberately empty. K9: MemoryOptions is an init-only record, so nothing can be set
-            // through this action at all - see the IOptions replacement below.
-            _ => { },
+            // K9.1: the instance overload. The Action<MemoryOptions> one cannot set anything -
+            // MemoryOptions is an init-only record, so a configure lambda can neither assign its
+            // properties nor keep a `with` expression's result.
+            new MemoryOptions { EnableGraphRag = graphRagIndexName is not null },
             neo4j =>
             {
                 neo4j.Uri = neo4jUri;
@@ -180,17 +181,6 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
 
         if (graphRagIndexName is not null)
         {
-            // K9. The configureMemory action above cannot switch GraphRAG on: MemoryOptions is a
-            // record whose properties are all init-only, so `memory.EnableGraphRag = true` does not
-            // compile, and the `options = options with { ... }` form the BlendedAgent sample ships
-            // rebinds the parameter local and is discarded the moment the lambda returns. Replacing
-            // the registered IOptions<MemoryOptions> is the only route open to a caller outside the
-            // package; an exact closed-generic registration wins over the open IOptions<> one. It
-            // does bypass the AddOptions validation chain, which is acceptable for a harness and is
-            // not a pattern to copy. Pinned by RegistrationOptionsReachabilityTests.
-            services.AddSingleton<IOptions<MemoryOptions>>(
-                Options.Create(new MemoryOptions { EnableGraphRag = true }));
-
             // Deliberately pointed at one of the memory layer's own vector indexes, because this
             // corpus contains no separate knowledge graph - which is the setting upstream actually
             // targets. That limits what the result can mean, and the limit is recorded rather than

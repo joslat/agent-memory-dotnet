@@ -55,19 +55,20 @@ builder.Services.AddNeo4jAgentMemory(options =>
 });
 
 // ── 2. Core memory services with GraphRAG enabled ─────────────────────────────
-builder.Services.AddAgentMemoryCore(options =>
+// Pass the options instance, not a configure lambda. MemoryOptions is a record with init-only
+// properties, so a lambda can neither assign them nor keep the result of a `with` expression — the
+// `options = options with { ... }` form this sample used to show rebinds the parameter local and is
+// thrown away on return. It compiled, it ran, and it left GraphRAG switched off.
+builder.Services.AddAgentMemoryCore(new MemoryOptions
 {
-    options = options with
+    EnableGraphRag = true,
+    Recall = new RecallOptions
     {
-        EnableGraphRag = true,
-        Recall = new RecallOptions
-        {
-            BlendMode       = RetrievalBlendMode.Blended,
-            MaxGraphRagItems = 5,
-            MaxEntities     = 10,
-            MaxFacts        = 10,
-        }
-    };
+        BlendMode        = RetrievalBlendMode.Blended,
+        MaxGraphRagItems = 5,
+        MaxEntities      = 10,
+        MaxFacts         = 10,
+    }
 });
 
 builder.Services.AddSingleton<IClock, SystemClock>();

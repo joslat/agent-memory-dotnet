@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Core;
@@ -66,6 +67,58 @@ public sealed class RegistrationOptionsReachabilityTests
         var options = Resolve(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant);
 
         options.Isolation.Mode.Should().Be(MemoryIsolationMode.StrictMultiTenant);
+    }
+
+
+    [Fact]
+    public void TheInstanceOverloadDeliversEveryRecordBackedKnob()
+    {
+        // K9.1. The fix. Same values the configure lambda silently dropped above.
+        var options = new ServiceCollection()
+            .AddAgentMemoryCore(new MemoryOptions
+            {
+                EnableGraphRag = true,
+                Recall = new RecallOptions { MaxFacts = 999, MaxGraphRagItems = 5 }
+            })
+            .BuildServiceProvider()
+            .GetRequiredService<IOptions<MemoryOptions>>()
+            .Value;
+
+        options.EnableGraphRag.Should().BeTrue();
+        options.Recall.MaxFacts.Should().Be(999);
+        options.Recall.MaxGraphRagItems.Should().Be(5);
+    }
+
+    [Fact]
+    public void TheInstanceOverloadStillValidates()
+    {
+        // A supplied instance is checked, not trusted. Without this the overload would be a hole
+        // straight through the validator chain the lambda path registers - a caller could hand over
+        // an out-of-range Isolation.Mode and get the most permissive behaviour with no error until
+        // the first affected call, which is precisely what that chain exists to prevent.
+        var act = () => new ServiceCollection()
+            .AddAgentMemoryCore(new MemoryOptions
+            {
+                Isolation = { Mode = (MemoryIsolationMode)999 }
+            })
+            .BuildServiceProvider()
+            .GetRequiredService<IOptions<MemoryOptions>>()
+            .Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
+    [Fact]
+    public void TheInstanceOverloadStillRegistersTheServices()
+    {
+        // The overload must be a way to supply options, not a second, thinner registration path.
+        // AddLogging is the caller's job either way - AddAgentMemoryCore has never registered it.
+        new ServiceCollection()
+            .AddLogging()
+            .AddAgentMemoryCore(new MemoryOptions())
+            .BuildServiceProvider()
+            .GetService<AgentMemory.Abstractions.Services.IMemoryIsolationPolicy>()
+            .Should().NotBeNull();
     }
 
     private static MemoryOptions Resolve(Action<MemoryOptions> configure) =>

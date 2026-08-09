@@ -253,7 +253,11 @@ public sealed class MetaPackageDiRegistrationTests
     public void AddNeo4jAgentMemory_NullConfigureMemory_ThrowsArgumentNull()
     {
         var services = new ServiceCollection();
-        var act = () => services.AddNeo4jAgentMemory(null!, _ => { });
+        // The cast is load-bearing, not noise. K9.1 added an overload taking a MemoryOptions
+        // instance, and an untyped null converts to both that and Action<MemoryOptions>. This is the
+        // one call site in the whole solution affected, and only because passing a bare null is a
+        // null-guard test idiom rather than something production code does.
+        var act = () => services.AddNeo4jAgentMemory((Action<MemoryOptions>)null!, _ => { });
         act.Should().Throw<ArgumentNullException>();
     }
 

@@ -134,7 +134,10 @@ The blend mode is configured in `Program.cs` via `RecallOptions.BlendMode`. Swit
 services.AddNeo4jAgentMemory(options => { ... });
 
 // 2. Core memory services (short-term, long-term, reasoning, context assembly)
-services.AddAgentMemoryCore(options => { options = options with { EnableGraphRag = true, ... }; });
+//    Pass the instance. MemoryOptions has init-only properties, so a configure lambda cannot set
+//    them: `options = options with { ... }` compiles, rebinds a local, and is discarded — leaving
+//    every default in place, GraphRAG included.
+services.AddAgentMemoryCore(new MemoryOptions { EnableGraphRag = true, ... });
 services.AddSingleton<IClock, SystemClock>();
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());

@@ -18,6 +18,63 @@ namespace AgentMemory.Core;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
+    /// Registers all Core memory services from a fully-constructed <see cref="MemoryOptions"/>.
+    /// </summary>
+    /// <remarks>
+    /// The <c>Action&lt;MemoryOptions&gt;</c> overload cannot configure anything.
+    /// <see cref="MemoryOptions"/> is a record whose properties are all <c>init</c>-only, so a
+    /// configure lambda cannot assign them — <c>options.EnableGraphRag = true</c> is a compile error,
+    /// and the <c>options = options with { ... }</c> form that does compile rebinds the parameter
+    /// local and is discarded the moment the lambda returns. Code written that way builds, runs, and
+    /// silently keeps every default.
+    /// <para>
+    /// This overload takes the instance directly, which is how every working call site in this
+    /// repository already builds options, and applies the same validators the other overload
+    /// registers — a supplied instance is checked, not trusted.
+    /// </para>
+    /// <para>
+    /// Added rather than changing the properties to <c>set</c>: that would alter the setter signature
+    /// of a public type on a SemVer-locked surface and break binary compatibility for anyone already
+    /// compiled against it. This is purely additive.
+    /// </para>
+    /// </remarks>
+    public static IServiceCollection AddAgentMemoryCore(
+        this IServiceCollection services,
+        MemoryOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(options);
+
+        // Register everything the lambda overload does, including the validator chain, then take over
+        // the resolution of IOptions<MemoryOptions>. An exact closed-generic registration wins over
+        // the open IOptions<> one, so the supplied instance is what every consumer resolves.
+        services.AddAgentMemoryCore(_ => { });
+        services.AddSingleton<IOptions<MemoryOptions>>(serviceProvider =>
+        {
+            // The validators are the whole reason this is a factory rather than Options.Create: an
+            // instance that skipped them would fail closed nowhere and misconfigure silently at the
+            // first affected call, which is the exact failure the validator chain exists to prevent.
+            var failures = serviceProvider
+                .GetServices<IValidateOptions<MemoryOptions>>()
+                .Select(validator => validator.Validate(Microsoft.Extensions.Options.Options.DefaultName, options))
+                .Where(result => result.Failed)
+                // Failures is only guaranteed non-null once Failed is true, which the Where above
+                // establishes but the compiler cannot see.
+                .SelectMany(result => result.Failures ?? [])
+                .ToArray();
+            if (failures.Length > 0)
+            {
+                throw new OptionsValidationException(
+                    Microsoft.Extensions.Options.Options.DefaultName, typeof(MemoryOptions), failures);
+            }
+
+            return Microsoft.Extensions.Options.Options.Create(options);
+        });
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers all Core memory services.
     /// Adapters (repositories, IEmbeddingGenerator, etc.) must be registered separately.
     /// </summary>
