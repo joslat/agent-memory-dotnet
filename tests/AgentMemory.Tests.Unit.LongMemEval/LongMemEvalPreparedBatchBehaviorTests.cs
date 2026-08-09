@@ -85,8 +85,12 @@ public sealed class LongMemEvalPreparedBatchBehaviorTests
 
         var act = () => harness.Adapter.InvokeAsync(harness.Question.InvocationPrompt);
 
+        // Still fails closed on an unexplained extra call. The guard was refined from "exactly the
+        // planned calls and zero failures" to "no unaccounted work" -- excess is now acceptable only
+        // when a split or retry was recorded, and this harness records neither. Only the wording
+        // moved; the behaviour this test pins did not.
         await act.Should().ThrowAsync<LongMemEvalExtractionAccountingException>()
-            .WithMessage("*observed 2 calls*expected exactly 1*");
+            .WithMessage("*observed 2 calls*excess=1*");
         harness.Adapter.QuestionTelemetry.Should().ContainSingle()
             .Which.Status.Should().Be("extraction-provider-accounting-error");
     }

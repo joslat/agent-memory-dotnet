@@ -1189,6 +1189,18 @@ public sealed record LongMemEvalAdapterOptions
     /// </remarks>
     public int MaxItemsPerSourceSession { get; init; }
 
+
+    /// <summary>
+    /// Recorded batch splits, used to decide whether excess provider calls are accounted for.
+    /// </summary>
+    /// <remarks>
+    /// A split is a designed recovery that legitimately adds calls, so the cost guard needs to tell
+    /// "the splitter ran" apart from "calls appeared that nobody can explain". Null means the
+    /// harness has no split diagnostics wired, in which case any excess is treated as unexplained -
+    /// failing closed rather than assuming innocence.
+    /// </remarks>
+    public Func<long>? BatchSplitCount { get; init; }
+
     /// <summary>
     /// K6. Adds a GraphRAG item budget on top of the mode's own budget.
     /// </summary>

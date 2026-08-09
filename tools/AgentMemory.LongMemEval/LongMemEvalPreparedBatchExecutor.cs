@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Extraction.Llm;
 using Microsoft.Extensions.DependencyInjection;
 using Neo4j.Driver;
 
@@ -191,6 +192,12 @@ internal static class LongMemEvalPreparedBatchExecutor
                             UseBatchedPreparation = true,
                             BatchExtractionPipeline =
                                 scoped.GetRequiredService<IMemoryExtractionPipeline>(),
+                            // Lets the cost guard tell a designed recovery apart from unexplained
+                            // work: a split legitimately adds provider calls, so excess calls are
+                            // acceptable only when the splitter actually ran.
+                            BatchSplitCount = () => scoped
+                                .GetRequiredService<LlmExtractionBatchDiagnostics>()
+                                .Snapshot().Splits,
                             BatchPlanner = planner,
                             MaxSessionsPerBatch = maxSessionsPerBatch,
                             MaxInputTokens = maxInputTokens,
