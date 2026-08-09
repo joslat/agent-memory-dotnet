@@ -134,6 +134,28 @@ internal static class SchemaQueries
     /// <summary>Index on Fact.owner_id (multi-user scope).</summary>
     public const string FactOwnerIndex = "CREATE INDEX fact_owner_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_id)";
 
+    /// <summary>
+    /// Composite index backing the fact merge key.
+    /// </summary>
+    /// <remarks>
+    /// L11. Every fact write MERGEs on <c>{subject_key, predicate_key, object_key, owner_key}</c>
+    /// (<c>FactQueries.UpsertBatch</c>, <c>FusedPersistenceQueries.FactUpsertBatch</c>), and nothing
+    /// indexed that combination — so each MERGE was an all-<c>:Fact</c> label scan whose cost grew
+    /// with the size of the store rather than with the size of the write.
+    /// <para>
+    /// The property order matches the MERGE pattern. It also puts the two selective properties first:
+    /// <c>owner_key</c> is <c>"*"</c> for every shared fact and <c>predicate_key</c> is drawn from a
+    /// ~110-entry lexicon, so leading with either would make the prefix nearly non-discriminating.
+    /// </para>
+    /// <para>
+    /// This is what makes the range-index key cap real for facts, which is why
+    /// <c>IndexKeyBudget.EnsureCompositeIndexable</c> lands in the same change rather than after it.
+    /// </para>
+    /// </remarks>
+    public const string FactMergeKeyIndex =
+        "CREATE INDEX fact_merge_key_idx IF NOT EXISTS FOR (f:Fact) " +
+        "ON (f.subject_key, f.object_key, f.predicate_key, f.owner_key)";
+
     /// <summary>Index on Entity.owner_id (multi-user scope).</summary>
     public const string EntityOwnerIndex = "CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)";
 
@@ -171,6 +193,7 @@ internal static class SchemaQueries
         SchemaVersionIndex,
         EntityLocationIndex,
         FactOwnerIndex,
+        FactMergeKeyIndex,
         EntityOwnerIndex,
         PreferenceOwnerIndex,
         TraceOwnerIndex,

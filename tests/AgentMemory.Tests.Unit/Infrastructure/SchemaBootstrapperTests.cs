@@ -78,8 +78,9 @@ public class SchemaBootstrapperTests
         var bootstrapper = CreateBootstrapper(txRunner);
         await bootstrapper.BootstrapAsync();
 
-        // 12 constraints + 3 fulltext + 6 vector + 22 property = 43
-        executedStatements.Should().HaveCount(43);
+        // 12 constraints + 3 fulltext + 6 vector + 23 property = 44
+        // +1 property index: fact_merge_key_idx (L11).
+        executedStatements.Should().HaveCount(44);
     }
 
     [Fact]
@@ -214,7 +215,7 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(22);
+        propertyIndexes.Should().HaveCount(23);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("conversation_archived_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
@@ -237,6 +238,8 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("trace_owner_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("rel_owner_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("memory_read_audit_kind_idx"));
+        // L11. Backs the fact merge key; without it every fact MERGE is an all-:Fact label scan.
+        propertyIndexes.Should().Contain(s => s.Contains("fact_merge_key_idx"));
     }
 
     [Theory]

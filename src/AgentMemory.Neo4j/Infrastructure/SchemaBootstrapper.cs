@@ -48,6 +48,7 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(batchSize);
         var migrated = 0;
+        var skipped = 0;
 
         while (true)
         {
@@ -68,23 +69,71 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
             if (pending.Count == 0)
                 break;
 
-            var items = pending.Select(fact => new Dictionary<string, object?>
+            // L11. This rewrites keys onto facts that are ALREADY STORED, and the composite key is
+            // now indexed — so an oversized legacy value would fail the write and abort bootstrap.
+            // Bootstrap is the very thing an operator runs to recover, which would leave the system
+            // unstartable with no remedy. Skip the row and say so; the fact keeps null keys, stays
+            // out of the index, and is reported rather than fatal. This is the one site where the
+            // guard must not throw.
+            var keyed = pending
+                .Select(fact => (fact, parts: new (string, string?)[]
+                {
+                    ("subject_key", MemoryTripleCanonicalizer.CanonicalValue(fact.Subject)),
+                    ("predicate_key", MemoryTripleCanonicalizer.Canonical(fact.Predicate)),
+                    // owner_key is deliberately absent: the backfill neither selects nor writes it,
+                    // so its value here is unknown. Naming a stand-in would be a fiction, and an
+                    // owner key is a handful of bytes against an 8,000-byte budget the guard already
+                    // rounds down.
+                    ("object_key", MemoryTripleCanonicalizer.CanonicalValue(fact.Object))
+                }))
+                .ToList();
+
+            var oversized = keyed
+                .Where(row => IndexKeyBudget.ExceedsCompositeBudget(row.parts))
+                .ToList();
+
+            if (oversized.Count > 0)
             {
-                ["id"] = fact.Id,
-                ["subject_key"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
-                ["predicate_key"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
-                ["object_key"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Object)
+                skipped += oversized.Count;
+                _logger.LogWarning(
+                    "Skipped {Count} pre-existing fact(s) whose canonical key exceeds the " +
+                    "{Budget}-byte range-index budget: {Ids}. They keep null canonical keys, so they " +
+                    "stay out of the merge-key index and will not match a re-extracted triple. " +
+                    "Shorten the offending subject/object and re-run bootstrap.",
+                    oversized.Count,
+                    IndexKeyBudget.MaxIndexedBytes,
+                    string.Join(", ", oversized.Select(row => row.fact.Id)));
+            }
+
+            var writable = keyed
+                .Where(row => !IndexKeyBudget.ExceedsCompositeBudget(row.parts))
+                .ToList();
+
+            var items = writable.Select(row => new Dictionary<string, object?>
+            {
+                ["id"] = row.fact.Id,
+                ["subject_key"] = row.parts[0].Item2,
+                ["predicate_key"] = row.parts[1].Item2,
+                ["object_key"] = row.parts[2].Item2
             }).ToList();
 
-            await _txRunner.WriteAsync(async runner =>
+            if (items.Count > 0)
             {
-                var cursor = await runner.RunAsync(
-                    FactQueries.ApplyCanonicalKeys, new { items }).ConfigureAwait(false);
-                await cursor.ConsumeAsync().ConfigureAwait(false);
-                return true;
-            }, cancellationToken).ConfigureAwait(false);
+                await _txRunner.WriteAsync(async runner =>
+                {
+                    var cursor = await runner.RunAsync(
+                        FactQueries.ApplyCanonicalKeys, new { items }).ConfigureAwait(false);
+                    await cursor.ConsumeAsync().ConfigureAwait(false);
+                    return true;
+                }, cancellationToken).ConfigureAwait(false);
+            }
 
-            migrated += pending.Count;
+            migrated += items.Count;
+
+            // A page of nothing but oversized rows would otherwise loop forever: the selection is
+            // "facts missing canonical keys", and skipping leaves them exactly that. Stop instead.
+            if (items.Count == 0)
+                break;
 
             // A short final batch means the last page was reached; anything else would re-query for
             // a page that cannot exist.
@@ -92,10 +141,11 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
                 break;
         }
 
-        if (migrated > 0)
+        if (migrated > 0 || skipped > 0)
         {
             _logger.LogInformation(
-                "Backfilled canonical identity keys onto {Count} pre-existing facts.", migrated);
+                "Backfilled canonical identity keys onto {Count} pre-existing facts; skipped {Skipped} " +
+                "whose key exceeded the range-index budget.", migrated, skipped);
         }
 
         return migrated;

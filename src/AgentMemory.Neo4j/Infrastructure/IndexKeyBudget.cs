@@ -57,4 +57,72 @@ internal static class IndexKeyBudget
             "budget. Neo4j cannot index it, so the write would fail. Shorten the value at the source; " +
             "it is almost always an extraction artefact rather than a real name.");
     }
+
+    /// <summary>
+    /// Throws when the <b>combined</b> parts of a composite index key exceed the budget.
+    /// </summary>
+    /// <remarks>
+    /// L11. Facts MERGE on <c>{subject_key, predicate_key, object_key, owner_key}</c>, so the indexed
+    /// key is the composite, not any single property. Checking each part against the full budget
+    /// separately would admit a composite roughly four times over it — the exact failure this guard
+    /// exists to prevent.
+    /// <para>
+    /// Summing the parts is <b>deliberately conservative</b>. Neo4j documents a bound on the index
+    /// key; how a composite key is encoded is not something this codebase has measured, so the guard
+    /// budgets the sum rather than asserting an internal it cannot verify. Erring strict costs only
+    /// pathological values, while erring loose reproduces the opaque driver failure.
+    /// </para>
+    /// </remarks>
+    internal static void EnsureCompositeIndexable(
+        IReadOnlyList<(string Name, string? Value)> parts,
+        string? owningId)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+
+        var total = 0;
+        foreach (var (_, value) in parts)
+            total += ByteCountOf(value);
+
+        if (total <= MaxIndexedBytes)
+            return;
+
+        // Name the largest parts first: with a composite key the operator needs to know which value
+        // to shorten, and the message is the only place that information exists.
+        var offenders = parts
+            .Where(part => !string.IsNullOrEmpty(part.Value))
+            .OrderByDescending(part => ByteCountOf(part.Value))
+            .Select(part => $"{part.Name}={ByteCountOf(part.Value)}B");
+
+        throw new MemoryException(
+            $"The composite index key" +
+            (owningId is null ? "" : $" for '{owningId}'") +
+            $" is {total} UTF-8 bytes across {parts.Count} properties ({string.Join(", ", offenders)}), " +
+            $"which exceeds the {MaxIndexedBytes}-byte range-index budget. Neo4j cannot index it, so " +
+            "the write would fail. Shorten the value at the source; it is almost always an extraction " +
+            "artefact rather than a real subject or object.");
+    }
+
+    /// <summary>
+    /// Whether the combined parts exceed the budget, as a question rather than a throw.
+    /// </summary>
+    /// <remarks>
+    /// The bootstrap backfill needs this. It rewrites keys onto facts that are <b>already stored</b>,
+    /// so throwing there would abort schema bootstrap — and bootstrap is the very thing an operator
+    /// would run to recover, leaving the system unstartable with no remedy. It skips the row and logs
+    /// instead; the unindexable fact is then surfaced by the FAILED-index check rather than by
+    /// bricking startup.
+    /// </remarks>
+    internal static bool ExceedsCompositeBudget(IReadOnlyList<(string Name, string? Value)> parts)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+
+        var total = 0;
+        foreach (var (_, value) in parts)
+            total += ByteCountOf(value);
+
+        return total > MaxIndexedBytes;
+    }
+
+    private static int ByteCountOf(string? value)
+        => string.IsNullOrEmpty(value) ? 0 : Encoding.UTF8.GetByteCount(value);
 }

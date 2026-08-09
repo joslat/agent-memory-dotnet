@@ -61,4 +61,23 @@ public sealed class FailedIndexScopeTests
     {
         SchemaConformance.SelectOwnedFailures([], Dimensions).Should().BeEmpty();
     }
+
+    /// <summary>
+    /// L10 x L11. The composite merge-key index is the one carrying the range-index key cap, so it is
+    /// the index most likely to reach FAILED — and it must be recognised as ours when it does.
+    /// </summary>
+    /// <remarks>
+    /// This holds because <c>ExpectedObjectNames</c> derives from <c>SchemaQueries.PropertyIndexes</c>
+    /// rather than from a hand-kept list. The test exists so that deriving it stays a decision rather
+    /// than an accident: if the two ever diverge, a failed <c>fact_merge_key_idx</c> would be silently
+    /// attributed to another application and skipped.
+    /// </remarks>
+    [Fact]
+    public void TheFactMergeKeyIndexIsRecognisedAsOurs()
+    {
+        SchemaConformance.ExpectedObjectNames(Dimensions).Should().Contain("fact_merge_key_idx");
+
+        SchemaConformance.SelectOwnedFailures(["fact_merge_key_idx (RANGE)"], Dimensions)
+            .Should().ContainSingle();
+    }
 }

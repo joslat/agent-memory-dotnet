@@ -49,6 +49,22 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     {
         _logger.LogDebug("Upserting fact {Id}", fact.FactId);
 
+        var subjectKey = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject);
+        var predicateKey = MemoryTripleCanonicalizer.Canonical(fact.Predicate);
+        var objectKey = MemoryTripleCanonicalizer.CanonicalValue(fact.Object);
+        // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
+        // owner_key}, and it is now backed by a range index — so an oversized value stops being a
+        // slow scan and becomes a driver failure from inside the write. Reject it here, naming the
+        // property and the fact, rather than surfacing an opaque message from mid-batch.
+        IndexKeyBudget.EnsureCompositeIndexable(
+            [
+                ("subject_key", subjectKey),
+                ("predicate_key", predicateKey),
+                ("object_key", objectKey),
+                ("owner_key", fact.OwnerId ?? OwnerKeyShared)
+            ],
+            fact.FactId);
+
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -57,9 +73,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["subject"] = fact.Subject,
                 ["predicate"] = fact.Predicate,
                 // Identity is the canonical trio; the raw strings above stay for display and audit.
-                ["subjectKey"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
-                ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
-                ["objectKey"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Object),
+                ["subjectKey"] = subjectKey,
+                ["predicateKey"] = predicateKey,
+                ["objectKey"] = objectKey,
                 ["object"] = fact.Object,
                 ["ownerId"] = fact.OwnerId,
                 ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
@@ -121,6 +137,23 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             .ToList();
 
         var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+
+        // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
+        // owner_key}, and it is now backed by a range index — so an oversized value stops being a
+        // slow scan and becomes a driver failure from inside the write. Reject it here, naming the
+        // property and the fact, rather than surfacing an opaque message from mid-batch.
+        foreach (var f in deduped)
+        {
+            IndexKeyBudget.EnsureCompositeIndexable(
+                [
+                    ("subject_key", MemoryTripleCanonicalizer.CanonicalValue(f.Subject)),
+                    ("predicate_key", MemoryTripleCanonicalizer.Canonical(f.Predicate)),
+                    ("object_key", MemoryTripleCanonicalizer.CanonicalValue(f.Object)),
+                    ("owner_key", f.OwnerId ?? OwnerKeyShared)
+                ],
+                f.FactId);
+        }
+
         var items = deduped.Select(f => new Dictionary<string, object?>
         {
             ["id"] = f.FactId,
