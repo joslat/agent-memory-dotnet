@@ -604,9 +604,38 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         if (recall.TotalItemsRetrieved == 0)
         {
-            RecordTelemetry(questionNumber, messages.Count, 0, recall.Truncated, "retrieval-empty");
-            throw new InvalidOperationException(
-                $"AgentMemory retrieved no history for LongMemEval question {questionNumber}; refusing to manufacture a score.");
+            // Full telemetry, not the five-positional-argument call this used to make. That call
+            // left nine optional parameters at their defaults, so the report showed
+            // MessagesStored=<built count>, PreparedMemory=false and QuestionId=null for a question
+            // that had in fact used prepared memory throughout - defaults presented as measurements,
+            // which is how the first diagnosis of this failure went the wrong way entirely.
+            RecordTelemetry(
+                questionNumber,
+                messagesStored,
+                0,
+                recall.Truncated,
+                "retrieval-empty",
+                evidenceQuestion?.QuestionId,
+                extractionUnits: extractionUnits,
+                context: recall.Context,
+                graphSnapshot: graphSnapshot,
+                stageTimings: timings.Snapshot(),
+                messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
+                preparedMemory: _options.PreparedMemory,
+                extractionCallsPlanned: extractionCallsPlanned);
+
+            if (!CanScoreEmptyRetrieval(graphSnapshot))
+            {
+                throw new InvalidOperationException(
+                    $"AgentMemory retrieved no history for LongMemEval question {questionNumber}, and " +
+                    "the graph read-back does not prove its memory was populated with complete " +
+                    "provenance; refusing to manufacture a score.");
+            }
+
+            // The graph IS proven populated, so this is a genuine retrieval failure and it gets
+            // scored as one. The answer call proceeds against an empty memory context and will
+            // almost certainly be judged wrong - which is the truthful outcome for a memory system
+            // that returned nothing, and keeps the arms paired so the comparison stays valid.
         }
 
         if (_options.ExcludeSyntheticFormatterMessages)
@@ -818,6 +847,32 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             AdditionalProperties = additionalProperties
         };
     }
+
+    /// <summary>
+    /// Whether an empty retrieval is a measurable result rather than a broken run.
+    /// </summary>
+    /// <remarks>
+    /// Refusing to score an empty retrieval is right when it means the harness malfunctioned. It is
+    /// wrong when the memory system simply returned nothing: the n=50 rebuild of 2026-08-10 hit a
+    /// question that retrieved zero from a graph the read-back had already proven held 504 facts,
+    /// 346 entities and 1,336 learned items with complete provenance, whose gold evidence was
+    /// demonstrably learned, and whose raw-message search ranked the gold turn first. Nothing was
+    /// broken. The honest score for that is <i>wrong</i>, not <i>unmeasurable</i>.
+    /// <para>
+    /// Throwing cost the whole run: the structured arm produced 49 answers to hybrid's 50, so the
+    /// pair was unpaired and the comparison was rejected — discarding 83 minutes of extraction over
+    /// the single question that most sharply discriminates the two arms.
+    /// </para>
+    /// <para>
+    /// This <b>refines</b> the guard rather than weakening it. The graph read-back runs earlier and
+    /// already throws when it cannot prove the memory is populated, so "populated with complete
+    /// provenance" is exactly the evidence separating a retrieval failure from a preparation
+    /// failure. With no snapshot there is no proof, the two are indistinguishable, and the guard
+    /// must still fire — guessing is what it exists to prevent.
+    /// </para>
+    /// </remarks>
+    internal static bool CanScoreEmptyRetrieval(LongMemEvalGraphSnapshot? graphSnapshot) =>
+        graphSnapshot is { TotalLearned: > 0, CompleteProvenance: true };
 
     private void RecordTelemetry(
         int questionNumber,

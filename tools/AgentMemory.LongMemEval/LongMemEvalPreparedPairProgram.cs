@@ -719,6 +719,25 @@ internal static class LongMemEvalPreparedPairProgram
                     new JsonSerializerOptions { WriteIndented = true }) +
                 Environment.NewLine).ConfigureAwait(false);
 
+            // Accepting a scored empty retrieval must never be quiet. It is a real failure of the
+            // memory system that the run now measures instead of aborting on, and a reader comparing
+            // two accuracies deserves to know one arm answered a question from nothing.
+            foreach (var arm in new[] { ("structured", structured), ("hybrid", hybrid) })
+            {
+                var empties = arm.Item2.Telemetry
+                    .Where(item => LongMemEvalRunValidator.IsScoredEmptyRetrieval(
+                        item.Status, item.GraphReadBack))
+                    .ToArray();
+                foreach (var item in empties)
+                {
+                    Console.Error.WriteLine(
+                        $"longmemeval: WARNING: {arm.Item1}: question {item.QuestionId} " +
+                        $"(position {item.QuestionNumber}) retrieved NOTHING from a graph proven to " +
+                        $"hold {item.GraphReadBack!.TotalLearned} learned items. Scored as a memory " +
+                        "failure rather than aborting the run; this is a real retrieval defect.");
+                }
+            }
+
             if (!accepted)
             {
                 foreach (var issue in issues)

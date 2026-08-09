@@ -8,6 +8,24 @@ internal sealed record LongMemEvalRunValidation(
 
 internal static class LongMemEvalRunValidator
 {
+    /// <summary>
+    /// Whether a question retrieved nothing as a <b>measured result</b> rather than a broken run.
+    /// </summary>
+    /// <remarks>
+    /// Delegates the judgement to <see cref="AgentMemoryLongMemEvalAdapter.CanScoreEmptyRetrieval"/>
+    /// rather than re-deriving it. The validator enforces this rule independently of the adapter, so
+    /// two copies of the reasoning would drift — and the drift would look like an accepted run on one
+    /// side and a rejected one on the other.
+    /// <para>
+    /// The status must be exactly <c>retrieval-empty</c>. A <c>storage-error</c> or a
+    /// <c>graph-readback-empty</c> against a populated graph is still a broken run; only "retrieval
+    /// ran and returned nothing" is a result worth scoring.
+    /// </para>
+    /// </remarks>
+    internal static bool IsScoredEmptyRetrieval(string? status, LongMemEvalGraphSnapshot? graphSnapshot) =>
+        string.Equals(status, "retrieval-empty", StringComparison.Ordinal) &&
+        AgentMemoryLongMemEvalAdapter.CanScoreEmptyRetrieval(graphSnapshot);
+
     internal static LongMemEvalRunValidation Validate(
         int questionCount,
         int llmCalls,
@@ -117,7 +135,12 @@ internal static class LongMemEvalRunValidator
                     item.MessagesPrepared <= 0 ||
                     item.ExtractionUnits != 0 ||
                     item.ExtractionUnitsPrepared <= 0 ||
-                    item.ItemsRetrieved == 0))
+                    // A retrieval that ran against a graph already PROVEN populated with complete
+                    // provenance, and returned nothing, is a measured failure of retrieval - not an
+                    // unsound preparation. Rejecting the run over it discards the very question that
+                    // most sharply separates the arms.
+                    (item.ItemsRetrieved == 0 &&
+                     !IsScoredEmptyRetrieval(item.Status, item.GraphReadBack))))
             {
                 issues.Add(
                     "At least one prepared LongMemEval question wrote during evaluation, lacks sealed preparation work, or retrieved no items.");
@@ -130,14 +153,17 @@ internal static class LongMemEvalRunValidator
             }
         }
         else if (telemetry.Any(item =>
-                     item.MessagesStored == 0 || item.ItemsRetrieved == 0))
+                     item.MessagesStored == 0 ||
+                     (item.ItemsRetrieved == 0 &&
+                      !IsScoredEmptyRetrieval(item.Status, item.GraphReadBack))))
         {
             issues.Add(
                 "At least one LongMemEval question bypassed AgentMemory storage or retrieved no items.");
         }
 
         foreach (var failedStage in telemetry.Where(item =>
-                     !string.Equals(item.Status, "completed", StringComparison.Ordinal)))
+                     !string.Equals(item.Status, "completed", StringComparison.Ordinal) &&
+                     !IsScoredEmptyRetrieval(item.Status, item.GraphReadBack)))
         {
             issues.Add(
                 $"AgentMemory recorded {failedStage.Status} at question position {failedStage.QuestionNumber}.");
