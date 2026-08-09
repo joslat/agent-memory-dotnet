@@ -925,7 +925,16 @@ internal static class LongMemEvalPreparedPairProgram
                 ? LongMemEvalReportProjection.CreateAcceptedResult(
                     arm.Result,
                     evidenceDetail)
-                : null
+                : null,
+            // A rejected arm previously discarded all thirty questions' results, so one unjudgeable
+            // question destroyed the evidence for the other twenty-nine. The hybrid arm has now been
+            // rejected three times on the same question's judge verdict, each time taking a complete
+            // run's data with it. The acceptance guard is unchanged - `accepted` is still false and
+            // `result` is still null - but the measurements are kept under a name no reader can
+            // mistake for an accepted result.
+            unacceptedResult = arm.Validation.Accepted
+                ? null
+                : LongMemEvalReportProjection.CreateAcceptedResult(arm.Result, evidenceDetail)
         };
 
     private static async Task<T> RunPreparedWithDiagnosticsAsync<T>(

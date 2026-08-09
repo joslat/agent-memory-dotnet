@@ -19,7 +19,22 @@ public sealed record LongMemEvalJudgeRetryResult(
     bool ValidVerdict,
     bool? Correct,
     double? RawScore,
-    int LlmCalls);
+    int LlmCalls,
+    /// <summary>
+    /// Why the verdict was not usable: <c>threw:&lt;ExceptionType&gt;</c> or <c>unparseable</c>.
+    /// </summary>
+    /// <remarks>
+    /// The hybrid arm has been rejected three times on one question's judge verdict, and every time
+    /// the reason was unknowable from the artifact: a bare catch made a provider failure look
+    /// identical to a badly-shaped answer. Both are recorded now. Neither carries provider detail or
+    /// user content — a type name and a single leading token are enough to tell the two apart.
+    /// </remarks>
+    string? FailureKind = null,
+    /// <summary>
+    /// The leading letter-token the parser rejected, which is the judge's own verdict word (e.g.
+    /// "Partially"). Never the explanation body.
+    /// </summary>
+    string? RejectedToken = null);
 
 public sealed record LongMemEvalOracleResult(
     string QuestionId,
@@ -263,6 +278,8 @@ internal static class LongMemEvalPostRunDiagnostics
                 indexed.QuestionId, "disabled", 0, false, null, null, 0);
         }
 
+        string? failureKind = null;
+        string? rejectedToken = null;
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
             try
@@ -271,8 +288,19 @@ internal static class LongMemEvalPostRunDiagnostics
                     agentResponse,
                     Question(indexed),
                     cancellationToken).ConfigureAwait(false);
+                if (!LongMemEvalRunValidator.TryParseJudgeVerdict(
+                        judgment.Explanation, out var parsed))
+                {
+                    rejectedToken = LeadingToken(judgment.Explanation);
+                    failureKind = "unparseable";
+                }
+                else if (parsed != judgment.Correct)
+                {
+                    failureKind = "verdict-disagrees-with-score";
+                }
+
                 if (LongMemEvalRunValidator.TryParseJudgeVerdict(
-                        judgment.Explanation, out var parsed) &&
+                        judgment.Explanation, out parsed) &&
                     parsed == judgment.Correct)
                 {
                     return new LongMemEvalJudgeRetryResult(
@@ -289,14 +317,30 @@ internal static class LongMemEvalPostRunDiagnostics
             {
                 throw;
             }
-            catch
+            catch (Exception exception)
             {
-                // Provider details are intentionally excluded from the durable artifact.
+                // Provider details are intentionally excluded from the durable artifact; the type
+                // name is not a provider detail and is the difference between "the judge refused"
+                // and "the judge answered in a shape we do not parse".
+                failureKind = "threw:" + exception.GetType().Name;
             }
         }
 
         return new LongMemEvalJudgeRetryResult(
-            indexed.QuestionId, "invalid", attempts, false, null, null, attempts);
+            indexed.QuestionId, "invalid", attempts, false, null, null, attempts,
+            failureKind ?? "unparseable",
+            rejectedToken);
+    }
+
+
+    /// <summary>The leading letter-token of a judge explanation, capped, for diagnostics only.</summary>
+    private static string LeadingToken(string? explanation)
+    {
+        if (string.IsNullOrWhiteSpace(explanation))
+            return "<empty>";
+        var trimmed = explanation.TrimStart();
+        var token = new string(trimmed.TakeWhile(char.IsLetter).ToArray());
+        return token.Length == 0 ? "<non-letter>" : token[..Math.Min(token.Length, 24)];
     }
 
     private static async Task<LongMemEvalOracleResult> RunOracleAsync(
