@@ -218,12 +218,37 @@ internal static class LongMemEvalRunValidator
             return false;
 
         var value = explanation.Trim();
-        foreach (var prefix in new[] { "Judge said:", "Judge outcome:" })
+        if (TryReadLeadingVerdict(value, out correct))
+            return true;
+
+        // The judge does not always phrase the verdict the same way. Two prefixes were hardcoded -
+        // "Judge said:" and "Judge outcome:" - and a third shape beginning "Judge" cost two of five
+        // identical n=50 repeats, each rejecting a whole arm over one question. The diagnostic caught
+        // it as FailureKind=unparseable, RejectedToken="Judge", and on one of those runs the retry
+        // recovered the same question with a valid verdict: the judgement was fine, the parsing was
+        // not.
+        //
+        // So: if the text opens with a short label ending in a colon, try again after it. The
+        // tolerance is deliberately one-way - the prefix is only accepted when what follows is
+        // ACTUALLY a yes or no, so this can never manufacture a verdict from a hedge like
+        // "Judge verdict: partially correct". Bounded length, and only the first colon, so a
+        // sentence that merely contains a colon cannot be mined for a verdict. The label itself must
+        // begin "judg" (Judge / Judgement / Judgment / "Judge verdict"), which is what keeps
+        // "maybe: yes" invalid - a guard test caught exactly that over-reach in the first attempt.
+        var colon = value.IndexOf(':', StringComparison.Ordinal);
+        if (colon > 0 && colon <= 32 &&
+            value.AsSpan(0, colon).TrimStart().StartsWith("judg", StringComparison.OrdinalIgnoreCase))
         {
-            if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                value = value[prefix.Length..].Trim();
+            return TryReadLeadingVerdict(value[(colon + 1)..].Trim(), out correct);
         }
 
+        return false;
+    }
+
+    /// <summary>Reads a verdict from the leading letter-token, or fails.</summary>
+    private static bool TryReadLeadingVerdict(string value, out bool correct)
+    {
+        correct = false;
         var tokenLength = value.TakeWhile(char.IsLetter).Count();
         if (tokenLength == 0)
             return false;
