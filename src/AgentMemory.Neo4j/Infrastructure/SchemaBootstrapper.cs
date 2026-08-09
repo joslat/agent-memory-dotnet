@@ -198,6 +198,13 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         _logger.LogInformation("Schema bootstrap complete.");
     }
 
+    /// <summary>The bare index name from the <c>name (TYPE)</c> descriptor collected below.</summary>
+    private static string IndexNameOf(string descriptor)
+    {
+        var space = descriptor.IndexOf(' ', StringComparison.Ordinal);
+        return space < 0 ? descriptor : descriptor[..space];
+    }
+
     /// <summary>
     /// Surfaces indexes that reached the terminal FAILED state. Only vector dimensions were checked
     /// before, so a range index that could not populate — Neo4j caps index keys at roughly 8 KB, and
@@ -240,6 +247,23 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
                 failed.Length - owned.Count,
                 string.Join(", ", failed.Except(owned, StringComparer.Ordinal)));
         }
+
+        // Not every owned failure is fatal. An index whose absence only costs speed returns the
+        // system to how it behaved before that index existed, and refusing to start over it would
+        // turn a performance improvement into an outage for anyone whose legacy data cannot populate
+        // it. Warn loudly, keep running, stay slow.
+        var degraded = owned.Where(d => SchemaConformance.IsOptimizationOnly(IndexNameOf(d))).ToList();
+        if (degraded.Count > 0)
+        {
+            _logger.LogWarning(
+                "{Count} AgentMemory index(es) are FAILED but are optimizations only: {Indexes}. " +
+                "Startup continues and results are unaffected; the affected queries fall back to " +
+                "scans, exactly as they did before these indexes existed. Drop and recreate them to " +
+                "restore the optimization — a FAILED index is never rebuilt by CREATE ... IF NOT EXISTS.",
+                degraded.Count, string.Join(", ", degraded));
+        }
+
+        owned = owned.Except(degraded, StringComparer.Ordinal).ToArray();
 
         if (owned.Count > 0)
         {

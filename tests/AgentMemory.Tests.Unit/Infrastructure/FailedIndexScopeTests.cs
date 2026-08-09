@@ -80,4 +80,33 @@ public sealed class FailedIndexScopeTests
         SchemaConformance.SelectOwnedFailures(["fact_merge_key_idx (RANGE)"], Dimensions)
             .Should().ContainSingle();
     }
+
+    /// <summary>
+    /// A FAILED index whose absence costs only speed must not make the system unstartable.
+    /// </summary>
+    /// <remarks>
+    /// L10 fails closed on a FAILED index because queries silently fall back to full scans, so the
+    /// damage is invisible. That reasoning is right for an index whose absence breaks an expectation
+    /// — but <c>fact_merge_key_idx</c> (L11) is a pure optimization, and falling back to an
+    /// all-<c>:Fact</c> scan is precisely how this library behaved for its entire life before L11.
+    /// <para>
+    /// Without this distinction L11 is a serious regression: a store holding one pathological legacy
+    /// fact would populate the new index into FAILED, and an application that started yesterday would
+    /// refuse to start today — over a performance optimization it never had. Loud and slow beats
+    /// dead.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TheMergeKeyIndexIsOptimizationOnlySoItsFailureIsNotFatal()
+    {
+        SchemaConformance.IsOptimizationOnly("fact_merge_key_idx").Should().BeTrue();
+    }
+
+    [Fact]
+    public void IndexesWhoseAbsenceBreaksAnExpectationRemainFatal()
+    {
+        // A vector index is not interchangeable with a scan: similarity search depends on it.
+        SchemaConformance.IsOptimizationOnly("fact_embedding_idx").Should().BeFalse();
+        SchemaConformance.IsOptimizationOnly("entity_name_idx").Should().BeFalse();
+    }
 }

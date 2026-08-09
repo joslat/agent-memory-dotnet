@@ -134,7 +134,22 @@ public sealed class SchemaCheckCommand(
                 output.WriteLine($"  - {descriptor}");
             output.WriteLine(
                 "Drop and recreate them; if the index covers long text properties, note that Neo4j limits " +
-                "index keys to roughly 8 KB.");
+                "index keys to roughly 8 KB. A FAILED index is never rebuilt by CREATE ... IF NOT EXISTS.");
+
+            // Exit 1 either way — the schema is genuinely not conformant, which is the question this
+            // command answers. But an optimization-only index does not stop bootstrap, and an
+            // operator reading "FAILED" should not be left guessing whether the service is down.
+            var degradedOnly = failedOwned
+                .Where(descriptor => SchemaConformance.IsOptimizationOnly(
+                    descriptor.Split(' ', 2)[0]))
+                .ToList();
+            if (degradedOnly.Count > 0)
+            {
+                output.WriteLine(
+                    $"  note: {degradedOnly.Count} of these are optimizations only " +
+                    $"({string.Join(", ", degradedOnly)}). Bootstrap still starts and results are " +
+                    "unaffected; the affected queries fall back to scans.");
+            }
             if (missing.Count == 0 && legacyFacts == 0) return 1;
         }
 

@@ -12,6 +12,29 @@ namespace AgentMemory.Neo4j.Infrastructure;
 internal static class SchemaConformance
 {
     /// <summary>
+    /// Indexes whose absence costs only speed, never a result.
+    /// </summary>
+    /// <remarks>
+    /// Bootstrap fails closed on a FAILED index because queries fall back to full scans silently, so
+    /// the damage shows up as unexplained slowness rather than an error. That is the right trade for
+    /// an index whose absence breaks an expectation.
+    /// <para>
+    /// It is the wrong trade for a pure optimization. <c>fact_merge_key_idx</c> backs a MERGE that
+    /// ran as an all-<c>:Fact</c> label scan for this library's entire life until L11 added the
+    /// index — so its failure returns behaviour to the previous shipped state. Treating that as
+    /// fatal would mean a store holding one pathological legacy fact populates the new index into
+    /// FAILED and an application that started yesterday refuses to start today, over an optimization
+    /// it never had. Loud and slow beats dead.
+    /// </para>
+    /// <para>
+    /// Deliberately a narrow allow-list rather than a category: adding an index here is a claim that
+    /// nothing depends on it for correctness, and that claim should be made one index at a time.
+    /// </para>
+    /// </remarks>
+    public static bool IsOptimizationOnly(string indexName) =>
+        string.Equals(indexName, "fact_merge_key_idx", StringComparison.Ordinal);
+
+    /// <summary>
     /// L10. Of the FAILED indexes Neo4j reports, the ones AgentMemory is responsible for.
     /// </summary>
     /// <remarks>
