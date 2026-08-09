@@ -44,6 +44,13 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
         return await _tx.WriteAsync(async runner =>
         {
+            // L9. name and canonical_name are range-indexed, and nothing upstream bounds their
+            // length - the only rule in the codebase is a MINIMUM. Checked here rather than only in
+            // extraction because direct IEntityRepository callers, the TCK bridge and the MCP tools
+            // never pass through the extractor, so an extraction-only guard is trivially bypassed.
+            IndexKeyBudget.EnsureIndexable(entity.Name, "name", entity.EntityId);
+            IndexKeyBudget.EnsureIndexable(entity.CanonicalName, "canonical_name", entity.EntityId);
+
             var parameters = new Dictionary<string, object?>
             {
                 ["id"] = entity.EntityId,
@@ -286,7 +293,11 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
         _logger.LogDebug("Batch upserting {Count} entities", entities.Count);
 
-        var items = entities.Select(e => new Dictionary<string, object?>
+        var items = entities.Select(e =>
+        {
+            IndexKeyBudget.EnsureIndexable(e.Name, "name", e.EntityId);
+            IndexKeyBudget.EnsureIndexable(e.CanonicalName, "canonical_name", e.EntityId);
+            return new Dictionary<string, object?>
         {
             ["id"] = e.EntityId,
             ["owner_id"] = e.OwnerId,
@@ -301,6 +312,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
             ["source_message_ids"] = e.SourceMessageIds.ToList(),
             ["created_at"] = e.CreatedAtUtc.ToString("O"),
             ["metadata"] = SerializeMetadata(e.Metadata)
+            };
         }).ToList();
 
         return await _tx.WriteAsync(async runner =>
