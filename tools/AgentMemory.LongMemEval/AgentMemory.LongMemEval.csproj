@@ -6,11 +6,24 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <AgentEvalSourceRoot Condition="'$(AgentEvalSourceRoot)' == ''">C:\git\joslat\AgentEval</AgentEvalSourceRoot>
-  </PropertyGroup>
+  <!--
+    AgentEval is consumed as a PACKAGE, not as a source ProjectReference.
 
+    The reference used to be `$(AgentEvalSourceRoot)\src\AgentEval.Memory\...csproj` with
+    AgentEvalSourceRoot defaulting to a hardcoded absolute path. Both this project and its test
+    project are listed in AgentMemory.slnx, and CI runs `dotnet build AgentMemory.slnx`, so that
+    default broke the build on any machine without that exact folder — including every CI runner.
+
+    A package also makes a benchmark run reproducible: the evaluator is version-pinned rather than
+    being whatever happens to sit in a sibling working tree. The LongMemEval types this harness uses
+    (IEvaluableAgent, IHistoryInjectableAgent, ISessionResettableAgent, ExternalBenchmarkResult,
+    QuestionEvidenceEnvelope) all ship inside the AgentEval umbrella package: AgentEval.Memory is
+    IsPackable=false and is bundled via ProjectReference PrivateAssets="all" in AgentEval.csproj.
+    This harness uses only AgentEval's public API — no InternalsVisibleTo grant exists — so nothing
+    here depends on source access.
+  -->
   <ItemGroup>
+    <PackageReference Include="AgentEval" Version="0.18.0-beta" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
@@ -19,8 +32,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
-    <ProjectReference Include="$(AgentEvalSourceRoot)\src\AgentEval.Memory\AgentEval.Memory.csproj"
-                      AdditionalProperties="NoWarn=CS1574%3BCS1591" />
   </ItemGroup>
 
   <ItemGroup>

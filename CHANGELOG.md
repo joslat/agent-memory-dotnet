@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Facts are now identified by canonical keys.** `Fact` nodes carry `subject_key`, `predicate_key`,
+  `object_key` and `owner_key`, and upserts MERGE on those rather than on the raw triple. This is what
+  makes one relation reachable under all of its stored phrasings.
+
+  **Upgrading an existing database:** call `ISchemaBootstrapper.BootstrapAsync()` before writing, as
+  the getting-started guide and every sample already do. It backfills the keys onto existing facts
+  idempotently. **If you skip it, an upsert of a fact that already exists will not match it and will
+  create a duplicate** — the pre-1.4 rows have no keys to match on. `agentmemory schema-check` now
+  reports this state explicitly so it is visible before it causes damage.
+
+- `INeo4jTransactionRunner` implementations that do not also implement `INeo4jAtomicTransactionRunner`
+  no longer throw at construction. Persistence degrades to pass-through and reports
+  `SupportsAtomicRollback = false` instead of refusing to start.
+
+
 ## [1.3.0] - 2026-07-19
 
 ### Added
