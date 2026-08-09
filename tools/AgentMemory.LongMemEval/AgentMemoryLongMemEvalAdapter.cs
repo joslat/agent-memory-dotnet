@@ -741,6 +741,16 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             preparedQuestion?.ExtractionUnitsPrepared ?? 0,
             preparedQuestion is not null,
             goldCoverage: goldCoverage,
+            // Computed here rather than inside RecordTelemetry, which has neither the gold message
+            // origins nor the evidence question in scope.
+            retrievedGoldCoverage: RetrievedGoldCoverage(
+                recall.Context.RelevantFacts.Items,
+                originsByMessageId
+                    .Where(entry => evidenceQuestion is not null &&
+                                    evidenceQuestion.AnswerSessionIds.Contains(
+                                        entry.Value.SourceSessionId))
+                    .Select(entry => entry.Key)
+                    .ToArray()),
             answerPromptText: answerPrompt);
 
         var additionalProperties = new Dictionary<string, object?>
@@ -780,6 +790,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         bool preparedMemory = false,
         int extractionCallsPlanned = 0,
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null,
+        double? retrievedGoldCoverage = null,
         string? answerPromptText = null)
     {
         lock (_stateLock)
@@ -803,6 +814,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // passages came back and how many of them the structured surface had already
                 // retrieved - the difference between a surface that adds evidence and one that
                 // re-fetches it.
+                // Runs on the PREPARED path, where the existing gold probe never does - it sits
+                // inside `if (!PreparedMemory)`, so every prepared-pair report has a null coverage
+                // and the n=50 result could not say why Structured loses multi-session questions.
+                RetrievedGoldCoverage = retrievedGoldCoverage,
                 GraphRagItemsRetrieved = context?.GraphRagItems.Count ?? 0,
                 GraphRagFactsAlreadyRetrieved = context is null
                     ? 0
@@ -837,6 +852,42 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     /// </remarks>
     internal static RetrievalBlendMode BlendModeFor(int graphRagBudget) =>
         graphRagBudget > 0 ? RetrievalBlendMode.Blended : RetrievalBlendMode.MemoryOnly;
+
+
+    /// <summary>
+    /// How much of a question's gold evidence the <b>retrieved facts</b> actually carry.
+    /// </summary>
+    /// <remarks>
+    /// The existing gold-coverage probe asks whether anything was <i>learned</i> from the gold
+    /// sessions, and it runs only during preparation — so every prepared-pair report to date has a
+    /// null coverage figure, and the n=50 result could say Structured loses multi-session questions
+    /// without being able to say why.
+    /// <para>
+    /// This is the retrieval-side half. A fact covers a gold message when its
+    /// <c>SourceMessageIds</c> contains it, so intersecting the retrieved facts' provenance with the
+    /// gold message set separates three very different failures that look identical in a score:
+    /// the evidence was never extracted, it was extracted but not retrieved, or it was retrieved and
+    /// the reader still got the answer wrong. Only the second is a retrieval problem.
+    /// </para>
+    /// <para>
+    /// Returns null when the question has no gold messages, because zero coverage of nothing is not
+    /// a miss and must not be averaged in as one.
+    /// </para>
+    /// </remarks>
+    internal static double? RetrievedGoldCoverage(
+        IReadOnlyCollection<Fact> retrievedFacts,
+        IReadOnlyCollection<string> goldSourceMessageIds)
+    {
+        ArgumentNullException.ThrowIfNull(retrievedFacts);
+        ArgumentNullException.ThrowIfNull(goldSourceMessageIds);
+        if (goldSourceMessageIds.Count == 0)
+            return null;
+
+        var covered = retrievedFacts
+            .SelectMany(fact => fact.SourceMessageIds)
+            .ToHashSet(StringComparer.Ordinal);
+        return (double)goldSourceMessageIds.Count(covered.Contains) / goldSourceMessageIds.Count;
+    }
 
     /// <summary>
     /// K6. How many GraphRAG items name a fact the structured surface already retrieved.
@@ -1291,6 +1342,12 @@ public sealed record LongMemEvalQuestionTelemetry(
     public int PreferencesRetrieved { get; init; }
 
     public bool GraphRagIncluded { get; init; }
+
+    /// <summary>
+    /// Fraction of this question's gold source messages backed by a retrieved fact, or null when the
+    /// question has no gold messages.
+    /// </summary>
+    public double? RetrievedGoldCoverage { get; init; }
 
     /// <summary>K6. Passages GraphRAG actually returned.</summary>
     public int GraphRagItemsRetrieved { get; init; }
