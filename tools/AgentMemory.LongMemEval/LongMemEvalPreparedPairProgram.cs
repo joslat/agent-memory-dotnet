@@ -656,6 +656,10 @@ internal static class LongMemEvalPreparedPairProgram
                     resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
                     maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
+                    // K6. Additive on top of the mode budget, so a score compared against a run
+                    // without it is confounded with the larger context. Recorded here so no later
+                    // reader can mistake the two runs for a controlled comparison.
+                    graphRagItems = options.GraphRagItems,
                     // The vocabulary decides what is stored and the lexicon decides what is
                     // retrieved, so a run under a different table is not comparable to this one.
                     // Without these the artifact would not record which tables produced it.
@@ -751,7 +755,12 @@ internal static class LongMemEvalPreparedPairProgram
                 embeddingDimensions,
                 Console.Out,
                 CancellationToken.None,
-                volumeName)
+                volumeName,
+                // K6. Pointed at the memory layer's own fact index: this corpus has no separate
+                // knowledge graph, which is the setting GraphRAG was designed for. Retrieving the
+                // same Fact nodes the Structured arm already retrieves is the whole question - does
+                // a second budget over the same data add anything?
+                graphRagIndexName: options.GraphRagItems > 0 ? "fact_embedding_idx" : null)
             .ConfigureAwait(false);
         profileStartup.Stop();
 
@@ -791,6 +800,7 @@ internal static class LongMemEvalPreparedPairProgram
                 ExpandFactsByPredicate = options.ExpandFactsByPredicate,
                 ResolveQueryRelations = options.ResolveQueryRelations,
                 MaxItemsPerSourceSession = options.MaxItemsPerSourceSession,
+                GraphRagItems = options.GraphRagItems,
                 ChronologicalAnswerContext = true,
                 RequireGraphReadBack = true,
                 GraphProbe = new Neo4jLongMemEvalGraphProbe(driver)
@@ -882,6 +892,12 @@ internal static class LongMemEvalPreparedPairProgram
             entitiesRetrieved = arm.Telemetry.Sum(item => item.EntitiesRetrieved),
             factsRetrieved = arm.Telemetry.Sum(item => item.FactsRetrieved),
             preferencesRetrieved = arm.Telemetry.Sum(item => item.PreferencesRetrieved),
+            // K6. Zero on every run before this flag existed, because the budget was zero. Reported
+            // as a pair: the count says whether the mechanism works at all, and the overlap says
+            // whether what came back was already in the structured context.
+            graphRagItemsRetrieved = arm.Telemetry.Sum(item => item.GraphRagItemsRetrieved),
+            graphRagFactsAlreadyRetrieved =
+                arm.Telemetry.Sum(item => item.GraphRagFactsAlreadyRetrieved),
             questions = arm.Telemetry,
             timings = new
             {
@@ -1098,7 +1114,8 @@ internal static class LongMemEvalPreparedPairProgram
             ParsePositive(Value("--provider-no-progress-timeout-seconds"),
                 DefaultProviderNoProgressTimeoutSeconds,
                 "--provider-no-progress-timeout-seconds"),
-            Has("--no-orphan-sweep"));
+            Has("--no-orphan-sweep"),
+            ParseNonNegative(Value("--graphrag-items"), 0, "--graphrag-items"));
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -1313,7 +1330,8 @@ internal static class LongMemEvalPreparedPairProgram
         int? CheckpointQuestions,
         int CheckpointTimeoutSeconds,
         int ProviderNoProgressTimeoutSeconds,
-        bool NoOrphanSweep)
+        bool NoOrphanSweep,
+        int GraphRagItems)
     {
         internal bool IsDiagnostic =>
             DiagnosticQuestionPosition is not null &&

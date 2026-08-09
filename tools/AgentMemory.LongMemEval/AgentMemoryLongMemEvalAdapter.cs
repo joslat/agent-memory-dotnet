@@ -120,7 +120,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             // category filled plus every expanded fact, and AgentEval rejects the envelope above
             // MaximumReferences.
             var budget = LongMemEvalRecallBudget.For(
-                _options.MemoryMode, _options.MaxRelevantMessages);
+                _options.MemoryMode, _options.MaxRelevantMessages) with
+            {
+                GraphRag = _options.GraphRagItems
+            };
             var worstCaseReferences =
                 budget.Messages + budget.Entities + budget.Facts + budget.Preferences +
                 _options.MaxExpandedFacts;
@@ -547,7 +550,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         // Hoisted out of the try: the retrieval-evidence build below needs the message allowance to
         // tell "retrieval missed" apart from "retrieval was never given a message budget" (BUG-E1).
         var budget = LongMemEvalRecallBudget.For(
-            _options.MemoryMode, _options.MaxRelevantMessages);
+            _options.MemoryMode, _options.MaxRelevantMessages) with
+        {
+            GraphRag = _options.GraphRagItems
+        };
         // G3B.1 over-fetches candidates so that dropping formatter artifacts still fills the budget.
         // The final cap stays `budget.Messages`; only the request widens.
         var requestedMessages = _options.ExcludeSyntheticFormatterMessages
@@ -583,7 +589,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                                 MaxExpandedFacts = _options.MaxExpandedFacts,
                                 MaxGraphRagItems = budget.GraphRag,
                                 MinSimilarityScore = _options.MinSimilarityScore,
-                                BlendMode = RetrievalBlendMode.MemoryOnly,
+                                BlendMode = BlendModeFor(budget.GraphRag),
                                 IncludeDiagnostics = evidenceQuestion is not null
                             }
                         },
@@ -793,6 +799,15 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 FactsRetrieved = context?.RelevantFacts.Items.Count ?? 0,
                 PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
                 GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
+                // K6. "Included" only ever said the string was non-empty. These two say how many
+                // passages came back and how many of them the structured surface had already
+                // retrieved - the difference between a surface that adds evidence and one that
+                // re-fetches it.
+                GraphRagItemsRetrieved = context?.GraphRagItems.Count ?? 0,
+                GraphRagFactsAlreadyRetrieved = context is null
+                    ? 0
+                    : CountGraphRagFactsAlreadyRetrieved(
+                        context.GraphRagItems, context.RelevantFacts.Items),
                 // J5.1. The real cost of this arm: the assembled prompt the reader actually sees.
                 // Every quality number here was half a result without it, and the band's cost column
                 // predates predicate expansion entirely.
@@ -803,6 +818,56 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 StageTimings = stageTimings
             });
         }
+    }
+
+
+
+    /// <summary>
+    /// K6. The blend mode a GraphRAG budget requires, and the reason a budget alone is not enough.
+    /// </summary>
+    /// <remarks>
+    /// <c>MemoryOnly</c> means "GraphRAG suppressed even when enabled", and the assembler checks the
+    /// blend mode <i>before</i> the budget - so a non-zero <c>MaxGraphRagItems</c> under
+    /// <c>MemoryOnly</c> retrieves nothing at all. The first K6 run measured exactly that and came
+    /// within one step of reporting a confident zero as a property of the surface.
+    /// <para>
+    /// Every arm keeps <c>MemoryOnly</c> unless a GraphRAG budget was actually asked for, so every
+    /// run this track has already produced stays comparable.
+    /// </para>
+    /// </remarks>
+    internal static RetrievalBlendMode BlendModeFor(int graphRagBudget) =>
+        graphRagBudget > 0 ? RetrievalBlendMode.Blended : RetrievalBlendMode.MemoryOnly;
+
+    /// <summary>
+    /// K6. How many GraphRAG items name a fact the structured surface already retrieved.
+    /// </summary>
+    /// <remarks>
+    /// The locked prediction for K6 is that a GraphRAG budget pointed at the memory layer's own fact
+    /// index returns the same rows the Structured arm already has - the same data fetched twice under
+    /// a second budget. This counts that directly rather than inferring it from a score.
+    /// <para>
+    /// Identity comes from the <c>fact_id</c> the harness projects in its retrieval query. An item
+    /// without one is counted as <i>not</i> duplicated: with the default projection there is no node
+    /// identity at all (K10), and guessing by text would quietly turn "cannot tell" into "distinct".
+    /// </para>
+    /// </remarks>
+    internal static int CountGraphRagFactsAlreadyRetrieved(
+        IReadOnlyList<GraphRagContextItem> graphRagItems,
+        IEnumerable<Fact> retrievedFacts)
+    {
+        ArgumentNullException.ThrowIfNull(graphRagItems);
+        ArgumentNullException.ThrowIfNull(retrievedFacts);
+
+        var retrievedIds = retrievedFacts
+            .Select(fact => fact.FactId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return graphRagItems.Count(item =>
+            item.Metadata is not null &&
+            item.Metadata.TryGetValue("fact_id", out var id) &&
+            id?.ToString() is { Length: > 0 } factId &&
+            retrievedIds.Contains(factId));
     }
 
     /// <summary>
@@ -1124,6 +1189,19 @@ public sealed record LongMemEvalAdapterOptions
     /// </remarks>
     public int MaxItemsPerSourceSession { get; init; }
 
+    /// <summary>
+    /// K6. Adds a GraphRAG item budget on top of the mode's own budget.
+    /// </summary>
+    /// <remarks>
+    /// Zero everywhere else, and zero by default here: every quality measurement this track has
+    /// produced asked GraphRAG for nothing, so it has never been observed returning anything. This
+    /// budget is <b>additive</b>, not a reallocation - the total context grows by up to this many
+    /// items, so a score difference against a run without it is confounded with the larger budget
+    /// and must not be read as GraphRAG's contribution. What the flag is for is the mechanism and
+    /// the duplication rate, both of which are readable at any budget.
+    /// </remarks>
+    public int GraphRagItems { get; init; }
+
     /// <summary>G5. Returns every fact sharing a retrieved fact's canonical predicate.</summary>
     public bool ExpandFactsByPredicate { get; init; }
 
@@ -1201,6 +1279,12 @@ public sealed record LongMemEvalQuestionTelemetry(
     public int PreferencesRetrieved { get; init; }
 
     public bool GraphRagIncluded { get; init; }
+
+    /// <summary>K6. Passages GraphRAG actually returned.</summary>
+    public int GraphRagItemsRetrieved { get; init; }
+
+    /// <summary>K6. Of those, how many name a fact the structured surface already retrieved.</summary>
+    public int GraphRagFactsAlreadyRetrieved { get; init; }
 
     public LongMemEvalGraphSnapshot? GraphReadBack { get; init; }
 

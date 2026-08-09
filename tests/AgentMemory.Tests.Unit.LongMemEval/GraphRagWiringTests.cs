@@ -1,0 +1,97 @@
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.LongMemEval;
+using FluentAssertions;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using NSubstitute;
+using Xunit;
+
+namespace AgentMemory.Tests.Unit.LongMemEval;
+
+/// <summary>
+/// K6. Is GraphRAG actually reachable when the harness asks for it?
+/// </summary>
+/// <remarks>
+/// The first K6 run measured GraphRAG returning zero items across sixty questions and was one step
+/// from reporting that as a property of the surface. It was not: the harness pinned
+/// <c>BlendMode = MemoryOnly</c>, which the assembler documents as "GraphRAG suppressed even when
+/// enabled" and checks <i>before</i> the budget. A non-zero <c>MaxGraphRagItems</c> alone retrieves
+/// nothing.
+/// <para>
+/// Three separate things must line up before a single item can come back — the flag, the registered
+/// source, and the blend mode — and two of them are unreachable through the paths a reader would
+/// naturally check (K9). Each one is asserted here, so the next zero is evidence about the surface
+/// rather than about the wiring.
+/// </para>
+/// </remarks>
+public sealed class GraphRagWiringTests
+{
+    [Fact]
+    public void AskingForGraphRagEnablesIt()
+    {
+        // K9: this cannot be done through the configureMemory action at all, so the profile replaces
+        // the registered IOptions<MemoryOptions>. If that override ever stops winning over the open
+        // generic, GraphRAG silently returns nothing again.
+        Resolve(graphRagIndexName: "fact_embedding_idx")
+            .GetRequiredService<IOptions<MemoryOptions>>().Value
+            .EnableGraphRag.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AskingForGraphRagRegistersASource()
+    {
+        Resolve(graphRagIndexName: "fact_embedding_idx")
+            .GetService<IGraphRagContextSource>().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void TheConfiguredIndexAndProjectionSurvive()
+    {
+        // K10: without an explicit retrieval query a Fact node has no `text` property, so the prompt
+        // would receive the driver's dump of the whole node, embedding included.
+        var options = Resolve(graphRagIndexName: "fact_embedding_idx")
+            .GetRequiredService<IOptions<AgentMemory.Neo4j.Infrastructure.GraphRagOptions>>().Value;
+
+        options.IndexName.Should().Be("fact_embedding_idx");
+        options.RetrievalQuery.Should().Contain("fact_id");
+    }
+
+    [Fact]
+    public void NotAskingForGraphRagLeavesEverythingOff()
+    {
+        // The default for every run this track has produced, and the state prior runs are comparable
+        // against. Nothing about K6 may change it.
+        var provider = Resolve(graphRagIndexName: null);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>().Value.EnableGraphRag.Should().BeFalse();
+        provider.GetService<IGraphRagContextSource>().Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0, RetrievalBlendMode.MemoryOnly)]
+    [InlineData(5, RetrievalBlendMode.Blended)]
+    public void TheBlendModeStopsSuppressingGraphRagOnlyWhenABudgetIsAskedFor(
+        int graphRagBudget, RetrievalBlendMode expected)
+    {
+        // The defect the first K6 run actually hit. MemoryOnly is checked before the budget, so this
+        // is what decides whether any of the wiring above matters.
+        AgentMemoryLongMemEvalAdapter.BlendModeFor(graphRagBudget).Should().Be(expected);
+    }
+
+    private static ServiceProvider Resolve(string? graphRagIndexName) =>
+        LongMemEvalMemoryProfile.ConfigureServices(
+                "bolt://localhost:7687",
+                Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>(),
+                Substitute.For<IChatClient>(),
+                LongMemEvalMemoryMode.Structured,
+                "gpt-4o-mini",
+                embeddingDimensions: 1536,
+                enableBatchedPreparation: true,
+                maxConcurrentBatchesPerExtraction: 1,
+                maxConcurrentExtractionBatches: 6,
+                usePredicateVocabulary: true,
+                graphRagIndexName)
+            .BuildServiceProvider();
+}
