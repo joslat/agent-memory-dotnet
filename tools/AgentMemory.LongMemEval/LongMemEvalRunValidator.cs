@@ -121,6 +121,25 @@ internal static class LongMemEvalRunValidator
         }
 
 
+        // One telemetry entry per question, always. A second entry for the same question means a
+        // code path recorded and then continued instead of terminating - which is a programming
+        // error, not a measurement outcome. It first surfaced as "An item with the same key has
+        // already been added", naming a dictionary rather than the cause, so it is checked here
+        // where the message can say what actually happened.
+        var duplicateQuestions = telemetry
+            .GroupBy(item => item.QuestionNumber)
+            .Where(group => group.Count() > 1)
+            .Select(group => $"position {group.Key} recorded {group.Count()}x " +
+                             $"({string.Join(", ", group.Select(item => item.Status))})")
+            .ToArray();
+        if (duplicateQuestions.Length > 0)
+        {
+            issues.Add(
+                "Telemetry contains more than one record for the same question: " +
+                string.Join("; ", duplicateQuestions) +
+                ". A path recorded telemetry and then continued instead of terminating.");
+        }
+
         var preparedQuestions = telemetry.Count(item => item.PreparedMemory);
         if (preparedQuestions != 0 && preparedQuestions != telemetry.Count)
         {

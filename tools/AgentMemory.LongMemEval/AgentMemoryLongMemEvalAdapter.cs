@@ -282,6 +282,9 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         var extractionUnits = 0;
         var extractionCallsPlanned = 0;
+        // Set when retrieval returned nothing against a graph proven populated; carried to the
+        // single completion record so the outcome is scored without being recorded twice.
+        var retrievalEmpty = false;
         LongMemEvalGraphSnapshot? graphSnapshot = null;
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null;
         if (_options.MemoryMode.UsesExtraction())
@@ -604,28 +607,29 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         if (recall.TotalItemsRetrieved == 0)
         {
-            // Full telemetry, not the five-positional-argument call this used to make. That call
-            // left nine optional parameters at their defaults, so the report showed
-            // MessagesStored=<built count>, PreparedMemory=false and QuestionId=null for a question
-            // that had in fact used prepared memory throughout - defaults presented as measurements,
-            // which is how the first diagnosis of this failure went the wrong way entirely.
-            RecordTelemetry(
-                questionNumber,
-                messagesStored,
-                0,
-                recall.Truncated,
-                "retrieval-empty",
-                evidenceQuestion?.QuestionId,
-                extractionUnits: extractionUnits,
-                context: recall.Context,
-                graphSnapshot: graphSnapshot,
-                stageTimings: timings.Snapshot(),
-                messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
-                preparedMemory: _options.PreparedMemory,
-                extractionCallsPlanned: extractionCallsPlanned);
-
             if (!CanScoreEmptyRetrieval(graphSnapshot))
             {
+                // Unmeasurable: record and stop. Full telemetry, not the five-positional-argument
+                // call this used to make - that left nine optional parameters at their defaults, so
+                // the report showed MessagesStored=<built count>, PreparedMemory=false and
+                // QuestionId=null for a question that had used prepared memory throughout. Defaults
+                // presented as measurements; it sent the first diagnosis of this failure the wrong
+                // way entirely.
+                RecordTelemetry(
+                    questionNumber,
+                    messagesStored,
+                    0,
+                    recall.Truncated,
+                    "retrieval-empty",
+                    evidenceQuestion?.QuestionId,
+                    extractionUnits: extractionUnits,
+                    context: recall.Context,
+                    graphSnapshot: graphSnapshot,
+                    stageTimings: timings.Snapshot(),
+                    messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
+                    preparedMemory: _options.PreparedMemory,
+                    extractionCallsPlanned: extractionCallsPlanned);
+
                 throw new InvalidOperationException(
                     $"AgentMemory retrieved no history for LongMemEval question {questionNumber}, and " +
                     "the graph read-back does not prove its memory was populated with complete " +
@@ -633,9 +637,16 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             }
 
             // The graph IS proven populated, so this is a genuine retrieval failure and it gets
-            // scored as one. The answer call proceeds against an empty memory context and will
-            // almost certainly be judged wrong - which is the truthful outcome for a memory system
-            // that returned nothing, and keeps the arms paired so the comparison stays valid.
+            // scored as one: the answer call proceeds against an empty memory context and will
+            // almost certainly be judged wrong, which is the truthful outcome for a memory system
+            // that returned nothing, and it keeps the arms paired so the comparison stays valid.
+            //
+            // Deliberately NOT recorded here. This question continues to the single completion
+            // record at the end of the method, and recording twice produced two telemetry entries
+            // for one question - which surfaced as "An item with the same key has already been
+            // added. Key: 32260d93" and killed the first acceptance run. The status is carried
+            // instead.
+            retrievalEmpty = true;
         }
 
         if (_options.ExcludeSyntheticFormatterMessages)
@@ -789,7 +800,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             messagesStored,
             recall.TotalItemsRetrieved,
             recall.Truncated,
-            "completed",
+            retrievalEmpty ? "retrieval-empty" : "completed",
             evidenceQuestion?.QuestionId,
             retrievalEvidence,
             extractionUnits,
