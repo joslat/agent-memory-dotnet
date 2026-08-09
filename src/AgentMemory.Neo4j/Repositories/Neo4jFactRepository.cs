@@ -550,7 +550,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IReadOnlyList<string> canonicalPredicates,
         int limit,
         MemoryScope scope,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? priorityPredicates = null)
     {
         ArgumentNullException.ThrowIfNull(canonicalPredicates);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -566,12 +567,16 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["predicateKeys"] = canonicalPredicates.ToArray(),
             ["limit"] = limit
         };
+        // Only bind the parameter when it is actually used, so the un-prioritised query stays
+        // byte-identical and its plan cache entry is unchanged.
+        var priorityKeys = priorityPredicates?.Where(p => !string.IsNullOrEmpty(p)).ToArray() ?? [];
+        if (priorityKeys.Length > 0) parameters["priorityKeys"] = priorityKeys;
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
-                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared),
+                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared, priorityKeys.Length > 0),
                 parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<Fact>)records

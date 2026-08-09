@@ -58,13 +58,28 @@ internal static class FactQueries
     /// ~1,000 facts would simply exhaust the answer budget.
     /// </para>
     /// </remarks>
-    public static string SearchByCanonicalPredicates(bool hasOwnerFilter, bool includeShared)
+    public static string SearchByCanonicalPredicates(
+        bool hasOwnerFilter,
+        bool includeShared,
+        bool hasPriorityKeys = false)
     {
         // Mirrors GetBySubject's owner-conditional shape rather than inventing its own. The first
         // version hard-coded `f.owner_key = $ownerKey` with `scope.OwnerId ?? OwnerKeyShared`, which
         // (a) never matched shared facts even when IncludeShared was set, silently breaking the
         // "relation whole" guarantee, and (b) coerced a null-owner scope to the shared bucket, so it
         // returned nothing exactly where top-K returned everything.
+        // J3.1. One shared LIMIT covers the question's resolved relations AND the canonical predicate
+        // of every top-K vector hit, ordered globally by confidence, so unrelated high-confidence
+        // facts consume the budget before the relation the question named is exhausted. Measured:
+        // a9f6b44c holds 49 facts under planned/plans, had a 60-row budget, and received 22.
+        //
+        // Ordering the question's own keys first is a TIEBREAK, not a filter: it changes nothing
+        // when the budget is not binding, and it never widens what is visible - the WHERE clause is
+        // untouched. Empty when no priority keys are supplied, so every existing caller gets the
+        // byte-identical query it had before.
+        var priority = hasPriorityKeys
+            ? "CASE WHEN f.predicate_key IN $priorityKeys THEN 0 ELSE 1 END, "
+            : string.Empty;
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
                             : " AND f.owner_id = $ownerId";
@@ -73,7 +88,7 @@ internal static class FactQueries
             WHERE f.predicate_key IN $predicateKeys
               AND f.invalidated_at IS NULL{owner}
             RETURN f
-            ORDER BY f.confidence DESC, f.id ASC
+            ORDER BY {priority}f.confidence DESC, f.id ASC
             LIMIT $limit";
     }
 

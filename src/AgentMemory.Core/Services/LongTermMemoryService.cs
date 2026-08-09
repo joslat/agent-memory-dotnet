@@ -382,8 +382,23 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
             .Where(predicate => predicate.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        // J3.1. The predicate set above deliberately mixes two very different things: relations the
+        // QUESTION named, and predicates BORROWED from whatever top-K happened to return. They share
+        // one budget ordered by confidence, so a borrowed predicate with high-confidence facts can
+        // exhaust it before the named relation is complete - which defeats the completeness guarantee
+        // this method exists to provide. Measured before fixing: a question holding 49 facts under
+        // planned/plans, with a 60-row budget, received 22.
+        //
+        // Passing the named relations as priority makes them a tiebreak ahead of the borrowed ones.
+        // Empty when the question named nothing, so the ordering is unchanged for every other path.
+        var priorityPredicates = questionRelations
+            .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
+            .Where(predicate => predicate.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
-            predicates, expansionLimit, resolved, cancellationToken).ConfigureAwait(false);
+            predicates, expansionLimit, resolved, cancellationToken, priorityPredicates)
+            .ConfigureAwait(false);
 
         var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
         foreach (var fact in expanded)
