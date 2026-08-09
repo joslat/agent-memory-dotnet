@@ -127,10 +127,14 @@
         "do i take part",
         "i take part",
         "is a student at",
+        "participate",
         "participate in",
+        "participated",
         "participated in",
         "participated in the",
+        "participates",
         "participates in",
+        "participating",
         "participating in",
         "present at",
         "take part",
@@ -308,6 +312,17 @@
       ],
       "surfaceForms": [
         "clean"
+      ]
+    },
+    "commutes": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "commute",
+        "commuted",
+        "commuting"
       ]
     },
     "completed": {
@@ -770,6 +785,20 @@
         "studies",
         "study",
         "studying"
+      ]
+    },
+    "led": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "lead",
+        "leading",
+        "leads",
+        "managed",
+        "manages",
+        "managing"
       ]
     },
     "lent": {
@@ -1311,7 +1340,9 @@
         "stay",
         "stay at",
         "stay in",
+        "stayed",
         "stayed in",
+        "staying",
         "staying at",
         "stays at"
       ]
@@ -1433,6 +1464,19 @@
         "go to"
       ]
     },
+    "tried": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "sampled",
+        "tasted",
+        "tries",
+        "try",
+        "trying"
+      ]
+    },
     "updated to": {
       "family": "event",
       "sources": [
@@ -1469,6 +1513,19 @@
         "visit",
         "visiting",
         "visits"
+      ]
+    },
+    "wakes": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "wake",
+        "wake up",
+        "wakes up",
+        "waking",
+        "woke"
       ]
     },
     "wants": {
