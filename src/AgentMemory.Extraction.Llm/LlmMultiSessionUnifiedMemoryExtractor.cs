@@ -234,7 +234,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         // count. Removing it does not remove a working recovery; it removes a misleading one. A real
         // transport retry is tracked separately, because it must be reconciled with the harness's
         // exact-call-count invariant rather than quietly breaking it.
-        catch (FormatException ex) when (batch.Count > 1)
+        catch (Exception ex) when (batch.Count > 1 && IsBatchShapeFailure(ex))
         {
             _batchDiagnostics?.RecordSplit(ex, batch.Count);
             _logger.LogWarning(
@@ -445,6 +445,30 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             Preferences = Preferences,
             Relationships = Relationships,
         };
+    }
+
+
+    /// <summary>
+    /// Whether a failure is caused by the batch's own shape, and so is worth splitting for.
+    /// </summary>
+    /// <remarks>
+    /// Two families qualify. <see cref="FormatException"/> covers the validation and parse failures
+    /// this class raises itself. A <b>permanent 4xx</b> qualifies too, and missing it cost a full
+    /// 60-minute preparation: the provider rejected oversized batches with HTTP 400, the splitter
+    /// had been narrowed to FormatException only so it declined to help, and the transport retry
+    /// re-sent each rejected request until the watchdog fired.
+    /// <para>
+    /// 408 and 429 are excluded deliberately — they are transient and belong to the retry policy, and
+    /// splitting on a rate limit would answer congestion by sending more requests.
+    /// </para>
+    /// </remarks>
+    internal static bool IsBatchShapeFailure(Exception exception)
+    {
+        if (exception is FormatException)
+            return true;
+
+        var status = Internal.LlmExtractionRunner.TryGetStatus(exception);
+        return status is >= 400 and < 500 and not 408 and not 429;
     }
 
     private sealed class BatchValidationException(string message) : FormatException(message);

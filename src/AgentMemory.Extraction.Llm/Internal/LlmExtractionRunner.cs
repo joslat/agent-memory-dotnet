@@ -99,6 +99,51 @@ internal sealed class LlmExtractionRunner
     /// the preparation watchdog's timeout unenforceable.
     /// </para>
     /// </remarks>
+
+    /// <summary>
+    /// Whether a provider failure is worth re-sending an identical request for.
+    /// </summary>
+    /// <remarks>
+    /// Retrying a permanent failure is not merely useless, it is expensive: an n=50 preparation spent
+    /// its 60-minute budget re-sending requests the provider had already rejected with
+    /// <b>HTTP 400</b>, and the watchdog fired with 7 failures and 544 of 614 calls done. A 400 says
+    /// the request is wrong — most often too large — and the same request will be just as wrong the
+    /// third time.
+    /// <para>
+    /// Retryable: 408, 429, and 5xx, plus transport-level exceptions that never reached the service
+    /// and so carry no status. Everything else is permanent. An oversized request is separately
+    /// recoverable by splitting the batch, which is a different mechanism and the right one.
+    /// </para>
+    /// </remarks>
+    internal static bool IsTransient(Exception exception)
+    {
+        var status = TryGetStatus(exception);
+        if (status is null)
+            return true;   // never reached the service: a connection reset, a DNS failure, a timeout
+        return status is 408 or 429 || status >= 500;
+    }
+
+    /// <summary>
+    /// The HTTP status behind a provider exception, or null when the call never got one.
+    /// </summary>
+    /// <remarks>
+    /// Read reflectively rather than by referencing System.ClientModel: the status lives on
+    /// <c>ClientResultException.Status</c> for Azure/OpenAI clients and on
+    /// <c>HttpRequestException.StatusCode</c> for raw HTTP, and this library should not take a
+    /// package dependency to classify an error.
+    /// </remarks>
+    internal static int? TryGetStatus(Exception exception)
+    {
+        if (exception is HttpRequestException { StatusCode: { } code })
+            return (int)code;
+
+        var property = exception.GetType().GetProperty("Status");
+        if (property?.GetValue(exception) is int status && status > 0)
+            return status;
+
+        return exception.InnerException is null ? null : TryGetStatus(exception.InnerException);
+    }
+
     private async Task<ChatResponse> GetResponseWithTransportRetryAsync(
         List<ChatMessage> chatMessages,
         ChatOptions chatOptions,
@@ -121,7 +166,7 @@ internal sealed class LlmExtractionRunner
             {
                 throw;
             }
-            catch (Exception exception) when (attempt < maxAttempts)
+            catch (Exception exception) when (attempt < maxAttempts && IsTransient(exception))
             {
                 _logger.LogWarning(
                     exception,

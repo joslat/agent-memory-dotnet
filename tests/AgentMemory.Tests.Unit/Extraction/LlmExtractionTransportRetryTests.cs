@@ -1,3 +1,4 @@
+using System.Net;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Extraction.Llm;
 using FluentAssertions;
@@ -88,6 +89,35 @@ public sealed class LlmExtractionTransportRetryTests
         await act.Should().ThrowAsync<OperationCanceledException>().ConfigureAwait(true);
         await client.DidNotReceive().GetResponseAsync(
             Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions>(), Arg.Any<CancellationToken>());
+    }
+
+
+    [Theory]
+    [InlineData(408, true)]
+    [InlineData(429, true)]
+    [InlineData(500, true)]
+    [InlineData(503, true)]
+    [InlineData(400, false)]   // the one that cost a 60-minute preparation
+    [InlineData(401, false)]
+    [InlineData(404, false)]
+    public void OnlyTransientStatusesAreRetried(int status, bool transient)
+    {
+        // A 400 says the request is wrong, usually too large, and it will be just as wrong the third
+        // time. An n=50 preparation spent its whole 60-minute budget re-sending requests the provider
+        // had already rejected with 400; the watchdog fired at 544 of 614 calls with 7 failures.
+        AgentMemory.Extraction.Llm.Internal.LlmExtractionRunner
+            .IsTransient(new HttpRequestException("provider", null, (HttpStatusCode)status))
+            .Should().Be(transient);
+    }
+
+    [Fact]
+    public void AFailureThatNeverReachedTheServiceIsTransient()
+    {
+        // No status at all: a connection reset, a DNS failure, a socket timeout. The request may
+        // never have been seen, so re-sending it is exactly right.
+        AgentMemory.Extraction.Llm.Internal.LlmExtractionRunner
+            .IsTransient(new HttpRequestException("connection reset"))
+            .Should().BeTrue();
     }
 
     // The alias, not the session id: the contract acknowledges sources as s1..sN.
