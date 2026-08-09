@@ -448,10 +448,26 @@ internal static class LongMemEvalPreparedPairProgram
                 ValidatePreparationTelemetry(preparationTelemetry, questions.Length);
                 var initialExtractionCalls = batchExecution.PlannedCalls;
                 var extractionSnapshot = extractionCalls.Snapshot();
-                if (extractionSnapshot.Calls != initialExtractionCalls ||
-                    extractionSnapshot.CompletedCalls != initialExtractionCalls ||
-                    extractionSnapshot.Failures != 0 ||
-                    extractionSnapshot.RetryCalls != 0 ||
+                // Routed through the SAME decision as the per-question guard, so the two cannot
+                // drift apart. They already had: the per-question one was refined to accept excess
+                // calls a recorded split or retry explains, this one still demanded exact equality,
+                // and a 75-minute rebuild died at 682 calls against 680 planned with failures 0 and
+                // retries 0. Split sub-calls run under their own Activity, so the activity-based
+                // retry counter cannot see them - a split appears as bare extra calls that neither
+                // counter accounts for. One guard accepted that shape and the other rejected it.
+                var recordedSplits = baseProfile.Services
+                    .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot().Splits;
+                var successfulCalls = extractionSnapshot.Calls - extractionSnapshot.Failures;
+                var accountingAcceptable =
+                    AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable(
+                        successfulCalls,
+                        successfulCalls,
+                        otherCalls: 0,
+                        recordedSplits,
+                        extractionSnapshot.RetryCalls,
+                        checked((int)initialExtractionCalls));
+                if (!accountingAcceptable ||
+                    extractionSnapshot.CompletedCalls != extractionSnapshot.Calls ||
                     extractionSnapshot.MaximumConcurrency <= 1 ||
                     extractionSnapshot.MaximumConcurrency > options.MaxConcurrentExtractionBatches)
                 {
@@ -460,7 +476,9 @@ internal static class LongMemEvalPreparedPairProgram
                         $"{extractionSnapshot.Calls}/{extractionSnapshot.CompletedCalls}, failures " +
                         $"{extractionSnapshot.Failures}, retries {extractionSnapshot.RetryCalls}, maximum " +
                         $"provider concurrency {extractionSnapshot.MaximumConcurrency}; expected exactly " +
-                        $"{initialExtractionCalls} completed calls, zero failures/retries, and concurrency 2..{options.MaxConcurrentExtractionBatches}.");
+                        $"at least {initialExtractionCalls} successful calls with any excess " +
+                        $"explained by a recorded split or retry (splits={recordedSplits}), every " +
+                        $"started call completed, and concurrency 2..{options.MaxConcurrentExtractionBatches}.");
                 }
 
                 var preparedQuestions = questions.Select((question, index) =>
