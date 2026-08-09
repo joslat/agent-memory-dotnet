@@ -224,7 +224,16 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         // re-sending each half puts the same request shape at the same endpoint that just failed, so
         // the split neither diagnoses nor fixes it, and it doubles the call count. That broke a
         // 37-minute n=50 preparation at question 20 ("observed 14 calls ... expected exactly 12")
-        // over one ClientResultException. Transport failures belong to the configured retry policy.
+        // over one ClientResultException.
+        //
+        // NOTE, verified rather than assumed: there is currently NO transport retry on this path.
+        // LlmExtractionRunner honours MaxRetries, but only by re-prompting on a parse failure - its
+        // GetResponseAsync call sits outside any catch, so a transport exception propagates
+        // immediately. Splitting was therefore the only thing resembling a retry for transports, and
+        // it was a bad one: it re-sent to the endpoint that had just failed and doubled the call
+        // count. Removing it does not remove a working recovery; it removes a misleading one. A real
+        // transport retry is tracked separately, because it must be reconciled with the harness's
+        // exact-call-count invariant rather than quietly breaking it.
         catch (FormatException ex) when (batch.Count > 1)
         {
             _batchDiagnostics?.RecordSplit(ex, batch.Count);
