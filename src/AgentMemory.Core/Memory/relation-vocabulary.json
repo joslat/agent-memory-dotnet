@@ -604,6 +604,32 @@
         "having"
       ]
     },
+    "heard": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "hear",
+        "hearing",
+        "hears"
+      ]
+    },
+    "helped": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "help",
+        "helping",
+        "helps",
+        "assist",
+        "assisted",
+        "assisting",
+        "assists"
+      ]
+    },
     "hired": {
       "family": "event",
       "sources": [
@@ -876,6 +902,17 @@
         "relocating to"
       ]
     },
+    "noticed": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "notice",
+        "noticing",
+        "notices"
+      ]
+    },
     "owes": {
       "family": "state",
       "sources": [
@@ -996,6 +1033,20 @@
         "promotes",
         "promoting",
         "promotion"
+      ]
+    },
+    "provided": {
+      "family": "event",
+      "sources": [
+        "hand-authored"
+      ],
+      "surfaceForms": [
+        "provide",
+        "providing",
+        "provides",
+        "supplied",
+        "supplies",
+        "supplying"
       ]
     },
     "rated": {
