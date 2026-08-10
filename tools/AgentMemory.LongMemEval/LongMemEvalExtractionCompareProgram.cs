@@ -78,11 +78,16 @@ internal static class LongMemEvalExtractionCompareProgram
             azureClient.GetChatClient(extractionDeployment).AsIChatClient());
 
         var perKind = await RunPathAsync(
-            "per-kind", slices, chatClient, extractionDeployment, unified: false).ConfigureAwait(false);
+            "per-kind", slices, chatClient, extractionDeployment, Arm.PerKind).ConfigureAwait(false);
         var unifiedPath = await RunPathAsync(
-            "unified", slices, chatClient, extractionDeployment, unified: true).ConfigureAwait(false);
+            "unified", slices, chatClient, extractionDeployment, Arm.Unified).ConfigureAwait(false);
+        // The third arm is the one that matters most for interpreting this plan: every recorded
+        // quality number came from THIS extractor, and neither arm above describes it.
+        var batchPath = await RunPathAsync(
+            "multi-session-batch", slices, chatClient, extractionDeployment, Arm.Batch)
+            .ConfigureAwait(false);
 
-        var report = Compare(perKind, unifiedPath, slices.Count, seed, turns, datasetPath);
+        var report = Compare(perKind, unifiedPath, batchPath, slices.Count, seed, turns, datasetPath);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         await File.WriteAllTextAsync(
             output,
@@ -97,6 +102,9 @@ internal static class LongMemEvalExtractionCompareProgram
             $"  unified  : {unifiedPath.Facts.Count} facts, {unifiedPath.Entities.Count} entities, "
             + $"{unifiedPath.Calls} calls");
         Console.WriteLine(
+            $"  batch    : {batchPath.Facts.Count} facts, {batchPath.Entities.Count} entities, "
+            + $"{batchPath.Calls} calls");
+        Console.WriteLine(
             $"  fact triple overlap (Jaccard): {report.FactTripleJaccard:F3}   "
             + $"shared {report.SharedFactTriples} of {report.UnionFactTriples}");
         return 0;
@@ -107,7 +115,7 @@ internal static class LongMemEvalExtractionCompareProgram
         IReadOnlyList<IReadOnlyList<Message>> slices,
         IChatClient chatClient,
         string deployment,
-        bool unified)
+        Arm arm)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -121,8 +129,8 @@ internal static class LongMemEvalExtractionCompareProgram
             // The ONLY difference between the two arms. Multi-session batching is deliberately off in
             // both: it is a third path, already covered by 55 runs, and mixing it in would confound
             // the comparison this probe exists to make.
-            options.UseUnifiedExtraction = unified;
-            options.UseMultiSessionBatchExtraction = false;
+            options.UseUnifiedExtraction = arm != Arm.PerKind;
+            options.UseMultiSessionBatchExtraction = arm == Arm.Batch;
         });
         var provider = services.BuildServiceProvider();
 
@@ -132,7 +140,26 @@ internal static class LongMemEvalExtractionCompareProgram
             using var scope = provider.CreateScope();
             var sp = scope.ServiceProvider;
             var messages = slices[index];
-            if (unified)
+            if (arm == Arm.Batch)
+            {
+                var extractor = sp.GetServices<IMultiSessionUnifiedMemoryExtractor>()
+                    .First(candidate => candidate.IsEnabled);
+                var request = new ExtractionRequest
+                {
+                    Messages = messages,
+                    SessionId = messages[0].SessionId,
+                };
+                // One session per call here, so the batch prompt is compared on the SAME input as the
+                // other two arms. Its cross-session attribution rules still apply - that is part of
+                // what makes it a different extractor rather than a batching detail.
+                var extracted = await extractor
+                    .ExtractAsync([request], maxSessionsPerBatch: 1, maxInputTokens: 50_000)
+                    .ConfigureAwait(false);
+                var single = extracted.Values.FirstOrDefault() ?? new UnifiedExtractionResult();
+                result.Add(single.Entities, single.Facts, single.Preferences,
+                    single.Relationships, calls: 1);
+            }
+            else if (arm == Arm.Unified)
             {
                 var extractor = sp.GetServices<IUnifiedMemoryExtractor>()
                     .First(candidate => candidate.IsEnabled);
@@ -168,7 +195,8 @@ internal static class LongMemEvalExtractionCompareProgram
         + MemoryTripleCanonicalizer.CanonicalValue(fact.Object);
 
     private static ComparisonReport Compare(
-        PathResult perKind, PathResult unified, int units, int seed, int turns, string dataset)
+        PathResult perKind, PathResult unified, PathResult batch,
+        int units, int seed, int turns, string dataset)
     {
         var a = perKind.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal);
         var b = unified.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal);
@@ -184,12 +212,30 @@ internal static class LongMemEvalExtractionCompareProgram
             TurnsPerUnit = turns,
             PerKind = Summarise(perKind),
             Unified = Summarise(unified),
+            MultiSessionBatch = Summarise(batch),
+            BatchVsPerKindJaccard = Jaccard(batch, perKind),
+            BatchVsUnifiedJaccard = Jaccard(batch, unified),
             SharedFactTriples = shared,
             UnionFactTriples = union,
             FactTripleJaccard = union == 0 ? 0 : (double)shared / union,
             OnlyInPerKind = a.Except(b, StringComparer.Ordinal).Take(40).ToArray(),
             OnlyInUnified = b.Except(a, StringComparer.Ordinal).Take(40).ToArray(),
         };
+    }
+
+    private static double Jaccard(PathResult left, PathResult right)
+    {
+        var a = left.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal);
+        var b = right.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal);
+        var union = a.Union(b, StringComparer.Ordinal).Count();
+        return union == 0 ? 0 : (double)a.Intersect(b, StringComparer.Ordinal).Count() / union;
+    }
+
+    private enum Arm
+    {
+        PerKind,
+        Unified,
+        Batch,
     }
 
     private static PathSummary Summarise(PathResult path) => new()
@@ -314,6 +360,9 @@ internal static class LongMemEvalExtractionCompareProgram
         public int TurnsPerUnit { get; init; }
         public required PathSummary PerKind { get; init; }
         public required PathSummary Unified { get; init; }
+        public required PathSummary MultiSessionBatch { get; init; }
+        public double BatchVsPerKindJaccard { get; init; }
+        public double BatchVsUnifiedJaccard { get; init; }
         public int SharedFactTriples { get; init; }
         public int UnionFactTriples { get; init; }
         public double FactTripleJaccard { get; init; }
