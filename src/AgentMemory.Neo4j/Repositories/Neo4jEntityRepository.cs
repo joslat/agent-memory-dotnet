@@ -15,8 +15,6 @@ namespace AgentMemory.Neo4j.Repositories;
 internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsertPersistsProvenance,
     IBatchMemoryRepository<Entity>, IFusedBatchMemoryRepository<Entity>
 {
-    private const int OwnerOverFetchFactor = Neo4jFactRepository.OwnerOverFetchFactor;
-    private const int OwnerOverFetchFloor = Neo4jFactRepository.OwnerOverFetchFloor;
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jEntityRepository> _logger;
@@ -166,7 +164,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Entity, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
         _logger.LogDebug("Vector search entities, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
@@ -649,7 +647,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         // Over-fetch when scoped so a high-volume foreign owner can't starve the post-filter result set.
-        int topK = hasOwner ? Math.Max((limit + 1) * OwnerOverFetchFactor, limit + 1 + OwnerOverFetchFloor) : limit + 1;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit + 1, hasOwner);
         _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}, owner={Owner}",
             entityId, minSimilarity, limit, scope?.OwnerId);
 
@@ -739,7 +737,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Entity, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor) : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
         _logger.LogDebug("Temporal vector search entities as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
 
         var cypher = TemporalQueries.SearchEntitiesAsOf(hasOwner, includeShared, topK);

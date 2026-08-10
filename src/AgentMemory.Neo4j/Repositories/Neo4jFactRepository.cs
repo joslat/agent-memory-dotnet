@@ -16,10 +16,6 @@ namespace AgentMemory.Neo4j.Repositories;
 internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance,
     IBatchMemoryRepository<Fact>, IFusedBatchMemoryRepository<Fact>
 {
-    // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
-    // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).
-    internal const int OwnerOverFetchFactor = 5;
-    internal const int OwnerOverFetchFloor = 50;
 
     // Non-null sentinel for the shared/global owner, used only as the MERGE-pattern owner_key so that
     // a shared fact (owner_id null) stays distinct from owned facts with the same S/P/O triple.
@@ -277,12 +273,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Fact, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
         _logger.LogDebug("Vector search facts, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
         bool recencyRerank = ranking.RecencyRerankEnabled;
-        var cypher = FactQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"] = queryEmbedding.ToList(),
@@ -292,17 +287,43 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
         if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
-        return await _tx.ReadAsync(async runner =>
+        async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
-            var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r =>
+            var cypher = FactQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            return await _tx.ReadAsync(async runner =>
             {
-                var node = r["node"].As<INode>();
-                var score = r["score"].As<double>();
-                return (MapToFact(node, ReadEmbedding(node)), score);
-            }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r =>
+                {
+                    var node = r["node"].As<INode>();
+                    var score = r["score"].As<double>();
+                    return (MapToFact(node, ReadEmbedding(node)), score);
+                }).ToList();
+            }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);
+
+        // The index is global, so the owner filter runs AFTER top-K and the owner's own rows can be
+        // crowded out entirely by other tenants'. Measured on a 50-owner base, the owner received a
+        // mean of 7 of 60 candidates and one question received none at all from a graph holding 504
+        // of its own live, embedded, above-threshold facts. Empty is total failure, so it is worth
+        // one wider query; anything non-empty is left alone, because escalating on "short" would tax
+        // every small tenant forever.
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        {
+            var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
+            if (widened > topK)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped fact vector search returned nothing at topK={TopK}; retrying at {Widened}.",
+                    topK, widened);
+                results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return results.Select(r => (r.Item1, r.Item2)).ToList();
     }
 
     public async Task<Fact?> FindDuplicateAsync(
@@ -548,7 +569,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Fact, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
         // D6 bitemporal: asOf is the valid-time clock; systemAsOf is the transaction clock (defaults to asOf
         // for ordinary single-clock recall — identical to the previous behaviour).
         _logger.LogDebug("Temporal vector search facts valid@{ValidAsOf} system@{SystemAsOf}, limit={Limit}, owner={Owner}",

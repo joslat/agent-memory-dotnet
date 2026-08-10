@@ -147,9 +147,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         if (taskEmbedding is not { Length: > 0 }) return Array.Empty<(ReasoningTrace, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner
-            ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor)
-            : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
 
         _logger.LogDebug("Vector search reasoning traces, successFilter={Filter}, limit={Limit}, owner={Owner}",
             successFilter, limit, scope?.OwnerId);
@@ -191,9 +189,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         if (taskEmbedding is not { Length: > 0 }) return Array.Empty<(ReasoningTrace, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner
-            ? Math.Max(limit * Neo4jFactRepository.OwnerOverFetchFactor, limit + Neo4jFactRepository.OwnerOverFetchFloor)
-            : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
 
         _logger.LogDebug("Temporal vector search reasoning traces as of {AsOf}, successFilter={Filter}, limit={Limit}, owner={Owner}",
             asOf, successFilter, limit, scope?.OwnerId);
