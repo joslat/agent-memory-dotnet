@@ -326,15 +326,25 @@ touch the last of these.
 Neither had been recorded anywhere before this section was written. One is in the short-term layer,
 one in the reasoning layer.
 
-**`Message.session_id` is the primary recall predicate and has no index.** `GetRecentBySession`,
-`GetAllBySession` and `DeleteBySession` all match `(m:Message {session_id: $sessionId})`.
-`SchemaQueries.PropertyIndexes` contains `conversation_session_idx`, `message_timestamp_idx` and
-`message_role_idx` — and no index on `Message.session_id`. The planner has no seek for that predicate,
-so the plan is proportional to the **total number of messages in the store**, not to the session. This
-is a port-introduced regression: upstream's `Message` has no `session_id` property at all and reaches
-messages by traversing the indexed `Conversation.session_id`. We denormalised the property and did not
-index it. Combined with the absence of any expiry mechanism, the scanned set grows without bound for
-the life of a deployment.
+**`Message.session_id` was the primary recall predicate and had no index. FIXED.**
+`GetRecentBySession`, `GetAllBySession` and `DeleteBySession` all match
+`(m:Message {session_id: $sessionId})`, and `SchemaQueries.PropertyIndexes` contained
+`conversation_session_idx`, `message_timestamp_idx` and `message_role_idx` — and no index on
+`Message.session_id`. The planner had no seek for that predicate, so the plan was proportional to the
+**total number of messages in the store**, not to the session. This was a port-introduced regression:
+upstream's `Message` has no `session_id` property at all and reaches messages by traversing the indexed
+`Conversation.session_id`. We denormalised the property and did not index it. Combined with the absence
+of any expiry mechanism, the scanned set grew without bound for the life of a deployment.
+
+Closed by `message_session_timestamp_idx` (`SchemaQueries.MessageSessionTimestampIndex`, migration
+`0007_message_session_timestamp.cypher`), a **composite** on `(session_id, timestamp)`: `session_id`
+leads so its prefix serves all three queries above, and the trailing column is pushed into the index
+for `TemporalQueries.GetRecentMessagesAsOf`, which adds a `timestamp <= $asOf` range to the same
+equality. Note the failure mode this had, because it generalises: the fallback plan was not always a
+full label scan — the planner could also walk `message_timestamp_idx` backwards until `$limit` matches
+accumulated, which is **fast for the session just written to and unboundedly slow for an idle session
+in a busy store**. A defect that is bimodal on data distribution rather than uniformly slow is one that
+benchmarks on a fresh store will not reproduce.
 
 **`:ToolCall` nodes are orphaned by every deletion path, and `:Tool` counters drift upward
 permanently.** `ReasoningQueries.DeleteBySession` and `PruneSessionTraces` both `DETACH DELETE` the

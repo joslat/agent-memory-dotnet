@@ -871,12 +871,14 @@ CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningS
 
 ### 4.6 Property Indexes (Implemented in SchemaBootstrapper)
 
-**21 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
+**27 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
 
 ```cypher
 CREATE INDEX conversation_session_idx IF NOT EXISTS FOR (c:Conversation) ON (c.session_id)
 CREATE INDEX message_timestamp_idx IF NOT EXISTS FOR (m:Message) ON (m.timestamp)
 CREATE INDEX message_role_idx IF NOT EXISTS FOR (m:Message) ON (m.role)
+CREATE INDEX message_session_idx IF NOT EXISTS FOR (m:Message) ON (m.session_id)
+CREATE INDEX message_session_timestamp_idx IF NOT EXISTS FOR (m:Message) ON (m.session_id, m.timestamp)
 CREATE INDEX entity_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.type)
 CREATE INDEX entity_name_idx IF NOT EXISTS FOR (e:Entity) ON (e.name)
 CREATE INDEX entity_canonical_idx IF NOT EXISTS FOR (e:Entity) ON (e.canonical_name)
@@ -889,12 +891,16 @@ CREATE INDEX tool_call_status_idx IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
 CREATE INDEX schema_name_idx IF NOT EXISTS FOR (s:Schema) ON (s.name)
 CREATE INDEX schema_version_idx IF NOT EXISTS FOR (s:Schema) ON (s.version)
 CREATE INDEX fact_owner_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_id)
+CREATE INDEX fact_merge_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.subject_key, f.object_key, f.predicate_key, f.owner_key)
+CREATE INDEX fact_owner_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_key)
+CREATE INDEX fact_predicate_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.predicate_key)
 CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)
 CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)
 CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)
 CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)
 CREATE INDEX conversation_archived_idx IF NOT EXISTS FOR (c:Conversation) ON (c.archived)
 CREATE INDEX memory_read_audit_kind_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.kind)
+CREATE INDEX memory_read_audit_memory_id_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.memory_id)
 ```
 
 **1 point index** (also in `SchemaQueries.PropertyIndexes`, for geospatial entity queries):
