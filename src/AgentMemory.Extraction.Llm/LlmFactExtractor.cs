@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -50,7 +51,7 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
-            _options.FactExtractionPrompt ?? DefaultSystemPrompt,
+            _options.FactExtractionPrompt ?? BuildSystemPrompt(_options.AssistantContent),
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,
@@ -74,4 +75,12 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
             })
             .ToList();
     }
+
+    /// <summary>The default prompt plus whatever the assistant-content setting asks for.</summary>
+    /// <remarks>
+    /// Shared with the two unified extractors through <see cref="ExtractionPromptSemantics"/>, so the
+    /// three rungs of the extraction ladder cannot disagree about semantics again.
+    /// </remarks>
+    internal static string BuildSystemPrompt(AssistantContentMode assistantContent) =>
+        DefaultSystemPrompt + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
 }

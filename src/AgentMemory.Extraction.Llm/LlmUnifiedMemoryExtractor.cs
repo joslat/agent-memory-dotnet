@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
@@ -43,7 +44,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.unified");
         var results = await _runner.RunAsync(
-            SystemPrompt,
+            BuildSystemPrompt(_options.AssistantContent),
             "Extract all supported memory from this conversation:",
             ConversationTextBuilder.Build(messages),
             response => new[] { Project(response) },
@@ -108,4 +109,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         "INDIVIDUAL" => "PERSON",
         var value => value,
     };
+
+    /// <summary>The system prompt plus whatever the assistant-content setting asks for.</summary>
+    internal static string BuildSystemPrompt(AssistantContentMode assistantContent) =>
+        SystemPrompt + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
 }

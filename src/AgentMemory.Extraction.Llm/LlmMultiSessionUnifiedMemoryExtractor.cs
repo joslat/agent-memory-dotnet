@@ -1,6 +1,7 @@
 using System.Text;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extraction.Llm.Internal;
 using AgentMemory.Core.Memory;
@@ -46,16 +47,20 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     /// size.
     /// </para>
     /// </remarks>
-    internal static string BuildSystemPrompt(MemoryPredicateVocabulary? vocabulary)
+    internal static string BuildSystemPrompt(
+        MemoryPredicateVocabulary? vocabulary,
+        AssistantContentMode assistantContent = AssistantContentMode.Ignore)
     {
+        var assistant = ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
         var established = vocabulary?.Snapshot() ?? [];
         if (established.Count == 0)
-            return SystemPrompt;
+            return SystemPrompt + assistant;
 
         return SystemPrompt +
             "\nEstablished relation predicates, in order of preference: " +
             string.Join(", ", established) +
-            ".\nReuse an established predicate whenever it fits; introduce a new one only when none does.";
+            ".\nReuse an established predicate whenever it fits; introduce a new one only when none does." +
+            assistant;
     }
 
     private const string UserInstruction =
@@ -262,7 +267,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
 
         Task<IReadOnlyList<IReadOnlyDictionary<string, UnifiedExtractionResult>>> RunProviderAsync() =>
             runner.RunAsync(
-                BuildSystemPrompt(ActiveVocabulary),
+                BuildSystemPrompt(ActiveVocabulary, _options.AssistantContent),
                 UserInstruction,
                 BuildBatchText(batch),
                 response => new[] { ProjectAndValidate(response, batch) },
@@ -395,7 +400,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
 
     private int EstimateInputTokens(IReadOnlyList<ExtractionRequest> batch) =>
         checked(
-            Encoding.UTF8.GetByteCount(BuildSystemPrompt(ActiveVocabulary)) +
+            Encoding.UTF8.GetByteCount(BuildSystemPrompt(ActiveVocabulary, _options.AssistantContent)) +
             Encoding.UTF8.GetByteCount(UserInstruction) +
             Encoding.UTF8.GetByteCount(BuildBatchText(batch)) +
             35);
