@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -160,7 +161,8 @@ internal static class LongMemEvalPreparedPairProgram
                             options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
                         maxConcurrentExtractionBatches:
                             options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
-                        usePredicateVocabulary: options.UsePredicateVocabulary)
+                        usePredicateVocabulary: options.UsePredicateVocabulary,
+                        assistantContent: options.AssistantContent)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -673,6 +675,10 @@ internal static class LongMemEvalPreparedPairProgram
                     expandFactsByPredicate = options.ExpandFactsByPredicate,
                     resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
+                    // Fingerprinted for the same reason the vocabulary is: it changes what
+                    // gets stored, so two bases built under different modes are not
+                    // comparable and must not be confusable in an artifact.
+                    assistantContent = options.AssistantContent.ToString(),
                     maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                     // K6. Additive on top of the mode budget, so a score compared against a run
                     // without it is confounded with the larger context. Recorded here so no later
@@ -1170,6 +1176,7 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--preflight-only"),
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
+            ParseAssistantContent(Value("--assistant-content")),
             Has("--expand-facts-by-predicate"),
             Has("--resolve-query-relations"),
             Value("--reuse-prepared-volumes"),
@@ -1265,6 +1272,31 @@ internal static class LongMemEvalPreparedPairProgram
         if (value is null) return defaultValue;
         if (!int.TryParse(value, out var parsed) || parsed <= 0)
             throw new ArgumentException($"{option} must be a positive integer.");
+        return parsed;
+    }
+
+    /// <summary>
+    /// Parses <c>--assistant-content ignore|utterance|fact</c>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="AssistantContentMode.Ignore"/>, which reproduces the prompts every
+    /// existing sealed base was built under. An unrecognised value throws rather than silently
+    /// falling back: a typo that quietly builds an 83-minute base in the wrong mode is exactly the
+    /// kind of failure that is discovered only after the run.
+    /// </remarks>
+    private static AssistantContentMode ParseAssistantContent(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return AssistantContentMode.Ignore;
+
+        if (!Enum.TryParse<AssistantContentMode>(value, ignoreCase: true, out var parsed) ||
+            !Enum.IsDefined(parsed))
+        {
+            throw new ArgumentException(
+                $"--assistant-content must be one of " +
+                $"{string.Join(", ", Enum.GetNames<AssistantContentMode>()).ToLowerInvariant()}; got '{value}'.");
+        }
+
         return parsed;
     }
 
@@ -1391,6 +1423,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool PreflightOnly,
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
+        AssistantContentMode AssistantContent,
         bool ExpandFactsByPredicate,
         bool ResolveQueryRelations,
         string? ReusePreparedVolume,

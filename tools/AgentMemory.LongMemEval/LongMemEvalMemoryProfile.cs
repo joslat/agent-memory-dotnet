@@ -39,6 +39,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentBatchesPerExtraction = 1,
         int maxConcurrentExtractionBatches = 0,
         bool usePredicateVocabulary = false,
+        AssistantContentMode assistantContent = AssistantContentMode.Ignore,
         string? graphRagIndexName = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
@@ -67,6 +68,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     maxConcurrentBatchesPerExtraction,
                     maxConcurrentExtractionBatches,
                     usePredicateVocabulary,
+                    assistantContent,
                     graphRagIndexName,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -91,6 +93,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentBatchesPerExtraction,
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
+        AssistantContentMode assistantContent,
         string? graphRagIndexName,
         CancellationToken cancellationToken)
     {
@@ -114,6 +117,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             maxConcurrentBatchesPerExtraction,
             maxConcurrentExtractionBatches,
             usePredicateVocabulary,
+            assistantContent,
             graphRagIndexName);
 
         _provider = services.BuildServiceProvider();
@@ -147,6 +151,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentBatchesPerExtraction,
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
+        AssistantContentMode assistantContent,
         string? graphRagIndexName)
     {
         var services = new ServiceCollection();
@@ -163,6 +168,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.MaxConcurrentBatchesPerExtraction = maxConcurrentBatchesPerExtraction;
                 options.MaxConcurrentExtractionBatches = maxConcurrentExtractionBatches;
                 options.UsePredicateVocabulary = usePredicateVocabulary;
+                options.AssistantContent = assistantContent;
             }
             : null;
         services.AddNeo4jAgentMemory(
