@@ -152,11 +152,12 @@ internal static class SchemaQueries
     /// ordering for composite indexes, and is worth a <c>PROFILE</c> rather than an assumption.
     /// </para>
     /// <para>
-    /// <c>message_timestamp_idx</c> is deliberately kept despite having no remaining standalone
-    /// reader: the upstream parity snapshot declares it
-    /// (<c>Schema/Parity/Snapshots/python-v0.5.0/schema.json:75</c>), so dropping it would break
-    /// schema parity.
-    /// </para>
+    /// <c>message_timestamp_idx</c> is kept despite having no remaining standalone reader.
+    /// <b>Measured on 5.26:</b> dropping it produced byte-identical plans for every query in this
+    /// assembly, so it is dead weight on the hottest write path. It is retained anyway because the
+    /// only benefit of removing it is write throughput, which is unmeasured — and removing a shipped
+    /// index to claim an unmeasured gain is exactly the move this codebase keeps rejecting elsewhere.
+    /// Decide it with a write-throughput measurement, not with suspicion.
     /// </remarks>
     public const string MessageSessionTimestampIndex =
         "CREATE INDEX message_session_timestamp_idx IF NOT EXISTS FOR (m:Message) " +
