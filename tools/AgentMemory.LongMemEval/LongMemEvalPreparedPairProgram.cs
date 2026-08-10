@@ -887,6 +887,9 @@ internal static class LongMemEvalPreparedPairProgram
             extractionSnapshot,
             expectedInitialExtractionCalls: 0,
             diagnosticJudgeCalls: diagnostics.JudgeRetries.Count,
+            // Diagnostics ran a call earlier; a verdict it already recovered must not be
+            // reported as missing on the strength of AgentEval's original explanation.
+            judgeRetries: diagnostics.JudgeRetries,
             agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts);
         total.Stop();
         return new PreparedArmExecution(

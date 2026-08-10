@@ -30,6 +30,30 @@ internal static class LongMemEvalRunValidator
          string.Equals(status, "retrieval-structured-empty", StringComparison.Ordinal)) &&
         AgentMemoryLongMemEvalAdapter.CanScoreEmptyRetrieval(graphSnapshot);
 
+    /// <summary>
+    /// Whether the diagnostic judge retry already produced a valid verdict for this question.
+    /// </summary>
+    /// <remarks>
+    /// The judge's phrasing varies, and an unparseable first explanation is precisely what the
+    /// retry exists to repair. When it succeeds the verdict is real, and rejecting the run because
+    /// AgentEval's <i>original</i> explanation was unparseable throws away a completed measurement
+    /// over a stale artifact — diagnostics run before validation and are handed straight to it, so
+    /// the answer was already in hand.
+    /// <para>
+    /// Deliberately narrow: only a retry that actually recovered a valid verdict excuses the
+    /// question. One that failed, or that belongs to a different question, is still a rejection.
+    /// This does not tolerate an unjudged question; it stops mis-reporting a judged one.
+    /// </para>
+    /// </remarks>
+    internal static bool HasRecoveredVerdict(
+        string? questionId,
+        IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries) =>
+        questionId is not null &&
+        judgeRetries is not null &&
+        judgeRetries.Any(retry =>
+            retry.ValidVerdict &&
+            string.Equals(retry.QuestionId, questionId, StringComparison.Ordinal));
+
     internal static LongMemEvalRunValidation Validate(
         int questionCount,
         int llmCalls,
@@ -40,7 +64,8 @@ internal static class LongMemEvalRunValidator
         LongMemEvalChatCallSnapshot? extractionCalls = null,
         long expectedInitialExtractionCalls = 0,
         int diagnosticJudgeCalls = 0,
-        int agentEvalJudgeRetryAllowance = 0)
+        int agentEvalJudgeRetryAllowance = 0,
+        IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries = null)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -220,7 +245,8 @@ internal static class LongMemEvalRunValidator
                 continue;
             }
 
-            if (!TryParseJudgeVerdict(explanation, out var judgedCorrect))
+            if (!TryParseJudgeVerdict(explanation, out var judgedCorrect) &&
+                !HasRecoveredVerdict(question.QuestionId, judgeRetries))
             {
                 issues.Add(
                     $"AgentEval judge returned no valid yes/no verdict for question {question.QuestionId}.");

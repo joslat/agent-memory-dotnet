@@ -150,3 +150,52 @@ public sealed class StructuredEmptyRetrievalTests
             .Should().BeFalse();
     }
 }
+
+/// <summary>
+/// A verdict the diagnostic retry already recovered must not be reported as missing.
+/// </summary>
+/// <remarks>
+/// The judge's phrasing varies, and an unparseable first explanation is exactly what the diagnostic
+/// retry exists to repair. On the third acceptance attempt it did: question <c>35a27287</c> came back
+/// <c>Status="recovered", ValidVerdict=true, Correct=true, RawScore=100</c>. The validator still
+/// rejected the whole run for it, because it reads AgentEval's original explanation and never
+/// consults the recovery it had already performed one call earlier — diagnostics run before
+/// validation and are passed straight into it.
+/// <para>
+/// This is not tolerance for an unjudged question. A question with no recovered verdict is still a
+/// rejection; only one with a genuine, valid, recovered verdict is excused.
+/// </para>
+/// </remarks>
+public sealed class RecoveredJudgeVerdictTests
+{
+    [Fact]
+    public void ARecoveredValidVerdictIsNotReportedAsMissing()
+    {
+        LongMemEvalRunValidator
+            .HasRecoveredVerdict("35a27287", [Retry("35a27287", recovered: true)])
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void ARetryThatDidNotRecoverIsStillARejection()
+    {
+        LongMemEvalRunValidator
+            .HasRecoveredVerdict("35a27287", [Retry("35a27287", recovered: false)])
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnUnrelatedQuestionsRecoveryDoesNotExcuseThisOne()
+    {
+        LongMemEvalRunValidator
+            .HasRecoveredVerdict("35a27287", [Retry("7405e8b1", recovered: true)])
+            .Should().BeFalse();
+
+        LongMemEvalRunValidator.HasRecoveredVerdict("35a27287", []).Should().BeFalse();
+    }
+
+    private static LongMemEvalJudgeRetryResult Retry(string id, bool recovered) =>
+        new(id, recovered ? "recovered" : "failed", 1, recovered,
+            recovered ? true : null, recovered ? 100d : null, 1,
+            recovered ? null : "unparseable", recovered ? null : "Partially");
+}
