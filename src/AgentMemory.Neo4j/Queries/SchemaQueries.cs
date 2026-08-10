@@ -174,6 +174,24 @@ internal static class SchemaQueries
     /// <summary>Index on MemoryReadAudit.kind (read/privacy audit, upstream v0.5-compatible).</summary>
     public const string MemoryReadAuditKindIndex = "CREATE INDEX memory_read_audit_kind_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.kind)";
 
+    /// <summary>
+    /// Index on MemoryReadAudit.memory_id — the property the history read-back actually matches on.
+    /// </summary>
+    /// <remarks>
+    /// BUG-A2. <c>HistoryQueries</c> resolves an item's read audit three times over with
+    /// <c>OPTIONAL MATCH (audit:MemoryReadAudit {memory_id: n.id})</c>, and nothing indexed
+    /// <c>memory_id</c> — only <c>id</c> (a uniqueness constraint) and <c>kind</c>. So every history
+    /// row triggered an all-<c>:MemoryReadAudit</c> label scan.
+    /// <para>
+    /// This degrades with <b>time rather than with data size</b>, which is what makes it easy to miss:
+    /// a recall writes roughly 25 audit rows, so the scanned label grows on every read while the
+    /// number of memories stays flat. A store that is fast on day one is slow on day ninety with an
+    /// unchanged graph.
+    /// </para>
+    /// </remarks>
+    public const string MemoryReadAuditMemoryIdIndex =
+        "CREATE INDEX memory_read_audit_memory_id_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.memory_id)";
+
     /// <summary>All property indexes in bootstrap order.</summary>
     public static readonly string[] PropertyIndexes =
     [
@@ -199,7 +217,8 @@ internal static class SchemaQueries
         TraceOwnerIndex,
         RelationshipOwnerIndex,
         ConversationArchivedIndex,
-        MemoryReadAuditKindIndex
+        MemoryReadAuditKindIndex,
+        MemoryReadAuditMemoryIdIndex
     ];
 
     // ── Vector Indexes (parameterized by dimensions) ────────────
