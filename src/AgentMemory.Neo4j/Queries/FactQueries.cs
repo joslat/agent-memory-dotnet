@@ -203,8 +203,12 @@ internal static class FactQueries
 
     /// <summary>
     /// Vector similarity search on fact embeddings, with an optional owner/shared filter (R1).
-    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering, so
-    /// an owner filter is never starved by higher-scoring foreign rows. When
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering,
+    /// which <b>reduces but does not remove</b> starvation by higher-scoring foreign rows. This comment
+    /// previously claimed the owner filter "is never starved"; that claim was measured and is false —
+    /// on a 50-owner corpus the querying owner received a mean of 7 of 60 candidates, and one question
+    /// received none at all. See <c>OwnerVectorOverFetch</c>, which escalates once when a scoped search
+    /// returns empty. When
     /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
     /// order key (<c>$tmpWeight</c>); when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
