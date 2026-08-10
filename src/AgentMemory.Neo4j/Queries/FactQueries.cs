@@ -323,20 +323,48 @@ internal static class FactQueries
     // ── FindByTripleAsync ──────────────────────────────────────────────
 
     /// <summary>
-    /// Case-insensitive lookup of a fact by its subject/predicate/object triple, with an optional
-    /// owner/shared filter (R1) so a triple lookup cannot reach into another owner's private facts.
-    /// Null owner ⇒ unscoped.
+    /// Looks a fact up by the same canonical triple the write path MERGEs on, with an optional
+    /// owner/shared filter (R1) so a lookup cannot reach into another owner's private facts.
     /// </summary>
+    /// <remarks>
+    /// <b>This used to ask a different question than the write path answers.</b> It matched
+    /// <c>toLower(f.subject) = toLower($subject)</c> on all three properties, while
+    /// <see cref="UpsertBatch"/> and <c>FusedPersistenceQueries.FactUpsertBatch</c> MERGE on
+    /// <c>{subject_key, predicate_key, object_key, owner_key}</c>.
+    /// <para>
+    /// Those are not the same predicate. <c>MemoryTripleCanonicalizer.CanonicalValue</c> applies
+    /// <c>ToLowerInvariant</c> <i>and collapses whitespace runs</i>; Cypher's <c>toLower</c> does
+    /// neither, and the two disagree outright on U+0130 — the documented reason these keys are
+    /// computed in C# and never in Cypher. So this lookup could find a <b>different fact than a
+    /// MERGE would collapse onto</b>, which is a correctness bug independent of any performance
+    /// concern.
+    /// </para>
+    /// <para>
+    /// It is also the only shape that can use an index. Measured on 5.26 with 20,000 facts: the
+    /// <c>toLower</c> form plans a <c>NodeByLabelScan</c>; filtering all four canonical keys plans a
+    /// <c>NodeIndexSeek</c> returning one row. <b>Three of the four columns is not enough</b> —
+    /// <c>fact_merge_key_idx</c> requires every column filtered, not merely a leading prefix, which
+    /// is why the owner clause here matches <c>owner_key</c> rather than <c>owner_id</c>.
+    /// </para>
+    /// <para>
+    /// <b>Unscoped lookups still scan</b>, and deliberately so: with no owner there is no fourth
+    /// column to filter. They keep the correctness fix and lose three per-row <c>toLower</c> calls,
+    /// but no seek is claimed for them.
+    /// </para>
+    /// </remarks>
     public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
     {
+        // owner_key, not owner_id: only owner_key is part of the merge-key index, and only a filter
+        // on every one of its columns produces a seek. Shared facts carry the shared marker as their
+        // owner_key, so include-shared admits both rather than testing for a null owner.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
-                            : " AND f.owner_id = $ownerId";
+            : includeShared ? " AND f.owner_key IN [$ownerKey, $sharedOwnerKey]"
+                            : " AND f.owner_key = $ownerKey";
         return $@"
             MATCH (f:Fact)
-            WHERE toLower(f.subject) = toLower($subject)
-              AND toLower(f.predicate) = toLower($predicate)
-              AND toLower(f.object) = toLower($object){owner}
+            WHERE f.subject_key = $subjectKey
+              AND f.predicate_key = $predicateKey
+              AND f.object_key = $objectKey{owner}
             RETURN f LIMIT 1";
     }
 }

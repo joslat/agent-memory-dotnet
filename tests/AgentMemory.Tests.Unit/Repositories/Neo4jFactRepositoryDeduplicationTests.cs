@@ -32,6 +32,18 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
                         calls.Add((ci.Arg<string>(), ci.ArgAt<object>(1)));
                         return Task.FromResult((IResultCursor)new FakeResultCursor());
                     });
+                // The driver exposes RunAsync(string, object) AND RunAsync(string, IDictionary<...>),
+                // and which one a call binds to depends on the STATIC type of the argument. Capturing
+                // only the object overload meant a repository method passing a dictionary recorded
+                // nothing at all, and the test failed with "the collection is empty" rather than with
+                // a wrong value - a harness gap that looks exactly like a broken query.
+                runner
+                    .RunAsync(Arg.Any<string>(), Arg.Any<IDictionary<string, object>>())
+                    .Returns(ci =>
+                    {
+                        calls.Add((ci.Arg<string>(), ci.ArgAt<IDictionary<string, object>>(1)));
+                        return Task.FromResult((IResultCursor)new FakeResultCursor());
+                    });
                 return await work(runner);
             });
         return (new Neo4jFactRepository(txRunner, NullLogger<Neo4jFactRepository>.Instance), calls);
@@ -44,9 +56,12 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
         await repo.FindByTripleAsync("Alice", "works_at", "Neo4j");
         calls.Should().ContainSingle();
         calls[0].Cypher.Should().Contain("MATCH (f:Fact)");
-        calls[0].Cypher.Should().Contain("toLower(f.subject) = toLower($subject)");
-        calls[0].Cypher.Should().Contain("toLower(f.predicate) = toLower($predicate)");
-        calls[0].Cypher.Should().Contain("toLower(f.object) = toLower($object)");
+        // Still case-insensitive, now via MemoryTripleCanonicalizer rather than Cypher's
+        // toLower - which is the point: the two disagree on U+0130, and only the canonicalizer
+        // matches what the write path stored.
+        calls[0].Cypher.Should().Contain("f.subject_key = $subjectKey");
+        calls[0].Cypher.Should().Contain("f.predicate_key = $predicateKey");
+        calls[0].Cypher.Should().Contain("f.object_key = $objectKey");
         calls[0].Cypher.Should().Contain("LIMIT 1");
     }
 
@@ -56,7 +71,10 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
         var (repo, calls) = CreateReadCapture();
         await repo.FindByTripleAsync("Alice", "works_at", "Neo4j");
         var param = calls[0].Parameters!;
-        param.GetType().GetProperty("subject")!.GetValue(param).Should().Be("Alice");
+        // Now a dictionary rather than an anonymous object: the scoped and unscoped
+        // branches share one parameter path. The value is CANONICALIZED, which is the
+        // behaviour change - the lookup key must match what the write path stored.
+        ((IDictionary<string, object>)param)["subjectKey"].Should().Be("alice");
     }
 
     [Fact]
@@ -65,7 +83,13 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
         var (repo, calls) = CreateReadCapture();
         await repo.FindByTripleAsync("Alice", "works_at", "Neo4j");
         var param = calls[0].Parameters!;
-        param.GetType().GetProperty("predicate")!.GetValue(param).Should().Be("works_at");
+        // Now a dictionary rather than an anonymous object: the scoped and unscoped
+        // branches share one parameter path. The value is CANONICALIZED, which is the
+        // behaviour change - the lookup key must match what the write path stored.
+        ((IDictionary<string, object>)param)["predicateKey"].Should().Be("works at");
+        // "works_at" canonicalizes to "works at" -- MemoryTripleCanonicalizer.Canonical maps
+        // underscores to spaces so predicates match the relation vocabulary's surface style. The
+        // lookup MUST use the canonical form, because that is what the write path stored.
     }
 
     [Fact]
@@ -74,7 +98,10 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
         var (repo, calls) = CreateReadCapture();
         await repo.FindByTripleAsync("Alice", "works_at", "Neo4j");
         var param = calls[0].Parameters!;
-        param.GetType().GetProperty("object")!.GetValue(param).Should().Be("Neo4j");
+        // Now a dictionary rather than an anonymous object: the scoped and unscoped
+        // branches share one parameter path. The value is CANONICALIZED, which is the
+        // behaviour change - the lookup key must match what the write path stored.
+        ((IDictionary<string, object>)param)["objectKey"].Should().Be("neo4j");
     }
 
     [Fact]
@@ -90,7 +117,15 @@ public sealed class Neo4jFactRepositoryDeduplicationTests
     {
         var (repo, calls) = CreateReadCapture();
         await repo.FindByTripleAsync("ALICE", "WORKS_AT", "NEO4J");
-        calls[0].Cypher.Should().Contain("toLower(f.subject) = toLower($subject)");
+
+        // Asserted on the VALUES rather than on the Cypher text. Case-insensitivity is a property of
+        // the lookup, not of any particular clause, and it now comes from the same canonicalizer the
+        // write path uses instead of from Cypher's toLower -- the two disagree on U+0130, which is
+        // why matching the stored key is what actually makes the lookup case-insensitive.
+        var param = (IDictionary<string, object>)calls[0].Parameters!;
+        param["subjectKey"].Should().Be("alice");
+        param["predicateKey"].Should().Be("works at");
+        param["objectKey"].Should().Be("neo4j");
     }
 
     // ── UpsertAsync uses MERGE on SPO triple ──

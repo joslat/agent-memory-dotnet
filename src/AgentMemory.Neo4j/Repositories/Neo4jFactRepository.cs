@@ -582,11 +582,27 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
         var cypher = FactQueries.FindByTriple(hasOwner, includeShared);
 
+        // Canonicalized in C#, exactly as the write path does. Cypher's toLower() and
+        // ToLowerInvariant disagree on U+0130, so computing the key here is what keeps a lookup and a
+        // MERGE talking about the same triple.
+        // Dictionary<string, object>, matching the driver's IDictionary overload that every other
+        // parameterized read here uses. A nullable value type binds to RunAsync(string, object)
+        // instead and the query silently takes a different path.
+        var parameters = new Dictionary<string, object>
+        {
+            ["subjectKey"] = MemoryTripleCanonicalizer.CanonicalValue(subject),
+            ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(predicate),
+            ["objectKey"] = MemoryTripleCanonicalizer.CanonicalValue(@object),
+        };
+        if (hasOwner)
+        {
+            parameters["ownerKey"] = scope!.OwnerId!;
+            if (includeShared) parameters["sharedOwnerKey"] = OwnerKeyShared;
+        }
+
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["subject"] = subject, ["predicate"] = predicate, ["object"] = @object, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
-                : await runner.RunAsync(cypher, new { subject, predicate, @object }).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();
