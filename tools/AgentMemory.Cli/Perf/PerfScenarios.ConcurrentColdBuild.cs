@@ -14,6 +14,24 @@ public static partial class PerfScenarios
     private const int ColdBuildPreferencesPerUnit = 1;
     private const int ColdBuildRelationshipsPerUnit = 1;
     private const int ColdBuildEmbeddingsPerUnit = 8;
+
+    /// <summary>
+    /// Embedding <b>requests</b> per unit, which is no longer the same as items.
+    /// </summary>
+    /// <remarks>
+    /// This contract used to assert <c>embed.requests == embed.items</c> — one request per item,
+    /// which is exactly "no batching". Default-on learned-memory embedding batching deliberately
+    /// broke that, and because PERF-W-10-C* is <c>IncludeInDefaultRun: false</c> the scenario simply
+    /// stopped passing and nobody was told: it reported 40 requests against an expected 80 and failed
+    /// the contract <b>because the product had improved</b>.
+    /// <para>
+    /// The invariant worth keeping is that <b>every item is still embedded</b> — <c>embed.items</c>
+    /// is unchanged at 8 per unit. Requests are pinned exactly rather than bounded, so a change in
+    /// batch size fails this contract and has to be re-approved, the same discipline the Cypher
+    /// snapshot uses.
+    /// </para>
+    /// </remarks>
+    private const int ColdBuildEmbeddingRequestsPerUnit = 4;
     private const int ColdBuildReadsPerUnit = 4;
     private const int ColdBuildWritesPerUnit = 7;
     private const int ColdBuildQueriesPerUnit = 27;
@@ -52,7 +70,10 @@ public static partial class PerfScenarios
         var expectedWritesPerUnit = context.Profile.UseCoalescedPersistenceTransactions
             ? 2 : ColdBuildWritesPerUnit;
         var expectedQueriesPerUnit = context.Profile.UseCoalescedPersistenceTransactions
-            ? 11 : ColdBuildQueriesPerUnit;
+            // 11 -> 9: canonical fact identity and the fused write path removed two queries per
+            // unit without changing the transaction count (reads/writes stay 2/2), which is the same
+            // family of movement ledger seq 5 records for PERF-W-02.
+            ? 9 : ColdBuildQueriesPerUnit;
 
         var outputsExact = result.Results.All(unit =>
             unit.Status == IngestionStatus.Succeeded &&
@@ -75,7 +96,7 @@ public static partial class PerfScenarios
             context.Turn.Counter("persist.relationships") ==
                 ColdBuildUnitCount * ColdBuildRelationshipsPerUnit &&
             context.Turn.Counter("embed.requests") ==
-                ColdBuildUnitCount * ColdBuildEmbeddingsPerUnit &&
+                ColdBuildUnitCount * ColdBuildEmbeddingRequestsPerUnit &&
             context.Turn.Counter("embed.items") ==
                 ColdBuildUnitCount * ColdBuildEmbeddingsPerUnit &&
             context.Turn.Counter("neo4j.tx.read") ==
@@ -102,7 +123,9 @@ public static partial class PerfScenarios
                 $"{context.Turn.Counter("persist.preferences")}/" +
                 $"{context.Turn.Counter("persist.relationships")}, expected 20/20/10/10; " +
                 $"embed requests/items={context.Turn.Counter("embed.requests")}/" +
-                $"{context.Turn.Counter("embed.items")}, expected 80/80; reads/writes/queries=" +
+                $"{context.Turn.Counter("embed.items")}, expected " +
+                $"{ColdBuildUnitCount * ColdBuildEmbeddingRequestsPerUnit}/" +
+                $"{ColdBuildUnitCount * ColdBuildEmbeddingsPerUnit}; reads/writes/queries=" +
                 $"{context.Turn.Counter("neo4j.tx.read")}/" +
                 $"{context.Turn.Counter("neo4j.tx.write")}/" +
                 $"{context.Turn.Counter("neo4j.queries")}, expected " +
