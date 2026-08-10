@@ -23,7 +23,11 @@ internal static class LongMemEvalRunValidator
     /// </para>
     /// </remarks>
     internal static bool IsScoredEmptyRetrieval(string? status, LongMemEvalGraphSnapshot? graphSnapshot) =>
-        string.Equals(status, "retrieval-empty", StringComparison.Ordinal) &&
+        (string.Equals(status, "retrieval-empty", StringComparison.Ordinal) ||
+         // Third site of the same rule: a memory-only arm that retrieved items but zero LEARNED
+         // ones. Same meaning - structured memory returned nothing - and fatal for the same wrong
+         // reason. Fixing the other two sites and not this one cost an entire run.
+         string.Equals(status, "retrieval-structured-empty", StringComparison.Ordinal)) &&
         AgentMemoryLongMemEvalAdapter.CanScoreEmptyRetrieval(graphSnapshot);
 
     internal static LongMemEvalRunValidation Validate(
@@ -97,11 +101,19 @@ internal static class LongMemEvalRunValidator
                 "base judge calls.");
         }
 
+        // AgentEval's llmCalls ALREADY includes diagnostic judge retries - the message just above
+        // says so in as many words ("N LLM calls (N-1 base after excluding 1 diagnostic judge
+        // retries)") - and the observed meters count real provider calls, retries included. Adding
+        // diagnosticJudgeCalls again double-counted them, so a hybrid arm with one judge retry
+        // failed while reporting "total 103, but AgentEval reported 103": a rule contradicting its
+        // own message.
         if (answerCalls is not null && judgeCalls is not null &&
-            answerCalls.Calls + judgeCalls.Calls != llmCalls + diagnosticJudgeCalls)
+            answerCalls.Calls + judgeCalls.Calls != llmCalls)
         {
             issues.Add(
-                $"Observed answer and judge calls total {answerCalls.Calls + judgeCalls.Calls}, but AgentEval reported {llmCalls}.");
+                $"Observed answer and judge calls total {answerCalls.Calls + judgeCalls.Calls}, " +
+                $"but AgentEval reported {llmCalls} (including {diagnosticJudgeCalls} diagnostic " +
+                "judge retries).");
         }
 
         if (extractionCalls is not null && extractionCalls.Calls < expectedInitialExtractionCalls)

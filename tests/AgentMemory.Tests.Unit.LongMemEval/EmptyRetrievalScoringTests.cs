@@ -120,3 +120,33 @@ public sealed class ScoredEmptyRetrievalValidationTests
         LongMemEvalRunValidator.IsScoredEmptyRetrieval("retrieval-empty", null).Should().BeFalse();
     }
 }
+
+/// <summary>
+/// The structured-mode empty check is a third copy of the same rule and needs the same distinction.
+/// </summary>
+/// <remarks>
+/// `retrieval-empty` fires when nothing at all came back; `retrieval-structured-empty` fires when a
+/// memory-only arm got items but zero <i>learned</i> ones. Both mean "structured memory returned
+/// nothing", and both were fatal. Fixing the first two sites and not this one cost another run.
+/// </remarks>
+public sealed class StructuredEmptyRetrievalTests
+{
+    private static LongMemEvalGraphSnapshot Populated() =>
+        new(346, 504, 191, 295, 295, 1041, 1041, 12932, 518);
+
+    [Fact]
+    public void StructuredEmptyAgainstAProvenGraphIsScorable()
+    {
+        LongMemEvalRunValidator
+            .IsScoredEmptyRetrieval("retrieval-structured-empty", Populated())
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void StructuredEmptyWithoutGraphProofStillRejects()
+    {
+        LongMemEvalRunValidator
+            .IsScoredEmptyRetrieval("retrieval-structured-empty", null)
+            .Should().BeFalse();
+    }
+}

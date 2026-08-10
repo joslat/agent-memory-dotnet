@@ -285,6 +285,9 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         // Set when retrieval returned nothing against a graph proven populated; carried to the
         // single completion record so the outcome is scored without being recorded twice.
         var retrievalEmpty = false;
+        // Distinguishes "nothing at all" from "items, but zero learned ones" in a memory-only arm.
+        // Both are scored; keeping them apart keeps the report able to say which happened.
+        var retrievalStructuredEmpty = false;
         LongMemEvalGraphSnapshot? graphSnapshot = null;
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null;
         if (_options.MemoryMode.UsesExtraction())
@@ -678,16 +681,36 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         if (_options.MemoryMode == LongMemEvalMemoryMode.Structured && structuredItems == 0)
         {
-            RecordTelemetry(
-                questionNumber,
-                messages.Count,
-                recall.TotalItemsRetrieved,
-                recall.Truncated,
-                "retrieval-structured-empty",
-                evidenceQuestion?.QuestionId,
-                extractionUnits: extractionUnits);
-            throw new InvalidOperationException(
-                $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}.");
+            // The same judgement as the total-empty case above, for the memory-only arm: items came
+            // back but zero LEARNED ones. With the graph PROVEN populated with complete provenance
+            // this is a measured retrieval failure and is scored as one; without that proof it stays
+            // unmeasurable and still throws.
+            if (!CanScoreEmptyRetrieval(graphSnapshot))
+            {
+                RecordTelemetry(
+                    questionNumber,
+                    messagesStored,
+                    recall.TotalItemsRetrieved,
+                    recall.Truncated,
+                    "retrieval-structured-empty",
+                    evidenceQuestion?.QuestionId,
+                    extractionUnits: extractionUnits,
+                    context: recall.Context,
+                    graphSnapshot: graphSnapshot,
+                    stageTimings: timings.Snapshot(),
+                    messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
+                    preparedMemory: _options.PreparedMemory,
+                    extractionCallsPlanned: extractionCallsPlanned);
+                throw new InvalidOperationException(
+                    $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}, " +
+                    "and the graph read-back does not prove its memory was populated with complete " +
+                    "provenance; refusing to manufacture a score.");
+            }
+
+            // Carried to the single completion record. Recording here and continuing would
+            // double-record the question — the defect that killed the previous acceptance run.
+            retrievalEmpty = true;
+            retrievalStructuredEmpty = true;
         }
 
         if (_options.ChronologicalAnswerContext)
@@ -800,7 +823,9 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             messagesStored,
             recall.TotalItemsRetrieved,
             recall.Truncated,
-            retrievalEmpty ? "retrieval-empty" : "completed",
+            retrievalStructuredEmpty ? "retrieval-structured-empty"
+                : retrievalEmpty ? "retrieval-empty"
+                : "completed",
             evidenceQuestion?.QuestionId,
             retrievalEvidence,
             extractionUnits,
