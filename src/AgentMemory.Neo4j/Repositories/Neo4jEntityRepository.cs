@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -165,6 +167,13 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Recall-yield signal, matching Neo4jFactRepository.SearchByVectorAsync. Entities run the same
+        // query shape through the same global index, so they are subject to the same post-filter
+        // starvation (OwnerVectorOverFetch documents the measurement) — and until this span, nothing
+        // reported it. Started AFTER the degraded-embedding short-circuit above, so a search that never
+        // reached the index does not publish a zero-yield reading it never earned.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.entity_vector");
         _logger.LogDebug("Vector search entities, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
@@ -179,7 +188,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
         if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
-        return await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -189,7 +198,64 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        EmitVectorYield(activity, hasOwner, limit, topK, results.Count);
+        return results;
+    }
+
+    /// <summary>
+    /// Publishes what an owner-scoped vector search asked the global index for and what reached the
+    /// caller after the post-filter.
+    /// </summary>
+    /// <param name="activity">The span, or <c>null</c> when nobody is listening.</param>
+    /// <param name="hasOwner">Whether an owner post-filter was applied at all.</param>
+    /// <param name="limit">The row cap the <i>caller</i> asked for — the denominator of the yield.</param>
+    /// <param name="topK">The candidate width actually issued to the index.</param>
+    /// <param name="returned">Rows the caller received.</param>
+    /// <remarks>
+    /// <para>
+    /// Every argument is a measured quantity taken from the query that ran; nothing here is derived from
+    /// an intention. In particular this deliberately does <b>not</b> report the pre-filter candidate
+    /// count — the owner filter and the LIMIT both happen inside Cypher, so that number never crosses
+    /// the wire, and publishing a plausible guess for it would be worse than publishing nothing.
+    /// </para>
+    /// <para>
+    /// No <c>escalated</c> tag: unlike the fact search, none of these paths issues a second, wider query
+    /// when the first comes back empty. Tagging <c>escalated = false</c> would read as "escalation was
+    /// available and declined to fire", which is exactly the distinction a zero-yield reading turns on —
+    /// the fact path retries, these give up. Absent, not false.
+    /// </para>
+    /// </remarks>
+    private static void EmitVectorYield(Activity? activity, bool hasOwner, int limit, int topK, int returned)
+    {
+        if (activity is null) return;
+
+        // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks:
+        // the tag block is the only work here that exists purely to produce telemetry, so it is skipped
+        // whole (no boxing, no allocation) when nobody is listening.
+        //
+        // owner_scoped separates the two populations: unscoped searches have no post-filter and so no
+        // starvation to report, and folding them into an aggregate would dilute the very signal this
+        // exists to raise. limit is the denominator — `returned` is capped by the Cypher's LIMIT $limit.
+        //
+        // Called only on the success path: a search that threw is left untagged rather than tagged
+        // `returned = 0`, because a failed query measured nothing and a false zero here reads as
+        // starvation.
+        activity.SetTag("memory.vector.owner_scoped", hasOwner);
+        activity.SetTag("memory.vector.limit", limit);
+        activity.SetTag("memory.vector.requested_topk", topK);
+        // Equal to requested_topk on every entity path, because none of them widens and re-queries. It is
+        // emitted all the same so a consumer computing returned / effective_topk gets a correct ratio
+        // from any recall span without having to know which sources can escalate and which cannot.
+        activity.SetTag("memory.vector.effective_topk", topK);
+            // Emitted by EVERY vector-recall span, including paths that never escalate. The three
+            // conventions this replaces made the telemetry unqueryable: a consumer computing
+            // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
+            // is indistinguishable from a site that emits no telemetry at all. False here means
+            // "no second pass ran", which is exactly what a consumer counting escalations needs.
+        activity.SetTag("memory.vector.escalated", false);
+        activity.SetTag("memory.vector.returned", returned);
     }
 
     public async Task<IReadOnlyList<Entity>> GetByTypeAsync(string type, MemoryScope? scope = null, CancellationToken cancellationToken = default)
@@ -647,13 +713,30 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         // Over-fetch when scoped so a high-volume foreign owner can't starve the post-filter result set.
+        // The +1 is the SELF slot: this probes the index with the source entity's own embedding, so the
+        // source is its own nearest neighbour and is guaranteed to occupy one candidate before
+        // `WHERE node.id <> $entityId` drops it. It widens the query, not the caller's ask — the Cypher
+        // still ends `LIMIT $limit`, so `limit` remains what the caller asked for and stays the correct
+        // denominator for the yield below.
         int topK = OwnerVectorOverFetch.InitialTopK(limit + 1, hasOwner);
+
+        // Same global index and same owner post-filter as SearchByVectorAsync, so the same starvation
+        // applies: this is the "find duplicates of my entity" surface, and a duplicate crowded out by
+        // foreign candidates is silently never merged.
+        //
+        // One reading here is genuinely ambiguous and is left that way on purpose. The query opens
+        // `MATCH (source:Entity {id: $entityId}) WHERE source.embedding IS NOT NULL`, so a missing or
+        // un-embedded source yields zero rows without the index ever being probed — indistinguishable,
+        // from out here, from a real starvation. Separating the two needs either a second query or a
+        // wider projection; both cost more than the ambiguity, and inventing a distinction we did not
+        // measure would be worse than admitting it.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.entity_similar_vector");
         _logger.LogDebug("Finding similar entities for {EntityId}, minSimilarity={MinSimilarity}, limit={Limit}, owner={Owner}",
             entityId, minSimilarity, limit, scope?.OwnerId);
 
         var cypher = EntityQueries.FindSimilarByEmbedding(hasOwner, includeShared);
 
-        return await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadAsync(async runner =>
         {
             var cursor = hasOwner
                 ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["entityId"] = entityId, ["topK"] = topK, ["minSimilarity"] = minSimilarity, ["limit"] = limit, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
@@ -665,7 +748,12 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        // limit, not limit + 1: the internal self slot is a property of the query, not of what the caller
+        // requested, and reporting 11 would understate every yield ratio this signal exists to expose.
+        EmitVectorYield(activity, hasOwner, limit, topK, results.Count);
+        return results;
     }
 
     public async Task<IReadOnlyList<DuplicatePair>> GetPendingDuplicatesAsync(
@@ -738,6 +826,11 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Its own span, not the live one: a point-in-time search discards everything created after the
+        // cutoff on top of the owner post-filter, so folding its yield in with live recall would blame
+        // the owner filter for a temporal exclusion.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.entity_vector_as_of");
         _logger.LogDebug("Temporal vector search entities as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
 
         var cypher = TemporalQueries.SearchEntitiesAsOf(hasOwner, includeShared, topK);
@@ -751,7 +844,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -761,7 +854,10 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 var score = r["score"].As<double>();
                 return (MapToEntity(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        EmitVectorYield(activity, hasOwner, limit, topK, results.Count);
+        return results;
     }
 
     private static float[]? ReadEmbedding(INode node)

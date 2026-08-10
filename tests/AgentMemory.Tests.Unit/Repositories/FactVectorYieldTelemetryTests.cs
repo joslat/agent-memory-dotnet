@@ -160,6 +160,9 @@ public sealed class FactVectorYieldTelemetryTests
 
         var span = listening.Single();
         span.GetTagItem("memory.vector.returned").Should().BeNull();
+        // Absent, not false. A search that FAILED published no yield at all, and "escalated:
+        // false" would assert something about a query that never completed - the same false-zero
+        // this test exists to prevent, one tag over.
         span.GetTagItem("memory.vector.escalated").Should().BeNull();
     }
 
@@ -250,7 +253,13 @@ public sealed class FactVectorYieldTelemetryTests
             _listener = new ActivityListener
             {
                 ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
-                Sample = (ref ActivityCreationOptions<ActivityContext> _) => sampling,
+                // Scoped to this one span, not the whole source. ActivityListener is process-global and
+                // sampling is a union across listeners, so a listener that samples everything forces
+                // creation of every AgentMemory span in every test class running concurrently — which is
+                // exactly what breaks a neighbour's "no listener attached" assertion. Scoping the sampler
+                // by name keeps this class from being that neighbour.
+                Sample = (ref ActivityCreationOptions<ActivityContext> options) =>
+                    options.Name == SpanName ? sampling : ActivitySamplingResult.None,
                 ActivityStopped = activity =>
                 {
                     if (activity.OperationName != SpanName) return;

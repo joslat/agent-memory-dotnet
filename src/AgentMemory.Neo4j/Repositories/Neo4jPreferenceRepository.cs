@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -179,6 +181,14 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Recall-yield signal, mirroring Neo4jFactRepository.SearchByVectorAsync. The vector index is
+        // global, so the owner filter is a POST-filter on a top-K drawn from every tenant (see
+        // OwnerVectorOverFetch): how much of that budget actually reached the querying owner was
+        // measurable on the fact path only, and invisible here. Started AFTER the degraded-embedding
+        // short-circuit above, so a search that never reached the index does not publish a zero-yield
+        // reading it never earned.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.preference_vector");
         _logger.LogDebug("Vector search preferences, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
@@ -193,7 +203,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
         if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
-        return await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -203,7 +213,53 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks: the
+        // tag block exists purely to produce telemetry, so it is skipped whole when nobody is listening.
+        // Success path only — a search that threw measured nothing, and tagging it `returned = 0` would be
+        // indistinguishable from a genuine total-starvation reading.
+        if (activity is not null) TagVectorYield(activity, hasOwner, limit, topK, results.Count);
+
+        return results;
+    }
+
+    /// <summary>
+    /// The recall-yield tags shared by both preference vector paths.
+    /// </summary>
+    /// <remarks>
+    /// <c>owner_scoped</c> separates the two populations: an unscoped search has no post-filter and so no
+    /// starvation to report, and folding them together would dilute the signal. <c>limit</c> is the other
+    /// half of the denominator — <c>returned</c> is capped by the Cypher's <c>LIMIT $limit</c>, so 7 rows
+    /// means something different at limit 10 than at limit 7.
+    /// <para>
+    /// <c>effective_topk</c> is the width that actually produced <c>returned</c>. On these paths it always
+    /// equals <c>requested_topk</c> because exactly one query is issued, but it is emitted anyway so a
+    /// consumer computing <c>returned / effective_topk</c> across every vector span gets a correct ratio
+    /// without having to know which sources can widen and which cannot.
+    /// </para>
+    /// <para>
+    /// Deliberately absent: <c>escalated</c>/<c>escalated_topk</c>. Unlike the fact path, neither
+    /// preference search retries an empty scoped result at a wider topK. Emitting <c>escalated = false</c>
+    /// would file these next to fact searches where the rescue was evaluated and declined, diluting any
+    /// measure of how often it fires and hiding that here there is nothing to fire. Also absent: the true
+    /// pre-filter candidate count — the owner filter and LIMIT both run inside Cypher, so that number
+    /// never reaches this process and a plausible guess would be worse than silence.
+    /// </para>
+    /// </remarks>
+    private static void TagVectorYield(Activity activity, bool hasOwner, int limit, int topK, int returned)
+    {
+        activity.SetTag("memory.vector.owner_scoped", hasOwner);
+        activity.SetTag("memory.vector.limit", limit);
+        activity.SetTag("memory.vector.requested_topk", topK);
+        activity.SetTag("memory.vector.effective_topk", topK);
+            // Emitted by EVERY vector-recall span, including paths that never escalate. The three
+            // conventions this replaces made the telemetry unqueryable: a consumer computing
+            // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
+            // is indistinguishable from a site that emits no telemetry at all. False here means
+            // "no second pass ran", which is exactly what a consumer counting escalations needs.
+        activity.SetTag("memory.vector.escalated", false);
+        activity.SetTag("memory.vector.returned", returned);
     }
 
     private const int DedupOverFetch = 10;
@@ -416,6 +472,10 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Same yield signal as the live path, under its own span name: a point-in-time recall and a live
+        // one answer different questions, and folding them into one name would make either unreadable.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.preference_vector_as_of");
         _logger.LogDebug("Temporal vector search preferences as of {AsOf}, limit={Limit}, owner={Owner}", asOf, limit, scope?.OwnerId);
 
         var cypher = TemporalQueries.SearchPreferencesAsOf(hasOwner, includeShared, topK);
@@ -429,7 +489,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -439,6 +499,10 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
                 var score = r["score"].As<double>();
                 return (MapToPreference(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        if (activity is not null) TagVectorYield(activity, hasOwner, limit, topK, results.Count);
+
+        return results;
     }
 }
