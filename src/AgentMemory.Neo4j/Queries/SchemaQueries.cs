@@ -92,6 +92,27 @@ internal static class SchemaQueries
     public const string MessageRoleIndex = "CREATE INDEX message_role_idx IF NOT EXISTS FOR (m:Message) ON (m.role)";
 
     /// <summary>
+    /// Index on Message.session_id — the property the hot session reads actually filter.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured, not assumed.</b> The composite <c>(session_id, timestamp)</c> below does NOT serve
+    /// these queries. Neo4j will not seek a composite from a leading-column predicate alone — asking
+    /// for it by hint returns <i>"Must use the properties session_id, timestamp … but only session_id
+    /// was found"</i>, and <c>ORDER BY timestamp</c> is not a predicate. Verified on 5.26 with 20,000
+    /// messages across 200 sessions: with only the composite present the planner chose
+    /// <c>NodeByLabelScan</c> over all 20,000 rows; with this index it chose <c>NodeIndexSeek</c>
+    /// estimating 100.
+    /// <para>
+    /// So both indexes are needed and neither is redundant: this one serves
+    /// <c>GetRecentBySession</c> (every turn), <c>GetAllBySession</c> and <c>DeleteBySession</c>, which
+    /// filter <c>session_id</c> only; the composite serves <c>GetRecentMessagesAsOf</c>, which filters
+    /// both columns and was measured to seek it.
+    /// </para>
+    /// </remarks>
+    public const string MessageSessionIndex =
+        "CREATE INDEX message_session_idx IF NOT EXISTS FOR (m:Message) ON (m.session_id)";
+
+    /// <summary>
     /// Composite index on the session-scoped message reads — the primary short-term recall path.
     /// </summary>
     /// <remarks>
@@ -283,6 +304,7 @@ internal static class SchemaQueries
         ConversationSessionIndex,
         MessageTimestampIndex,
         MessageRoleIndex,
+        MessageSessionIndex,
         MessageSessionTimestampIndex,
         EntityTypeIndex,
         EntityNameIndex,
