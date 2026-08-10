@@ -239,12 +239,20 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
     /// without having to know which sources can widen and which cannot.
     /// </para>
     /// <para>
-    /// Deliberately absent: <c>escalated</c>/<c>escalated_topk</c>. Unlike the fact path, neither
-    /// preference search retries an empty scoped result at a wider topK. Emitting <c>escalated = false</c>
-    /// would file these next to fact searches where the rescue was evaluated and declined, diluting any
-    /// measure of how often it fires and hiding that here there is nothing to fire. Also absent: the true
-    /// pre-filter candidate count — the owner filter and LIMIT both run inside Cypher, so that number
-    /// never reaches this process and a plausible guess would be worse than silence.
+    /// <c>escalated</c> is emitted as <c>false</c>, not omitted. Neither preference search retries an
+    /// empty scoped result at a wider topK, and an earlier version of this remark argued that emitting
+    /// <c>false</c> would dilute any measure of how often the rescue fires. That reasoning was
+    /// overturned when the same argument, applied site by site, produced <b>three different tag
+    /// vocabularies</b> across eight searches: an omitted tag is indistinguishable from a site that
+    /// emits no telemetry at all, so a consumer could not read them with one query. <c>false</c> here
+    /// means "no second pass ran" — an escalation count filters on <c>escalated = true</c> and is
+    /// unaffected.
+    /// </para>
+    /// <para>
+    /// Still absent, and this part stands: <c>escalated_topk</c> when no second query ran — a width
+    /// nobody asked for is not a measurement — and the true pre-filter candidate count, since the
+    /// owner filter and LIMIT both run inside Cypher, so that number never reaches this process and a
+    /// plausible guess would be worse than silence.
     /// </para>
     /// </remarks>
     private static void TagVectorYield(Activity activity, bool hasOwner, int limit, int topK, int returned)
@@ -253,11 +261,6 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         activity.SetTag("memory.vector.limit", limit);
         activity.SetTag("memory.vector.requested_topk", topK);
         activity.SetTag("memory.vector.effective_topk", topK);
-            // Emitted by EVERY vector-recall span, including paths that never escalate. The three
-            // conventions this replaces made the telemetry unqueryable: a consumer computing
-            // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
-            // is indistinguishable from a site that emits no telemetry at all. False here means
-            // "no second pass ran", which is exactly what a consumer counting escalations needs.
         activity.SetTag("memory.vector.escalated", false);
         activity.SetTag("memory.vector.returned", returned);
     }

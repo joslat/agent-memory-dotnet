@@ -269,12 +269,19 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     /// search read as an unfiltered one.
     /// </para>
     /// <para>
-    /// Deliberately absent: <c>escalated</c>/<c>escalated_topk</c>. Unlike the fact path, neither trace
-    /// search retries an empty scoped result at a wider topK. Emitting <c>escalated = false</c> would file
-    /// these next to fact searches where the rescue was evaluated and declined, diluting any measure of
-    /// how often it fires and hiding that here there is nothing to fire. Also absent: the true pre-filter
-    /// candidate count — the owner filter, the success filter and LIMIT all run inside Cypher, so that
-    /// number never reaches this process and a plausible guess would be worse than silence.
+    /// <c>escalated</c> is emitted as <c>false</c>, not omitted. Neither trace search retries an empty
+    /// scoped result at a wider topK, and an earlier version of this remark argued that emitting
+    /// <c>false</c> would dilute any measure of how often the rescue fires. That reasoning was
+    /// overturned when the same argument, applied site by site, produced <b>three different tag
+    /// vocabularies</b> across eight searches: an omitted tag is indistinguishable from a site that
+    /// emits no telemetry at all. <c>false</c> means "no second pass ran"; an escalation count filters
+    /// on <c>escalated = true</c> and is unaffected.
+    /// </para>
+    /// <para>
+    /// Still absent, and this part stands: <c>escalated_topk</c> when no second query ran, and the true
+    /// pre-filter candidate count — the owner filter, the success filter and LIMIT all run inside
+    /// Cypher, so that number never reaches this process and a plausible guess would be worse than
+    /// silence.
     /// </para>
     /// </remarks>
     private static void TagVectorYield(
@@ -284,11 +291,11 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         activity.SetTag("memory.vector.limit", limit);
         activity.SetTag("memory.vector.requested_topk", topK);
         activity.SetTag("memory.vector.effective_topk", topK);
-            // Emitted by EVERY vector-recall span, including paths that never escalate. The three
-            // conventions this replaces made the telemetry unqueryable: a consumer computing
-            // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
-            // is indistinguishable from a site that emits no telemetry at all. False here means
-            // "no second pass ran", which is exactly what a consumer counting escalations needs.
+        // Emitted by EVERY vector-recall span, including paths that never escalate. The three
+        // conventions this replaces made the telemetry unqueryable: a consumer computing
+        // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
+        // is indistinguishable from a site that emits no telemetry at all. False here means
+        // "no second pass ran", which is exactly what a consumer counting escalations needs.
         activity.SetTag("memory.vector.escalated", false);
         activity.SetTag("memory.vector.returned", returned);
         activity.SetTag("memory.vector.success_filtered", successFilter.HasValue);

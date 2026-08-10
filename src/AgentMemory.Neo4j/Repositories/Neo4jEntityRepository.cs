@@ -249,11 +249,11 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // emitted all the same so a consumer computing returned / effective_topk gets a correct ratio
         // from any recall span without having to know which sources can escalate and which cannot.
         activity.SetTag("memory.vector.effective_topk", topK);
-            // Emitted by EVERY vector-recall span, including paths that never escalate. The three
-            // conventions this replaces made the telemetry unqueryable: a consumer computing
-            // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
-            // is indistinguishable from a site that emits no telemetry at all. False here means
-            // "no second pass ran", which is exactly what a consumer counting escalations needs.
+        // Emitted by EVERY vector-recall span, including paths that never escalate. The three
+        // conventions this replaces made the telemetry unqueryable: a consumer computing
+        // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
+        // is indistinguishable from a site that emits no telemetry at all. False here means
+        // "no second pass ran", which is exactly what a consumer counting escalations needs.
         activity.SetTag("memory.vector.escalated", false);
         activity.SetTag("memory.vector.returned", returned);
     }
