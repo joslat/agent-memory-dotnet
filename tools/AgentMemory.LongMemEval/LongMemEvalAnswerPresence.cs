@@ -95,6 +95,53 @@ internal static class LongMemEvalAnswerPresence
             }
         }
     }
+
+    /// <summary>
+    /// Groups gate verdicts by question type, because <b>"absent" means two different things</b>.
+    /// </summary>
+    /// <remarks>
+    /// Adjudicated 2026-08-10: of two questions reported absent, one was a real extraction failure
+    /// (<c>eeda8a6d</c> — the agent itself said the data was missing, and the judge agreed) and one
+    /// was not (<c>1f2b8d4f</c> — answered correctly from memory alone, but its gold answer is a
+    /// <b>computed</b> value: 750 = 800 − 50, and memory stores the two prices, never the difference).
+    /// <para>
+    /// The gate is therefore a floor for <b>extractive</b> answers. Grouping by type separates
+    /// "absent because not stored" from "absent because derived" <b>without changing the metric</b> —
+    /// each verdict is reported exactly as measured, and only the axis needed to read it is added.
+    /// </para>
+    /// <para>
+    /// Uncheckable questions are counted apart from absent ones on purpose. Folding "we cannot tell"
+    /// into "it is missing" is what turns a floor into a false alarm.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, LongMemEvalAnswerPresenceGroup> SummariseByType(
+        IReadOnlyList<LongMemEvalQuestionTelemetry> telemetry)
+    {
+        ArgumentNullException.ThrowIfNull(telemetry);
+
+        var groups = new Dictionary<string, LongMemEvalAnswerPresenceGroup>(StringComparer.Ordinal);
+        foreach (var item in telemetry)
+        {
+            // No gate result means the probe never ran on this question. That is not evidence of
+            // presence OR absence, so it is excluded rather than counted as either.
+            if (item.AnswerPresence is not { } presence)
+                continue;
+
+            // Never dropped for lacking a type: a shrinking denominator is how a metric stops adding up.
+            var key = string.IsNullOrWhiteSpace(item.QuestionType) ? "unknown" : item.QuestionType!;
+            var current = groups.TryGetValue(key, out var existing)
+                ? existing
+                : new LongMemEvalAnswerPresenceGroup(0, 0, 0, 0);
+
+            groups[key] = new LongMemEvalAnswerPresenceGroup(
+                Total: current.Total + 1,
+                Checkable: current.Checkable + (presence.Checkable ? 1 : 0),
+                Present: current.Present + (presence.Present ? 1 : 0),
+                Absent: current.Absent + (presence.Checkable && !presence.Present ? 1 : 0));
+        }
+
+        return groups;
+    }
 }
 
 /// <summary>The gate's verdict for one question.</summary>
@@ -110,3 +157,16 @@ public sealed record LongMemEvalAnswerPresenceResult(
     bool Present,
     IReadOnlyList<string> MatchedTokens,
     double Coverage);
+/// <summary>Gate verdicts for one question type.</summary>
+/// <param name="Total">Questions of this type that the probe ran on.</param>
+/// <param name="Checkable">Those whose gold answer had distinctive tokens to look for.</param>
+/// <param name="Present">Those whose answer material was found in memory.</param>
+/// <param name="Absent">
+/// Checkable and not present. For derived-answer types this is EXPECTED, not a failure — see the
+/// remarks on <see cref="LongMemEvalAnswerPresence.SummariseByType"/>.
+/// </param>
+internal sealed record LongMemEvalAnswerPresenceGroup(
+    int Total,
+    int Checkable,
+    int Present,
+    int Absent);

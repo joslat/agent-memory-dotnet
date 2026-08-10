@@ -867,6 +867,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     // canonical predicate of every top-K hit, which is what shares the one budget.
                     unionGraphTotal: relationUnionGraphTotal),
             answerPresence: answerPresence,
+            questionType: evidenceQuestion?.QuestionType,
             retrievedGoldCoverage: RetrievedGoldCoverage(
                 recall.Context.RelevantFacts.Items,
                 originsByMessageId
@@ -943,6 +944,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         double? retrievedGoldCoverage = null,
         LongMemEvalRelationCompleteness? relationCompleteness = null,
         LongMemEvalAnswerPresenceResult? answerPresence = null,
+        string? questionType = null,
         string? answerPromptText = null)
     {
         lock (_stateLock)
@@ -972,6 +974,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 RetrievedGoldCoverage = retrievedGoldCoverage,
                 RelationCompleteness = relationCompleteness,
                 AnswerPresence = answerPresence,
+                QuestionType = questionType,
                 // Makes "expansion had nothing to expand" visible per question, instead of
                 // requiring the lexicon to be consulted by hand after a run.
                 ResolvedQueryRelations = context?.ResolvedQueryRelations ?? [],
@@ -1595,6 +1598,16 @@ public sealed record LongMemEvalQuestionTelemetry(
     /// graph probe was not wired — never "absent", and never "fine".
     /// </remarks>
     public LongMemEvalAnswerPresenceResult? AnswerPresence { get; init; }
+
+    /// <summary>
+    /// The benchmark's own question type, carried so the gate can be read per type.
+    /// </summary>
+    /// <remarks>
+    /// It lives on the evidence question and on AgentEval's result, but never reached the record that
+    /// holds the gate verdict — so "absent because not stored" and "absent because the answer is
+    /// computed from what IS stored" could not be told apart.
+    /// </remarks>
+    public string? QuestionType { get; init; }
 
     /// <summary>Canonical relations this question resolved to; empty means expansion had nothing.</summary>
     public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();

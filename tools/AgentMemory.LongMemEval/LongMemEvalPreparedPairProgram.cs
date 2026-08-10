@@ -964,6 +964,11 @@ internal static class LongMemEvalPreparedPairProgram
             graphRagFactsAlreadyRetrieved =
                 arm.Telemetry.Sum(item => item.GraphRagFactsAlreadyRetrieved),
             questions = arm.Telemetry,
+            // The gate read per question type. "Absent" means two different things: not stored, or
+            // stored but the gold answer is DERIVED from what is stored (750 = 800 - 50, and memory
+            // holds the two prices, never their difference). Reported as a group so a derived-answer
+            // type's absences are not read as extraction failures.
+            answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
             // The judge's own record, kept alongside our telemetry. AgentEval has always handed us
             // the agent's answer, the judge's explanation and a TYPED status; the report dropped all
             // three, so "do you agree with the judge?" was unanswerable and a disagreement between
