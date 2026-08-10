@@ -80,7 +80,7 @@ internal static class LongMemEvalAgentEvalEvidence
                 !origin.IsSyntheticFormatterPadding;
             output.Add(new EvidenceCandidate(
                 message.MessageId,
-                scores.GetValueOrDefault(message.MessageId),
+                ScoreOrNull(scores, message.MessageId),
                 observableSource ? origin.SourceSessionId : null,
                 observableSource ? origin.SourceTurnOrdinal : null,
                 observableSource ? ParseTimestamp(origin.SourceTimestamp) : null,
@@ -99,7 +99,7 @@ internal static class LongMemEvalAgentEvalEvidence
             var source = StructuredOrigin(entity.SourceMessageIds, origins);
             output.Add(new EvidenceCandidate(
                 $"entity:{entity.EntityId}",
-                scores.GetValueOrDefault(entity.EntityId),
+                ScoreOrNull(scores, entity.EntityId),
                 source.SessionId,
                 source.TurnIndex,
                 source.Timestamp,
@@ -132,7 +132,7 @@ internal static class LongMemEvalAgentEvalEvidence
                 : StructuredOrigin(fact.SourceMessageIds, origins);
             output.Add(new EvidenceCandidate(
                 $"fact:{fact.FactId}",
-                scores.GetValueOrDefault(fact.FactId),
+                ScoreOrNull(scores, fact.FactId),
                 source.SessionId,
                 source.TurnIndex,
                 source.Timestamp,
@@ -151,7 +151,7 @@ internal static class LongMemEvalAgentEvalEvidence
             var source = StructuredOrigin(preference.SourceMessageIds, origins);
             output.Add(new EvidenceCandidate(
                 $"preference:{preference.PreferenceId}",
-                scores.GetValueOrDefault(preference.PreferenceId),
+                ScoreOrNull(scores, preference.PreferenceId),
                 source.SessionId,
                 source.TurnIndex,
                 source.Timestamp,
@@ -198,6 +198,25 @@ internal static class LongMemEvalAgentEvalEvidence
             exactTurn?.SourceTurnOrdinal,
             exactTurn is null ? null : ParseTimestamp(exactTurn.SourceTimestamp));
     }
+
+    /// <summary>
+    /// The similarity score for an item, or <see langword="null"/> when it has none.
+    /// </summary>
+    /// <remarks>
+    /// <c>EvidenceCandidate.Score</c> is <c>double?</c> precisely so "not scored" and "scored zero"
+    /// stay distinguishable, and the call sites were discarding that with
+    /// <c>GetValueOrDefault</c> — which returns <c>0.0</c> and then widens silently.
+    /// <para>
+    /// It was harmless while only messages had ranked items: every other section had none, so all of
+    /// them got the same 0.0 and nothing was ordered by it. Now that four more sections carry real
+    /// scores, an unscored item would sort as though it had scored zero — below genuinely weak
+    /// matches. A fact retrieved by predicate expansion is not a bad match; it is a match arrived at
+    /// by a route with no comparable score, which is the same distinction <c>LimitBinding</c> makes
+    /// by being null rather than false.
+    /// </para>
+    /// </remarks>
+    private static double? ScoreOrNull(IReadOnlyDictionary<string, double> scores, string id) =>
+        scores.TryGetValue(id, out var score) ? score : null;
 
     private static Dictionary<string, double> Scores(
         IReadOnlyList<MemoryContextRankedItem> rankedItems) =>

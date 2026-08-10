@@ -348,6 +348,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             activity.SetTag("memory.vector.owner_scoped", hasOwner);
             activity.SetTag("memory.vector.limit", limit);
             activity.SetTag("memory.vector.requested_topk", topK);
+            // The width that ACTUALLY produced `returned`. Without it a consumer computing
+            // returned / requested_topk gets a wrong ratio whenever escalation fired, because
+            // `returned` then came from the widened query and `requested_topk` is the first pass.
+            // Deriving it requires knowing the escalation rule, so it is emitted rather than implied.
+            activity.SetTag("memory.vector.effective_topk", escalatedTopK ?? topK);
             activity.SetTag("memory.vector.returned", results.Count);
             activity.SetTag("memory.vector.escalated", escalatedTopK is not null);
             // Absent, never defaulted, when no second pass was issued: a width nobody asked for is not a
