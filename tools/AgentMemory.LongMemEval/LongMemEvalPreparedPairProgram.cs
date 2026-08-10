@@ -956,6 +956,11 @@ internal static class LongMemEvalPreparedPairProgram
             rawMessagesRetrieved = arm.Telemetry.Sum(item => item.RawMessagesRetrieved),
             entitiesRetrieved = arm.Telemetry.Sum(item => item.EntitiesRetrieved),
             factsRetrieved = arm.Telemetry.Sum(item => item.FactsRetrieved),
+            // The retrieval half of episodic memory. Capture was measured; this is the first run
+            // shape that can say whether any of it comes BACK, and — read against factsRetrieved —
+            // whether it arrives by crowding the semantic facts out of the same top-K.
+            episodicFactsRetrieved = arm.Telemetry.Sum(item => item.EpisodicFactsRetrieved),
+            questionsWithEpisodicFact = arm.Telemetry.Count(item => item.EpisodicFactsRetrieved > 0),
             preferencesRetrieved = arm.Telemetry.Sum(item => item.PreferencesRetrieved),
             // K6. Zero on every run before this flag existed, because the budget was zero. Reported
             // as a pair: the count says whether the mechanism works at all, and the overlap says

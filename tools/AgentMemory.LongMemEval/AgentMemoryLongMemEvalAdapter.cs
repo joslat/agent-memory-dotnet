@@ -962,6 +962,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 EntitiesRetrieved = context?.RelevantEntities.Items.Count ?? 0,
                 ExtractionCallsPlanned = extractionCallsPlanned,
                 FactsRetrieved = context?.RelevantFacts.Items.Count ?? 0,
+                EpisodicFactsRetrieved = CountEpisodicFacts(context),
                 PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
                 GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
                 // K6. "Included" only ever said the string was non-empty. These two say how many
@@ -1393,6 +1394,45 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     private static string Sanitize(string value) =>
         string.Concat(value.Select(character =>
             char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
+
+    /// <summary>
+    /// The canonical subject under which episodic facts are written — see
+    /// <c>ExtractionPromptSemantics</c>, which instructs the extractor to use the assistant as the
+    /// subject for what the assistant did.
+    /// </summary>
+    private static readonly string EpisodicSubjectKey =
+        MemoryTripleCanonicalizer.CanonicalValue("assistant");
+
+    /// <summary>
+    /// Counts retrieved facts whose subject is the assistant — the episodic half of memory.
+    /// </summary>
+    /// <remarks>
+    /// The subject is canonicalized rather than compared with <c>==</c>, so "Assistant" and
+    /// "assistant " are the same subject here for exactly the reason they are the same subject to the
+    /// write path's MERGE key. Comparing raw strings would undercount by whatever the extractor
+    /// happened to capitalise.
+    /// </remarks>
+    private static int CountEpisodicFacts(MemoryContext? context)
+    {
+        if (context is null)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        foreach (var fact in context.RelevantFacts.Items)
+        {
+            if (string.Equals(
+                    MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
+                    EpisodicSubjectKey,
+                    StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
 }
 
 internal sealed class LongMemEvalExtractionAccountingException
@@ -1574,6 +1614,36 @@ public sealed record LongMemEvalQuestionTelemetry(
     public int EntitiesRetrieved { get; init; }
 
     public int FactsRetrieved { get; init; }
+
+    /// <summary>
+    /// How many of <see cref="FactsRetrieved"/> are EPISODIC — a record of what the assistant did in
+    /// the conversation, rather than a claim about the world.
+    /// </summary>
+    /// <remarks>
+    /// Episodic CAPTURE is measured (0 → 3,048 relations); its RETRIEVAL half never was, because
+    /// nothing recorded <i>which</i> facts came back. <see cref="FactsRetrieved"/> says 38 without
+    /// saying whether any of them was episodic, and <c>RetrievalEvidence.RankedItems</c> is empty on
+    /// the prepared path — so "is episodic memory ever retrieved" had no instrument, which is why it
+    /// stayed unmeasured rather than measured-and-inconclusive.
+    /// <para>
+    /// Identified by SUBJECT. The extraction prompt writes these with the assistant as the subject,
+    /// so the subject is the marker; the predicate vocabulary (recommended/told/provided/suggested/
+    /// explained) is deliberately not relied on, since the model may reach for a verb outside it.
+    /// </para>
+    /// <para>
+    /// <b>A heuristic, and its false-positive rate is measured rather than assumed.</b> A user turn
+    /// genuinely about "the assistant" is counted here too. Probing both frozen bases directly:
+    /// <list type="bullet">
+    /// <item><description><b>Ignore</b> base — 17 of 25,668 facts, <b>0.07%</b>.</description></item>
+    /// <item><description><b>Utterance</b> base — 13,251 of 36,489 facts, <b>36.3%</b>.</description></item>
+    /// </list>
+    /// So the floor is 0.07%, <i>not</i> zero — an earlier draft of this comment asserted it must be
+    /// exactly 0, which the probe disproved. Against a 36.3% signal a 0.07% floor cannot manufacture
+    /// the result, which is what makes the marker usable; a count near the floor in Utterance mode
+    /// would indict this counter rather than reveal anything about memory.
+    /// </para>
+    /// </remarks>
+    public int EpisodicFactsRetrieved { get; init; }
 
     public int PreferencesRetrieved { get; init; }
 
