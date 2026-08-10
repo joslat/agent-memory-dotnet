@@ -157,6 +157,7 @@ internal static class LongMemEvalPreparedPairProgram
                         CancellationToken.None,
                         baseVolumeName,
                         enableBatchedPreparation: !options.IsDiagnostic,
+                        multiSessionBatch: options.MultiSessionBatch,
                         maxConcurrentBatchesPerExtraction:
                             options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
                         maxConcurrentExtractionBatches:
@@ -679,6 +680,10 @@ internal static class LongMemEvalPreparedPairProgram
                     // gets stored, so two bases built under different modes are not
                     // comparable and must not be confusable in an artifact.
                     assistantContent = options.AssistantContent.ToString(),
+                    // Records WHICH extractor ran. Without it, a single-session-unified run and a
+                    // multi-session batch run are indistinguishable in the artifact despite using
+                    // different code and different prompts.
+                    multiSessionBatch = options.MultiSessionBatch,
                     maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                     // K6. Additive on top of the mode budget, so a score compared against a run
                     // without it is confounded with the larger context. Recorded here so no later
@@ -1205,6 +1210,10 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
             ParseAssistantContent(Value("--assistant-content")),
+            // Default true reproduces every run recorded so far. Passing --single-session-unified
+            // measures LlmUnifiedMemoryExtractor, the extractor an ordinary consumer gets from
+            // UseUnifiedExtraction and which no measurement had ever exercised.
+            !Has("--single-session-unified"),
             Has("--expand-facts-by-predicate"),
             Has("--resolve-query-relations"),
             Value("--reuse-prepared-volumes"),
@@ -1452,6 +1461,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
         AssistantContentMode AssistantContent,
+        bool MultiSessionBatch,
         bool ExpandFactsByPredicate,
         bool ResolveQueryRelations,
         string? ReusePreparedVolume,

@@ -36,6 +36,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         CancellationToken cancellationToken,
         string? volumeName = null,
         bool enableBatchedPreparation = false,
+        bool multiSessionBatch = true,
         int maxConcurrentBatchesPerExtraction = 1,
         int maxConcurrentExtractionBatches = 0,
         bool usePredicateVocabulary = false,
@@ -65,6 +66,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     log,
                     volumeName,
                     enableBatchedPreparation,
+                    multiSessionBatch,
                     maxConcurrentBatchesPerExtraction,
                     maxConcurrentExtractionBatches,
                     usePredicateVocabulary,
@@ -90,6 +92,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         TextWriter log,
         string? volumeName,
         bool enableBatchedPreparation,
+        bool multiSessionBatch,
         int maxConcurrentBatchesPerExtraction,
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
@@ -118,7 +121,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             maxConcurrentExtractionBatches,
             usePredicateVocabulary,
             assistantContent,
-            graphRagIndexName);
+            graphRagIndexName,
+            multiSessionBatch);
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
@@ -152,7 +156,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
-        string? graphRagIndexName)
+        string? graphRagIndexName,
+        bool multiSessionBatch = true)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -163,8 +168,14 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.Temperature = 0;
                 options.MaxRetries = 2;
                 options.UseJsonResponseFormat = true;
+                // These select DIFFERENT extractors and were previously driven by one boolean, so the
+                // single-session unified path could not be measured at all: every one of the 55 recorded
+                // runs was unified+multi-session, i.e. LlmMultiSessionUnifiedMemoryExtractor via
+                // ExtractBatchAsync. An ordinary consumer who enables UseUnifiedExtraction gets
+                // LlmUnifiedMemoryExtractor instead, which no measurement had ever exercised.
+                // multiSessionBatch defaults to true, so every existing base and manifest is unaffected.
                 options.UseUnifiedExtraction = enableBatchedPreparation;
-                options.UseMultiSessionBatchExtraction = enableBatchedPreparation;
+                options.UseMultiSessionBatchExtraction = enableBatchedPreparation && multiSessionBatch;
                 options.MaxConcurrentBatchesPerExtraction = maxConcurrentBatchesPerExtraction;
                 options.MaxConcurrentExtractionBatches = maxConcurrentExtractionBatches;
                 options.UsePredicateVocabulary = usePredicateVocabulary;
