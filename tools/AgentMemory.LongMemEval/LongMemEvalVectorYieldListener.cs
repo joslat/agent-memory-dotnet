@@ -102,3 +102,49 @@ internal sealed record VectorYieldSample(
     int EffectiveTopK,
     bool Escalated,
     int Returned);
+
+/// <summary>
+/// Aggregate vector-recall yield for one arm: how much of the requested width the owner received.
+/// </summary>
+/// <remarks>
+/// <c>StarvedSearches</c> is the number that returned <b>nothing</b> while the search itself succeeded
+/// — the shape that produced a question with no facts at all on the 50-owner corpus. It is counted
+/// separately from the mean because an average hides it completely.
+/// </remarks>
+internal sealed record LongMemEvalVectorYieldSummary(
+    int Searches,
+    int OwnerScopedSearches,
+    int StarvedSearches,
+    int EscalatedSearches,
+    double MeanReturned,
+    double MeanYieldRatio,
+    int TotalReturned,
+    IReadOnlyDictionary<string, int> SearchesBySpan)
+{
+    internal static LongMemEvalVectorYieldSummary From(IReadOnlyList<VectorYieldSample> samples)
+    {
+        if (samples.Count == 0)
+        {
+            return new LongMemEvalVectorYieldSummary(
+                0, 0, 0, 0, 0, 0, 0, new Dictionary<string, int>(StringComparer.Ordinal));
+        }
+
+        // Ratio against effective_topk, the width that actually produced the rows - not the requested
+        // width, which on an escalated search is not what the second query asked for.
+        var ratios = samples
+            .Where(sample => sample.EffectiveTopK > 0)
+            .Select(sample => (double)sample.Returned / sample.EffectiveTopK)
+            .ToArray();
+
+        return new LongMemEvalVectorYieldSummary(
+            samples.Count,
+            samples.Count(sample => sample.OwnerScoped),
+            samples.Count(sample => sample.Returned == 0),
+            samples.Count(sample => sample.Escalated),
+            samples.Average(sample => sample.Returned),
+            ratios.Length == 0 ? 0 : ratios.Average(),
+            samples.Sum(sample => sample.Returned),
+            samples.GroupBy(sample => sample.Span, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal));
+    }
+}

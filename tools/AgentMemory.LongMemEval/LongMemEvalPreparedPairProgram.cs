@@ -803,6 +803,10 @@ internal static class LongMemEvalPreparedPairProgram
         string deployment,
         int embeddingDimensions)
     {
+        // Scoped to this arm so structured and hybrid yields never mix. Until now the eight
+        // instrumented vector searches emitted these spans on every run and NOTHING listened, so the
+        // owner post-filter starvation figure rested on one hand measurement of one path.
+        using var vectorYield = new LongMemEvalVectorYieldListener();
         using var answerCalls = new LongMemEvalChatCallMeter(
             azureClient.GetChatClient(deployment).AsIChatClient());
         using var judgeCalls = new LongMemEvalChatCallMeter(
@@ -933,7 +937,8 @@ internal static class LongMemEvalPreparedPairProgram
                     item.StageTimings?.RetrievalMs ?? 0),
                 adapter.QuestionTelemetry.Sum(item =>
                     item.StageTimings?.AnswerMs ?? 0),
-                total.Elapsed.TotalMilliseconds));
+                total.Elapsed.TotalMilliseconds),
+            LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
     }
 
     private static object ProjectArm(
@@ -967,6 +972,11 @@ internal static class LongMemEvalPreparedPairProgram
             episodicFactsRetrieved = arm.Telemetry.Sum(item => item.EpisodicFactsRetrieved),
             questionsWithEpisodicFact = arm.Telemetry.Count(item => item.EpisodicFactsRetrieved > 0),
             preferencesRetrieved = arm.Telemetry.Sum(item => item.PreferencesRetrieved),
+            // P5. The eight instrumented vector searches were emitting into the void on every run
+            // because nothing in this harness subscribed. starvedSearches is the load-bearing field:
+            // a search that SUCCEEDED and returned nothing is the owner post-filter shape, and a mean
+            // hides it completely.
+            vectorYield = arm.VectorYield,
             // K6. Zero on every run before this flag existed, because the budget was zero. Reported
             // as a pair: the count says whether the mechanism works at all, and the overlap says
             // whether what came back was already in the structured context.
@@ -1495,5 +1505,6 @@ internal static class LongMemEvalPreparedPairProgram
         LongMemEvalChatCallSnapshot JudgeCalls,
         LongMemEvalChatCallSnapshot DiagnosticCalls,
         LongMemEvalChatCallSnapshot ExtractionCalls,
-        PreparedArmTimings Timings);
+        PreparedArmTimings Timings,
+        LongMemEvalVectorYieldSummary VectorYield);
 }
