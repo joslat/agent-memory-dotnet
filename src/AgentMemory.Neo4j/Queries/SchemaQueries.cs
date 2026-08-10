@@ -91,6 +91,56 @@ internal static class SchemaQueries
     /// <summary>Index on Message.role.</summary>
     public const string MessageRoleIndex = "CREATE INDEX message_role_idx IF NOT EXISTS FOR (m:Message) ON (m.role)";
 
+    /// <summary>
+    /// Composite index on the session-scoped message reads — the primary short-term recall path.
+    /// </summary>
+    /// <remarks>
+    /// <c>Message.session_id</c> is the property every session-scoped message query filters on, and
+    /// nothing indexed it. There are exactly four predicate sites, all of them this property:
+    /// <c>MessageQueries.cs:201</c> (<c>GetRecentBySession</c>), <c>:212</c> (<c>GetAllBySession</c>),
+    /// <c>:258</c> (<c>DeleteBySession</c>) and <c>TemporalQueries.cs:99</c>
+    /// (<c>GetRecentMessagesAsOf</c>). <c>:Message</c> carried <c>message_timestamp_idx</c>,
+    /// <c>message_role_idx</c>, a content fulltext and a vector index — everything except the
+    /// property the hot query actually filters.
+    /// <para>
+    /// <b>This is the hottest read in the library.</b> <c>GetRecentBySession</c> runs on essentially
+    /// every turn: <c>MemoryContextAssembler.cs:220</c> → <c>ShortTermMemoryService.cs:190</c> →
+    /// <c>Neo4jMessageRepository.cs:193</c>, entered from the MAF facade, from
+    /// <c>Neo4jChatMessageStore.GetMessagesAsync</c> and from MCP <c>ObservationTools.cs:33</c>.
+    /// </para>
+    /// <para>
+    /// Without it the planner had two options, both proportional to the total number of messages in
+    /// the store rather than to the session: a <c>NodeByLabelScan(:Message)</c> plus filter, or a
+    /// backwards <c>message_timestamp_idx</c> scan reading newest-first until <c>$limit</c> matches
+    /// accumulated. The second is what makes the defect <b>bimodal and easy to miss in testing</b> —
+    /// fast for the session just written to, degrading without bound for an idle session in a busy
+    /// store. <c>GetAllBySession</c> has no <c>LIMIT</c> at all, so early termination never applied:
+    /// unconditional full label scan plus sort.
+    /// </para>
+    /// <para>
+    /// <b>Composite, not bare.</b> <c>TemporalQueries.cs:99-103</c> filters <c>session_id</c> equality
+    /// <em>and</em> <c>m.timestamp &lt;= datetime($asOf)</c> — exact-prefix plus trailing range, the
+    /// canonical composite seek, with the range pushed into the index. <c>session_id</c> leads, so the
+    /// same index serves all four sites via its prefix; a separate bare <c>(session_id)</c> index would
+    /// be pure duplicate write cost on the hottest write path. Both properties are <c>ON CREATE SET</c>
+    /// only (<c>MessageQueries.cs:34-37, :101-104, :126-129</c>), so there is no update churn.
+    /// </para>
+    /// <para>
+    /// The seek is unconditional; whether it <em>also</em> eliminates the sort for
+    /// <c>ORDER BY m.timestamp DESC LIMIT</c> depends on the deployed Neo4j version's index-backed
+    /// ordering for composite indexes, and is worth a <c>PROFILE</c> rather than an assumption.
+    /// </para>
+    /// <para>
+    /// <c>message_timestamp_idx</c> is deliberately kept despite having no remaining standalone
+    /// reader: the upstream parity snapshot declares it
+    /// (<c>Schema/Parity/Snapshots/python-v0.5.0/schema.json:75</c>), so dropping it would break
+    /// schema parity.
+    /// </para>
+    /// </remarks>
+    public const string MessageSessionTimestampIndex =
+        "CREATE INDEX message_session_timestamp_idx IF NOT EXISTS FOR (m:Message) " +
+        "ON (m.session_id, m.timestamp)";
+
     /// <summary>Index on Entity.type.</summary>
     public const string EntityTypeIndex = "CREATE INDEX entity_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.type)";
 
@@ -156,6 +206,41 @@ internal static class SchemaQueries
         "CREATE INDEX fact_merge_key_idx IF NOT EXISTS FOR (f:Fact) " +
         "ON (f.subject_key, f.object_key, f.predicate_key, f.owner_key)";
 
+    /// <summary>
+    /// Index on Fact.predicate_key — the relation-completeness retrieval path.
+    /// </summary>
+    /// <remarks>
+    /// This is <see cref="FactMergeKeyIndex"/>'s defect repeating one column over.
+    /// <c>fact_merge_key_idx</c> is <c>ON (subject_key, object_key, predicate_key, owner_key)</c>, and
+    /// Neo4j uses a composite index only when the query filters a matching <b>prefix</b> — so a filter
+    /// on <c>predicate_key</c> alone, sitting at column 3, got nothing from it.
+    /// <para>
+    /// <c>FactQueries.cs:88</c> (<c>SearchByCanonicalPredicates</c>) filters
+    /// <c>f.predicate_key IN $predicateKeys</c>, and the query had <b>no index entry point
+    /// whatsoever</b>. Neither companion predicate can rescue it: <c>f.invalidated_at IS NULL</c>
+    /// (<c>:89</c>) is unindexable because a range index stores no nulls, and the owner clause under
+    /// the default scope is <c>(f.owner_id = $ownerId OR f.owner_id IS NULL)</c> (<c>:84</c>, with
+    /// <c>MemoryScope.IncludeShared</c> defaulting true) whose <c>IS NULL</c> disjunct disqualifies a
+    /// <c>fact_owner_idx</c> seek. The plan was therefore a full <c>:Fact</c> label scan across all
+    /// owners, then <c>ORDER BY confidence DESC</c> over the whole result — cost scaling with the
+    /// total number of facts in the store.
+    /// </para>
+    /// <para>
+    /// Conditional per turn, but unconditionally a full scan when it fires:
+    /// <c>RecallOptions.ExpandFactsByPredicate</c> defaults false (<c>RecallOptions.cs:69</c>), and
+    /// <c>Neo4jMemoryContextProvider.cs:234-235</c> flips it on per-turn whenever
+    /// <c>decision.RequiresRelationCompleteness</c> — i.e. automatically for every aggregation,
+    /// "list all" or "how many" question.
+    /// </para>
+    /// <para>
+    /// <b>Single-property is correct here; a composite would not help.</b> <c>(predicate_key,
+    /// owner_id)</c> cannot serve the default owner-or-shared shape for the same <c>IS NULL</c> reason,
+    /// and <c>invalidated_at</c> is not seekable at all, so there is no second column worth carrying.
+    /// </para>
+    /// </remarks>
+    public const string FactPredicateKeyIndex =
+        "CREATE INDEX fact_predicate_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.predicate_key)";
+
     /// <summary>Index on Entity.owner_id (multi-user scope).</summary>
     public const string EntityOwnerIndex = "CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)";
 
@@ -198,6 +283,7 @@ internal static class SchemaQueries
         ConversationSessionIndex,
         MessageTimestampIndex,
         MessageRoleIndex,
+        MessageSessionTimestampIndex,
         EntityTypeIndex,
         EntityNameIndex,
         EntityCanonicalIndex,
@@ -212,6 +298,7 @@ internal static class SchemaQueries
         EntityLocationIndex,
         FactOwnerIndex,
         FactMergeKeyIndex,
+        FactPredicateKeyIndex,
         EntityOwnerIndex,
         PreferenceOwnerIndex,
         TraceOwnerIndex,
