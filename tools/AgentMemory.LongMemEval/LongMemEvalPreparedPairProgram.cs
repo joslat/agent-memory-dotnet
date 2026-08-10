@@ -749,6 +749,18 @@ internal static class LongMemEvalPreparedPairProgram
 
             Console.WriteLine(
                 $"longmemeval: prepared pair accepted; structured={structured.Result.OverallAccuracy:F1}% hybrid={hybrid.Result.OverallAccuracy:F1}%.");
+
+            // The headline is the line everyone quotes, and it used to say nothing about WHICH
+            // extraction configuration produced it. This benchmark runs with UseUnifiedExtraction
+            // ON (LongMemEvalMemoryProfile sets it from enableBatchedPreparation), while the shipped
+            // default in LlmExtractionOptions is OFF. Every quality number here therefore describes a
+            // configuration a default install does not get, and that went unstated for an entire
+            // measurement track. It is stated here, next to the number, because a caveat that lives
+            // only in a plan document does not travel with the result.
+            Console.WriteLine(
+                $"longmemeval: measured with UseUnifiedExtraction={manifest.UseUnifiedExtraction}, " +
+                $"UseMultiSessionBatchExtraction={manifest.UseMultiSessionBatchExtraction} " +
+                "(shipped default for both is false).");
             Console.WriteLine($"longmemeval: report {destination}");
             return 0;
         }
