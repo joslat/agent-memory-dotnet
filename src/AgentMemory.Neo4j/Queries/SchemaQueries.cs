@@ -229,6 +229,35 @@ internal static class SchemaQueries
         "ON (f.subject_key, f.object_key, f.predicate_key, f.owner_key)";
 
     /// <summary>
+    /// Index on Fact.owner_key — the only seekable predicate dedup-on-create has.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured, and it overturns a reasoned rejection.</b> <c>FactQueries.FindDuplicate</c> runs on
+    /// <b>every fact write</b> and had <b>no index entry point at all</b>: <c>owner_key</c> is column 4
+    /// of <c>fact_merge_key_idx</c> and a composite cannot be seeked from a non-prefix column;
+    /// <c>toLower(subject)</c> and <c>toLower(predicate)</c> cannot be indexed because Neo4j 5 has no
+    /// functional indexes; and <c>invalidated_at IS NULL</c> / <c>embedding IS NOT NULL</c> are both
+    /// unindexable. Profiled on 5.26 with 20,000 facts across 200 owners, dedup-on-create planned a
+    /// full <c>NodeByLabelScan</c> of all 20,000 — per fact written.
+    /// <para>
+    /// With this index the same query plans <c>NodeIndexSeek</c> at 100 rows: a 200x reduction on the
+    /// write path. Adding <c>subject_key</c> to the query instead was tried first and does <b>not</b>
+    /// work — filtering the composite's leading column alone still plans a full scan, the same
+    /// leading-column-only limitation that made <c>message_session_idx</c> necessary.
+    /// </para>
+    /// <para>
+    /// <b>Honest limit.</b> In a SINGLE-TENANT store <c>owner_key</c> is <c>"*"</c> for every shared
+    /// fact, so the seek returns the whole label and this buys nothing beyond its write cost. It pays
+    /// for itself in the multi-tenant deployment the owner-isolation work exists to serve, which is
+    /// the case that scales. An earlier audit rejected this index on that selectivity argument alone;
+    /// the argument is right for one deployment shape and wrong for the other, and only measurement
+    /// distinguished them.
+    /// </para>
+    /// </remarks>
+    public const string FactOwnerKeyIndex =
+        "CREATE INDEX fact_owner_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_key)";
+
+    /// <summary>
     /// Index on Fact.predicate_key — the relation-completeness retrieval path.
     /// </summary>
     /// <remarks>
@@ -321,6 +350,7 @@ internal static class SchemaQueries
         EntityLocationIndex,
         FactOwnerIndex,
         FactMergeKeyIndex,
+        FactOwnerKeyIndex,
         FactPredicateKeyIndex,
         EntityOwnerIndex,
         PreferenceOwnerIndex,

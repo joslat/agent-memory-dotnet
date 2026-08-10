@@ -81,7 +81,7 @@ public class SchemaBootstrapperTests
         // 12 constraints + 3 fulltext + 6 vector + 26 property = 47
         // +1 fact_merge_key_idx (L11); +1 memory_read_audit_memory_id_idx (BUG-A2);
         // +1 message_session_timestamp_idx; +1 fact_predicate_key_idx (unindexed hot predicates).
-        executedStatements.Should().HaveCount(48);
+        executedStatements.Should().HaveCount(49);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(27);
+        propertyIndexes.Should().HaveCount(28);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("conversation_archived_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
@@ -243,6 +243,8 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("fact_merge_key_idx"));
         // Both message-session indexes: the composite cannot serve a session-only filter.
         propertyIndexes.Should().Contain(s => s.Contains("message_session_idx"));
+        // Dedup-on-create had no index entry point at all before this.
+        propertyIndexes.Should().Contain(s => s.Contains("fact_owner_key_idx"));
         // BUG-A2. Backs the history read-back; without it every history row scans the label.
         propertyIndexes.Should().Contain(s => s.Contains("memory_read_audit_memory_id_idx"));
         // Backs the primary short-term recall path (MessageQueries.cs:201, run on essentially every
