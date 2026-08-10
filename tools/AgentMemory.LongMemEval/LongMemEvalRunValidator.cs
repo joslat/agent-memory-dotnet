@@ -245,11 +245,24 @@ internal static class LongMemEvalRunValidator
                 continue;
             }
 
+            // The parse stays the guard, deliberately. It is tempting to trust
+            // QuestionResult.JudgeStatus instead -- it is a typed enum and the explanation is only a
+            // rendering of it -- but the status is NOT purely the judge's decision: when not set
+            // explicitly it is INFERRED from Correct ("legacy successful JSON without this field
+            // infers Yes or No from Correct"). Trusting it would let `Correct = false` with an empty
+            // judge response report a clean "No", which is exactly the silent miscount
+            // Validate_RejectsEmptyJudgeVerdictInsteadOfCountingItIncorrect exists to prevent. That
+            // test caught this change and was right to.
             if (!TryParseJudgeVerdict(explanation, out var judgedCorrect) &&
                 !HasRecoveredVerdict(question.QuestionId, judgeRetries))
             {
+                // The status still improves the MESSAGE even though it cannot replace the guard.
+                // "no valid yes/no verdict" described our parse failure and sent the same
+                // investigation down the wrong path twice; Empty, Invalid and ProviderError are
+                // different problems with different fixes, and the judge already told us which.
                 issues.Add(
-                    $"AgentEval judge returned no valid yes/no verdict for question {question.QuestionId}.");
+                    $"AgentEval judge returned no usable verdict for question {question.QuestionId} " +
+                    $"(judge status: {question.JudgeStatus?.ToString() ?? "none"}).");
                 continue;
             }
 

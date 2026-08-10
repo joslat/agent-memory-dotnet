@@ -964,6 +964,24 @@ internal static class LongMemEvalPreparedPairProgram
             graphRagFactsAlreadyRetrieved =
                 arm.Telemetry.Sum(item => item.GraphRagFactsAlreadyRetrieved),
             questions = arm.Telemetry,
+            // The judge's own record, kept alongside our telemetry. AgentEval has always handed us
+            // the agent's answer, the judge's explanation and a TYPED status; the report dropped all
+            // three, so "do you agree with the judge?" was unanswerable and a disagreement between
+            // the answer-presence gate and the judge could not be adjudicated at all. Emitted under
+            // the evidence-detail setting, so a run that must not retain answer text still can't.
+            judgments = evidenceDetail == LongMemEvalEvidenceDetail.None
+                ? null
+                : arm.Result.QuestionResults.Select(q => new
+                {
+                    q.QuestionId,
+                    status = q.JudgeStatus?.ToString(),
+                    q.Correct,
+                    q.RawScore,
+                    q.JudgeLlmCallCount,
+                    q.JudgeTokensUsed,
+                    agentResponse = q.AgentResponse,
+                    judgeExplanation = q.JudgeExplanation,
+                }).ToArray(),
             timings = new
             {
                 arm.Timings.ProfileStartupMs,

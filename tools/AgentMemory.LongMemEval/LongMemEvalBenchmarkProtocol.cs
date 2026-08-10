@@ -26,7 +26,13 @@ internal static class LongMemEvalBenchmarkProtocol
             MaxJudgeRetries = judgeRetryAttempts,
             JudgeTemperature = null,
             JudgeMaxOutputTokens = 256,
-            JudgeEvidenceMode = JudgeEvidenceMode.Outcome,
+            // Raw, not Outcome. In Outcome mode AgentEval renders the explanation as
+            // $"Judge outcome: {status}" -- the status as a STRING -- and we then parsed that string
+            // back into a status, reporting the failed round trip as "the judge returned no valid
+            // verdict". The judge was not the problem; discarding its reasoning and re-deriving it
+            // from our own rendering was. Raw keeps the model's actual text (bounded to 4096 chars by
+            // AgentEval), which is the only way to tell a WRONG judge from an UNPARSEABLE one.
+            JudgeEvidenceMode = JudgeEvidenceMode.Raw,
             EvidenceCaptureMode = evidenceDetail switch
             {
                 LongMemEvalEvidenceDetail.None => EvidenceCaptureMode.None,
