@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for reasoning trace memory operations.
 /// </summary>
-internal sealed class ReasoningMemoryService : IReasoningMemoryService
+internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredTraceSearch
 {
     private readonly IReasoningTraceRepository _traceRepo;
     private readonly IReasoningStepRepository _stepRepo;
@@ -287,10 +287,31 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(SearchSimilarTracesAsync), MemoryOperationAccess.Tenant);
-        var scored = await _traceRepo.SearchByTaskVectorAsync(
-            taskEmbedding, successFilter, limit, minScore, resolvedScope, cancellationToken).ConfigureAwait(false);
+        var scored = await SearchSimilarTracesWithScoresAsync(
+            taskEmbedding, successFilter, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Trace).ToList();
+    }
+
+    /// <summary>
+    /// Returns the repository's already-ranked trace results without a second query — see
+    /// <see cref="IScoredTraceSearch"/>.
+    /// </summary>
+    /// <remarks>
+    /// The isolation-policy operation name stays <c>SearchSimilarTracesAsync</c>: the policy logs and (in
+    /// StrictMultiTenant) throws with that name, and asking for scores must not change what an operator
+    /// sees in the audit trail.
+    /// </remarks>
+    public Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchSimilarTracesWithScoresAsync(
+        float[] taskEmbedding,
+        bool? successFilter,
+        int limit,
+        double minScore,
+        AgentMemory.Abstractions.Options.MemoryScope? scope,
+        CancellationToken cancellationToken)
+    {
+        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(SearchSimilarTracesAsync), MemoryOperationAccess.Tenant);
+        return _traceRepo.SearchByTaskVectorAsync(
+            taskEmbedding, successFilter, limit, minScore, resolvedScope, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -303,9 +324,55 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService
         AgentMemory.Abstractions.Options.MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(SearchSimilarTracesAsOfAsync), MemoryOperationAccess.Tenant);
-        var scored = await _traceRepo.SearchByTaskVectorAsOfAsync(
-            taskEmbedding, asOf, successFilter, limit, minScore, resolvedScope, cancellationToken).ConfigureAwait(false);
+        var scored = await SearchSimilarTracesAsOfWithScoresAsync(
+            taskEmbedding, asOf, successFilter, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Trace).ToList();
     }
+
+    /// <summary>
+    /// Point-in-time trace search that keeps its scores. Operation name pinned to
+    /// <c>SearchSimilarTracesAsOfAsync</c> for the same reason as
+    /// <see cref="SearchSimilarTracesWithScoresAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchSimilarTracesAsOfWithScoresAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter,
+        int limit,
+        double minScore,
+        AgentMemory.Abstractions.Options.MemoryScope? scope,
+        CancellationToken cancellationToken)
+    {
+        var resolvedScope = _isolationPolicy.ResolveReadScope(scope, ownerId: null, nameof(SearchSimilarTracesAsOfAsync), MemoryOperationAccess.Tenant);
+        return _traceRepo.SearchByTaskVectorAsOfAsync(
+            taskEmbedding, asOf, successFilter, limit, minScore, resolvedScope, cancellationToken);
+    }
+}
+
+/// <summary>
+/// Internal scored-search capability implemented by the built-in reasoning memory service. The trace
+/// repository ranks by similarity and <see cref="IReasoningMemoryService"/> then drops the score; this
+/// contract recovers it <b>without a second query</b> so the SimilarTraces section can carry
+/// <c>RankedItems</c>. Separate from the public interface for the same reason as
+/// <see cref="IScoredMessageSearch"/>: that interface is SemVer-locked.
+/// </summary>
+internal interface IScoredTraceSearch
+{
+    Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchSimilarTracesWithScoresAsync(
+        float[] taskEmbedding,
+        bool? successFilter,
+        int limit,
+        double minScore,
+        AgentMemory.Abstractions.Options.MemoryScope? scope,
+        CancellationToken cancellationToken);
+
+    /// <summary>Point-in-time sibling, for the bitemporal recall path's SimilarTraces section.</summary>
+    Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchSimilarTracesAsOfWithScoresAsync(
+        float[] taskEmbedding,
+        DateTimeOffset asOf,
+        bool? successFilter,
+        int limit,
+        double minScore,
+        AgentMemory.Abstractions.Options.MemoryScope? scope,
+        CancellationToken cancellationToken);
 }

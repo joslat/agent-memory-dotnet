@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
@@ -274,6 +275,12 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
         int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Recall-yield signal. The mean-7-of-60 starvation documented on OwnerVectorOverFetch was found by
+        // a one-off study; nothing in the running system reported it. This span makes it standing. Started
+        // AFTER the degraded-embedding short-circuit above, so a search that never reached the index does
+        // not publish a zero-yield reading it never earned.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.fact_vector");
         _logger.LogDebug("Vector search facts, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
@@ -311,6 +318,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // of its own live, embedded, above-threshold facts. Empty is total failure, so it is worth
         // one wider query; anything non-empty is left alone, because escalating on "short" would tax
         // every small tenant forever.
+        int? escalatedTopK = null;
         if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
         {
             var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
@@ -319,8 +327,33 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 _logger.LogDebug(
                     "Owner-scoped fact vector search returned nothing at topK={TopK}; retrying at {Widened}.",
                     topK, widened);
+                escalatedTopK = widened;
                 results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        if (activity is not null)
+        {
+            // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks:
+            // the tag block is the only work here that exists purely to produce telemetry, so it is skipped
+            // whole (no boxing, no allocation) when nobody is listening.
+            //
+            // owner_scoped separates the two populations: unscoped searches have no post-filter and so no
+            // starvation to report, and folding them into an aggregate would dilute the very signal this
+            // exists to raise. limit is the denominator — `returned` is capped by the Cypher's LIMIT $limit,
+            // so 7 rows means something different at limit 10 than at limit 7.
+            //
+            // Success path only: a search that threw is left untagged rather than tagged `returned = 0`,
+            // because a failed query measured nothing and a false zero here reads as starvation.
+            activity.SetTag("memory.vector.owner_scoped", hasOwner);
+            activity.SetTag("memory.vector.limit", limit);
+            activity.SetTag("memory.vector.requested_topk", topK);
+            activity.SetTag("memory.vector.returned", results.Count);
+            activity.SetTag("memory.vector.escalated", escalatedTopK is not null);
+            // Absent, never defaulted, when no second pass was issued: a width nobody asked for is not a
+            // measurement. Same rule as LimitBinding, which is null rather than false when unmeasured.
+            if (escalatedTopK is { } widenedTopK)
+                activity.SetTag("memory.vector.escalated_topk", widenedTopK);
         }
 
         return results.Select(r => (r.Item1, r.Item2)).ToList();

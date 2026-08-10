@@ -163,6 +163,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
         IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
+        // Retrieval scores per section, populated only on the diagnostics path below. Empty — never a
+        // placeholder score — for any section whose provider could not supply one, so a reader can tell
+        // "retrieved weakly" apart from "not ranked at all".
+        IReadOnlyList<(Entity Entity, double Score)> entityScores = Array.Empty<(Entity, double)>();
+        IReadOnlyList<(Preference Preference, double Score)> preferenceScores = Array.Empty<(Preference, double)>();
+        IReadOnlyList<(Fact Fact, double Score)> factScores = Array.Empty<(Fact, double)>();
+        IReadOnlyList<(ReasoningTrace Trace, double Score)> traceScores = Array.Empty<(ReasoningTrace, double)>();
 
         // J2.2 resolution, computed once at method scope so it can be both used by the fact search
         // and reported on the context. Which relations a question resolved to is the difference
@@ -188,6 +195,15 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // searches rather than issue zero-dimension vector queries (which the index rejects).
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
+
+            // Every long-term/reasoning search below is ranked by the vector index and the service layer
+            // then throws the score away, which is why four of the five sections have always shipped an
+            // empty RankedItems. The internal scored contracts hand the same result back WITH its scores
+            // and WITHOUT a second query. Null when diagnostics are off (the default) or when a custom
+            // service implementation does not expose the contract, and every call below is then the
+            // pre-existing one — same query, same allocations, same behaviour.
+            var scoredLongTerm = recallOpts.IncludeDiagnostics ? _longTerm as IScoredLongTermSearch : null;
+            var scoredReasoning = recallOpts.IncludeDiagnostics ? _reasoning as IScoredTraceSearch : null;
 
             // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding. Each
             // is also gated on its own MaxX > 0 (#88): a task-aware recall policy that excludes a category
@@ -222,17 +238,46 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             bool overrideRanking = _rankingContext is not null && recallOpts.Intent != RankingIntent.Default;
             if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
 
-            var entitiesTask = hasEmbedding && recallOpts.MaxEntities > 0
+            // Each section starts exactly one retrieval: the scored variant when this recall asked for
+            // diagnostics and the provider can serve them, the pre-existing unscored one otherwise. The
+            // unused handle is a completed Empty task, so nothing is ever retrieved twice.
+            bool searchEntities = hasEmbedding && recallOpts.MaxEntities > 0;
+            bool searchPreferences = hasEmbedding && recallOpts.MaxPreferences > 0;
+            bool searchFacts = hasEmbedding && recallOpts.MaxFacts > 0;
+            bool searchTraces = hasEmbedding && recallOpts.MaxTraces > 0;
+
+            var entitiesTask = searchEntities && scoredLongTerm is null
                 ? TimedAsync("memory.recall.entities",
                     () => _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken))
                 : Empty<Entity>();
+            var entitiesScoredTask = searchEntities && scoredLongTerm is not null
+                ? TimedAsync("memory.recall.entities",
+                    () => scoredLongTerm!.SearchEntitiesWithScoresAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken))
+                : null;
 
-            var preferencesTask = hasEmbedding && recallOpts.MaxPreferences > 0
+            var preferencesTask = searchPreferences && scoredLongTerm is null
                 ? TimedAsync("memory.recall.preferences",
                     () => _longTerm.SearchPreferencesAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken))
                 : Empty<Preference>();
+            var preferencesScoredTask = searchPreferences && scoredLongTerm is not null
+                ? TimedAsync("memory.recall.preferences",
+                    () => scoredLongTerm!.SearchPreferencesWithScoresAsync(queryEmbedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken))
+                : null;
 
-            var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
+            // The scored fact search takes the widest overload unconditionally because it can: the
+            // expansion arguments below are the same values the unscored calls pass, and false/0/empty
+            // reproduces the narrow overload exactly.
+            var factsScoredTask = searchFacts && scoredLongTerm is not null
+                ? TimedAsync("memory.recall.facts",
+                    () => scoredLongTerm!.SearchFactsWithScoresAsync(
+                        queryEmbedding, recallOpts.MaxFacts, minScore, scope,
+                        recallOpts.ExpandFactsByPredicate,
+                        recallOpts.ExpandFactsByPredicate ? recallOpts.MaxExpandedFacts : 0,
+                        resolvedQueryRelations,
+                        cancellationToken))
+                : null;
+
+            var factsTask = searchFacts && scoredLongTerm is null
                 ? TimedAsync("memory.recall.facts",
                     // Only the expansion path takes the wider overload. Off by default, the call is
                     // byte-for-byte the original, so no existing behaviour or contract shifts.
@@ -255,7 +300,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                             queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
                 : Empty<Fact>();
 
-            var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
+            var tracesTask = searchTraces && scoredReasoning is null
                 ? TimedAsync("memory.recall.traces",
                     () => _reasoning.SearchSimilarTracesAsync(
                         queryEmbedding,
@@ -267,21 +312,72 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                         recallOpts.SuccessfulTracesOnly,
                         recallOpts.MaxTraces, minScore, scope, cancellationToken))
                 : Empty<ReasoningTrace>();
+            var tracesScoredTask = searchTraces && scoredReasoning is not null
+                ? TimedAsync("memory.recall.traces",
+                    () => scoredReasoning!.SearchSimilarTracesWithScoresAsync(
+                        queryEmbedding, recallOpts.SuccessfulTracesOnly,
+                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                : null;
 
             if (overrideRanking) _rankingContext!.Current = null;
 
+            // One handle per section, so a fault in any of them is still observed here rather than
+            // surfacing later as an unobserved task exception.
             await Task.WhenAll(
-                recentTask, relevantTask, entitiesTask,
-                preferencesTask, factsTask, tracesTask).ConfigureAwait(false);
+                recentTask, relevantTask,
+                entitiesScoredTask ?? (Task)entitiesTask,
+                preferencesScoredTask ?? (Task)preferencesTask,
+                factsScoredTask ?? (Task)factsTask,
+                tracesScoredTask ?? (Task)tracesTask).ConfigureAwait(false);
 
             recentMessages = await recentTask.ConfigureAwait(false);
             var relevantResult = await relevantTask.ConfigureAwait(false);
             relevantMessages = relevantResult.Messages;
             relevantMessageScores = relevantResult.ScoredMessages;
-            entities = await entitiesTask.ConfigureAwait(false);
-            preferences = await preferencesTask.ConfigureAwait(false);
-            facts = await factsTask.ConfigureAwait(false);
-            traces = await tracesTask.ConfigureAwait(false);
+
+            if (entitiesScoredTask is null)
+            {
+                entities = await entitiesTask.ConfigureAwait(false);
+            }
+            else
+            {
+                entityScores = await entitiesScoredTask.ConfigureAwait(false);
+                entities = entityScores.Select(static scored => scored.Entity).ToArray();
+            }
+
+            if (preferencesScoredTask is null)
+            {
+                preferences = await preferencesTask.ConfigureAwait(false);
+            }
+            else
+            {
+                preferenceScores = await preferencesScoredTask.ConfigureAwait(false);
+                preferences = preferenceScores.Select(static scored => scored.Preference).ToArray();
+            }
+
+            if (factsScoredTask is null)
+            {
+                facts = await factsTask.ConfigureAwait(false);
+            }
+            else
+            {
+                // Facts are the one section where Items ⊋ the scored set: predicate expansion appends
+                // facts retrieved by predicate rather than by similarity, so they arrive with no score
+                // and are simply absent from factScores.
+                var factResult = await factsScoredTask.ConfigureAwait(false);
+                facts = factResult.Facts;
+                factScores = factResult.Scored;
+            }
+
+            if (tracesScoredTask is null)
+            {
+                traces = await tracesTask.ConfigureAwait(false);
+            }
+            else
+            {
+                traceScores = await tracesScoredTask.ConfigureAwait(false);
+                traces = traceScores.Select(static scored => scored.Trace).ToArray();
+            }
         }
 
         if (graphRagTask != null)
@@ -320,9 +416,26 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
-        var rankedRelevantItems = recallOpts.IncludeDiagnostics
-            ? BuildRankedItems(relevantMessages, relevantMessageScores)
-            : Array.Empty<MemoryContextRankedItem>();
+        // Built after budgeting, because ContextRank means "position among the items that SURVIVED the
+        // budget" while RetrievalRank keeps the provider's original ordering. Off by default: every
+        // section then keeps its Array.Empty default and none of this runs.
+        IReadOnlyList<MemoryContextRankedItem> relevantRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> entityRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> preferenceRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> factRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> traceRanked = Array.Empty<MemoryContextRankedItem>();
+
+        if (recallOpts.IncludeDiagnostics)
+        {
+            // Any section whose scores stayed empty (provider without the scored contract, or a section
+            // that was never searched) falls straight back out of BuildRankedItems as empty — an
+            // unscoreable section reports nothing rather than a made-up score.
+            relevantRanked = BuildRankedItems(relevantMessages, relevantMessageScores, static m => m.MessageId);
+            entityRanked = BuildRankedItems(entities, entityScores, static e => e.EntityId);
+            preferenceRanked = BuildRankedItems(preferences, preferenceScores, static p => p.PreferenceId);
+            factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
+            traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
+        }
 
         var context = new MemoryContext
         {
@@ -332,12 +445,28 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             RelevantMessages = new MemoryContextSection<Message>
             {
                 Items = relevantMessages,
-                RankedItems = rankedRelevantItems
+                RankedItems = relevantRanked
             },
-            RelevantEntities = new MemoryContextSection<Entity> { Items = entities },
-            RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
-            RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
-            SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
+            RelevantEntities = new MemoryContextSection<Entity>
+            {
+                Items = entities,
+                RankedItems = entityRanked
+            },
+            RelevantPreferences = new MemoryContextSection<Preference>
+            {
+                Items = preferences,
+                RankedItems = preferenceRanked
+            },
+            RelevantFacts = new MemoryContextSection<Fact>
+            {
+                Items = facts,
+                RankedItems = factRanked
+            },
+            SimilarTraces = new MemoryContextSection<ReasoningTrace>
+            {
+                Items = traces,
+                RankedItems = traceRanked
+            },
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
             ResolvedQueryRelations = resolvedQueryRelations,
@@ -400,29 +529,115 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? _shortTerm.GetRecentMessagesAsOfAsync(request.SessionId, systemAsOf, recallOpts.MaxRecentMessages, cancellationToken)
             : Empty<Message>();
 
-        var entitiesTask = hasEmbedding && recallOpts.MaxEntities > 0
+        // Same diagnostics gate as the live path, because this assembles the same five sections from a
+        // second code path — an instrument wired into only one of the two recall paths would report a
+        // point-in-time recall as unscored when it merely went the other way. Null when diagnostics are
+        // off (the default), and every call below is then the pre-existing one.
+        var scoredLongTerm = recallOpts.IncludeDiagnostics ? _longTerm as IScoredLongTermSearch : null;
+        var scoredReasoning = recallOpts.IncludeDiagnostics ? _reasoning as IScoredTraceSearch : null;
+        bool searchEntities = hasEmbedding && recallOpts.MaxEntities > 0;
+        bool searchPreferences = hasEmbedding && recallOpts.MaxPreferences > 0;
+        bool searchFacts = hasEmbedding && recallOpts.MaxFacts > 0;
+        bool searchTraces = hasEmbedding && recallOpts.MaxTraces > 0;
+
+        var entitiesTask = searchEntities && scoredLongTerm is null
             ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
             : Empty<Entity>();
+        var entitiesScoredTask = searchEntities && scoredLongTerm is not null
+            ? scoredLongTerm!.SearchEntitiesAsOfWithScoresAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
+            : null;
 
-        var preferencesTask = hasEmbedding && recallOpts.MaxPreferences > 0
+        var preferencesTask = searchPreferences && scoredLongTerm is null
             ? _longTerm.SearchPreferencesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
             : Empty<Preference>();
+        var preferencesScoredTask = searchPreferences && scoredLongTerm is not null
+            ? scoredLongTerm!.SearchPreferencesAsOfWithScoresAsync(queryEmbedding, systemAsOf, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
+            : null;
 
-        var factsTask = hasEmbedding && recallOpts.MaxFacts > 0
+        var factsTask = searchFacts && scoredLongTerm is null
             ? _longTerm.SearchFactsAsOfAsync(queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken)
             : Empty<Fact>();
+        var factsScoredTask = searchFacts && scoredLongTerm is not null
+            ? scoredLongTerm!.SearchFactsAsOfWithScoresAsync(queryEmbedding, validAsOf, recallOpts.MaxFacts, minScore, scope, systemAsOf, cancellationToken)
+            : null;
 
-        var tracesTask = hasEmbedding && recallOpts.MaxTraces > 0
-            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, null, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+        var tracesTask = searchTraces && scoredReasoning is null
+            // Same option, same meaning, both recall paths. This was a hardcoded null while the live
+            // path (line ~267) forwarded the caller's choice, so asking for successful-only was honoured
+            // by AssembleContextAsync and silently ignored here. Point-in-time semantics do not justify
+            // dropping it: ReasoningQueries.SearchByTaskVectorAsOf applies the same
+            // `node.success = $successFilter` predicate as the live query, adds only
+            // `node.started_at <= datetime($asOf)`, and returns the trace's present-time success on the
+            // row either way — so filtering on it reveals nothing the result did not already carry.
+            // Default is null, so unset behaviour here is byte-for-byte what it was.
+            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
             : Empty<ReasoningTrace>();
+        var tracesScoredTask = searchTraces && scoredReasoning is not null
+            ? scoredReasoning!.SearchSimilarTracesAsOfWithScoresAsync(
+                queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+            : null;
 
-        await Task.WhenAll(recentTask, entitiesTask, preferencesTask, factsTask, tracesTask).ConfigureAwait(false);
+        await Task.WhenAll(
+            recentTask,
+            entitiesScoredTask ?? (Task)entitiesTask,
+            preferencesScoredTask ?? (Task)preferencesTask,
+            factsScoredTask ?? (Task)factsTask,
+            tracesScoredTask ?? (Task)tracesTask).ConfigureAwait(false);
 
         var recentMessages = await recentTask.ConfigureAwait(false);
-        var entities = await entitiesTask.ConfigureAwait(false);
-        var preferences = await preferencesTask.ConfigureAwait(false);
-        var facts = await factsTask.ConfigureAwait(false);
-        var traces = await tracesTask.ConfigureAwait(false);
+
+        // Scores for the sections that were searched with the scored contract; empty — never fabricated —
+        // for any section that was not.
+        IReadOnlyList<(Entity Entity, double Score)> entityScores = Array.Empty<(Entity, double)>();
+        IReadOnlyList<(Preference Preference, double Score)> preferenceScores = Array.Empty<(Preference, double)>();
+        IReadOnlyList<(Fact Fact, double Score)> factScores = Array.Empty<(Fact, double)>();
+        IReadOnlyList<(ReasoningTrace Trace, double Score)> traceScores = Array.Empty<(ReasoningTrace, double)>();
+
+        IReadOnlyList<Entity> entities;
+        if (entitiesScoredTask is null)
+        {
+            entities = await entitiesTask.ConfigureAwait(false);
+        }
+        else
+        {
+            entityScores = await entitiesScoredTask.ConfigureAwait(false);
+            entities = entityScores.Select(static scored => scored.Entity).ToArray();
+        }
+
+        IReadOnlyList<Preference> preferences;
+        if (preferencesScoredTask is null)
+        {
+            preferences = await preferencesTask.ConfigureAwait(false);
+        }
+        else
+        {
+            preferenceScores = await preferencesScoredTask.ConfigureAwait(false);
+            preferences = preferenceScores.Select(static scored => scored.Preference).ToArray();
+        }
+
+        IReadOnlyList<Fact> facts;
+        if (factsScoredTask is null)
+        {
+            facts = await factsTask.ConfigureAwait(false);
+        }
+        else
+        {
+            // No predicate expansion on the point-in-time path, so unlike the live recall every fact here
+            // is scored and Items and Scored hold the same set.
+            factScores = await factsScoredTask.ConfigureAwait(false);
+            facts = factScores.Select(static scored => scored.Fact).ToArray();
+        }
+
+        IReadOnlyList<ReasoningTrace> traces;
+        if (tracesScoredTask is null)
+        {
+            traces = await tracesTask.ConfigureAwait(false);
+        }
+        else
+        {
+            traceScores = await tracesScoredTask.ConfigureAwait(false);
+            traces = traceScores.Select(static scored => scored.Trace).ToArray();
+        }
 
         // Enforce the same context budget as the live recall path so temporal recall cannot blow
         // past the configured token/char limit. (Relevant messages are not part of the temporal
@@ -442,16 +657,49 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             truncated = fitted.Truncated;
         }
 
+        // Built after budgeting for the same reason as the live path: ContextRank is the post-budget
+        // position. Off by default — every section then keeps its Array.Empty default.
+        IReadOnlyList<MemoryContextRankedItem> entityRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> preferenceRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> factRanked = Array.Empty<MemoryContextRankedItem>();
+        IReadOnlyList<MemoryContextRankedItem> traceRanked = Array.Empty<MemoryContextRankedItem>();
+
+        if (recallOpts.IncludeDiagnostics)
+        {
+            entityRanked = BuildRankedItems(entities, entityScores, static e => e.EntityId);
+            preferenceRanked = BuildRankedItems(preferences, preferenceScores, static p => p.PreferenceId);
+            factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
+            traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
+        }
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
+            // Empty, not unscored: the temporal snapshot runs no semantic message search at all, so there
+            // is no retrieval here to report a rank for.
             RelevantMessages = MemoryContextSection<Message>.Empty,
-            RelevantEntities = new MemoryContextSection<Entity> { Items = entities },
-            RelevantPreferences = new MemoryContextSection<Preference> { Items = preferences },
-            RelevantFacts = new MemoryContextSection<Fact> { Items = facts },
-            SimilarTraces = new MemoryContextSection<ReasoningTrace> { Items = traces },
+            RelevantEntities = new MemoryContextSection<Entity>
+            {
+                Items = entities,
+                RankedItems = entityRanked
+            },
+            RelevantPreferences = new MemoryContextSection<Preference>
+            {
+                Items = preferences,
+                RankedItems = preferenceRanked
+            },
+            RelevantFacts = new MemoryContextSection<Fact>
+            {
+                Items = facts,
+                RankedItems = factRanked
+            },
+            SimilarTraces = new MemoryContextSection<ReasoningTrace>
+            {
+                Items = traces,
+                RankedItems = traceRanked
+            },
             Truncated = truncated,
             // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.
             Metadata = new Dictionary<string, object>
@@ -549,30 +797,42 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         return new RelevantMessageSearchResult(messages, Array.Empty<(Message, double)>());
     }
 
-    internal static IReadOnlyList<MemoryContextRankedItem> BuildRankedItems(
-        IReadOnlyList<Message> contextMessages,
-        IReadOnlyList<(Message Message, double Score)> retrievedMessages)
+    /// <summary>
+    /// Joins the items that made it into a context section against the scored results the provider
+    /// returned, producing one <see cref="MemoryContextRankedItem"/> per item that has a score.
+    /// </summary>
+    /// <remarks>
+    /// Generic over the item type so all five sections share ONE ranking path — the per-type difference is
+    /// only which property is the stable id, supplied by <paramref name="idOf"/>. An item present in
+    /// <paramref name="contextItems"/> but absent from <paramref name="retrievedItems"/> is SKIPPED rather
+    /// than emitted with a stand-in score: fact predicate-expansion legitimately produces such items, and
+    /// a fabricated score there would be indistinguishable from a real one.
+    /// </remarks>
+    internal static IReadOnlyList<MemoryContextRankedItem> BuildRankedItems<T>(
+        IReadOnlyList<T> contextItems,
+        IReadOnlyList<(T Item, double Score)> retrievedItems,
+        Func<T, string> idOf)
     {
-        if (contextMessages.Count == 0 || retrievedMessages.Count == 0)
+        if (contextItems.Count == 0 || retrievedItems.Count == 0)
             return Array.Empty<MemoryContextRankedItem>();
 
-        var retrievedById = retrievedMessages
+        var retrievedById = retrievedItems
             .Select((result, index) => new
             {
-                result.Message.MessageId,
+                ItemId = idOf(result.Item),
                 result.Score,
                 RetrievalRank = index + 1
             })
-            .ToDictionary(result => result.MessageId, StringComparer.Ordinal);
+            .ToDictionary(result => result.ItemId, StringComparer.Ordinal);
 
-        var ranked = new List<MemoryContextRankedItem>(contextMessages.Count);
-        for (var index = 0; index < contextMessages.Count; index++)
+        var ranked = new List<MemoryContextRankedItem>(contextItems.Count);
+        for (var index = 0; index < contextItems.Count; index++)
         {
-            var message = contextMessages[index];
-            if (!retrievedById.TryGetValue(message.MessageId, out var retrieved))
+            var itemId = idOf(contextItems[index]);
+            if (!retrievedById.TryGetValue(itemId, out var retrieved))
                 continue;
             ranked.Add(new MemoryContextRankedItem(
-                message.MessageId,
+                itemId,
                 retrieved.Score,
                 retrieved.RetrievalRank,
                 ContextRank: index + 1));
