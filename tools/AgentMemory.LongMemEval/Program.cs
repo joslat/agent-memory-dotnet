@@ -45,6 +45,15 @@ internal static class LongMemEvalProgram
             return await LongMemEvalPredicateDistributionProgram.RunAsync(args)
                 .ConfigureAwait(false);
         }
+        // Diffs what the per-kind and unified extractors extract from identical messages. Answers the
+        // "extraction-quality acceptance" question UseUnifiedExtraction's own doc names, which accuracy
+        // cannot: it needs no judge, no answer model, no database and no cold build, and it reports
+        // field completeness that no accuracy number would ever surface.
+        if (args.Contains("--extraction-compare", StringComparer.Ordinal))
+        {
+            return await LongMemEvalExtractionCompareProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--prepared-pair", StringComparer.Ordinal))
         {
             return await LongMemEvalPreparedPairProgram.RunAsync(args)
