@@ -12,12 +12,21 @@ namespace AgentMemory.Extraction.Llm;
 
 internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
 {
-    private const string SystemPrompt =
+    // Split either side of the entity-type list so the types can come from configuration. At default
+    // settings the two halves rejoin into the exact string that shipped before — a strict requirement,
+    // not a nicety: every sealed base and every quality number in the measurement plan was produced by
+    // this prompt, and one character of drift changes what the model extracts.
+    private const string SystemPromptPrefix =
         """
         You extract structured long-term memory from a conversation.
         Return JSON only with all four arrays: entities, facts, preferences, relations.
         Use exactly this shape:
-        {"entities":[{"name":"...","type":"PERSON|ORGANIZATION|LOCATION|EVENT|OBJECT","confidence":0.9,"aliases":[]}],"facts":[{"subject":"...","predicate":"...","object":"...","confidence":0.9}],"preferences":[{"category":"...","preference":"...","confidence":0.85}],"relations":[{"source":"...","target":"...","relation_type":"...","confidence":0.8}]}
+        {"entities":[{"name":"...","type":"
+        """;
+
+    private const string SystemPromptSuffix =
+        """
+        ","confidence":0.9,"aliases":[]}],"facts":[{"subject":"...","predicate":"...","object":"...","confidence":0.9}],"preferences":[{"category":"...","preference":"...","confidence":0.85}],"relations":[{"source":"...","target":"...","relation_type":"...","confidence":0.8}]}
         Use empty arrays when a category has no supported memory. Do not emit prose or markdown.
         """;
 
@@ -44,7 +53,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.unified");
         var results = await _runner.RunAsync(
-            BuildSystemPrompt(_options.AssistantContent),
+            BuildSystemPrompt(_options.AssistantContent, _options.EntityTypes),
             "Extract all supported memory from this conversation:",
             ConversationTextBuilder.Build(messages),
             response => new[] { Project(response) },
@@ -110,7 +119,32 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         var value => value,
     };
 
-    /// <summary>The system prompt plus whatever the assistant-content setting asks for.</summary>
+    /// <summary>The system prompt at default entity types, plus the assistant-content instruction.</summary>
     internal static string BuildSystemPrompt(AssistantContentMode assistantContent) =>
-        SystemPrompt + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
+        BuildSystemPrompt(assistantContent, LlmEntityExtractor.DefaultEntityTypes);
+
+    /// <summary>
+    /// The system prompt built over <paramref name="entityTypes"/>, plus whatever the
+    /// assistant-content setting asks for.
+    /// </summary>
+    /// <remarks>
+    /// The types used to be a hardcoded const, so <see cref="LlmExtractionOptions.EntityTypes"/> was
+    /// silently dropped whenever unified extraction was enabled. That is the defect that blocked
+    /// making unified the shipped default: flipping it would have stopped honouring a setting
+    /// consumers had already configured, with no error and no compile break.
+    /// <para>
+    /// Falls back to the built-in POLE+O list on an empty collection, matching
+    /// <see cref="LlmEntityExtractor"/> — an empty list is a misconfiguration, and emitting
+    /// <c>"type":""</c> would ask the model for a type it can never satisfy.
+    /// </para>
+    /// </remarks>
+    internal static string BuildSystemPrompt(
+        AssistantContentMode assistantContent, IReadOnlyList<string> entityTypes)
+    {
+        var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
+        return SystemPromptPrefix
+            + string.Join('|', types)
+            + SystemPromptSuffix
+            + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
+    }
 }
