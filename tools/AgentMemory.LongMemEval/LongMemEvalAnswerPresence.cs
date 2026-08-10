@@ -105,7 +105,7 @@ internal static class LongMemEvalAnswerPresence
 /// <param name="Present">Whether enough of the answer's distinctive tokens appear in stored memory.</param>
 /// <param name="MatchedTokens">Which tokens matched — so a partial result can be inspected, not guessed at.</param>
 /// <param name="Coverage">Matched fraction of distinctive answer tokens.</param>
-internal sealed record LongMemEvalAnswerPresenceResult(
+public sealed record LongMemEvalAnswerPresenceResult(
     bool Checkable,
     bool Present,
     IReadOnlyList<string> MatchedTokens,

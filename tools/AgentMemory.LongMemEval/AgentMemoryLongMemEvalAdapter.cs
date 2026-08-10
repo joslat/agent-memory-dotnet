@@ -791,6 +791,18 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         // L2. Ask the graph how many live facts exist under the relation(s) this question named.
         // Null when no probe is wired or nothing resolved - "not measured", never "complete".
+        // The answer-presence gate. Deliberately reads the OWNER'S WHOLE MEMORY rather than what
+        // retrieval returned: checking the retrieved set would conflate the two failures this exists
+        // to tell apart. Null when no probe is wired — "not measured", never "absent".
+        LongMemEvalAnswerPresenceResult? answerPresence = null;
+        if (_options.GraphProbe is not null && evidenceQuestion is not null)
+        {
+            var memoryText = await _options.GraphProbe
+                .ReadMemoryTextAsync(ownerId, cancellationToken)
+                .ConfigureAwait(false);
+            answerPresence = LongMemEvalAnswerPresence.Evaluate(evidenceQuestion.GoldAnswer, memoryText);
+        }
+
         var relationStoredKeys = (recall.Context.ResolvedQueryRelations ?? [])
             .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
             .Where(key => !string.IsNullOrEmpty(key))
@@ -854,6 +866,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     // The union expansion actually searched: the question's relations PLUS the
                     // canonical predicate of every top-K hit, which is what shares the one budget.
                     unionGraphTotal: relationUnionGraphTotal),
+            answerPresence: answerPresence,
             retrievedGoldCoverage: RetrievedGoldCoverage(
                 recall.Context.RelevantFacts.Items,
                 originsByMessageId
@@ -929,6 +942,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null,
         double? retrievedGoldCoverage = null,
         LongMemEvalRelationCompleteness? relationCompleteness = null,
+        LongMemEvalAnswerPresenceResult? answerPresence = null,
         string? answerPromptText = null)
     {
         lock (_stateLock)
@@ -957,6 +971,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // and the n=50 result could not say why Structured loses multi-session questions.
                 RetrievedGoldCoverage = retrievedGoldCoverage,
                 RelationCompleteness = relationCompleteness,
+                AnswerPresence = answerPresence,
                 // Makes "expansion had nothing to expand" visible per question, instead of
                 // requiring the lexicon to be consulted by hand after a run.
                 ResolvedQueryRelations = context?.ResolvedQueryRelations ?? [],
@@ -1569,6 +1584,17 @@ public sealed record LongMemEvalQuestionTelemetry(
 
     /// <summary>L2. Graph truth vs context for the relation(s) this question named.</summary>
     public LongMemEvalRelationCompleteness? RelationCompleteness { get; init; }
+
+    /// <summary>
+    /// Whether the gold answer is present in this owner's stored memory <b>at all</b>.
+    /// </summary>
+    /// <remarks>
+    /// The one question no other field answers. Relation completeness, gold coverage and recall@K all
+    /// ask "did retrieval find what was stored"; this asks whether the answer was ever stored, which
+    /// is what separates an <b>extraction</b> failure from a <b>retrieval</b> failure. Null means the
+    /// graph probe was not wired — never "absent", and never "fine".
+    /// </remarks>
+    public LongMemEvalAnswerPresenceResult? AnswerPresence { get; init; }
 
     /// <summary>Canonical relations this question resolved to; empty means expansion had nothing.</summary>
     public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();
