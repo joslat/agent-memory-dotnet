@@ -181,6 +181,8 @@ internal sealed class LlmExtractionRunner
     private ChatOptions BuildChatOptions(ChatResponseFormat? responseFormat)
     {
         var opts = new ChatOptions { Temperature = _options.Temperature };
+        // Sent only when configured, so the default request is byte-identical to before this existed.
+        if (_options.Seed is { } seed) opts.Seed = seed;
         if (!string.IsNullOrEmpty(_options.ModelId))
             opts.ModelId = _options.ModelId;
         if (_options.UseJsonResponseFormat)

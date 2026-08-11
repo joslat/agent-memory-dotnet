@@ -356,7 +356,7 @@ internal static class LongMemEvalProgram
         "--chronological-context", "--dataset", "--evidence-detail",
         "--exclude-synthetic-messages", "--judge-retries", "--max-items-per-session",
         "--max-relevant", "--memory-mode", "--oracle", "--output", "--questions", "--seed",
-        "--units", "--turns",
+        "--units", "--turns", "--repeat", "--extraction-seed",
     ];
 
     private static Options Parse(string[] args)

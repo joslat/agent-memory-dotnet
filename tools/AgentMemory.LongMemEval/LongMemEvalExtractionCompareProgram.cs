@@ -48,6 +48,13 @@ internal static class LongMemEvalExtractionCompareProgram
         // hold. Capping turns keeps each unit session-sized and, more importantly, keeps the two arms
         // comparable - both receive byte-identical input.
         var turns = int.TryParse(Value(args, "--turns"), out var parsedTurns) ? parsedTurns : 15;
+        // --repeat runs ONE arm twice over identical input and reports how much it agrees with
+        // itself. That self-agreement is the baseline every cross-extractor Jaccard in this plan
+        // should have been read against, and it is the only way to tell whether --extraction-seed
+        // actually buys reproducibility on this deployment.
+        var repeat = args.Contains("--repeat", StringComparer.Ordinal);
+        var extractionSeed = int.TryParse(Value(args, "--extraction-seed"), out var parsedExtraction)
+            ? (int?)parsedExtraction : null;
         var seed = int.TryParse(Value(args, "--seed"), out var parsedSeed) ? parsedSeed : 42;
         var output = Value(args, "--output")
             ?? $"artifacts/evaluation/extraction-compare-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}.json";
@@ -76,6 +83,24 @@ internal static class LongMemEvalExtractionCompareProgram
         // reaching for a second workaround would have measured a different client than every other run.
         var chatClient = new ProviderCompatibleExtractionChatClient(
             azureClient.GetChatClient(extractionDeployment).AsIChatClient());
+
+        if (repeat)
+        {
+            var first = await RunPathAsync(
+                "run-1", slices, chatClient, extractionDeployment, Arm.PerKind, extractionSeed)
+                .ConfigureAwait(false);
+            var second = await RunPathAsync(
+                "run-2", slices, chatClient, extractionDeployment, Arm.PerKind, extractionSeed)
+                .ConfigureAwait(false);
+            var selfJaccard = Jaccard(first, second);
+            Console.WriteLine(
+                $"SELF-AGREEMENT (extraction seed={(extractionSeed?.ToString() ?? "none")}): "
+                + $"run-1 {first.Facts.Count} facts, run-2 {second.Facts.Count} facts, "
+                + $"Jaccard={selfJaccard:F3}");
+            Console.WriteLine(
+                "  Reference: three cold builds of one configuration agreed at Jaccard 0.17.");
+            return 0;
+        }
 
         var perKind = await RunPathAsync(
             "per-kind", slices, chatClient, extractionDeployment, Arm.PerKind).ConfigureAwait(false);
@@ -115,7 +140,8 @@ internal static class LongMemEvalExtractionCompareProgram
         IReadOnlyList<IReadOnlyList<Message>> slices,
         IChatClient chatClient,
         string deployment,
-        Arm arm)
+        Arm arm,
+        int? seed = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -131,6 +157,7 @@ internal static class LongMemEvalExtractionCompareProgram
             // the comparison this probe exists to make.
             options.UseUnifiedExtraction = arm != Arm.PerKind;
             options.UseMultiSessionBatchExtraction = arm == Arm.Batch;
+            options.Seed = seed;
         });
         var provider = services.BuildServiceProvider();
 

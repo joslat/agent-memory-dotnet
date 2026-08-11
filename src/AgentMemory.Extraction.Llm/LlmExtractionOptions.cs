@@ -46,6 +46,26 @@ public sealed class LlmExtractionOptions
     /// Defaults to <see cref="TemporalValidityMode.Ignore"/>, which appends nothing to any prompt and
     /// so reproduces the prompts every existing measurement was taken with, byte for byte.
     /// </remarks>
+    /// <summary>
+    /// Optional sampling seed sent with every extraction call, for reproducible output.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this exists.</b> Extraction asks for <c>Temperature = 0</c>, but some deployments reject
+    /// an explicit zero outright and the request is dropped, leaving the provider default of 1.0.
+    /// Measured consequence: three cold builds of one configuration stored 6,078 / 6,199 / 6,272
+    /// canonical triples with only <b>7.5% common to all three</b>, and scored 25 accuracy points
+    /// apart. "Same configuration" did not mean "same memory".
+    /// </para>
+    /// <para>
+    /// A seed is the other lever the API offers. <b>It is best-effort</b> — the provider only promises
+    /// reproducibility when its <c>system_fingerprint</c> is unchanged too — so whether it helps must
+    /// be MEASURED on the deployment in use rather than assumed. Null by default, which sends nothing
+    /// and reproduces today's behaviour exactly.
+    /// </para>
+    /// </remarks>
+    public int? Seed { get; set; }
+
     public TemporalValidityMode TemporalValidity { get; set; } = TemporalValidityMode.Ignore;
 
     public bool UseUnifiedExtraction { get; set; }
