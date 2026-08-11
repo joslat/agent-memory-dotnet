@@ -222,6 +222,38 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 escalatedTopK = widened;
                 results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
             }
+
+            // LAST RESORT, removing a ceiling the widening cannot. EscalatedTopK is capped at
+            // MaxTopK, so once more than that many foreign rows outrank this owner's, no widening
+            // reaches them - measured on the fact path as 4 of 4 at 3,000 competing rows and 0 of 4
+            // at 4,000. This scores the owner's OWN rows, so it is bounded by one owner's data rather
+            // than the corpus, and runs only when the indexed path and its escalation both returned
+            // nothing.
+            if (results.Count == 0)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped entity vector search still empty after widening; falling back to a "
+                    + "scoped similarity scan.");
+                results = await _tx.ReadAsync(async runner =>
+                {
+                    var cursor = await runner.RunAsync(
+                        EntityQueries.SearchByVectorOwnerScopedFallback(includeShared),
+                        new Dictionary<string, object?>
+                        {
+                            ["embedding"] = queryEmbedding.ToList(),
+                            ["limit"] = limit,
+                            ["minScore"] = minScore,
+                            ["ownerId"] = scope!.OwnerId,
+                        }).ConfigureAwait(false);
+                    var records = await cursor.ToListAsync().ConfigureAwait(false);
+                    return records.Select(r =>
+                    {
+                        var node = r["node"].As<INode>();
+                        var score = r["score"].As<double>();
+                        return (MapToEntity(node, ReadEmbedding(node)), score);
+                    }).ToList();
+                }, cancellationToken).ConfigureAwait(false) ?? [];
+            }
         }
 
         EmitVectorYield(

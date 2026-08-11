@@ -281,8 +281,12 @@ public sealed class EntityVectorYieldTelemetryTests
 
         _ = await repo.SearchByVectorAsync(Query, limit: 10, scope: MemoryScope.For("owner-a"));
 
-        queries.Should().HaveCount(2,
-            "an empty owner-scoped result must trigger exactly one retry, not zero and not a loop");
+        // THREE queries now, and the count is the guard: indexed pass, one widened retry, then the
+        // owner-scoped similarity scan. The scan was added because widening is capped at MaxTopK, so
+        // beyond about 2,000 more-similar foreign rows no retry reaches the owner - measured on the
+        // fact path as 4 of 4 at 3,000 competitors and 0 of 4 at 4,000. Bounded, still not a loop.
+        queries.Should().HaveCount(3,
+            "indexed pass, one widened retry, then the scoped fallback - and nothing beyond that");
 
         var span = listening.Single();
         span.GetTagItem("memory.vector.escalated").Should().Be(true);

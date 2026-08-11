@@ -210,6 +210,41 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                 escalatedTopK = widened;
                 results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
             }
+
+            // LAST RESORT, as on the fact/entity/preference paths: EscalatedTopK is capped, so beyond
+            // that many more-similar foreign rows no widening reaches the owner's. Bounded by one
+            // owner's traces rather than by the corpus, and reached only when both prior passes
+            // returned nothing. The success filter is carried through, so a filtered search that
+            // genuinely matches nothing still returns nothing.
+            if (results.Count == 0)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped trace vector search still empty after widening; falling back to a "
+                    + "scoped similarity scan.");
+                var fallbackParameters = new Dictionary<string, object>
+                {
+                    ["embedding"] = taskEmbedding.ToList(),
+                    ["limit"] = limit,
+                    ["minScore"] = minScore,
+                    ["ownerId"] = scope!.OwnerId!,
+                };
+                if (successFilter.HasValue) fallbackParameters["successFilter"] = successFilter.Value;
+
+                results = await _tx.ReadAsync(async runner =>
+                {
+                    var cursor = await runner.RunAsync(
+                        ReasoningQueries.SearchByTaskVectorOwnerScopedFallback(
+                            successFilter.HasValue, includeShared),
+                        fallbackParameters).ConfigureAwait(false);
+                    var records = await cursor.ToListAsync().ConfigureAwait(false);
+                    return records.Select(r =>
+                    {
+                        var node  = r["node"].As<INode>();
+                        var score = r["score"].As<double>();
+                        return (MapToTrace(node, ReadEmbedding(node)), score);
+                    }).ToList();
+                }, cancellationToken).ConfigureAwait(false) ?? [];
+            }
         }
 
         // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks: the

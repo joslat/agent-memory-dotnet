@@ -188,4 +188,31 @@ internal static class PreferenceQueries
 
     /// <summary>Update the embedding vector on a Preference node (same as SetEmbedding).</summary>
     public const string UpdateEmbedding = SetEmbedding;
+    /// <summary>
+    /// Last-resort owner-scoped similarity search that does NOT use the global vector index.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <c>FactQueries.SearchByVectorOwnerScopedFallback</c>. The indexed path takes a GLOBAL
+    /// top-K then filters to the owner, and widening rescues that only up to <c>MaxTopK</c> = 2,000 —
+    /// measured on facts, the owner received 4 of 4 at 3,000 competing rows and <b>0 of 4 at
+    /// 4,000</b>, against a production corpus of 36,489. This scores the owner's own rows directly:
+    /// a scan, but bounded by ONE owner's data rather than by the corpus, and reached only when the
+    /// indexed path and its escalation have both returned nothing.
+    /// </remarks>
+    public static string SearchByVectorOwnerScopedFallback(bool includeShared)
+    {
+        var owner = includeShared
+            ? "(n.owner_id = $ownerId OR n.owner_id IS NULL)"
+            : "n.owner_id = $ownerId";
+        return $@"
+            MATCH (n:Preference)
+            WHERE {owner}
+              AND n.embedding IS NOT NULL
+            WITH n, vector.similarity.cosine(n.embedding, $embedding) AS score
+            WHERE score >= $minScore
+            RETURN n AS node, score
+            ORDER BY score DESC
+            LIMIT $limit";
+    }
+
 }

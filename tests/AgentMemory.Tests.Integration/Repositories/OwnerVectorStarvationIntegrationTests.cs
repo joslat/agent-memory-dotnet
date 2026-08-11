@@ -572,4 +572,94 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
             + "more-similar foreign rows");
     }
 
+    [Fact]
+    public async Task ALLFourPathsSurvivePastTheEscalationCeiling()
+    {
+        // The fact path got the scoped fallback first and was measured at 0 -> 4 of 4 across the
+        // ceiling. Entity, preference and trace share the identical bounded-escalation shape, so they
+        // shared the identical ceiling until now. This proves all four LIVE at a corpus size where
+        // widening alone provably cannot reach the owner (MaxTopK = 2,000).
+        const int foreignRows = 4_000;
+        static float[] Competitor(int index)
+        {
+            var nudge = 0.0005f * ((index % 97) + 1);
+            return [1f, nudge, nudge / 2f, nudge / 3f];
+        }
+
+        var entities = new Neo4jEntityRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jEntityRepository>.Instance);
+        var preferences = new Neo4jPreferenceRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jPreferenceRepository>.Instance);
+        var traces = new Neo4jReasoningTraceRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jReasoningTraceRepository>.Instance);
+
+        for (var row = 1; row <= foreignRows; row++)
+        {
+            var e = Competitor(row);
+            var owner = $"owner-{row:D5}";
+            await _facts.UpsertAsync(new Fact
+            {
+                FactId = $"a-f-{row:D5}", Subject = $"s{row}", Predicate = "likes", Object = "o",
+                OwnerId = owner, Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = e,
+            });
+            await entities.UpsertAsync(new Entity
+            {
+                EntityId = $"a-e-{row:D5}", Name = $"n{row}", Type = "PERSON",
+                OwnerId = owner, Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = e,
+            });
+            await preferences.UpsertAsync(new Preference
+            {
+                PreferenceId = $"a-p-{row:D5}", Category = "food", PreferenceText = $"p{row}",
+                OwnerId = owner, Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = e,
+            });
+            await traces.AddAsync(new ReasoningTrace
+            {
+                TraceId = $"a-t-{row:D5}", SessionId = $"sess{row}", Task = $"t{row}",
+                OwnerId = owner, StartedAtUtc = DateTimeOffset.UtcNow, TaskEmbedding = e,
+            });
+        }
+
+        float[] far = [0.2f, 0.98f, 0f, 0f];
+        for (var index = 0; index < FactsPerOwner; index++)
+        {
+            await _facts.UpsertAsync(new Fact
+            {
+                FactId = $"a-of-{index:D2}", Subject = "s0", Predicate = "likes", Object = $"o{index}",
+                OwnerId = "owner-000", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = far,
+            });
+            await entities.UpsertAsync(new Entity
+            {
+                EntityId = $"a-oe-{index:D2}", Name = $"own{index}", Type = "PERSON",
+                OwnerId = "owner-000", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = far,
+            });
+            await preferences.UpsertAsync(new Preference
+            {
+                PreferenceId = $"a-op-{index:D2}", Category = "food", PreferenceText = $"own{index}",
+                OwnerId = "owner-000", Confidence = 1.0, CreatedAtUtc = DateTimeOffset.UtcNow, Embedding = far,
+            });
+            await traces.AddAsync(new ReasoningTrace
+            {
+                TraceId = $"a-ot-{index:D2}", SessionId = "sess0", Task = $"own{index}",
+                OwnerId = "owner-000", StartedAtUtc = DateTimeOffset.UtcNow, TaskEmbedding = far,
+            });
+        }
+
+        var scope = MemoryScope.For("owner-000");
+        float[] probe = [1f, 0f, 0f, 0f];
+        var f = await _facts.SearchByVectorAsync(probe, limit: Limit, minScore: 0.0, scope: scope);
+        var e2 = await entities.SearchByVectorAsync(probe, limit: Limit, minScore: 0.0, scope: scope);
+        var p = await preferences.SearchByVectorAsync(probe, limit: Limit, minScore: 0.0, scope: scope);
+        var t = await traces.SearchByTaskVectorAsync(
+            probe, successFilter: null, limit: Limit, minScore: 0.0, scope: scope);
+
+        _output.WriteLine(
+            $"ALL-PATHS[{foreignRows} foreign rows each]: fact={f.Count} entity={e2.Count} "
+            + $"preference={p.Count} trace={t.Count}, each of {FactsPerOwner}.");
+
+        f.Should().NotBeEmpty("facts");
+        e2.Should().NotBeEmpty("entities");
+        p.Should().NotBeEmpty("preferences");
+        t.Should().NotBeEmpty("reasoning traces");
+    }
+
 }

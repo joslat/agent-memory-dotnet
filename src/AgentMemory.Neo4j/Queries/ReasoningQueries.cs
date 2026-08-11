@@ -249,4 +249,32 @@ internal static class ReasoningQueries
             MATCH (s:ReasoningStep {id: $stepId})-[:TOUCHED]->(e:Entity)
             RETURN e.id AS id
             ORDER BY e.id";
+    /// <summary>
+    /// Last-resort owner-scoped trace similarity search that does NOT use the global vector index.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors the fact and entity fallbacks. Reached only when the indexed path and its escalation
+    /// have both returned nothing, and bounded by ONE owner's traces rather than by the corpus. The
+    /// success filter is preserved: a filtered search that legitimately matches nothing must still
+    /// return nothing here rather than being rescued into the wrong answer.
+    /// </remarks>
+    public static string SearchByTaskVectorOwnerScopedFallback(bool hasSuccessFilter, bool includeShared)
+    {
+        var owner = includeShared
+            ? "(t.owner_id = $ownerId OR t.owner_id IS NULL)"
+            : "t.owner_id = $ownerId";
+        var success = hasSuccessFilter
+            ? Environment.NewLine + "              AND t.success = $successFilter"
+            : string.Empty;
+        return $@"
+            MATCH (t:ReasoningTrace)
+            WHERE {owner}
+              AND t.task_embedding IS NOT NULL{success}
+            WITH t, vector.similarity.cosine(t.task_embedding, $embedding) AS score
+            WHERE score >= $minScore
+            RETURN t AS node, score
+            ORDER BY score DESC
+            LIMIT $limit";
+    }
+
 }

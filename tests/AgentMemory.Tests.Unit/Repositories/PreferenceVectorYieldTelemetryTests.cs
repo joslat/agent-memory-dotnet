@@ -147,7 +147,9 @@ public sealed class PreferenceVectorYieldTelemetryTests
 
         await repo.SearchByVectorAsync(Query, limit: 10, scope: MemoryScope.For("owner-a"));
 
-        cyphers.Should().HaveCount(2, because: "exactly one retry - not zero, and not a loop");
+        // Indexed pass, one widened retry, then the owner-scoped similarity scan that removes the
+        // MaxTopK ceiling. Bounded at three; the count is what stops a retry becoming a loop.
+        cyphers.Should().HaveCount(3, because: "indexed, widened, then the scoped fallback - no more");
         var span = listening.Spans.Single();
         span.GetTagItem("memory.vector.escalated").Should().Be(true);
         span.GetTagItem("memory.vector.requested_topk").Should().Be(60,

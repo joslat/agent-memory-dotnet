@@ -183,7 +183,8 @@ public sealed class TraceVectorYieldTelemetryTests
         await repo.SearchByTaskVectorAsync(
             Query, successFilter: null, limit: 10, scope: MemoryScope.For("owner-a"));
 
-        cyphers.Should().HaveCount(2, because: "exactly one retry - not zero, and not a loop");
+        // Indexed pass, one widened retry, then the owner-scoped similarity scan. Bounded at three.
+        cyphers.Should().HaveCount(3, because: "indexed, widened, then the scoped fallback - no more");
         var span = listening.Spans.Single();
         span.GetTagItem("memory.vector.escalated").Should().Be(true);
         span.GetTagItem("memory.vector.escalated_topk").Should().NotBeNull();
@@ -202,7 +203,10 @@ public sealed class TraceVectorYieldTelemetryTests
         await repo.SearchByTaskVectorAsync(
             Query, successFilter: true, limit: 10, scope: MemoryScope.For("owner-a"));
 
-        cyphers.Should().HaveCount(2);
+        // The filtered search escalates AND falls back, and the fallback carries the success filter
+        // through - so a filtered search that genuinely matches nothing still returns nothing rather
+        // than being rescued into the wrong answer.
+        cyphers.Should().HaveCount(3);
         listening.Spans.Single().GetTagItem("memory.vector.escalated").Should().Be(true);
     }
 
