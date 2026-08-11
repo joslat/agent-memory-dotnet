@@ -214,4 +214,140 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
             "isolation must hold however the rescue widens the search");
     }
 
+    [Fact]
+    public async Task TheENTITYPathHasNoRescueAndStarvesWhereTheFACTPathSurvives()
+    {
+        // P5's actual question: should escalation extend beyond the fact path? Both paths over-fetch
+        // via OwnerVectorOverFetch.InitialTopK, but ONLY Neo4jFactRepository calls ShouldEscalate /
+        // EscalatedTopK. So the identical adversarial construction should separate them: the fact path
+        // survived it (3 of 4), and the entity path has no second query to save it.
+        //
+        // LOCKED PREDICTION: entities returns 0 where facts returned 3.
+        var entities = new Neo4jEntityRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jEntityRepository>.Instance);
+
+        for (var owner = 1; owner < Owners; owner++)
+        {
+            for (var index = 0; index < FactsPerOwner; index++)
+            {
+                await entities.UpsertAsync(new Entity
+                {
+                    EntityId = $"near-{owner:D3}-{index:D2}",
+                    Name = $"name-{owner:D3}-{index:D2}",
+                    Type = "PERSON",
+                    OwnerId = $"owner-{owner:D3}",
+                    Confidence = 1.0,
+                    CreatedAtUtc = DateTimeOffset.UtcNow,
+                    Embedding = [1f, 0f, 0f, 0f],
+                });
+            }
+        }
+
+        for (var index = 0; index < FactsPerOwner; index++)
+        {
+            await entities.UpsertAsync(new Entity
+            {
+                EntityId = $"far-000-{index:D2}",
+                Name = $"name-000-{index:D2}",
+                Type = "PERSON",
+                OwnerId = "owner-000",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [0.2f, 0.98f, 0f, 0f],
+            });
+        }
+
+        var results = await entities.SearchByVectorAsync(
+            [1f, 0f, 0f, 0f], limit: Limit, minScore: 0.0, scope: MemoryScope.For("owner-000"));
+
+        _output.WriteLine(
+            $"NO-RESCUE[entity]: owner-000 holds {FactsPerOwner} strictly-less-similar entities among "
+            + $"{(Owners - 1) * FactsPerOwner} more-similar foreign entities; received {results.Count}. "
+            + "The fact path received 3 in the identical construction.");
+
+        results.Should().OnlyContain(item => item.Entity.OwnerId == "owner-000",
+            "isolation holds on every path regardless of yield");
+    }
+
+    [Fact]
+    public async Task AtScaleTheFACTAndENTITYPathsAreComparedSideBySideOnIdenticalData()
+    {
+        // WHY THIS EXISTS: at 200 rows both paths returned 3 of 4, so the earlier run could NOT
+        // distinguish escalation from plain over-fetch - and I wrongly read the fact path's 3 as proof
+        // the rescue had fired. It proved nothing: the entity path, which has no rescue at all,
+        // returned 3 as well. With so few rows the index simply returns enough candidates that the
+        // owner filter never bites.
+        //
+        // Raising the foreign population is what makes the two paths separable. Both are seeded with
+        // IDENTICAL data and queried identically; the only difference is that Neo4jFactRepository
+        // calls ShouldEscalate/EscalatedTopK and Neo4jEntityRepository does not.
+        const int foreignOwners = 500;
+        var entities = new Neo4jEntityRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jEntityRepository>.Instance);
+
+        for (var owner = 1; owner <= foreignOwners; owner++)
+        {
+            await _facts.UpsertAsync(new Fact
+            {
+                FactId = $"s-near-{owner:D4}",
+                Subject = $"subject-{owner:D4}",
+                Predicate = "likes",
+                Object = "object",
+                OwnerId = $"owner-{owner:D4}",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [1f, 0f, 0f, 0f],
+            });
+            await entities.UpsertAsync(new Entity
+            {
+                EntityId = $"s-near-{owner:D4}",
+                Name = $"name-{owner:D4}",
+                Type = "PERSON",
+                OwnerId = $"owner-{owner:D4}",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [1f, 0f, 0f, 0f],
+            });
+        }
+
+        for (var index = 0; index < FactsPerOwner; index++)
+        {
+            await _facts.UpsertAsync(new Fact
+            {
+                FactId = $"s-far-{index:D2}",
+                Subject = "subject-000",
+                Predicate = "likes",
+                Object = $"object-{index:D2}",
+                OwnerId = "owner-000",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [0.2f, 0.98f, 0f, 0f],
+            });
+            await entities.UpsertAsync(new Entity
+            {
+                EntityId = $"s-far-{index:D2}",
+                Name = $"name-000-{index:D2}",
+                Type = "PERSON",
+                OwnerId = "owner-000",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [0.2f, 0.98f, 0f, 0f],
+            });
+        }
+
+        var scope = MemoryScope.For("owner-000");
+        var factResults = await _facts.SearchByVectorAsync(
+            [1f, 0f, 0f, 0f], limit: Limit, minScore: 0.0, scope: scope);
+        var entityResults = await entities.SearchByVectorAsync(
+            [1f, 0f, 0f, 0f], limit: Limit, minScore: 0.0, scope: scope);
+
+        _output.WriteLine(
+            $"SCALE[{foreignOwners} foreign owners]: fact path received {factResults.Count} of "
+            + $"{FactsPerOwner}; entity path received {entityResults.Count} of {FactsPerOwner}. "
+            + "Fact escalates on an empty scoped result; entity does not.");
+
+        factResults.Should().OnlyContain(item => item.Fact.OwnerId == "owner-000");
+        entityResults.Should().OnlyContain(item => item.Entity.OwnerId == "owner-000");
+    }
+
 }
