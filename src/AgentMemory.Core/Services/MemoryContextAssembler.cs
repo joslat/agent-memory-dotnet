@@ -100,6 +100,28 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         return map;
     }
 
+    /// <summary>
+    /// Whether any retrieval selected by <paramref name="recallOpts"/> actually consumes a query vector.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Exactly the five categories whose searches are gated on <c>hasEmbedding</c>. Recent messages are
+    /// session-scoped and time-ordered, so they need no vector; GraphRAG builds its own retriever and
+    /// starts before this point, so it needs nothing from here either.
+    /// </para>
+    /// <para>
+    /// <b>One definition, deliberately.</b> The live and as-of paths repeat their per-category gates
+    /// independently and have already drifted apart once on a single option, so the decision that spans
+    /// both lives in one place where a new category cannot be added to one and forgotten in the other.
+    /// </para>
+    /// </remarks>
+    private static bool NeedsQueryEmbedding(RecallOptions recallOpts) =>
+        recallOpts.MaxRelevantMessages > 0
+        || recallOpts.MaxEntities > 0
+        || recallOpts.MaxPreferences > 0
+        || recallOpts.MaxFacts > 0
+        || recallOpts.MaxTraces > 0;
+
     /// <inheritdoc/>
     public async Task<MemoryContext> AssembleContextAsync(
         RecallRequest request,
@@ -183,12 +205,22 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
         if (includeMemory)
         {
-            // Generate embedding if not provided (only needed for memory-layer semantic search).
+            // Generate embedding if not provided, and ONLY if some retrieval will actually consume it.
+            // Every vector search below is gated on its own MaxX > 0 (#88); the embedding was not, so a
+            // task-aware policy that narrowed a turn to recent messages alone still paid for a provider
+            // round trip whose result nothing read. Remote-shaped that is the single largest recall
+            // stage (~120 ms), which made category narrowing *relocate* the cost rather than remove it.
+            // Gating it here rather than in the MAF provider also covers the SK adapter, the CLI and the
+            // facade, which all reach this method.
+            bool needsEmbedding = NeedsQueryEmbedding(recallOpts);
+
             var queryEmbedding = request.QueryEmbedding
-                ?? await TimedAsync(
-                        "memory.recall.embedding",
-                        () => _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken))
-                    .ConfigureAwait(false);
+                ?? (needsEmbedding
+                    ? await TimedAsync(
+                            "memory.recall.embedding",
+                            () => _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken))
+                        .ConfigureAwait(false)
+                    : Array.Empty<float>());
 
             // Vector searches require a non-empty embedding. A blank query (e.g. a history-only
             // recall via the chat-history provider) yields an empty embedding — skip the semantic
@@ -509,8 +541,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var scope = _isolationPolicy.ResolveReadScope(
             recallOpts.Scope, request.UserId, nameof(AssembleContextAsOfAsync), MemoryOperationAccess.Tenant);
 
+        // Same elision as the live path, asserted separately rather than assumed: these two paths have
+        // already diverged once on a single option (SuccessfulTracesOnly is passed live and hardcoded
+        // null here), so "it mirrors the live path" is not a safe thing to take on trust.
         var queryEmbedding = request.QueryEmbedding
-            ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false);
+            ?? (NeedsQueryEmbedding(recallOpts)
+                ? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false)
+                : Array.Empty<float>());
 
         // Vector searches require a non-empty embedding. A blank query, or a transient embedding-generation
         // failure (degrades to an empty vector), would otherwise issue a zero-dimension vector query which
