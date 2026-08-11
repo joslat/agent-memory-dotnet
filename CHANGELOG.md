@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Episodic memory capture, off by default (`AssistantContentMode`).** Extraction has always modelled
+  the user and discarded what the assistant said, so a question like "what did you recommend?" had
+  nothing to match: the predicate was absent from the graph entirely. `ExtractionOptions.AssistantContent`
+  now selects `Ignore` (default, byte-for-byte the previous behaviour), `Utterance` (records the
+  assistant's conversational acts — `assistant | recommended | X` — as *what was said*, never asserted
+  as true), or `Fact` (treats the assistant's statements as ordinary world facts).
+
+  **Measured before being recommended, and it is not free.** On a 50-question corpus `Utterance` added
+  3,048 relations and raised total facts 42%; at retrieval it consumed **32.3% of the structured
+  budget across 33 of 50 questions** and **+23.1% answer-prompt tokens**, because the retrieval budget
+  is counted in items and an utterance is a wordier fact than a preference. Accuracy did not move.
+  LongMemEval asks what the *user* said and did, so it can only ever charge for episodic recall and
+  never reward it — which is why the default stays `Ignore` and this is offered as a toggle rather
+  than an upgrade.
+
+- **Vector-recall yield telemetry on all eight owner-scoped vector searches.** Fact, entity (live,
+  similar-by-embedding, as-of), preference and reasoning-trace searches now emit `owner_scoped`,
+  `limit`, `requested_topk`, `effective_topk`, `escalated` and `returned` on the success path, guarded
+  so nothing is allocated when no listener is attached. Owner-scoped vector search post-filters a
+  *global* top-K, so the querying owner receives only what survives the filter; previously only the
+  live fact path reported that. Observability only — no escalation behaviour was added, since that
+  changes results and needs its own measurement.
+
 ### Changed
 
 - **Facts are now identified by canonical keys.** `Fact` nodes carry `subject_key`, `predicate_key`,
@@ -21,6 +46,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `INeo4jTransactionRunner` implementations that do not also implement `INeo4jAtomicTransactionRunner`
   no longer throw at construction. Persistence degrades to pass-through and reports
   `SupportsAtomicRollback = false` instead of refusing to start.
+
+### Fixed
+
+- **`FindByTriple` asked a different question than the write path answered.** It matched
+  `toLower(f.subject)` on all three properties while upserts MERGE on the canonical
+  `{subject_key, predicate_key, object_key, owner_key}`. Those are not the same predicate:
+  `MemoryTripleCanonicalizer` also collapses whitespace runs and disagrees with Cypher's `toLower` on
+  U+0130, so a lookup could find a **different fact than a MERGE would collapse onto**. Now matched on
+  the canonical keys. The correctness fix and the performance fix are the same change — measured on
+  5.26 with 20,000 facts, the old form planned a `NodeByLabelScan` and the new one plans a
+  `NodeIndexSeek` returning one row.
+
+- **Six indexes added, four of them because a composite does not serve a prefix.** `fact_merge_key_idx`,
+  `fact_owner_key_idx`, `fact_predicate_key_idx`, `message_session_idx`,
+  `message_session_timestamp_idx` and `memory_read_audit_memory_id_idx`. Measured on Neo4j 5.26:
+  filtering **all four** columns of a composite plans a seek, while filtering **three of the four
+  contiguous** columns plans a full scan, exactly as filtering one does. That is why `owner_key` and
+  `predicate_key` exist as single-column indexes despite already appearing inside the composite —
+  without them, duplicate detection scans every fact.
+
+- **Unified extraction now honours `EntityTypes`, and refuses the options it cannot honour.**
+  `LlmUnifiedMemoryExtractor` read only `UseUnifiedExtraction` and `AssistantContent`, with its entity
+  types hardcoded, so enabling it silently dropped a configured `EntityTypes`. It now builds the type
+  list from options (byte-identical output at defaults), and enabling it together with any of the four
+  per-kind prompt overrides now **fails at startup naming the property**, because one unified prompt
+  cannot express four per-kind prompts and ignoring them silently is the worse outcome.
 
 
 ## [1.3.0] - 2026-07-19

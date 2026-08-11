@@ -143,7 +143,7 @@ Layers to types. Coverage words are the status labels from the top of this docum
 |---|---|---|
 | **Short-term** | **Episodic** — the storage half only | PARTIAL. Turns are stored with `role` and `timestamp`, and nothing mines them. Order is stored and never *returned as order*: the recency leg gives an unordered top-10 by timestamp, the relevance leg an unordered top-5 by cosine, and the two ordering edges are never traversed. |
 | **Long-term** | **Semantic** | FULL — BUILT, WIRED, MEASURED. [§6.1](#61-semantic-memory--built-wired-measured) |
-| | **Episodic** — the assistant-originated half | BUILT, WIRED, **default off**, UNMEASURED. `AssistantContentMode.Utterance` stores `assistant \| recommended \| X` as an ordinary `:Fact`. [§6.2](#62-episodic-memory--built-wired-unmeasured) |
+| | **Episodic** — the assistant-originated half | BUILT, WIRED, **default off**, **MEASURED** (2026-08-10). `AssistantContentMode.Utterance` stores `assistant \| recommended \| X` as an ordinary `:Fact`. Capture +42% facts; retrieval **32.3% of the structured budget in 33/50 questions**; cost **+23.1% prompt tokens**; accuracy unmoved. [§6.2](#62-episodic-memory--built-wired-measured) |
 | | **Meta-memory** — substrate only | Confidence, `MemoryTrustLevel`, `access_count`, `:MemoryReadAudit`, `IMemoryHistoryService` — all scoped to the three long-term kinds. [§6.5](#65-meta-memory--substrate-only) |
 | | **Prospective** — expression only | `valid_from` / `valid_until` exist on `Fact`; live recall ignores them and no extractor writes them. [§5.5](#55-temporal-validity) |
 | **Reasoning** | **Agent-episodic** | BUILT, WIRED (task-similarity recall only), **UNMEASURED**. [§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured) |
@@ -812,7 +812,23 @@ keeps a second vocabulary.
 - Per-phase cost is measured and reproducible — see [`performance/`](performance/README.md). Recall
   and ingestion are reported separately, never as a single "memory overhead" figure.
 
-### 6.2 Episodic memory — BUILT, WIRED, **UNMEASURED**
+### 6.2 Episodic memory — BUILT, WIRED, **MEASURED** (default off)
+
+> **Measured 2026-08-10.** Capture: `Utterance` added 3,048 relations, raising total facts 42%
+> (25,668 → 36,489) with no cannibalisation of user-centric facts. Retrieval: **935 of 2,898 retrieved
+> facts (32.3%) were episodic, across 33 of 50 questions** — and retrieval slightly *under*-selects
+> them (32.3% retrieved vs 36.3% present), so the crowding comes from capture, not from a ranking
+> bias. Cost: semantic facts retrieved fell ~29%, and answer prompts grew **+23.1% in tokens for only
+> +3.8% more items**, because the retrieval budget is counted in *items* and an utterance is a wordier
+> fact than a preference.
+>
+> **Accuracy did not move**, and LongMemEval structurally cannot show otherwise: it asks what the
+> *user* said and did, so episodic recall can only ever be charged for and never rewarded. That is why
+> the default stays `Ignore`. Verified reaching the model, not merely the context object — prompts
+> grew 6,621 → 8,153 characters with `truncated = 0/50`.
+>
+> Marker check: `assistant` appears as a fact subject 13,251 times under `Utterance` and **17 times
+> (0.07%) under `Ignore`**, so the signal is not an artefact of the counting rule.
 
 **Layer:** short-term *and* long-term — the only type split across two, and the split misroutes its own
 flagship question ([§2.3](#23-where-the-mapping-is-imperfect)).
