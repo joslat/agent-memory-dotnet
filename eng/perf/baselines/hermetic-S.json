@@ -19,11 +19,30 @@
         "items.retrieved": 11,
         "items.traces": 0,
         "neo4j.bytes_est": 37476,
-        "neo4j.queries": 7,
+        "neo4j.queries": 13,
         "neo4j.records": 11,
-        "neo4j.tx.read": 6,
+        "neo4j.tx.read": 12,
         "neo4j.tx.write": 1,
         "recall.chars": 1261
+      }
+    },
+    "PERF-R-09": {
+      "counters": {
+        "access_tracking.items": 0,
+        "context.chars": 1627,
+        "context.messages": 11,
+        "items.entities": 0,
+        "items.facts": 0,
+        "items.preferences": 0,
+        "items.recent": 10,
+        "items.relevant": 0,
+        "items.retrieved": 10,
+        "items.traces": 0,
+        "neo4j.bytes_est": 34130,
+        "neo4j.queries": 1,
+        "neo4j.records": 10,
+        "neo4j.tx.read": 1,
+        "recall.chars": 1180
       }
     },
     "PERF-R-04": {

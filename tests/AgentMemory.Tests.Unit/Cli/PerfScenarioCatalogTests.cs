@@ -1,4 +1,4 @@
-using AgentMemory.Cli.Perf;
+﻿using AgentMemory.Cli.Perf;
 using FluentAssertions;
 
 namespace AgentMemory.Tests.Unit.Cli;
@@ -310,4 +310,29 @@ public sealed class PerfScenarioCatalogTests
     }
 
 
+
+    [Fact]
+    public void Catalog_ContainsTrivialTurnScenario_AsTheMeasurementForTaskAwareRecall()
+    {
+        // PERF-R-01 is the full-recall CONTROL; this is the narrowed path it is contrasted against.
+        // Both must exist: without R-09 task-aware recall ships with no counter behind it, and without
+        // R-01 there is nothing to contrast it with.
+        var scenario = PerfScenarios.All.Single(item => item.Id == "PERF-R-09");
+
+        scenario.Description.Should().ContainEquivalentOf("trivial");
+        scenario.Description.Should().ContainEquivalentOf("recent messages");
+        scenario.SupportsInterleavedAb.Should().BeTrue(
+            "the trivial-turn scenario is read-only and shares no mutable state between A/B arms");
+        scenario.IncludeInDefaultRun.Should().BeTrue(
+            "it must run in CI, or the saving it measures can regress unobserved");
+    }
+
+    [Fact]
+    public void Select_TrivialTurnScenario_ReturnsOnlyThatScenario()
+    {
+        var selected = PerfScenarios.Select("PERF-R-09");
+
+        selected.Should().ContainSingle();
+        selected[0].Id.Should().Be("PERF-R-09");
+    }
 }
