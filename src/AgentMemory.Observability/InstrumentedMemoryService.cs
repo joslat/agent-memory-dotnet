@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
@@ -15,13 +15,37 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     private readonly IMemoryService _inner;
     private readonly MemoryMetrics _metrics;
     private readonly IngestionFailureMode _failureMode;
+    private readonly bool _includeOwnerId;
 
     public InstrumentedMemoryService(
-        IMemoryService inner, MemoryMetrics metrics, IOptions<ExtractionOptions>? extractionOptions = null)
+        IMemoryService inner,
+        MemoryMetrics metrics,
+        IOptions<ExtractionOptions>? extractionOptions = null,
+        IOptions<ObservabilityOptions>? observabilityOptions = null)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         _failureMode = extractionOptions?.Value.FailureMode ?? IngestionFailureMode.BestEffort;
+        _includeOwnerId = observabilityOptions?.Value.IncludeOwnerIdInTelemetry ?? false;
+    }
+
+    /// <summary>
+    /// Tags the owner dimension without exporting tenant data unless the host asked for it.
+    /// </summary>
+    /// <remarks>
+    /// A tenant identifier in a trace is tenant data in a system usually less access-controlled than
+    /// the database it came from. The boolean answers the operational question -- was this operation
+    /// scoped? -- without carrying the value, which is the same choice every owner-scoped vector
+    /// search here already makes with <c>memory.vector.owner_scoped</c>.
+    /// </remarks>
+    private void TagOwner(System.Diagnostics.Activity? activity, string? userId)
+    {
+        if (activity is null) return;
+
+        if (_includeOwnerId && userId is not null)
+            activity.SetTag("memory.user_id", userId);
+        else
+            activity.SetTag("memory.owner_scoped", userId is not null);
     }
 
     public async Task<RecallResult> RecallAsync(
@@ -30,6 +54,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.recall");
         activity?.SetTag("memory.session_id", request.SessionId);
+        TagOwner(activity, request.UserId);
 
         var sw = Stopwatch.StartNew();
         try
@@ -267,7 +292,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_session");
         activity?.SetTag("memory.session_id", sessionId);
-        if (userId is not null) activity?.SetTag("memory.user_id", userId);
+        TagOwner(activity, userId);
 
         var sw = Stopwatch.StartNew();
         try
@@ -293,7 +318,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_conversation");
         activity?.SetTag("memory.conversation_id", conversationId);
-        if (userId is not null) activity?.SetTag("memory.user_id", userId);
+        TagOwner(activity, userId);
 
         var sw = Stopwatch.StartNew();
         try

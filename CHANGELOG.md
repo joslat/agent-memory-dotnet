@@ -47,6 +47,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A tenant identifier no longer reaches telemetry by default.** `InstrumentedMemoryService` emitted
+  `memory.user_id` unconditionally — while every owner-scoped vector search in the codebase already
+  tags a **boolean** (`memory.vector.owner_scoped`) rather than the value. A trace backend is usually
+  less access-controlled than the database the value came from, retained differently, and often
+  exported to a third party.
+
+  Spans now carry `memory.owner_scoped` (bool), so the operational question — *was this scoped?* — is
+  still answerable. Hosts that correlate traces by user opt back in:
+
+  ```csharp
+  services.AddAgentMemoryObservability(o => o.IncludeOwnerIdInTelemetry = true);
+  ```
+
+  The recall span also gains the owner dimension, which it never had.
+
 - **`memory_start_trace` now accepts a `userId` and scopes the trace to it.** It passed no owner at
   all, so an MCP-started trace was written to the shared/global bucket — while trace *recall* goes
   through the ambient owner context. A trace written by one tenant could therefore be invisible to

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using AgentMemory.Abstractions.Services;
 
@@ -19,8 +19,22 @@ public static class ServiceCollectionExtensions
     /// Call this after registering the core memory services.
     /// </remarks>
     public static IServiceCollection AddAgentMemoryObservability(this IServiceCollection services)
+        => services.AddAgentMemoryObservability(configure: null);
+
+    /// <inheritdoc cref="AddAgentMemoryObservability(IServiceCollection)"/>
+    /// <param name="configure">
+    /// Optional observability configuration, e.g. to opt back into emitting the raw owner identifier
+    /// as a span tag (off by default -- a tenant id in a trace is tenant data).
+    /// </param>
+    public static IServiceCollection AddAgentMemoryObservability(
+        this IServiceCollection services,
+        Action<ObservabilityOptions>? configure)
     {
         services.TryAddSingleton<MemoryMetrics>();
+
+        var optionsBuilder = services.AddOptions<ObservabilityOptions>();
+        if (configure is not null)
+            optionsBuilder.Configure(configure);
 
         DecorateMemoryService(services);
         DecorateGraphRagContextSource(services);
