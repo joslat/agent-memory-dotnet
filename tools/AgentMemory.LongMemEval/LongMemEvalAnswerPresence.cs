@@ -1,4 +1,4 @@
-namespace AgentMemory.LongMemEval;
+﻿namespace AgentMemory.LongMemEval;
 
 /// <summary>
 /// Whether a question's gold answer appears in stored memory <b>at all</b>.
@@ -67,12 +67,30 @@ internal static class LongMemEvalAnswerPresence
         var matched = answerTokens.Where(memoryTokens.Contains).ToArray();
         var coverage = (double)matched.Length / answerTokens.Length;
 
+        // A gold answer made only of numbers is DERIVED as often as it is stored -- "17 fish total" is
+        // the sum of counts held separately, "$750" is a difference -- so the numeral itself was never
+        // written to memory and token overlap cannot find it. Reporting that as "absent" blames
+        // extraction for an answer the model computed correctly from evidence that was present.
+        //
+        // Found by reconciling two questions where this gate and the judge disagreed: eeda8a6d ("17
+        // fish total") and 1f2b8d4f ("$750"). Both were scored CORRECT by the judge while this gate
+        // reported the answer absent from memory. Neither was wrong -- they were answering different
+        // questions -- but the disagreement read as a defect in one of them for weeks.
+        //
+        // Uncheckable, not absent. The distinction already exists here precisely so that "we cannot
+        // tell" never becomes "it is missing", which is what turns a floor into a false alarm.
+        if (answerTokens.All(IsNumeric))
+            return new LongMemEvalAnswerPresenceResult(false, false, [], 0);
+
         return new LongMemEvalAnswerPresenceResult(
             Checkable: true,
             Present: coverage >= PresenceThreshold,
             MatchedTokens: matched,
             Coverage: coverage);
     }
+
+    /// <summary>Whether a token is purely digits — i.e. carries no lexical evidence of its own.</summary>
+    private static bool IsNumeric(string token) => token.All(char.IsDigit);
 
     /// <summary>Lowercase alphanumeric runs. Punctuation and case carry no evidence here.</summary>
     private static IEnumerable<string> Tokenize(string? text)
