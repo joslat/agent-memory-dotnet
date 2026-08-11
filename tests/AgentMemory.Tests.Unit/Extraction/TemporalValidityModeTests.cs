@@ -50,27 +50,51 @@ public sealed class TemporalValidityModeTests
         instruction.Should().Contain("Omit");
     }
 
-    [Theory]
-    [InlineData(TemporalValidityMode.Ignore)]
-    [InlineData(TemporalValidityMode.Extract)]
-    public void EveryExtractorHonoursTheSetting(TemporalValidityMode mode)
+    /// <summary>
+    /// Every prompt an extractor can send, so a new rung cannot quietly skip a shared setting.
+    /// </summary>
+    /// <remarks>
+    /// The first version of this test checked only the unified rung and passed while the
+    /// <b>multi-session batch</b> extractor ignored the setting entirely — a defect that shipped in
+    /// the same commit that added the setting. Enumerating all three rungs is what makes the
+    /// conformance rule enforceable rather than aspirational.
+    /// </remarks>
+    private static IEnumerable<(string Rung, string Prompt)> AllRungPrompts(TemporalValidityMode mode)
     {
-        // The conformance rule this file inherits: a setting only some extractors respect is worse
-        // than no setting, because it makes behaviour depend on a performance flag. The unified path
-        // must carry the same instruction the per-kind path does.
-        var expected = ExtractionPromptSemantics.TemporalValidityInstruction(mode);
+        var options = new LlmExtractionOptions();
+        yield return ("per-kind fact",
+            LlmFactExtractor.BuildSystemPrompt(AssistantContentMode.Ignore, mode));
+        yield return ("unified",
+            LlmUnifiedMemoryExtractor.BuildSystemPrompt(
+                AssistantContentMode.Ignore, options.EntityTypes, mode));
+        yield return ("multi-session batch",
+            LlmMultiSessionUnifiedMemoryExtractor.BuildSystemPrompt(
+                vocabulary: null, AssistantContentMode.Ignore, mode));
+    }
 
-        var unified = LlmUnifiedMemoryExtractor.BuildSystemPrompt(
-            AssistantContentMode.Ignore, new LlmExtractionOptions().EntityTypes, mode);
+    [Fact]
+    public void EveryExtractorRungCarriesTheInstructionWhenExtractIsOn()
+    {
+        // A setting only some extractors respect is worse than no setting: it makes behaviour depend
+        // on a performance flag, which is precisely what the shared-semantics type exists to prevent.
+        var expected = ExtractionPromptSemantics.TemporalValidityInstruction(
+            TemporalValidityMode.Extract);
 
-        if (expected.Length == 0)
+        foreach (var (rung, prompt) in AllRungPrompts(TemporalValidityMode.Extract))
         {
-            unified.Should().Be(LlmUnifiedMemoryExtractor.BuildSystemPrompt(
-                AssistantContentMode.Ignore, new LlmExtractionOptions().EntityTypes));
+            prompt.Should().Contain(expected, $"the {rung} rung must honour TemporalValidityMode");
         }
-        else
+    }
+
+    [Fact]
+    public void NoExtractorRungChangesItsPromptWhenIgnoreIsSet()
+    {
+        // The byte-for-byte guarantee, checked on every rung rather than assumed from one. The batch
+        // rung additionally uses its prompt for TOKEN ACCOUNTING, so an instruction it appends but
+        // does not count would make the frozen batch plan under-estimate by exactly that text.
+        foreach (var (rung, prompt) in AllRungPrompts(TemporalValidityMode.Ignore))
         {
-            unified.Should().Contain(expected);
+            prompt.Should().NotContain("valid_until", $"the {rung} rung must add nothing when Ignore");
         }
     }
 }

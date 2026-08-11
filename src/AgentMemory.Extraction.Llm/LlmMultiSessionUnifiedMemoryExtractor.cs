@@ -49,9 +49,14 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     /// </remarks>
     internal static string BuildSystemPrompt(
         MemoryPredicateVocabulary? vocabulary,
-        AssistantContentMode assistantContent = AssistantContentMode.Ignore)
+        AssistantContentMode assistantContent = AssistantContentMode.Ignore,
+        TemporalValidityMode temporalValidity = TemporalValidityMode.Ignore)
     {
-        var assistant = ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
+        // Both shared instructions, appended in the same order every rung uses. A setting honoured by
+        // only some extractors is worse than no setting - it makes behaviour depend on a performance
+        // flag - and this rung was the one my first pass missed.
+        var assistant = ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
+            + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
         var established = vocabulary?.Snapshot() ?? [];
         if (established.Count == 0)
             return SystemPrompt + assistant;
@@ -267,7 +272,8 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
 
         Task<IReadOnlyList<IReadOnlyDictionary<string, UnifiedExtractionResult>>> RunProviderAsync() =>
             runner.RunAsync(
-                BuildSystemPrompt(ActiveVocabulary, _options.AssistantContent),
+                BuildSystemPrompt(
+                    ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity),
                 UserInstruction,
                 BuildBatchText(batch),
                 response => new[] { ProjectAndValidate(response, batch) },
@@ -400,7 +406,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
 
     private int EstimateInputTokens(IReadOnlyList<ExtractionRequest> batch) =>
         checked(
-            Encoding.UTF8.GetByteCount(BuildSystemPrompt(ActiveVocabulary, _options.AssistantContent)) +
+            // Token accounting must see the SAME prompt the call will send, or the frozen batch plan
+            // under-estimates by exactly the instruction it forgot.
+            Encoding.UTF8.GetByteCount(BuildSystemPrompt(
+                ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity)) +
             Encoding.UTF8.GetByteCount(UserInstruction) +
             Encoding.UTF8.GetByteCount(BuildBatchText(batch)) +
             35);
