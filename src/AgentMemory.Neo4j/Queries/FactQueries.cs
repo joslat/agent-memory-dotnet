@@ -221,6 +221,42 @@ internal static class FactQueries
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
             recencyRerank);
 
+    /// <summary>
+    /// Last-resort owner-scoped similarity search that does NOT use the global vector index.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The indexed path asks for a <b>global</b> top-K and then filters to the owner, so it starves
+    /// once enough foreign rows outrank the owner's. Widening rescues that only up to a point:
+    /// <c>EscalatedTopK</c> multiplies by 8 and is capped at <c>MaxTopK</c> = 2,000, so <b>once more
+    /// than 2,000 foreign rows outrank the owner's, no widening can reach them.</b> Measured on a
+    /// 4-dimensional index: the owner received 4 of 4 at 3,000 competing rows and <b>0 of 4 at
+    /// 4,000</b>. The production corpus holds 36,489 facts.
+    /// </para>
+    /// <para>
+    /// This query scores the owner's own facts directly with <c>vector.similarity.cosine</c>. It is a
+    /// scan, deliberately — but a scan <b>bounded by one owner's data</b>, not by the corpus, and it
+    /// is reached only when the indexed path and its escalation have both returned nothing. That
+    /// makes it O(this owner's facts) in the rare case, versus returning nothing at all.
+    /// </para>
+    /// </remarks>
+    public static string SearchByVectorOwnerScopedFallback(bool includeShared)
+    {
+        var owner = includeShared
+            ? "(f.owner_id = $ownerId OR f.owner_id IS NULL)"
+            : "f.owner_id = $ownerId";
+        return $@"
+            MATCH (f:Fact)
+            WHERE {owner}
+              AND f.embedding IS NOT NULL
+              AND f.invalidated_at IS NULL
+            WITH f, vector.similarity.cosine(f.embedding, $embedding) AS score
+            WHERE score >= $minScore
+            RETURN f AS node, score
+            ORDER BY score DESC
+            LIMIT $limit";
+    }
+
     // ── CreateExtractedFromRelationshipAsync ────────────────────────────
 
     /// <summary>Link a Fact to a Message via EXTRACTED_FROM.</summary>

@@ -509,4 +509,67 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
         traceResults.Should().OnlyContain(item => item.Trace.OwnerId == "owner-000");
     }
 
+    [Theory]
+    [InlineData(4_000)]
+    [InlineData(8_000)]
+    public async Task TheRescueStillHoldsAsTheCompetITIONGrows(int foreignRows)
+    {
+        // Does the fix I shipped survive production scale? The rescue widens by a BOUNDED amount
+        // (OwnerVectorOverFetch.EscalatedTopK), so there must exist a corpus size where even the
+        // widened window is filled by foreign rows before the owner's are reached. This finds whether
+        // that point is anywhere near realistic - the measured production corpus is 36,489 facts, and
+        // 14.4 of every 60 candidates already went to other owners at only ~12 owners.
+        static float[] Competitor(int index)
+        {
+            var nudge = 0.0005f * ((index % 97) + 1);
+            return [1f, nudge, nudge / 2f, nudge / 3f];
+        }
+
+        for (var row = 1; row <= foreignRows; row++)
+        {
+            await _facts.UpsertAsync(new Fact
+            {
+                FactId = $"g-near-{row:D5}",
+                Subject = $"subject-{row:D5}",
+                Predicate = "likes",
+                Object = "object",
+                OwnerId = $"owner-{row:D5}",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = Competitor(row),
+            });
+        }
+
+        for (var index = 0; index < FactsPerOwner; index++)
+        {
+            await _facts.UpsertAsync(new Fact
+            {
+                FactId = $"g-far-{index:D2}",
+                Subject = "subject-000",
+                Predicate = "likes",
+                Object = $"object-{index:D2}",
+                OwnerId = "owner-000",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [0.2f, 0.98f, 0f, 0f],
+            });
+        }
+
+        var results = await _facts.SearchByVectorAsync(
+            [1f, 0f, 0f, 0f], limit: Limit, minScore: 0.0, scope: MemoryScope.For("owner-000"));
+
+        _output.WriteLine(
+            $"SCALE-SWEEP[{foreignRows} foreign rows]: owner received {results.Count} of {FactsPerOwner}.");
+
+        results.Should().OnlyContain(item => item.Fact.OwnerId == "owner-000",
+            "isolation must hold at every scale, whatever the yield");
+
+        // The claim the scoped fallback exists to make: an owner whose facts are in the graph gets
+        // them back at ANY corpus size. Before the fallback this returned 0 at 4,000 competing rows,
+        // because EscalatedTopK is capped and cannot widen past MaxTopK.
+        results.Should().NotBeEmpty(
+            $"the owner holds {FactsPerOwner} facts and must receive them even against {foreignRows} "
+            + "more-similar foreign rows");
+    }
+
 }

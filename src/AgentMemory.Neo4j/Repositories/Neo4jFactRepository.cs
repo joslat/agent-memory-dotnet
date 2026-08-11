@@ -330,6 +330,38 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 escalatedTopK = widened;
                 results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
             }
+
+            // LAST RESORT, and it removes a ceiling the widening alone cannot. EscalatedTopK is capped
+            // at MaxTopK, so once more than that many foreign rows outrank this owner's, no widening
+            // reaches them: measured 4 of 4 at 3,000 competing rows and 0 of 4 at 4,000, against a
+            // production corpus of 36,489 facts. This scores the owner's OWN facts directly, so it is
+            // bounded by one owner's data rather than by the corpus, and it runs only when the indexed
+            // path and its escalation have both returned nothing.
+            if (results.Count == 0)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped fact vector search still empty after widening to {Widened}; "
+                    + "falling back to a scoped similarity scan.", escalatedTopK ?? topK);
+                results = await _tx.ReadAsync(async runner =>
+                {
+                    var cursor = await runner.RunAsync(
+                        FactQueries.SearchByVectorOwnerScopedFallback(includeShared),
+                        new Dictionary<string, object?>
+                        {
+                            ["embedding"] = queryEmbedding.ToList(),
+                            ["limit"] = limit,
+                            ["minScore"] = minScore,
+                            ["ownerId"] = scope!.OwnerId,
+                        }).ConfigureAwait(false);
+                    var records = await cursor.ToListAsync().ConfigureAwait(false);
+                    return records.Select(r =>
+                    {
+                        var node = r["node"].As<INode>();
+                        var score = r["score"].As<double>();
+                        return (MapToFact(node, ReadEmbedding(node)), score);
+                    }).ToList();
+                }, cancellationToken).ConfigureAwait(false) ?? [];
+            }
         }
 
         if (activity is not null)
