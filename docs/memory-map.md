@@ -829,6 +829,12 @@ keeps a second vocabulary.
 >
 > Marker check: `assistant` appears as a fact subject 13,251 times under `Utterance` and **17 times
 > (0.07%) under `Ignore`**, so the signal is not an artefact of the counting rule.
+>
+> **Retrievability, measured 2026-08-11:** querying each episodic fact with its own embedding under
+> its owner's scope returns it **200/200 (100%)** — identical to the semantic control. So episodic
+> memory, once stored, is **fully reachable**; its 32.3% share of the retrieval budget is *competition
+> for slots*, not difficulty being found. The same probe measured the owner receiving a mean of
+> **14.4 of 60** global candidates.
 
 **Layer:** short-term *and* long-term — the only type split across two, and the split misroutes its own
 flagship question ([§2.3](#23-where-the-mapping-is-imperfect)).
