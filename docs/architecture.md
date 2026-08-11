@@ -663,6 +663,33 @@ AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 AgentMemory.Observability    — all types (decorators, metrics, activity source, DI)
 ```
 
+#### 3.4.3b Which extractor your configuration selects
+
+Two boolean options choose between **three different extractors with three different prompts**, and
+they are not tiers of the same thing — they extract materially different memory. Measured on identical
+input (6 units, 15 turns):
+
+| your configuration | extractor that runs | facts | entities | subtype | description |
+|---|---|---|---|---|---|
+| **both flags false — the shipped default** | four per-kind extractors, one call each | 293 | 224 | 223 | 224 |
+| `UseUnifiedExtraction` only | `LlmUnifiedMemoryExtractor`, one call | 75 | 52 | **0** | **0** |
+| **both** flags, via `ExtractBatchAsync` | `LlmMultiSessionUnifiedMemoryExtractor` | 103 | 57 | 6 | 8 |
+
+Fact-triple overlap between the shipped path and either unified path is **Jaccard ≈ 0.02** — they do
+not merely extract *less*, they extract *different things*. The unified prompts also drop the per-kind
+prompt's opinion filter and confidence calibration.
+
+**Two consequences worth knowing before you flip either flag:**
+
+1. `UseUnifiedExtraction` alone selects the **single-session** extractor. `UseMultiSessionBatchExtraction`
+   only takes effect through `IMemoryExtractionPipeline.ExtractBatchAsync`; ordinary
+   single-conversation extraction never uses it, no matter how the flags are set.
+2. Unified extraction **cannot honour the four per-kind prompt overrides**, so setting one alongside it
+   now fails at startup naming the property, rather than ignoring it. It does honour `EntityTypes`.
+
+Both flags default to **false**. The benchmark figures published for this project were produced with
+**both true**, i.e. by the batch extractor — so they describe the third row, not the first.
+
 #### 3.4.4 AgentMemory.Extraction.AzureLanguage (Phase 5 ✅ COMPLETE)
 
 | Attribute | Value |
