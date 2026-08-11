@@ -425,4 +425,88 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
         });
     }
 
+    [Fact]
+    public async Task ThePREFERENCEAndTRACEPathsSurviveTheSameCrowdingLive()
+    {
+        // Closes a gap I flagged in my own work: preference and reasoning-trace gained the empty-result
+        // rescue on the strength of the ENTITY measurement plus unit tests over a mock driver. Unit
+        // tests prove the Cypher and the retry count; only this proves the rows come back from a real
+        // index. The construction is the one that drove entity to 0 of 4 before its rescue existed.
+        const int foreignOwners = 500;
+        static float[] Competitor(int index)
+        {
+            var nudge = 0.0005f * ((index % 97) + 1);
+            return [1f, nudge, nudge / 2f, nudge / 3f];
+        }
+
+        var preferences = new Neo4jPreferenceRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jPreferenceRepository>.Instance);
+        var traces = new Neo4jReasoningTraceRepository(
+            _fixture.TransactionRunner, NullLogger<Neo4jReasoningTraceRepository>.Instance);
+
+        for (var owner = 1; owner <= foreignOwners; owner++)
+        {
+            await preferences.UpsertAsync(new Preference
+            {
+                PreferenceId = $"p-near-{owner:D4}",
+                Category = "food",
+                PreferenceText = $"likes item {owner}",
+                OwnerId = $"owner-{owner:D4}",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = Competitor(owner),
+            });
+            await traces.AddAsync(new ReasoningTrace
+            {
+                TraceId = $"t-near-{owner:D4}",
+                SessionId = $"session-{owner:D4}",
+                Task = $"task {owner}",
+                OwnerId = $"owner-{owner:D4}",
+                StartedAtUtc = DateTimeOffset.UtcNow,
+                TaskEmbedding = Competitor(owner),
+            });
+        }
+
+        for (var index = 0; index < FactsPerOwner; index++)
+        {
+            await preferences.UpsertAsync(new Preference
+            {
+                PreferenceId = $"p-far-{index:D2}",
+                Category = "food",
+                PreferenceText = $"owner preference {index}",
+                OwnerId = "owner-000",
+                Confidence = 1.0,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Embedding = [0.2f, 0.98f, 0f, 0f],
+            });
+            await traces.AddAsync(new ReasoningTrace
+            {
+                TraceId = $"t-far-{index:D2}",
+                SessionId = "session-000",
+                Task = $"owner task {index}",
+                OwnerId = "owner-000",
+                StartedAtUtc = DateTimeOffset.UtcNow,
+                TaskEmbedding = [0.2f, 0.98f, 0f, 0f],
+            });
+        }
+
+        var scope = MemoryScope.For("owner-000");
+        var preferenceResults = await preferences.SearchByVectorAsync(
+            [1f, 0f, 0f, 0f], limit: Limit, minScore: 0.0, scope: scope);
+        var traceResults = await traces.SearchByTaskVectorAsync(
+            [1f, 0f, 0f, 0f], successFilter: null, limit: Limit, minScore: 0.0, scope: scope);
+
+        _output.WriteLine(
+            $"LIVE-RESCUE: preference received {preferenceResults.Count} of {FactsPerOwner}; "
+            + $"trace received {traceResults.Count} of {FactsPerOwner}; "
+            + $"against {foreignOwners} more-similar foreign rows each.");
+
+        preferenceResults.Should().NotBeEmpty(
+            "the rescue must return the owner's preferences rather than nothing, which is what this "
+            + "construction produced on the entity path before its rescue existed");
+        traceResults.Should().NotBeEmpty("same, for reasoning traces");
+        preferenceResults.Should().OnlyContain(item => item.Preference.OwnerId == "owner-000");
+        traceResults.Should().OnlyContain(item => item.Trace.OwnerId == "owner-000");
+    }
+
 }
