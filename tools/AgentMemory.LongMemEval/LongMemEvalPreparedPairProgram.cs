@@ -659,6 +659,12 @@ internal static class LongMemEvalPreparedPairProgram
                         ? expectation.ExtractionResponseContract
                         : "unspecified",
                     extractionExecution = "unified-multi-session-batch",
+                    // The harness asks for temperature 0; this deployment refuses it and the
+                    // compatibility wrapper drops the request, so extraction runs at the provider
+                    // default. Recorded because three builds of one configuration shared only 7.5% of
+                    // their stored triples, and an artifact that implies determinism it never had is
+                    // worse than one that admits the gap.
+                    extractionTemperatureHonoured = !ProviderCompatibleExtractionChatClient.TemperatureRequestWasDropped,
                     preparationWorkers = options.PreparationWorkers,
                     // Null on a reused run: this run observed no preparation concurrency because it
                     // performed no preparation. The nullable type is compiler-verified.
