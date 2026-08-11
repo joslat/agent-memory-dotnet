@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-11
+
+### Fixed
+
+- **The 1.4.0 starvation fix had a ceiling, and a multi-tenant deployment would have hit it.** 1.4.0
+  gave owner-scoped entity, preference and reasoning-trace searches a retry at a wider top-K when the
+  first pass returned nothing. That retry is bounded: it multiplies the width by 8 and caps at 2,000
+  candidates. **Once more than ~2,000 rows belonging to other owners outrank yours, no amount of
+  widening reaches them**, and the search returns nothing again.
+
+  Measured on a 50-owner index, an owner holding 4 facts and asking for 10:
+
+  | competing rows | 1.4.0 | 1.4.1 |
+  |---|---|---|
+  | 500 | 4 of 4 | 4 of 4 |
+  | 3,000 | 4 of 4 | 4 of 4 |
+  | **4,000** | **0 of 4** | **4 of 4** |
+  | 8,000 | 0 of 4 | 4 of 4 |
+
+  Fixed by adding a final owner-scoped similarity scan, reached **only** when the indexed search and
+  its widened retry have both returned nothing. It scores your own rows with
+  `vector.similarity.cosine` — a scan, deliberately, but one **bounded by a single owner's data rather
+  than by the corpus**, in the case whose alternative is returning nothing at all. Raising the cap
+  instead would have moved the ceiling without removing it, and made every rescued query read more of
+  other tenants' data.
+
+  Applies to facts, entities, preferences and reasoning traces. The `as-of` variants are unchanged.
+  A reasoning-trace search carries its `successFilter` into the fallback, so a filtered search that
+  genuinely matches nothing still returns nothing rather than being rescued into a wrong answer.
+
 ## [1.4.0] - 2026-08-11
 
 ### Added
