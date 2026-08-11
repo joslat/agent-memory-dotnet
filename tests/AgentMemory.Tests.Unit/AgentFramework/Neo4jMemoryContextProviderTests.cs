@@ -106,11 +106,15 @@ public sealed class Neo4jMemoryContextProviderTests
     public async Task BuildContextAsync_NoConfiguredRecallOptions_UsesDefaults()
     {
         // Existing default behavior must remain unchanged when the host does not customize recall options.
+        // The turn text carries a real question deliberately: this test is about OPTION pass-through, and
+        // it previously used "hi", which the shipped default policy now narrows to recent messages only.
+        // Asserting full defaults on a greeting would have been asserting the wrong thing about the wrong
+        // turn -- the trivial-turn path has its own coverage in ProviderEmbeddingElisionTests.
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[] { 0.1f });
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(EmptyRecall("s1"));
 
         await _sut.BuildContextAsync(
-            new List<ChatMessage> { new(ChatRole.User, "hi") },
+            new List<ChatMessage> { new(ChatRole.User, "what did we decide about pricing?") },
             "s1", "c1", CancellationToken.None);
 
         await _memoryService.Received(1).RecallAsync(

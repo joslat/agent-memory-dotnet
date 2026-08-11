@@ -1,6 +1,13 @@
 using AgentMemory.AgentFramework.Recall;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.AgentFramework;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using NSubstitute;
 using Xunit;
 
 namespace AgentMemory.Tests.Unit.AgentFramework.Recall;
@@ -88,5 +95,58 @@ public sealed class TrivialTurnRecallPolicyTests
         var previousDefault = await new ConfiguredAutomaticRecallPolicy().DecideAsync(ctx);
 
         mine.Should().BeEquivalentTo(previousDefault);
+    }
+}
+
+/// <summary>
+/// The DI default and the constructor default must be the same policy.
+/// </summary>
+/// <remarks>
+/// They diverged once: <c>AddAgentMemoryFramework</c> was changed to register
+/// <see cref="TrivialTurnRecallPolicy"/> while <c>Neo4jMemoryContextProvider</c>'s own constructor still
+/// fell back to <see cref="ConfiguredAutomaticRecallPolicy"/>. Everything resolved through DI got the new
+/// behaviour and everything constructed by hand — tools, tests, hosts wiring manually — silently kept the
+/// old one. It was caught by a perf run whose counters had not moved, not by any test, which is why this
+/// one exists.
+/// </remarks>
+public sealed class RecallPolicyDefaultConsistencyTests
+{
+    [Fact]
+    public async Task AHandBuiltProviderNarrowsATrivialTurnJustLikeADiBuiltOne()
+    {
+        // Asserted through BEHAVIOUR, not by comparing two type literals: the bug was that the
+        // constructor fell back to a different policy than DI registered, and only an instance built
+        // the way the perf harness builds one can prove the fallback itself changed.
+        var memory = Substitute.For<IMemoryService>();
+        var embeddings = Substitute.For<IEmbeddingOrchestrator>();
+        var clock = Substitute.For<IClock>();
+        var ids = Substitute.For<IIdGenerator>();
+
+        clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
+        embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new float[] { 0.1f }));
+        memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RecallResult
+            {
+                Context = new MemoryContext { SessionId = "s1", AssembledAtUtc = DateTimeOffset.UtcNow }
+            });
+
+        // No recallPolicy argument -- exactly how tools, tests and hand-wired hosts build it.
+        var sut = new Neo4jMemoryContextProvider(
+            memory, embeddings, clock, ids,
+            Options.Create(new MemoryOptions()),
+            Options.Create(new ContextFormatOptions()),
+            Options.Create(new AgentFrameworkOptions()),
+            NullLogger<Neo4jMemoryContextProvider>.Instance);
+
+        await sut.BuildContextAsync(
+            new List<ChatMessage> { new(ChatRole.User, "thanks") }, "s1", "c1", CancellationToken.None);
+
+        await memory.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.Options!.MaxFacts == 0 && r.Options.MaxRecentMessages > 0),
+            Arg.Any<CancellationToken>());
+        await embeddings.DidNotReceive()
+            .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 }

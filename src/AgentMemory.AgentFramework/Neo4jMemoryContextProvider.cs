@@ -61,7 +61,11 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _storeContext = storeContext;
         _ownerContext = ownerContext;
         _toolFactory = toolFactory;
-        _recallPolicy = recallPolicy ?? new ConfiguredAutomaticRecallPolicy();
+        // Must stay the same type AddAgentMemoryFramework registers. A constructor default that differs
+        // from the DI default gives one component two behaviours depending on how it was built, and the
+        // direct-construction path (tools, tests, hosts wiring by hand) is exactly where that divergence
+        // goes unnoticed -- it did here, until a perf run showed the counters had not moved.
+        _recallPolicy = recallPolicy ?? new TrivialTurnRecallPolicy();
         _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
