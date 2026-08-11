@@ -28,8 +28,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `limit`, `requested_topk`, `effective_topk`, `escalated` and `returned` on the success path, guarded
   so nothing is allocated when no listener is attached. Owner-scoped vector search post-filters a
   *global* top-K, so the querying owner receives only what survives the filter; previously only the
-  live fact path reported that. Observability only — no escalation behaviour was added, since that
-  changes results and needs its own measurement.
+  live fact path reported that. The telemetry was added first as observability only; the behaviour
+  change it revealed is in **Fixed**, below, and was made after the measurement rather than alongside
+  the instrument.
+
+- **Prospective memory capture, off by default (`TemporalValidityMode`).** `Fact` nodes have always
+  carried `valid_from` / `valid_until`, `ExtractedFact` has always exposed them, and the bitemporal
+  recall path has always read them — but **no extractor ever populated them and no prompt ever
+  mentioned validity**, so the columns were empty on every fact ever stored. Setting
+  `LlmExtractionOptions.TemporalValidity` to `Extract` asks the model to record how long a fact holds
+  where the conversation states or implies it.
+
+  **Off by default, and the off state is byte-identical**: `Ignore` appends nothing to any prompt.
+  **The instruction deliberately tells the model to omit validity rather than guess it** — live recall
+  filters on these columns, so a fabricated `valid_until` does not add noise, it removes a memory from
+  every future answer. All three extraction paths honour the setting.
 
 ### Changed
 
@@ -48,6 +61,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SupportsAtomicRollback = false` instead of refusing to start.
 
 ### Fixed
+
+- **An owner-scoped entity, preference or reasoning-trace search could return NOTHING for an owner
+  whose data was present.** These searches ask the vector index for a *global* top-K and then filter to
+  the querying owner, so once enough more-similar rows belonging to other owners exist, none of the
+  owner's rows survive the filter. The fact path already retried an empty scoped result at a wider
+  top-K; the other three did not.
+
+  Measured on a 50-owner index with 500 more-similar foreign rows: the entity search returned **0 of
+  the owner's 4 entities** while the fact search returned **4 of 4** on identical data. With the retry
+  added, every path returns 4 of 4. Preference and reasoning-trace searches shared the same shape and
+  received the same fix.
+
+  The `as-of` variants still issue exactly one query and are unchanged. Their yield telemetry now
+  reports the escalation honestly — `escalated` was previously a hardcoded `false` on these paths,
+  which was accurate before this fix and would have been a fabricated constant after it.
 
 - **`FindByTriple` asked a different question than the write path answered.** It matched
   `toLower(f.subject)` on all three properties while upserts MERGE on the canonical

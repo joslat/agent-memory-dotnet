@@ -145,7 +145,7 @@ Layers to types. Coverage words are the status labels from the top of this docum
 | **Long-term** | **Semantic** | FULL — BUILT, WIRED, MEASURED. [§6.1](#61-semantic-memory--built-wired-measured) |
 | | **Episodic** — the assistant-originated half | BUILT, WIRED, **default off**, **MEASURED** (2026-08-10). `AssistantContentMode.Utterance` stores `assistant \| recommended \| X` as an ordinary `:Fact`. Capture +42% facts; retrieval **32.3% of the structured budget in 33/50 questions**; cost **+23.1% prompt tokens**; accuracy unmoved. [§6.2](#62-episodic-memory--built-wired-measured) |
 | | **Meta-memory** — substrate only | Confidence, `MemoryTrustLevel`, `access_count`, `:MemoryReadAudit`, `IMemoryHistoryService` — all scoped to the three long-term kinds. [§6.5](#65-meta-memory--substrate-only) |
-| | **Prospective** — expression only | `valid_from` / `valid_until` exist on `Fact`; live recall ignores them and no extractor writes them. [§5.5](#55-temporal-validity) |
+| | **Prospective** — writer added, **default off**, UNMEASURED | `valid_from` / `valid_until` exist on `Fact` and the bitemporal path reads them. Until 2026-08-11 **no extractor wrote them**, so the columns were empty on every stored fact; `TemporalValidityMode.Extract` now populates them. Off by default and not yet measured on a corpus. [§5.5](#55-temporal-validity) |
 | **Reasoning** | **Agent-episodic** | BUILT, WIRED (task-similarity recall only), **UNMEASURED**. [§6.6](#66-agent-episodic-reasoning-traces--built-and-wired-unmeasured) |
 | | **Procedural** — substrate only | NOT BUILT. The ordered-step representation, the `:Tool` reliability prior and a spare vector index exist; the concept does not. [§6.3](#63-procedural-memory--not-built) |
 
@@ -156,7 +156,7 @@ And the reverse view, which is where it stops being tidy:
 | Semantic | Long-term. The only clean one-to-one. |
 | **Episodic** | **Split across short-term and long-term.** See [§2.3](#23-where-the-mapping-is-imperfect). |
 | Procedural | *none* |
-| Prospective | *none* (properties live in long-term; no gate, no writer) |
+| Prospective | *none* as a node kind — properties live on `Fact`. A **writer** now exists (`TemporalValidityMode`, default off); live recall still ignores validity, so the read gate remains unbuilt. |
 | Meta-memory | *none named* (substrate lives in long-term; the README files it under "Memory Governance") |
 | Agent-episodic | Reasoning. One-to-one in name. |
 
