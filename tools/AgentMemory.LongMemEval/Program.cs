@@ -156,6 +156,10 @@ internal static class LongMemEvalProgram
 
             Console.WriteLine(
                 $"longmemeval: running {options.Questions} stratified questions, seed {options.Seed}, mode {options.MemoryMode.ToString().ToLowerInvariant()}, context cap {options.MaxRelevantMessages}.");
+            // P5. The prepared-pair path is not the only one whose vector searches were unobserved;
+            // this verb never had a listener either. It needs no sealed manifest and no reusable base,
+            // which is the whole reason it can run at all right now.
+            using var vectorYield = new LongMemEvalVectorYieldListener();
             var result = await runner
                 .RunAsync(adapter, benchmarkConfig, benchmarkOptions)
                 .ConfigureAwait(false);
@@ -245,6 +249,7 @@ internal static class LongMemEvalProgram
                 },
                 agentMemory = new
                 {
+                    vectorYield = LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
                     questions = adapter.QuestionTelemetry,
                     totalMessagesStored = adapter.QuestionTelemetry.Sum(item => item.MessagesStored),
                     totalItemsRetrieved = adapter.QuestionTelemetry.Sum(item => item.ItemsRetrieved),

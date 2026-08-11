@@ -110,6 +110,16 @@ internal sealed record VectorYieldSample(
 /// <c>StarvedSearches</c> is the number that returned <b>nothing</b> while the search itself succeeded
 /// — the shape that produced a question with no facts at all on the 50-owner corpus. It is counted
 /// separately from the mean because an average hides it completely.
+/// <para>
+/// <b><c>MeanFillRatio</c> is the starvation measure; <c>MeanYieldRatio</c> is not.</b> The first
+/// version of this summary reported only <c>returned / effective_topk</c>, and the first live run made
+/// it read as severe starvation — 10 of 60, 0.167 — when the search had in fact returned <i>everything
+/// it asked for</i>. <c>returned</c> is capped by the Cypher <c>LIMIT $limit</c>, so dividing by the
+/// over-fetch width conflates "how much the owner received" with "how much wider the probe was than
+/// the request". <c>returned / limit</c> is the fraction of the request that survived the owner
+/// post-filter, and 1.0 means nothing was lost. <c>MeanYieldRatio</c> is kept because it still says
+/// how much of the over-fetch was consumed, which is what sizing the over-fetch needs.
+/// </para>
 /// </remarks>
 internal sealed record LongMemEvalVectorYieldSummary(
     int Searches,
@@ -117,6 +127,7 @@ internal sealed record LongMemEvalVectorYieldSummary(
     int StarvedSearches,
     int EscalatedSearches,
     double MeanReturned,
+    double MeanFillRatio,
     double MeanYieldRatio,
     int TotalReturned,
     IReadOnlyDictionary<string, int> SearchesBySpan)
@@ -126,7 +137,7 @@ internal sealed record LongMemEvalVectorYieldSummary(
         if (samples.Count == 0)
         {
             return new LongMemEvalVectorYieldSummary(
-                0, 0, 0, 0, 0, 0, 0, new Dictionary<string, int>(StringComparer.Ordinal));
+                0, 0, 0, 0, 0, 0, 0, 0, new Dictionary<string, int>(StringComparer.Ordinal));
         }
 
         // Ratio against effective_topk, the width that actually produced the rows - not the requested
@@ -136,12 +147,18 @@ internal sealed record LongMemEvalVectorYieldSummary(
             .Select(sample => (double)sample.Returned / sample.EffectiveTopK)
             .ToArray();
 
+        var fills = samples
+            .Where(sample => sample.Limit > 0)
+            .Select(sample => Math.Min(1.0, (double)sample.Returned / sample.Limit))
+            .ToArray();
+
         return new LongMemEvalVectorYieldSummary(
             samples.Count,
             samples.Count(sample => sample.OwnerScoped),
             samples.Count(sample => sample.Returned == 0),
             samples.Count(sample => sample.Escalated),
             samples.Average(sample => sample.Returned),
+            fills.Length == 0 ? 0 : fills.Average(),
             ratios.Length == 0 ? 0 : ratios.Average(),
             samples.Sum(sample => sample.Returned),
             samples.GroupBy(sample => sample.Span, StringComparer.Ordinal)
