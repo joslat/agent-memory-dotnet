@@ -47,6 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`memory_start_trace` now accepts a `userId` and scopes the trace to it.** It passed no owner at
+  all, so an MCP-started trace was written to the shared/global bucket — while trace *recall* goes
+  through the ambient owner context. A trace written by one tenant could therefore be invisible to
+  that same tenant and visible to every other one. Additive parameter; omitting it behaves as before.
+
 - **A reasoning trace with no recorded outcome is no longer shown to the model as a failure.**
   `ReasoningTrace.Success` is `bool?` and null means *unrecorded* — and null was the common case,
   because `AgentTraceRecorder` had no success parameter at all until recently. `find_similar_tasks`
