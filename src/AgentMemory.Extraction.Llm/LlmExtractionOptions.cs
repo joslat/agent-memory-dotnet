@@ -39,6 +39,15 @@ public sealed class LlmExtractionOptions
     /// Disabled by default until the unified path passes live extraction-quality acceptance;
     /// the existing four-category extraction path remains the compatibility control.
     /// </summary>
+    /// <summary>
+    /// Whether extraction records how long a fact is expected to hold (prospective memory).
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="TemporalValidityMode.Ignore"/>, which appends nothing to any prompt and
+    /// so reproduces the prompts every existing measurement was taken with, byte for byte.
+    /// </remarks>
+    public TemporalValidityMode TemporalValidity { get; set; } = TemporalValidityMode.Ignore;
+
     public bool UseUnifiedExtraction { get; set; }
 
     /// <summary>

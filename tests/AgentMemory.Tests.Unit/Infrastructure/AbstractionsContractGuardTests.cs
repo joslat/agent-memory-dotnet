@@ -19,7 +19,7 @@ public sealed class AbstractionsContractGuardTests
     private const int DocumentedServiceInterfaces = 41; // +IMultiSessionUnifiedMemoryExtractor (M-27-V2 LAB-B1)
     private const int DocumentedRepositoryInterfaces = 11;
     private const int DocumentedDomainRecords = 51; // +UnifiedExtractionResult (M-27-V2 LAB-U1)
-    private const int DocumentedEnums = 25; // +AssistantContentMode (L3b: what extraction does with assistant turns — Ignore preserves prior behaviour byte-for-byte). // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType, +MemoryNodeKind, +MemoryOperationAccess, +MemoryIsolationMode (#100); +IngestionStatus, +IngestionStage, +IngestionItemStatus, +MemoryItemKind, +IngestionFailureMode (#101); +MemoryTrustLevel (#92 Phase 3)
+    private const int DocumentedEnums = 26; // +TemporalValidityMode (prospective memory: fills valid_from/valid_until, which had substrate but no writer; Ignore preserves prior prompts byte-for-byte). // +AssistantContentMode (L3b: what extraction does with assistant turns — Ignore preserves prior behaviour byte-for-byte). // +MemoryProfile, +RankingIntent, +DuplicateStatus, +EntityMatchType, +MemoryNodeKind, +MemoryOperationAccess, +MemoryIsolationMode (#100); +IngestionStatus, +IngestionStage, +IngestionItemStatus, +MemoryItemKind, +IngestionFailureMode (#101); +MemoryTrustLevel (#92 Phase 3)
 
     private static IEnumerable<Type> PublicTypes() =>
         Abstractions.GetTypes().Where(t => t.IsPublic);

@@ -53,7 +53,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.unified");
         var results = await _runner.RunAsync(
-            BuildSystemPrompt(_options.AssistantContent, _options.EntityTypes),
+            BuildSystemPrompt(
+                _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity),
             "Extract all supported memory from this conversation:",
             ConversationTextBuilder.Build(messages),
             response => new[] { Project(response) },
@@ -86,6 +87,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     Predicate = item.Predicate,
                     Object = item.Object,
                     Confidence = item.Confidence,
+                    ValidFrom = item.ValidFrom,
+                    ValidUntil = item.ValidUntil,
                 }).ToArray(),
             Preferences = (response.Preferences ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Preference))
@@ -139,12 +142,20 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
     /// </para>
     /// </remarks>
     internal static string BuildSystemPrompt(
-        AssistantContentMode assistantContent, IReadOnlyList<string> entityTypes)
+        AssistantContentMode assistantContent, IReadOnlyList<string> entityTypes) =>
+        BuildSystemPrompt(assistantContent, entityTypes, TemporalValidityMode.Ignore);
+
+    /// <inheritdoc cref="BuildSystemPrompt(AssistantContentMode, IReadOnlyList{string})"/>
+    internal static string BuildSystemPrompt(
+        AssistantContentMode assistantContent,
+        IReadOnlyList<string> entityTypes,
+        TemporalValidityMode temporalValidity)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
         return SystemPromptPrefix
             + string.Join('|', types)
             + SystemPromptSuffix
-            + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
+            + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
+            + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
     }
 }

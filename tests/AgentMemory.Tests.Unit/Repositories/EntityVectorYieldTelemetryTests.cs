@@ -30,6 +30,11 @@ namespace AgentMemory.Tests.Unit.Repositories;
 /// passes it — so a tag can never drift into reporting an intention rather than the query that ran.
 /// </para>
 /// </remarks>
+// Serialized with the other observability tests. Both this class and its sibling drive
+// FindSimilarByEmbeddingAsync, and a listener here samples that span BY NAME - so running
+// them in parallel let one class's span land in the other's assertion. Passing 3/3 alone
+// and failing in the full suite is the signature of that, not of a broken assertion.
+[Collection("Observability")]
 public sealed class EntityVectorYieldTelemetryTests
 {
     private const string VectorSpan = "memory.recall.entity_vector";

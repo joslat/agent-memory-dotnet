@@ -51,7 +51,8 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
-            _options.FactExtractionPrompt ?? BuildSystemPrompt(_options.AssistantContent),
+            _options.FactExtractionPrompt
+                ?? BuildSystemPrompt(_options.AssistantContent, _options.TemporalValidity),
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,
@@ -71,7 +72,9 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
                 Subject = f.Subject,
                 Predicate = f.Predicate,
                 Object = f.Object,
-                Confidence = f.Confidence
+                Confidence = f.Confidence,
+                ValidFrom = f.ValidFrom,
+                ValidUntil = f.ValidUntil
             })
             .ToList();
     }
@@ -82,5 +85,12 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     /// three rungs of the extraction ladder cannot disagree about semantics again.
     /// </remarks>
     internal static string BuildSystemPrompt(AssistantContentMode assistantContent) =>
-        DefaultSystemPrompt + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent);
+        BuildSystemPrompt(assistantContent, TemporalValidityMode.Ignore);
+
+    /// <inheritdoc cref="BuildSystemPrompt(AssistantContentMode)"/>
+    internal static string BuildSystemPrompt(
+        AssistantContentMode assistantContent, TemporalValidityMode temporalValidity) =>
+        DefaultSystemPrompt
+        + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
+        + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
 }

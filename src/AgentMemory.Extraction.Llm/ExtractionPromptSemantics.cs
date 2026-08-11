@@ -55,4 +55,30 @@ internal static class ExtractionPromptSemantics
 
         _ => string.Empty,
     };
+    /// <summary>
+    /// The instruction asking for temporal validity, or empty for
+    /// <see cref="TemporalValidityMode.Ignore"/>.
+    /// </summary>
+    /// <remarks>
+    /// Empty for <see cref="TemporalValidityMode.Ignore"/> for the same reason
+    /// <see cref="AssistantContentInstruction"/> is: prompt bytes are fingerprinted into every run, so
+    /// the off-state must not move them.
+    /// <para>
+    /// <b>"Omit when unbounded" is the load-bearing clause.</b> Live recall filters on these columns,
+    /// so a fabricated <c>valid_until</c> silently removes a memory from every future answer — a fact
+    /// that wrongly expires is worse than one that never expires. The instruction therefore asks for
+    /// validity only where the conversation states or clearly implies it, and says explicitly what to
+    /// do otherwise, rather than leaving the model to infer that omission is allowed.
+    /// </para>
+    /// </remarks>
+    internal static string TemporalValidityInstruction(TemporalValidityMode mode) => mode switch
+    {
+        TemporalValidityMode.Extract =>
+            "\nWhere the conversation states or clearly implies how long a fact holds, add ISO-8601 " +
+            "\"valid_from\" and/or \"valid_until\" to that fact. Omit both when the fact has no stated " +
+            "time bound - never guess an expiry, because an unbounded fact recorded as expiring is " +
+            "worse than one recorded as permanent.",
+        _ => string.Empty,
+    };
+
 }
