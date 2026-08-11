@@ -12,7 +12,11 @@ internal static class LongMemEvalBenchmarkProtocol
         int judgeRetryAttempts,
         LongMemEvalEvidenceDetail evidenceDetail,
         int maxRelevantMessages,
-        JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText) =>
+        JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText,
+        IReadOnlyList<string>? includeQuestionTypes = null,
+        AbstentionSamplingPolicy abstentionPolicy = AbstentionSamplingPolicy.AsSampled,
+        double? abstentionTargetProportion = null,
+        bool suppressSyntheticBoundaries = false) =>
         new()
         {
             DatasetPath = datasetPath,
@@ -50,6 +54,25 @@ internal static class LongMemEvalBenchmarkProtocol
             // would silently invalidate all of them, so it is a per-run decision the caller states out
             // loud rather than something inherited.
             JudgeVerdictProtocol = verdictProtocol,
+            // Type-filtered sampling (0.20). Null/empty reproduces the stratified-across-all-6 default
+            // exactly. This is what makes a per-memory-type claim possible at all: a 50-question
+            // stratified sample yields ~6 single-session-assistant questions, and 6 cannot carry one.
+            IncludeQuestionTypes = includeQuestionTypes is { Count: > 0 }
+                ? includeQuestionTypes.ToList()
+                : null,
+            // Abstention (0.20). AsSampled is the pre-0.20 behaviour. Across 52 recorded runs of ours,
+            // NOT ONE _abs question ever ran -- and nothing said so, which is why the realised count now
+            // travels on the result rather than being inferred.
+            AbstentionPolicy = abstentionPolicy,
+            AbstentionTargetProportion = abstentionTargetProportion,
+            // Full provenance (0.20): dataset SHA-256, judge-prompt fingerprint, AgentEval version and a
+            // fingerprint of the selected question ids. Sealed-base comparability was previously checked
+            // by hand-diffing AgentEval's source between releases; now it is mechanical.
+            RunProvenanceMode = RunProvenanceMode.Full,
+            // Synthetic session boilerplate (0.20). For two failing questions, 30 of 30 retrieved
+            // messages were this boilerplate, and it read as a defect in OUR retrieval for weeks.
+            // Empty marker == omit. Default keeps the historical text so sealed bases stay comparable.
+            SyntheticTurnMarker = suppressSyntheticBoundaries ? string.Empty : null,
             EvidenceCaptureMode = evidenceDetail switch
             {
                 LongMemEvalEvidenceDetail.None => EvidenceCaptureMode.None,
