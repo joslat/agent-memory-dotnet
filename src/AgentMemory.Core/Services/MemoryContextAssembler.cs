@@ -362,8 +362,18 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                             // previous call exactly.
                             resolvedQueryRelations,
                             cancellationToken)
-                        : _longTerm.SearchFactsAsync(
-                            queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
+                        // Valid time is applied on the non-expansion path only. Expansion fetches by
+                        // predicate rather than by vector and would need its own clause; gating one and
+                        // silently not the other would be worse than gating neither, so expansion keeps
+                        // today's behaviour until it is done deliberately.
+                        // Same rule as the service below it: take the pre-existing overload unless the
+                        // gate is on, so an ungated recall is byte-identical to what it always was.
+                        : recallOpts.ValidTime == ValidTimeMode.Ignore
+                            ? _longTerm.SearchFactsAsync(
+                                queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken)
+                            : _longTerm.SearchFactsAsync(
+                                queryEmbedding, recallOpts.ValidTime, recallOpts.MaxFacts, minScore,
+                                scope, cancellationToken))
                 : Empty<Fact>();
 
             var tracesTask = searchTraces && scoredReasoning is null

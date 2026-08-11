@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
@@ -44,6 +44,26 @@ public interface IFactRepository
         double minScore = 0.0,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches facts by vector similarity, optionally restricted to facts valid <i>now</i>.
+    /// </summary>
+    /// <remarks>
+    /// A <b>default interface method</b> rather than a new parameter on the method above: the public
+    /// surface is locked under SemVer and this is the sanctioned way to extend it without breaking a
+    /// third-party implementer. The default body ignores <paramref name="validTime"/> and calls the
+    /// existing overload, which is exactly the behaviour every implementation has today — so a provider
+    /// that does not support valid time keeps working and simply does not filter, rather than silently
+    /// appearing to.
+    /// </remarks>
+    Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
+        float[] queryEmbedding,
+        ValidTimeMode validTime,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        SearchByVectorAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
 
     /// <summary>
     /// Adds or updates a batch of facts atomically. Facts are merged by their {subject, predicate, object}

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
@@ -414,6 +414,18 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         return new ScoredFactSearchResult(facts, scoreSink);
     }
 
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        ValidTimeMode validTime,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        SearchFactsCoreAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate: false, expansionLimit: 0,
+            questionRelations: Array.Empty<string>(), scoreSink: null, cancellationToken, validTime);
+
     /// <summary>
     /// The single fact-recall implementation. <paramref name="scoreSink"/> is a sink rather than a second
     /// return value so the ordinary (diagnostics-off) call keeps exactly its previous allocations: null
@@ -428,11 +440,22 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         int expansionLimit,
         IReadOnlyList<string> questionRelations,
         List<(Fact Fact, double Score)>? scoreSink,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ValidTimeMode validTime = ValidTimeMode.Ignore)
     {
         ArgumentNullException.ThrowIfNull(questionRelations);
         var resolved = Resolve(scope, nameof(SearchFactsAsync));
-        var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken).ConfigureAwait(false);
+        // Take the pre-existing overload unless the gate is actually on, so an ungated recall emits the
+        // exact repository call it always did -- byte-identical rather than merely equivalent. It also
+        // means a third-party IFactRepository that never implements the valid-time overload is only
+        // reached through it when a caller explicitly asked for gating.
+        var scored = validTime == ValidTimeMode.Ignore
+            ? await _factRepo
+                .SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken)
+                .ConfigureAwait(false)
+            : await _factRepo
+                .SearchByVectorAsync(queryEmbedding, validTime, limit, minScore, resolved, cancellationToken)
+                .ConfigureAwait(false);
         // Only the similarity search scores anything. Expansion below appends facts fetched by predicate,
         // which carry no comparable score and are deliberately left out of the sink rather than given a
         // stand-in one.

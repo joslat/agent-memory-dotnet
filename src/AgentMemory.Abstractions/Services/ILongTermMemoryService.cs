@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Services;
@@ -250,4 +250,23 @@ public interface ILongTermMemoryService
         SearchFactsAsync(
             queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
             cancellationToken);
+
+
+    /// <summary>
+    /// Fact recall restricted to facts whose valid-time window contains the present.
+    /// </summary>
+    /// <remarks>
+    /// A third default interface method, for the same reason as the two above: the interface is locked
+    /// under SemVer and optional parameters would break every implementor. The default ignores
+    /// <paramref name="validTime"/>, which is what every implementation does today — a store that
+    /// cannot filter on valid time keeps working and simply does not filter, rather than appearing to.
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        ValidTimeMode validTime,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
 }

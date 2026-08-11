@@ -47,6 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Live recall can now honour a fact's valid-time window** — `RecallOptions.ValidTime`
+  (`Ignore` by default, so nothing changes unless you ask).
+
+  `valid_from`/`valid_until` persist, are writable through the public API, and the point-in-time path
+  already filtered on them. **Live recall did not.** A fact valid from six months hence was returned
+  *today*, and a fact whose `valid_until` had passed was returned **forever**. The gap was harmless
+  until 1.4.0 shipped `TemporalValidityMode.Extract` — the writer it had been waiting for.
+
+  Gated on **both** live fact paths: the indexed vector query and 1.4.1's owner-scoped fallback.
+  Gating only the first would have left valid time bypassed for exactly the starved multi-tenant
+  owners that fallback exists to rescue.
+
+  Honouring it also delivers the first two mechanisms of prospective memory — *expression* and
+  *gating* — i.e. due-on-next-interaction semantics. Acting at a time with no query is a scheduler,
+  a different risk class, and deliberately not in scope.
+
 - **Recall misses are now observable.** `memory.recall.section.empty` and
   `memory.recall.section.short`, tagged by category. A `:MemoryReadAudit` row is created *inside*
   `MATCH (n {id: $id})`, so a row existed only for a **hit** — there was no record anywhere that an
