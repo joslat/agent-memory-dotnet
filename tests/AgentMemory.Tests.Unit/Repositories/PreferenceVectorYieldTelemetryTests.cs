@@ -117,23 +117,42 @@ public sealed class PreferenceVectorYieldTelemetryTests
     [Fact]
     public async Task NeitherPreferencePathClaimsAnEscalationItDoesNotHave()
     {
-        // The fact path retries an empty scoped search at a wider topK and reports `escalated`. These two
-        // paths issue exactly one query and have no such rescue. Emitting `escalated = false` here would
-        // file them alongside fact searches where escalation was evaluated and declined, diluting any
-        // measure of how often the rescue fires — and hiding that on this path there is nothing to fire.
+        // NARROWED, not weakened. The LIVE preference search now retries an empty scoped result, because
+        // that behaviour was measured to matter: with 500 more-similar foreign rows an owner-scoped
+        // search returned 0 of the owner's 4 rows on the identical query shape, and the retry restored
+        // all 4. The AS-OF path still issues exactly one query, so the invariant holds for it unchanged
+        // and is what this test now covers. The live path's escalation is asserted separately.
         var (repo, cyphers) = CreateRepository(rowsPerQuery: [0, 0]);
         using var listening = Listen();
 
-        await repo.SearchByVectorAsync(Query, limit: 10, scope: MemoryScope.For("owner-a"));
         await repo.SearchByVectorAsOfAsync(Query, AsOf, limit: 10, scope: MemoryScope.For("owner-a"));
 
-        cyphers.Should().HaveCount(2, because: "an empty scoped result must not trigger a second query here");
+        cyphers.Should().HaveCount(1, because: "the as-of path has no rescue, so one query and no more");
         foreach (var span in listening.Spans)
         {
             span.GetTagItem("memory.vector.returned").Should().Be(0);
             span.GetTagItem("memory.vector.escalated").Should().Be(false);
             span.GetTagItem("memory.vector.escalated_topk").Should().BeNull();
         }
+    }
+
+
+    [Fact]
+    public async Task TheLivePreferenceSearchNowReportsTheEscalationItPerforms()
+    {
+        // The behaviour change asserted rather than assumed: an owner whose preferences exist must not
+        // receive nothing because foreign rows filled the global top-K.
+        var (repo, cyphers) = CreateRepository(rowsPerQuery: [0, 0]);
+        using var listening = Listen();
+
+        await repo.SearchByVectorAsync(Query, limit: 10, scope: MemoryScope.For("owner-a"));
+
+        cyphers.Should().HaveCount(2, because: "exactly one retry - not zero, and not a loop");
+        var span = listening.Spans.Single();
+        span.GetTagItem("memory.vector.escalated").Should().Be(true);
+        span.GetTagItem("memory.vector.requested_topk").Should().Be(60,
+            "requested_topk stays the FIRST pass width so a consumer can see what was originally asked");
+        span.GetTagItem("memory.vector.escalated_topk").Should().NotBeNull();
     }
 
     [Theory]

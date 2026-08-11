@@ -161,35 +161,67 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         _logger.LogDebug("Vector search reasoning traces, successFilter={Filter}, limit={Limit}, owner={Owner}",
             successFilter, limit, scope?.OwnerId);
 
-        var cypher = ReasoningQueries.SearchByTaskVector(successFilter.HasValue, hasOwner, includeShared, topK);
-
-        var parameters = new Dictionary<string, object>
+        async Task<List<(ReasoningTrace, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            ["embedding"] = taskEmbedding.ToList(),
-            ["limit"]     = limit,
-            ["minScore"]  = minScore
-        };
-        if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
-        if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+            var cypher = ReasoningQueries.SearchByTaskVector(
+                successFilter.HasValue, hasOwner, includeShared, width);
 
-        var results = await _tx.ReadAsync(async runner =>
-        {
-            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
-            var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r =>
+            var parameters = new Dictionary<string, object>
             {
-                var node  = r["node"].As<INode>();
-                var score = r["score"].As<double>();
-                return (MapToTrace(node, ReadEmbedding(node)), score);
-            }).ToList();
-        }, cancellationToken).ConfigureAwait(false) ?? [];
+                ["embedding"] = taskEmbedding.ToList(),
+                ["limit"]     = limit,
+                ["minScore"]  = minScore
+            };
+            if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
+
+            return await _tx.ReadAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r =>
+                {
+                    var node  = r["node"].As<INode>();
+                    var score = r["score"].As<double>();
+                    return (MapToTrace(node, ReadEmbedding(node)), score);
+                }).ToList();
+            }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);
+
+        // The empty-result rescue, matching the fact, entity and preference paths. Traces run the same
+        // global-index-then-post-filter shape, and the entity measurement showed that shape returning
+        // 0 of an owner's 4 rows against 500 more-similar foreign rows until this retry was added.
+        //
+        // NOTE the interaction with successFilter: a filtered search can legitimately return nothing
+        // because no trace matched the filter, not because of crowding. Escalating still costs only
+        // one wider query and cannot invent a match, so the retry is issued either way rather than
+        // guessing which cause applied.
+        int? escalatedTopK = null;
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        {
+            var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
+            if (widened > topK)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped trace vector search returned nothing at topK={TopK}; retrying at {Widened}.",
+                    topK, widened);
+                escalatedTopK = widened;
+                results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks: the
         // tag block exists purely to produce telemetry, so it is skipped whole when nobody is listening.
         // Success path only — a search that threw measured nothing, and tagging it `returned = 0` would be
         // indistinguishable from a genuine total-starvation reading.
         if (activity is not null)
-            TagVectorYield(activity, hasOwner, limit, topK, results.Count, successFilter);
+        {
+            TagVectorYield(
+                activity, hasOwner, limit, escalatedTopK ?? topK, results.Count, successFilter,
+                escalated: escalatedTopK is not null, requestedTopK: topK);
+        }
 
         return results;
     }
@@ -285,18 +317,22 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     /// </para>
     /// </remarks>
     private static void TagVectorYield(
-        Activity activity, bool hasOwner, int limit, int topK, int returned, bool? successFilter)
+        Activity activity, bool hasOwner, int limit, int topK, int returned, bool? successFilter,
+        bool escalated = false, int? requestedTopK = null)
     {
         activity.SetTag("memory.vector.owner_scoped", hasOwner);
         activity.SetTag("memory.vector.limit", limit);
-        activity.SetTag("memory.vector.requested_topk", topK);
+        activity.SetTag("memory.vector.requested_topk", requestedTopK ?? topK);
         activity.SetTag("memory.vector.effective_topk", topK);
         // Emitted by EVERY vector-recall span, including paths that never escalate. The three
         // conventions this replaces made the telemetry unqueryable: a consumer computing
         // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
         // is indistinguishable from a site that emits no telemetry at all. False here means
         // "no second pass ran", which is exactly what a consumer counting escalations needs.
-        activity.SetTag("memory.vector.escalated", false);
+        activity.SetTag("memory.vector.escalated", escalated);
+        // Absent, never defaulted, when no second pass ran - a width nobody asked for is not a
+        // measurement. The live path can now escalate, so a hardcoded false would be fabricated.
+        if (escalated) activity.SetTag("memory.vector.escalated_topk", topK);
         activity.SetTag("memory.vector.returned", returned);
         activity.SetTag("memory.vector.success_filtered", successFilter.HasValue);
         // Absent, never defaulted, when no filter was applied: an outcome nobody filtered on is not a

@@ -193,33 +193,61 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
         bool recencyRerank = ranking.RecencyRerankEnabled;
-        var cypher = PreferenceQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
-        var parameters = new Dictionary<string, object?>
+        async Task<List<(Preference, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            ["embedding"] = queryEmbedding.ToList(),
-            ["limit"] = limit,
-            ["minScore"] = minScore,
-        };
-        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
-
-        var results = await _tx.ReadAsync(async runner =>
-        {
-            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
-            var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r =>
+            var cypher = PreferenceQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            var parameters = new Dictionary<string, object?>
             {
-                var node = r["node"].As<INode>();
-                var score = r["score"].As<double>();
-                return (MapToPreference(node, ReadEmbedding(node)), score);
-            }).ToList();
-        }, cancellationToken).ConfigureAwait(false) ?? [];
+                ["embedding"] = queryEmbedding.ToList(),
+                ["limit"] = limit,
+                ["minScore"] = minScore,
+            };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
+
+            return await _tx.ReadAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r =>
+                {
+                    var node = r["node"].As<INode>();
+                    var score = r["score"].As<double>();
+                    return (MapToPreference(node, ReadEmbedding(node)), score);
+                }).ToList();
+            }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);
+
+        // The empty-result rescue, matching the fact and entity paths. Measured on the entity path
+        // with the same query shape: 500 more-similar foreign rows drove an owner-scoped search to
+        // 0 of the owner's 4 rows, and this retry restored all 4. Preferences run the identical
+        // global-index-then-post-filter shape, so the exposure was identical.
+        int? escalatedTopK = null;
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        {
+            var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
+            if (widened > topK)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped preference vector search returned nothing at topK={TopK}; retrying at {Widened}.",
+                    topK, widened);
+                escalatedTopK = widened;
+                results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks: the
         // tag block exists purely to produce telemetry, so it is skipped whole when nobody is listening.
         // Success path only — a search that threw measured nothing, and tagging it `returned = 0` would be
         // indistinguishable from a genuine total-starvation reading.
-        if (activity is not null) TagVectorYield(activity, hasOwner, limit, topK, results.Count);
+        if (activity is not null)
+        {
+            TagVectorYield(
+                activity, hasOwner, limit, escalatedTopK ?? topK, results.Count,
+                escalated: escalatedTopK is not null, requestedTopK: topK);
+        }
 
         return results;
     }
@@ -255,13 +283,18 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
     /// plausible guess would be worse than silence.
     /// </para>
     /// </remarks>
-    private static void TagVectorYield(Activity activity, bool hasOwner, int limit, int topK, int returned)
+    private static void TagVectorYield(
+        Activity activity, bool hasOwner, int limit, int topK, int returned,
+        bool escalated = false, int? requestedTopK = null)
     {
         activity.SetTag("memory.vector.owner_scoped", hasOwner);
         activity.SetTag("memory.vector.limit", limit);
-        activity.SetTag("memory.vector.requested_topk", topK);
+        activity.SetTag("memory.vector.requested_topk", requestedTopK ?? topK);
         activity.SetTag("memory.vector.effective_topk", topK);
-        activity.SetTag("memory.vector.escalated", false);
+        activity.SetTag("memory.vector.escalated", escalated);
+        // Absent, never defaulted, when no second pass ran - a width nobody asked for is not a
+        // measurement. The live path can now escalate, so a hardcoded false would be fabricated.
+        if (escalated) activity.SetTag("memory.vector.escalated_topk", topK);
         activity.SetTag("memory.vector.returned", returned);
     }
 

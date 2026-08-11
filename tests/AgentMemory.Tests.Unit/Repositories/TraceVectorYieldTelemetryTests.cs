@@ -154,25 +154,56 @@ public sealed class TraceVectorYieldTelemetryTests
     [Fact]
     public async Task NeitherTracePathClaimsAnEscalationItDoesNotHave()
     {
-        // The fact path retries an empty scoped search at a wider topK and reports `escalated`. These two
-        // paths issue exactly one query and have no such rescue. Emitting `escalated = false` here would
-        // file them alongside fact searches where escalation was evaluated and declined, diluting any
-        // measure of how often the rescue fires — and hiding that on this path there is nothing to fire.
+        // NARROWED, not weakened. The LIVE trace search now retries an empty scoped result, because the
+        // same query shape was measured returning 0 of an owner's 4 rows against 500 more-similar
+        // foreign rows until the retry was added. The AS-OF path still issues exactly one query, so the
+        // invariant holds for it unchanged and is what this test now covers.
         var (repo, cyphers) = CreateRepository(rowsPerQuery: [0, 0]);
         using var listening = Listen();
 
-        await repo.SearchByTaskVectorAsync(
-            Query, successFilter: null, limit: 10, scope: MemoryScope.For("owner-a"));
         await repo.SearchByTaskVectorAsOfAsync(
             Query, AsOf, successFilter: null, limit: 10, scope: MemoryScope.For("owner-a"));
 
-        cyphers.Should().HaveCount(2, because: "an empty scoped result must not trigger a second query here");
+        cyphers.Should().HaveCount(1, because: "the as-of path has no rescue, so one query and no more");
         foreach (var span in listening.Spans)
         {
             span.GetTagItem("memory.vector.returned").Should().Be(0);
             span.GetTagItem("memory.vector.escalated").Should().Be(false);
             span.GetTagItem("memory.vector.escalated_topk").Should().BeNull();
         }
+    }
+
+
+    [Fact]
+    public async Task TheLiveTraceSearchNowReportsTheEscalationItPerforms()
+    {
+        var (repo, cyphers) = CreateRepository(rowsPerQuery: [0, 0]);
+        using var listening = Listen();
+
+        await repo.SearchByTaskVectorAsync(
+            Query, successFilter: null, limit: 10, scope: MemoryScope.For("owner-a"));
+
+        cyphers.Should().HaveCount(2, because: "exactly one retry - not zero, and not a loop");
+        var span = listening.Spans.Single();
+        span.GetTagItem("memory.vector.escalated").Should().Be(true);
+        span.GetTagItem("memory.vector.escalated_topk").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task AFilteredTraceSearchStillEscalatesRatherThanGuessingWhyItWasEmpty()
+    {
+        // A successFilter search can be empty because nothing MATCHED, not because of crowding. The
+        // retry is issued either way: it costs one wider query and cannot invent a match, whereas
+        // skipping it would require guessing which cause applied and would silently reinstate the
+        // starvation on every filtered search.
+        var (repo, cyphers) = CreateRepository(rowsPerQuery: [0, 0]);
+        using var listening = Listen();
+
+        await repo.SearchByTaskVectorAsync(
+            Query, successFilter: true, limit: 10, scope: MemoryScope.For("owner-a"));
+
+        cyphers.Should().HaveCount(2);
+        listening.Spans.Single().GetTagItem("memory.vector.escalated").Should().Be(true);
     }
 
     [Theory]
