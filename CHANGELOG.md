@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```csharp
   services.AddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
   ```
+
+- **An empty recall section can now say why it is empty.** `MemoryContextSection<T>.Diagnostics`
+  (null unless `RecallOptions.IncludeDiagnostics` is set) records whether the section was actually
+  searched, the limit it asked for, how many items came back, the top and lowest scores, and the
+  similarity floor in force.
+
+  Three causes needed opposite responses and looked identical from outside: the section was never
+  searched, the store genuinely holds nothing, or candidates existed and were filtered away — by the
+  floor, or by an owner post-filter applied after the vector index picked a global top-K. `Searched`
+  separates the first; `SearchedAndShort` exposes the third, which is otherwise invisible because the
+  starvation escalation fires only on a *total* zero.
+
+  An unscoreable section reports `null` scores rather than zero — zero is a real score.
 
 ### Fixed
 

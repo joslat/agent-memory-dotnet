@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -98,6 +98,34 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 map[strategy.Strategy] = strategy;
 
         return map;
+    }
+
+    /// <summary>
+    /// Builds a section's diagnostics from what the retrieval actually did.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="searched"/> is passed in rather than inferred from the item count, because the
+    /// whole point is to separate "searched and found nothing" from "never searched" — and those look
+    /// identical from the results alone.
+    /// </remarks>
+    private static MemoryContextSectionDiagnostics Diagnose<T>(
+        bool searched,
+        int requestedLimit,
+        IReadOnlyList<T> items,
+        IReadOnlyList<MemoryContextRankedItem> ranked,
+        double minimumScore)
+    {
+        // Scores come from the ranked items, which exist only when the provider could supply them.
+        // An unscoreable section reports null rather than a placeholder: zero is a real score.
+        double? top = null, low = null;
+        if (ranked.Count > 0)
+        {
+            top = ranked.Max(item => item.Score);
+            low = ranked.Min(item => item.Score);
+        }
+
+        return new MemoryContextSectionDiagnostics(
+            searched, requestedLimit, items.Count, top, low, minimumScore);
     }
 
     /// <summary>
@@ -203,6 +231,11 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
             : Array.Empty<string>();
 
+        // Whether the vector searches were reachable at all this recall, hoisted so the diagnostics built
+        // after budgeting can distinguish "searched and found nothing" from "never searched". False when
+        // memory was excluded by blend mode, or when no embedding was available to search with.
+        bool vectorSearchRan = false;
+
         if (includeMemory)
         {
             // Generate embedding if not provided, and ONLY if some retrieval will actually consume it.
@@ -226,6 +259,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // recall via the chat-history provider) yields an empty embedding — skip the semantic
             // searches rather than issue zero-dimension vector queries (which the index rejects).
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
+            vectorSearchRan = hasEmbedding;
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
             // Every long-term/reasoning search below is ranked by the vector index and the service layer
@@ -473,31 +507,59 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
-            RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
+            RecentMessages = new MemoryContextSection<Message>
+            {
+                Items = recentMessages,
+                // No vector involved: session-scoped and time-ordered, so the limit alone decides.
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.MaxRecentMessages > 0, recallOpts.MaxRecentMessages,
+                        recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
+                    : null
+            },
             RelevantMessages = new MemoryContextSection<Message>
             {
                 Items = relevantMessages,
-                RankedItems = relevantRanked
+                RankedItems = relevantRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxRelevantMessages > 0,
+                        recallOpts.MaxRelevantMessages, relevantMessages, relevantRanked, minScore)
+                    : null
             },
             RelevantEntities = new MemoryContextSection<Entity>
             {
                 Items = entities,
-                RankedItems = entityRanked
+                RankedItems = entityRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxEntities > 0,
+                        recallOpts.MaxEntities, entities, entityRanked, minScore)
+                    : null
             },
             RelevantPreferences = new MemoryContextSection<Preference>
             {
                 Items = preferences,
-                RankedItems = preferenceRanked
+                RankedItems = preferenceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxPreferences > 0,
+                        recallOpts.MaxPreferences, preferences, preferenceRanked, minScore)
+                    : null
             },
             RelevantFacts = new MemoryContextSection<Fact>
             {
                 Items = facts,
-                RankedItems = factRanked
+                RankedItems = factRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxFacts > 0,
+                        recallOpts.MaxFacts, facts, factRanked, minScore)
+                    : null
             },
             SimilarTraces = new MemoryContextSection<ReasoningTrace>
             {
                 Items = traces,
-                RankedItems = traceRanked
+                RankedItems = traceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxTraces > 0,
+                        recallOpts.MaxTraces, traces, traceRanked, minScore)
+                    : null
             },
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
@@ -713,29 +775,52 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
-            RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
+            RecentMessages = new MemoryContextSection<Message>
+            {
+                Items = recentMessages,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.MaxRecentMessages > 0, recallOpts.MaxRecentMessages,
+                        recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
+                    : null
+            },
             // Empty, not unscored: the temporal snapshot runs no semantic message search at all, so there
             // is no retrieval here to report a rank for.
             RelevantMessages = MemoryContextSection<Message>.Empty,
             RelevantEntities = new MemoryContextSection<Entity>
             {
                 Items = entities,
-                RankedItems = entityRanked
+                RankedItems = entityRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxEntities > 0,
+                        recallOpts.MaxEntities, entities, entityRanked, minScore)
+                    : null
             },
             RelevantPreferences = new MemoryContextSection<Preference>
             {
                 Items = preferences,
-                RankedItems = preferenceRanked
+                RankedItems = preferenceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxPreferences > 0,
+                        recallOpts.MaxPreferences, preferences, preferenceRanked, minScore)
+                    : null
             },
             RelevantFacts = new MemoryContextSection<Fact>
             {
                 Items = facts,
-                RankedItems = factRanked
+                RankedItems = factRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxFacts > 0,
+                        recallOpts.MaxFacts, facts, factRanked, minScore)
+                    : null
             },
             SimilarTraces = new MemoryContextSection<ReasoningTrace>
             {
                 Items = traces,
-                RankedItems = traceRanked
+                RankedItems = traceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxTraces > 0,
+                        recallOpts.MaxTraces, traces, traceRanked, minScore)
+                    : null
             },
             Truncated = truncated,
             // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.
