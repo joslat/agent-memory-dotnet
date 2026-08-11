@@ -369,7 +369,8 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
         _output.WriteLine(
             $"SCALE[{foreignOwners} foreign owners]: fact path received {factResults.Count} of "
             + $"{FactsPerOwner}; entity path received {entityResults.Count} of {FactsPerOwner}. "
-            + "Fact escalates on an empty scoped result; entity does not.");
+            + "Both now escalate on an empty scoped result. Before entity gained the rescue this "
+            + "read 'fact 4 of 4, entity 0 of 4' on identical data.");
 
         factResults.Should().OnlyContain(item => item.Fact.OwnerId == "owner-000");
         entityResults.Should().OnlyContain(item => item.Entity.OwnerId == "owner-000");

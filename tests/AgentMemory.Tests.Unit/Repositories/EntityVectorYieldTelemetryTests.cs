@@ -235,11 +235,17 @@ public sealed class EntityVectorYieldTelemetryTests
     }
 
     [Theory]
-    [InlineData(VectorSpan)]
     [InlineData(SimilarSpan)]
     [InlineData(AsOfSpan)]
     public async Task NoEntityPathClaimsAnEscalationItCannotPerform(string spanName)
     {
+        // VectorSpan was REMOVED from this theory deliberately, not because it became inconvenient.
+        // The live entity search now escalates on an empty owner-scoped result, so asserting
+        // escalated=false there would pin behaviour that was measured to be harmful: with 500
+        // more-similar foreign entities indexed, that path returned 0 of the owner's 4 entities while
+        // the fact path returned 4 of 4 on identical data. Its own case is below.
+        // The similar-by-embedding and as-of paths still issue exactly one query, so the invariant
+        // holds for them unchanged.
         // Unified vocabulary: every vector-recall span emits `escalated`, and a path that never
         // issues a second query emits `false`. Omitting it was locally tidier and globally worse -
         // an absent tag is indistinguishable from a site that emits no telemetry, so a consumer
@@ -261,6 +267,29 @@ public sealed class EntityVectorYieldTelemetryTests
         span.GetTagItem("memory.vector.returned").Should().Be(0);
         span.GetTagItem("memory.vector.escalated").Should().Be(false);
         span.GetTagItem("memory.vector.escalated_topk").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TheLiveEntitySearchNowReportsTheEscalationItPerforms()
+    {
+        // The behaviour change, asserted rather than assumed. An owner-scoped search that comes back
+        // empty issues a second, wider query - so the span must say so, and must report the width that
+        // actually produced the rows. Before this, entity was the path where an owner could receive
+        // nothing while its data sat in the graph.
+        var (repo, queries) = CreateRepository(rows: 0);
+        using var listening = Listen(VectorSpan);
+
+        _ = await repo.SearchByVectorAsync(Query, limit: 10, scope: MemoryScope.For("owner-a"));
+
+        queries.Should().HaveCount(2,
+            "an empty owner-scoped result must trigger exactly one retry, not zero and not a loop");
+
+        var span = listening.Single();
+        span.GetTagItem("memory.vector.escalated").Should().Be(true);
+        span.GetTagItem("memory.vector.requested_topk").Should().Be(60,
+            "requested_topk stays the FIRST pass width, so a consumer can see what was originally asked");
+        span.GetTagItem("memory.vector.escalated_topk").Should().NotBeNull(
+            "a second query ran, so the width that produced the result is now a real measurement");
     }
 
     // ── harness ────────────────────────────────────────────────────────

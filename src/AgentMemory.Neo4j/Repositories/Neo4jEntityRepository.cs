@@ -178,29 +178,55 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
         bool recencyRerank = ranking.RecencyRerankEnabled;
-        var cypher = EntityQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
-        var parameters = new Dictionary<string, object?>
+        async Task<List<(Entity, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            ["embedding"] = queryEmbedding.ToList(),
-            ["limit"] = limit,
-            ["minScore"] = minScore,
-        };
-        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
-
-        var results = await _tx.ReadAsync(async runner =>
-        {
-            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
-            var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r =>
+            var cypher = EntityQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            var parameters = new Dictionary<string, object?>
             {
-                var node = r["node"].As<INode>();
-                var score = r["score"].As<double>();
-                return (MapToEntity(node, ReadEmbedding(node)), score);
-            }).ToList();
-        }, cancellationToken).ConfigureAwait(false) ?? [];
+                ["embedding"] = queryEmbedding.ToList(),
+                ["limit"] = limit,
+                ["minScore"] = minScore,
+            };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
-        EmitVectorYield(activity, hasOwner, limit, topK, results.Count);
+            return await _tx.ReadAsync(async runner =>
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r =>
+                {
+                    var node = r["node"].As<INode>();
+                    var score = r["score"].As<double>();
+                    return (MapToEntity(node, ReadEmbedding(node)), score);
+                }).ToList();
+            }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);
+
+        // The empty-result rescue, now matching Neo4jFactRepository. MEASURED, not assumed: with 500
+        // more-similar foreign entities in the index, an owner-scoped search returned 0 of the owner's
+        // 4 entities while the fact path returned 4 of 4 on identical data. The only difference was
+        // this retry, so its absence here was a real exposure - an owner could receive NOTHING while
+        // its data sat in the graph.
+        int? escalatedTopK = null;
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        {
+            var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
+            if (widened > topK)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped entity vector search returned nothing at topK={TopK}; retrying at {Widened}.",
+                    topK, widened);
+                escalatedTopK = widened;
+                results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        EmitVectorYield(
+            activity, hasOwner, limit, escalatedTopK ?? topK, results.Count,
+            escalated: escalatedTopK is not null, requestedTopK: topK);
         return results;
     }
 
@@ -227,7 +253,9 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
     /// the fact path retries, these give up. Absent, not false.
     /// </para>
     /// </remarks>
-    private static void EmitVectorYield(Activity? activity, bool hasOwner, int limit, int topK, int returned)
+    private static void EmitVectorYield(
+        Activity? activity, bool hasOwner, int limit, int topK, int returned,
+        bool escalated = false, int? requestedTopK = null)
     {
         if (activity is null) return;
 
@@ -244,17 +272,21 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // starvation.
         activity.SetTag("memory.vector.owner_scoped", hasOwner);
         activity.SetTag("memory.vector.limit", limit);
-        activity.SetTag("memory.vector.requested_topk", topK);
+        activity.SetTag("memory.vector.requested_topk", requestedTopK ?? topK);
         // Equal to requested_topk on every entity path, because none of them widens and re-queries. It is
         // emitted all the same so a consumer computing returned / effective_topk gets a correct ratio
         // from any recall span without having to know which sources can escalate and which cannot.
         activity.SetTag("memory.vector.effective_topk", topK);
+        // Absent, never defaulted, when no second pass was issued - a width nobody asked for is not a
+        // measurement. Matches the fact path exactly, which is the point: entity now escalates too, so
+        // reporting escalated=false unconditionally here would have been a fabricated constant.
+        if (escalated) activity.SetTag("memory.vector.escalated_topk", topK);
         // Emitted by EVERY vector-recall span, including paths that never escalate. The three
         // conventions this replaces made the telemetry unqueryable: a consumer computing
         // returned/effective_topk had to know which sites emit it, and an omitted "escalated"
         // is indistinguishable from a site that emits no telemetry at all. False here means
         // "no second pass ran", which is exactly what a consumer counting escalations needs.
-        activity.SetTag("memory.vector.escalated", false);
+        activity.SetTag("memory.vector.escalated", escalated);
         activity.SetTag("memory.vector.returned", returned);
     }
 
