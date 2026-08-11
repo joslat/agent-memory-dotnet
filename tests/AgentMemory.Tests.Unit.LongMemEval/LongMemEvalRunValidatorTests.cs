@@ -1,4 +1,4 @@
-using AgentEval.Memory.External.Models;
+﻿using AgentEval.Memory.External.Models;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Xunit;
@@ -77,8 +77,13 @@ public sealed class LongMemEvalRunValidatorTests
             questionResults: [result]);
 
         validation.Accepted.Should().BeFalse();
-        validation.Issues.Should().ContainSingle()
-            .Which.Should().Contain("q-empty-judge");
+        validation.Issues.Should().Contain(issue => issue.Contains("q-empty-judge", StringComparison.Ordinal));
+
+        // This run also has a failure and no answer-presence measurement, so it correctly reports that
+        // its failures are unattributed. Named explicitly rather than relaxing the assertion to "at
+        // least one issue": the count staying pinned is what stops a future check appearing unnoticed.
+        validation.Issues.Should().HaveCount(2);
+        validation.Issues.Should().Contain(issue => issue.Contains("unattributed", StringComparison.Ordinal));
     }
     [Fact]
     public void Validate_RejectsObservedPurposeAndExtractionCallMismatches()
@@ -212,4 +217,21 @@ public sealed class LongMemEvalRunValidatorTests
             JudgeExplanation = judgeExplanation,
             Duration = TimeSpan.FromSeconds(1)
         };
+
+    [Fact]
+    public void Validate_CleanRunWithoutPresenceData_IsNotFlagged()
+    {
+        // Gated on there being failures to ATTRIBUTE. A run that answered everything has nothing to
+        // explain, and flagging it would train readers to ignore the message -- which is how a warning
+        // stops working. A Raw-mode arm, which has no extracted memory to probe, would trip it forever.
+        var validation = LongMemEvalRunValidator.Validate(
+            questionCount: 1,
+            llmCalls: 2,
+            telemetry: [new LongMemEvalQuestionTelemetry(1, 20, 10, false)],
+            questionResults: [Result("q-1")]);
+
+        validation.Accepted.Should().BeTrue();
+        validation.Issues.Should().BeEmpty();
+    }
+
 }
