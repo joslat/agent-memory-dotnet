@@ -30,6 +30,46 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     }
 
     /// <summary>
+    /// Emits which recall sections came back empty or short.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The misses are the roadmap, and nothing recorded them.</b> A <c>:MemoryReadAudit</c> row is
+    /// created inside <c>MATCH (n:{label} {id: $id})</c>, so a row exists only for a <b>hit</b> — there
+    /// was no record anywhere that an owner asked for something and memory had nothing.
+    /// </para>
+    /// <para>
+    /// A counter rather than a stored node, deliberately: a node per miss grows without bound on the
+    /// exact workload that produces the most misses, and would need its own retention policy to stop
+    /// being a liability. A counter answers the operational question — how often, for which category —
+    /// without storing anything.
+    /// </para>
+    /// <para>
+    /// <b>Requires <c>RecallOptions.IncludeDiagnostics</c>.</b> Without it the sections carry no
+    /// diagnostics and nothing is emitted, rather than emitting a guess: "empty" and "never searched"
+    /// are different, and only the diagnostics can tell them apart.
+    /// </para>
+    /// </remarks>
+    private void RecordSectionOutcomes(MemoryContext context)
+    {
+        Record("recent", context.RecentMessages.Diagnostics);
+        Record("relevant_messages", context.RelevantMessages.Diagnostics);
+        Record("entities", context.RelevantEntities.Diagnostics);
+        Record("preferences", context.RelevantPreferences.Diagnostics);
+        Record("facts", context.RelevantFacts.Diagnostics);
+        Record("traces", context.SimilarTraces.Diagnostics);
+
+        void Record(string category, MemoryContextSectionDiagnostics? diagnostics)
+        {
+            if (diagnostics is null) return;
+
+            var tag = new KeyValuePair<string, object?>("memory.category", category);
+            if (diagnostics.SearchedAndEmpty) _metrics.RecallSectionEmpty.Add(1, tag);
+            else if (diagnostics.SearchedAndShort) _metrics.RecallSectionShort.Add(1, tag);
+        }
+    }
+
+    /// <summary>
     /// Tags the owner dimension without exporting tenant data unless the host asked for it.
     /// </summary>
     /// <remarks>
@@ -63,6 +103,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
             _metrics.RecallRequests.Add(1);
             activity?.SetTag("memory.recall.entity_count", result.Context.RelevantEntities.Items.Count);
             activity?.SetTag("memory.recall.total_items", result.TotalItemsRetrieved);
+            RecordSectionOutcomes(result.Context);
             return result;
         }
         catch (Exception ex)

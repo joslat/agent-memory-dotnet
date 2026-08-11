@@ -47,6 +47,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Recall misses are now observable.** `memory.recall.section.empty` and
+  `memory.recall.section.short`, tagged by category. A `:MemoryReadAudit` row is created *inside*
+  `MATCH (n {id: $id})`, so a row existed only for a **hit** — there was no record anywhere that an
+  owner asked and memory had nothing. `…section.short` exposes the owner-starvation shape, which the
+  escalation path cannot see because it fires only on a *total* zero.
+
+  Counters rather than stored nodes: a node per miss grows without bound on exactly the workload that
+  produces the most misses. Requires `RecallOptions.IncludeDiagnostics`; without it nothing is emitted
+  rather than a guess, because "empty" and "never searched" are different questions.
+
 - **A tenant identifier no longer reaches telemetry by default.** `InstrumentedMemoryService` emitted
   `memory.user_id` unconditionally — while every owner-scoped vector search in the codebase already
   tags a **boolean** (`memory.vector.owner_scoped`) rather than the value. A trace backend is usually

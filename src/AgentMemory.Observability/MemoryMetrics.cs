@@ -1,4 +1,4 @@
-using System.Diagnostics.Metrics;
+﻿using System.Diagnostics.Metrics;
 
 namespace AgentMemory.Observability;
 
@@ -40,6 +40,21 @@ public sealed class MemoryMetrics : IDisposable
         RecallRequests = _meter.CreateCounter<long>(
             "memory.recall.requests",
             description: "Number of recall operations performed");
+
+        RecallSectionEmpty = _meter.CreateCounter<long>(
+            "memory.recall.section.empty",
+            description:
+                "Recall sections that were searched and returned nothing, tagged by category. "
+                + "The misses are the roadmap: an audit row is created inside MATCH, so it exists only "
+                + "for a HIT, and nothing recorded that an owner asked and memory had nothing.");
+
+        RecallSectionShort = _meter.CreateCounter<long>(
+            "memory.recall.section.short",
+            description:
+                "Recall sections that returned fewer items than requested, tagged by category. On an "
+                + "owner-scoped vector search this is the starvation shape: the index picks a global "
+                + "top-K and the owner filter runs afterwards, and the escalation path fires only on a "
+                + "TOTAL zero -- so short-but-non-empty is otherwise invisible.");
 
         ExtractionErrors = _meter.CreateCounter<long>(
             "memory.extraction.errors",
@@ -147,6 +162,12 @@ public sealed class MemoryMetrics : IDisposable
 
     /// <summary>Number of recall operations performed.</summary>
     internal Counter<long> RecallRequests { get; }
+
+    /// <summary>Searched sections that came back empty, tagged by category.</summary>
+    internal Counter<long> RecallSectionEmpty { get; }
+
+    /// <summary>Searched sections that came back short of their limit, tagged by category.</summary>
+    internal Counter<long> RecallSectionShort { get; }
 
     /// <summary>Number of extraction operations that failed.</summary>
     internal Counter<long> ExtractionErrors { get; }
