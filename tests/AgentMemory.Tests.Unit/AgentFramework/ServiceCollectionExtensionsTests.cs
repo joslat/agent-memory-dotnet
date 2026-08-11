@@ -165,15 +165,34 @@ public sealed class ServiceCollectionExtensionsTests
     // ── #88: task-aware automatic recall policy ────────────────────────────────
 
     [Fact]
-    public void AddAgentMemoryFramework_RegistersConfiguredAutomaticRecallPolicy_AsScoped_ByDefault()
+    public void AddAgentMemoryFramework_RegistersTrivialTurnRecallPolicy_AsScoped_ByDefault()
     {
+        // Default changed from ConfiguredAutomaticRecallPolicy: identical on every real turn, and
+        // recent-messages-only on a greeting/acknowledgement-only one, where recall previously cost 13
+        // Cypher queries and an embedding round trip to retrieve 10 items that need no vector.
+        // ConfiguredAutomaticRecallPolicy remains public and registerable for hosts wanting the old
+        // behaviour -- see AddAgentMemoryFramework_HostCanRestoreTheAlwaysRecallDefault below.
         var services = BuildBaseServices();
         services.AddAgentMemoryFramework();
 
         services.Should().ContainSingle(d =>
             d.ServiceType == typeof(IAutomaticRecallPolicy) &&
-            d.ImplementationType == typeof(ConfiguredAutomaticRecallPolicy) &&
+            d.ImplementationType == typeof(TrivialTurnRecallPolicy) &&
             d.Lifetime == ServiceLifetime.Scoped);
+    }
+
+    [Fact]
+    public void AddAgentMemoryFramework_HostCanRestoreTheAlwaysRecallDefault()
+    {
+        // The documented escape hatch for the default change. Registering before the call wins via
+        // TryAdd, so a host pinned to pre-existing behaviour has a one-line, supported route back.
+        var services = BuildBaseServices();
+        services.AddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
+        services.AddAgentMemoryFramework();
+
+        using var scope = services.BuildServiceProvider().CreateScope();
+        scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>()
+            .Should().BeOfType<ConfiguredAutomaticRecallPolicy>();
     }
 
     [Fact]
@@ -186,7 +205,7 @@ public sealed class ServiceCollectionExtensionsTests
         using var scope = provider.CreateScope();
         var sut = scope.ServiceProvider.GetRequiredService<IAutomaticRecallPolicy>();
 
-        sut.Should().BeOfType<ConfiguredAutomaticRecallPolicy>();
+        sut.Should().BeOfType<TrivialTurnRecallPolicy>();
     }
 
     [Fact]

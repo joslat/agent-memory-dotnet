@@ -28,14 +28,6 @@ public sealed class HeuristicAutomaticRecallPolicy : IAutomaticRecallPolicy
     private const AutomaticRecallCategories BaselineCategories =
         AutomaticRecallCategories.Default | AutomaticRecallCategories.GraphRag;
 
-    private static readonly HashSet<string> GreetingPhrases = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "sure", "got it",
-        "yes", "no", "yep", "nope", "sounds good", "great", "cool", "noted", "understood"
-    };
-
-    private static readonly char[] WordSeparators = { ' ', '\t', '\r', '\n', '.', ',', '!', '?' };
-
     private static readonly Regex RecencyOriented = new(
         @"\b(latest|current|most recent|right now|these days|nowadays)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -67,7 +59,7 @@ public sealed class HeuristicAutomaticRecallPolicy : IAutomaticRecallPolicy
     {
         var query = string.Join(" ", context.Messages.Select(m => m.Text ?? string.Empty)).Trim();
 
-        if (string.IsNullOrWhiteSpace(query) || IsGreetingOrAcknowledgementOnly(query))
+        if (TrivialTurnDetector.IsGreetingOrAcknowledgementOnly(query))
             return ValueTask.FromResult(AutomaticRecallDecision.Skip);
 
         var categories = BaselineCategories;
@@ -97,34 +89,4 @@ public sealed class HeuristicAutomaticRecallPolicy : IAutomaticRecallPolicy
         });
     }
 
-    /// <summary>
-    /// Whether every word/short-phrase in <paramref name="text"/> is a greeting or acknowledgement, e.g.
-    /// "hi", "ok, got it.", "sounds good". Deliberately NOT regex-based: an earlier version used a single
-    /// repeating-group pattern (<c>^(\s*(hi|...)\s*)+$</c>) that exhibited catastrophic backtracking --
-    /// verified experimentally, a string of ~30 repeated short fragments blocked the calling thread for
-    /// multiple seconds. Plain tokenization is linear time and has no such failure mode.
-    /// </summary>
-    private static bool IsGreetingOrAcknowledgementOnly(string text)
-    {
-        var words = text.ToLowerInvariant().Split(WordSeparators, StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0)
-            return true;
-
-        var i = 0;
-        while (i < words.Length)
-        {
-            if (i + 1 < words.Length && GreetingPhrases.Contains($"{words[i]} {words[i + 1]}"))
-            {
-                i += 2;
-                continue;
-            }
-
-            if (!GreetingPhrases.Contains(words[i]))
-                return false;
-
-            i++;
-        }
-
-        return true;
-    }
 }

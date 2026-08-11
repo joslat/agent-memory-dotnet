@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A greeting no longer costs a full recall.** Measured on the hermetic `PERF-R-01` scenario — a
+  greeting-only turn at shipped defaults — recall issued **13 Cypher queries and 12 read transactions,
+  plus an embedding round trip, to retrieve 11 items**. Ten of those were recent messages, which need
+  no vector at all. The 1.4.0/1.4.1 owner-starvation rescue made it worse rather than better: with no
+  entities, facts or traces to find, each of those three searches returns empty, escalates to a widened
+  index query, then falls back to an owner-bounded scan — **three queries each, all guaranteed to find
+  nothing, because there is nothing to find.**
+
+  The default `IAutomaticRecallPolicy` is now `TrivialTurnRecallPolicy`. On a turn that is nothing but
+  a greeting or acknowledgement it recalls **recent messages only**; on every other turn it is
+  byte-identical to the previous default.
+
+  It **narrows rather than skips** deliberately: dropping recall entirely would also drop recent
+  messages, and *"ok, go ahead"* is exactly the turn where an agent most needs the conversation so far
+  to know what it is agreeing to.
+
+  **What changes for you:** on a greeting-only turn you previously received whatever
+  entities/facts/preferences/traces matched; you now receive recent messages only. To restore the
+  previous behaviour, register the old policy explicitly:
+
+  ```csharp
+  services.AddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
+  ```
+
+### Fixed
+
+- **The query embedding is no longer generated when nothing will read it.** Every vector search is
+  gated on its own `MaxX > 0`; the embedding was not, so a policy that narrowed a turn still paid for a
+  provider round trip whose result nothing consumed. Remote-shaped that is the single largest stage of a
+  recall (~120 ms), which meant category narrowing **relocated** the cost rather than removing it.
+  Gated in `MemoryContextAssembler` (live *and* point-in-time paths, so the Semantic Kernel adapter, the
+  CLI and the facade all benefit) and in `Neo4jMemoryContextProvider`, which embeds before handing the
+  request over. **Byte-identical at every shipped default**, since no default excludes all five vector
+  categories.
+
 ## [1.4.1] - 2026-08-11
 
 ### Fixed
