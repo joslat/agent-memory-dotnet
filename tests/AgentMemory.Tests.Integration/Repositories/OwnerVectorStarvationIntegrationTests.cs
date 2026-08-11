@@ -1,4 +1,5 @@
 using AgentMemory.Abstractions.Domain;
+using Neo4j.Driver;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
@@ -282,6 +283,18 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
         // IDENTICAL data and queried identically; the only difference is that Neo4jFactRepository
         // calls ShouldEscalate/EscalatedTopK and Neo4jEntityRepository does not.
         const int foreignOwners = 500;
+
+        // DISTINCT near-duplicates, not 500 copies of one vector. An HNSW index over 500 IDENTICAL
+        // points is degenerate - the graph has nothing to discriminate on - and that is the last
+        // remaining explanation for this probe returning full recall where a post-filtered top-60
+        // should starve. Each competitor is nudged on a different axis so all are strictly more
+        // similar to the probe than the owner's rows, while remaining distinguishable to the index.
+        static float[] Competitor(int index)
+        {
+            var nudge = 0.0005f * ((index % 97) + 1);
+            return [1f, nudge, nudge / 2f, nudge / 3f];
+        }
+
         var entities = new Neo4jEntityRepository(
             _fixture.TransactionRunner, NullLogger<Neo4jEntityRepository>.Instance);
 
@@ -296,7 +309,7 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
                 OwnerId = $"owner-{owner:D4}",
                 Confidence = 1.0,
                 CreatedAtUtc = DateTimeOffset.UtcNow,
-                Embedding = [1f, 0f, 0f, 0f],
+                Embedding = Competitor(owner),
             });
             await entities.UpsertAsync(new Entity
             {
@@ -306,7 +319,7 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
                 OwnerId = $"owner-{owner:D4}",
                 Confidence = 1.0,
                 CreatedAtUtc = DateTimeOffset.UtcNow,
-                Embedding = [1f, 0f, 0f, 0f],
+                Embedding = Competitor(owner),
             });
         }
 
@@ -335,6 +348,18 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
             });
         }
 
+        // THE HYPOTHESIS UNDER TEST. Neo4j populates vector indexes in the BACKGROUND, so a query
+        // issued straight after bulk writes can see an index that does not yet contain the
+        // competitors - which would make the global top-K trivially satisfiable and is the leading
+        // explanation for this probe returning full recall where it should starve.
+        var populated = await AwaitVectorIndexAsync();
+        _output.WriteLine($"INDEX: fact_embedding_idx population = {populated}");
+
+        // If the competitors have no embedding they are not in the index, and the top-K is trivially
+        // satisfiable no matter how many rows exist. Counting is the only way to tell that apart from
+        // a genuine ranking result - the row count and the INDEXED count are different quantities.
+        _output.WriteLine($"EMBEDDED: {await CountEmbeddedFactsAsync()}");
+
         var scope = MemoryScope.For("owner-000");
         var factResults = await _facts.SearchByVectorAsync(
             [1f, 0f, 0f, 0f], limit: Limit, minScore: 0.0, scope: scope);
@@ -348,6 +373,55 @@ public sealed class OwnerVectorStarvationIntegrationTests : IAsyncLifetime
 
         factResults.Should().OnlyContain(item => item.Fact.OwnerId == "owner-000");
         entityResults.Should().OnlyContain(item => item.Entity.OwnerId == "owner-000");
+    }
+
+    /// <summary>
+    /// Blocks until Neo4j reports the fact vector index fully populated, and returns what it reports.
+    /// </summary>
+    /// <remarks>
+    /// <c>db.awaitIndexes</c> alone is not sufficient evidence for this probe: it returns when indexes
+    /// are ONLINE, and the reported population percentage is what says whether the rows written
+    /// moments earlier are actually searchable. Returning it rather than asserting it keeps this a
+    /// measurement - if it reads 100% and the probe still cannot starve, the index-lag hypothesis is
+    /// dead and the mechanism is not what OwnerVectorOverFetch documents.
+    /// </remarks>
+    private async Task<string> AwaitVectorIndexAsync()
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        await session.ExecuteWriteAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync("CALL db.awaitIndexes(300)");
+            await cursor.ConsumeAsync();
+            return true;
+        });
+
+        return await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(
+                "SHOW INDEXES YIELD name, state, populationPercent " +
+                "WHERE name = 'fact_embedding_idx' RETURN state, populationPercent");
+            var records = await cursor.ToListAsync();
+            return records.Count == 0
+                ? "index-absent"
+                : $"{ValueExtensions.As<string>(records[0]["state"])} "
+                    + $"{ValueExtensions.As<double>(records[0]["populationPercent"]):F1}%";
+        });
+    }
+
+    /// <summary>How many Fact rows exist versus how many actually carry a vector.</summary>
+    private async Task<string> CountEmbeddedFactsAsync()
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        return await session.ExecuteReadAsync(async tx =>
+        {
+            var cursor = await tx.RunAsync(
+                "MATCH (f:Fact) RETURN count(f) AS total, "
+                + "sum(CASE WHEN f.embedding IS NULL THEN 0 ELSE 1 END) AS embedded");
+            var records = await cursor.ToListAsync();
+            var total = ValueExtensions.As<long>(records[0]["total"]);
+            var embedded = ValueExtensions.As<long>(records[0]["embedded"]);
+            return $"{embedded} of {total} Fact rows carry an embedding";
+        });
     }
 
 }
