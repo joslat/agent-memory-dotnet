@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neo4j.Driver;
 using AgentMemory.Abstractions.Repositories;
@@ -26,6 +26,11 @@ public static class ServiceCollectionExtensions
             .Validate(o => !string.IsNullOrWhiteSpace(o.Username), "Neo4j Username must be provided.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.Database), "Neo4j Database must be provided.")
             .Validate(o => o.MaxConnectionPoolSize > 0, "Neo4j MaxConnectionPoolSize must be positive.")
+            .Validate(
+                o => o.TransactionTimeout is null || o.TransactionTimeout > TimeSpan.Zero,
+                "Neo4j TransactionTimeout must be positive when set; use null for no deadline. "
+                + "Zero or negative is rejected rather than silently treated as 'no timeout', because "
+                + "an operator who configured a bound would then be running without one.")
             .Validate(o => o.EmbeddingDimensions > 0, "Neo4j EmbeddingDimensions must be positive.")
             .Validate(o => o.ConnectionAcquisitionTimeout > TimeSpan.Zero, "Neo4j ConnectionAcquisitionTimeout must be positive.")
             .ValidateOnStart();

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using AgentMemory.Abstractions.Diagnostics;
@@ -213,7 +213,7 @@ public sealed class Neo4jTransactionRunnerTests
         var session = Substitute.For<IAsyncSession>();
         var transaction = Substitute.For<IAsyncTransaction>();
         factory.OpenSession(AccessMode.Write).Returns(session);
-        session.BeginTransactionAsync().Returns(transaction);
+        session.BeginTransactionAsync(Arg.Any<Action<TransactionConfigBuilder>?>()).Returns(transaction);
 
         var result = await runner.ExecuteAtomicWriteAsync(async cancellationToken =>
         {
@@ -232,7 +232,8 @@ public sealed class Neo4jTransactionRunnerTests
 
         result.Should().Be(42);
         factory.Received(1).OpenSession(AccessMode.Write);
-        await session.Received(1).BeginTransactionAsync();
+        // Null config == the no-argument form; the runner always takes the config-taking overload now.
+        await session.Received(1).BeginTransactionAsync(null);
         await transaction.Received(1).CommitAsync();
         await transaction.DidNotReceive().RollbackAsync();
         await session.DidNotReceive().ExecuteWriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<int>>>());
@@ -246,7 +247,7 @@ public sealed class Neo4jTransactionRunnerTests
         var session = Substitute.For<IAsyncSession>();
         var transaction = Substitute.For<IAsyncTransaction>();
         factory.OpenSession(AccessMode.Write).Returns(session);
-        session.BeginTransactionAsync().Returns(transaction);
+        session.BeginTransactionAsync(Arg.Any<Action<TransactionConfigBuilder>?>()).Returns(transaction);
 
         var act = async () => await runner.ExecuteAtomicWriteAsync<int>(async cancellationToken =>
         {
