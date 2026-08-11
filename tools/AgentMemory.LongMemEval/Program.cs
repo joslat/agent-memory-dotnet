@@ -341,8 +341,28 @@ internal static class LongMemEvalProgram
         }
     }
 
+    /// <summary>
+    /// Every option the plain verb accepts, including the sub-verb switches dispatched in RunAsync.
+    /// </summary>
+    /// <remarks>
+    /// The verb switches are listed because dispatch happens before this parser runs, so an
+    /// unrecognised one would otherwise fall through to the default verb and silently measure
+    /// something else - the same failure mode `--mode` produced for `--memory-mode`.
+    /// </remarks>
+    private static readonly string[] KnownOptions =
+    [
+        "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
+        "--extraction-compare", "--help",
+        "--chronological-context", "--dataset", "--evidence-detail",
+        "--exclude-synthetic-messages", "--judge-retries", "--max-items-per-session",
+        "--max-relevant", "--memory-mode", "--oracle", "--output", "--questions", "--seed",
+        "--units", "--turns",
+    ];
+
     private static Options Parse(string[] args)
     {
+        LongMemEvalArgumentValidator.Validate(args, KnownOptions);
+
         string? Value(string name)
         {
             var index = Array.IndexOf(args, name);

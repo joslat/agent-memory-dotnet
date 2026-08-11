@@ -1188,8 +1188,32 @@ internal static class LongMemEvalPreparedPairProgram
                ?? "unknown";
     }
 
+    /// <summary>
+    /// Every option this verb accepts. Kept beside the parser so the two move together.
+    /// </summary>
+    /// <remarks>
+    /// A name missing here is rejected at startup rather than ignored, which is the entire point: a
+    /// `--mode` typo for `--memory-mode` once ran a whole measurement in the wrong configuration and
+    /// produced a report that looked successful.
+    /// </remarks>
+    private static readonly string[] KnownOptions =
+    [
+        "--prepared-pair", "--assistant-content", "--checkpoint-questions",
+        "--checkpoint-timeout-seconds", "--dataset", "--diagnostic-question",
+        "--diagnostic-source-session", "--evidence-detail", "--expand-facts-by-predicate",
+        "--graphrag-items", "--judge-retries", "--max-concurrent-batches-per-extraction",
+        "--max-concurrent-extraction-batches", "--max-input-tokens", "--max-items-per-session",
+        "--max-relevant", "--max-sessions-per-batch", "--no-orphan-sweep", "--oracle", "--output",
+        "--preflight-only", "--preparation-workers", "--provider-no-progress-timeout-seconds",
+        "--questions", "--resolve-query-relations", "--retain-prepared-volumes",
+        "--reuse-prepared-volumes", "--seed", "--single-session-unified",
+        "--use-predicate-vocabulary",
+    ];
+
     private static PreparedPairOptions Parse(string[] args)
     {
+        LongMemEvalArgumentValidator.Validate(args, KnownOptions);
+
         string? Value(string name)
         {
             var index = Array.IndexOf(args, name);
