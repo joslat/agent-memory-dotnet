@@ -282,6 +282,12 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         var extractionUnits = 0;
         var extractionCallsPlanned = 0;
+        // Set when retrieval returned nothing against a graph proven populated; carried to the
+        // single completion record so the outcome is scored without being recorded twice.
+        var retrievalEmpty = false;
+        // Distinguishes "nothing at all" from "items, but zero learned ones" in a memory-only arm.
+        // Both are scored; keeping them apart keeps the report able to say which happened.
+        var retrievalStructuredEmpty = false;
         LongMemEvalGraphSnapshot? graphSnapshot = null;
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null;
         if (_options.MemoryMode.UsesExtraction())
@@ -604,9 +610,46 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         if (recall.TotalItemsRetrieved == 0)
         {
-            RecordTelemetry(questionNumber, messages.Count, 0, recall.Truncated, "retrieval-empty");
-            throw new InvalidOperationException(
-                $"AgentMemory retrieved no history for LongMemEval question {questionNumber}; refusing to manufacture a score.");
+            if (!CanScoreEmptyRetrieval(graphSnapshot))
+            {
+                // Unmeasurable: record and stop. Full telemetry, not the five-positional-argument
+                // call this used to make - that left nine optional parameters at their defaults, so
+                // the report showed MessagesStored=<built count>, PreparedMemory=false and
+                // QuestionId=null for a question that had used prepared memory throughout. Defaults
+                // presented as measurements; it sent the first diagnosis of this failure the wrong
+                // way entirely.
+                RecordTelemetry(
+                    questionNumber,
+                    messagesStored,
+                    0,
+                    recall.Truncated,
+                    "retrieval-empty",
+                    evidenceQuestion?.QuestionId,
+                    extractionUnits: extractionUnits,
+                    context: recall.Context,
+                    graphSnapshot: graphSnapshot,
+                    stageTimings: timings.Snapshot(),
+                    messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
+                    preparedMemory: _options.PreparedMemory,
+                    extractionCallsPlanned: extractionCallsPlanned);
+
+                throw new InvalidOperationException(
+                    $"AgentMemory retrieved no history for LongMemEval question {questionNumber}, and " +
+                    "the graph read-back does not prove its memory was populated with complete " +
+                    "provenance; refusing to manufacture a score.");
+            }
+
+            // The graph IS proven populated, so this is a genuine retrieval failure and it gets
+            // scored as one: the answer call proceeds against an empty memory context and will
+            // almost certainly be judged wrong, which is the truthful outcome for a memory system
+            // that returned nothing, and it keeps the arms paired so the comparison stays valid.
+            //
+            // Deliberately NOT recorded here. This question continues to the single completion
+            // record at the end of the method, and recording twice produced two telemetry entries
+            // for one question - which surfaced as "An item with the same key has already been
+            // added. Key: 32260d93" and killed the first acceptance run. The status is carried
+            // instead.
+            retrievalEmpty = true;
         }
 
         if (_options.ExcludeSyntheticFormatterMessages)
@@ -638,16 +681,36 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         if (_options.MemoryMode == LongMemEvalMemoryMode.Structured && structuredItems == 0)
         {
-            RecordTelemetry(
-                questionNumber,
-                messages.Count,
-                recall.TotalItemsRetrieved,
-                recall.Truncated,
-                "retrieval-structured-empty",
-                evidenceQuestion?.QuestionId,
-                extractionUnits: extractionUnits);
-            throw new InvalidOperationException(
-                $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}.");
+            // The same judgement as the total-empty case above, for the memory-only arm: items came
+            // back but zero LEARNED ones. With the graph PROVEN populated with complete provenance
+            // this is a measured retrieval failure and is scored as one; without that proof it stays
+            // unmeasurable and still throws.
+            if (!CanScoreEmptyRetrieval(graphSnapshot))
+            {
+                RecordTelemetry(
+                    questionNumber,
+                    messagesStored,
+                    recall.TotalItemsRetrieved,
+                    recall.Truncated,
+                    "retrieval-structured-empty",
+                    evidenceQuestion?.QuestionId,
+                    extractionUnits: extractionUnits,
+                    context: recall.Context,
+                    graphSnapshot: graphSnapshot,
+                    stageTimings: timings.Snapshot(),
+                    messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
+                    preparedMemory: _options.PreparedMemory,
+                    extractionCallsPlanned: extractionCallsPlanned);
+                throw new InvalidOperationException(
+                    $"AgentMemory retrieved no structured memory for LongMemEval question {questionNumber}, " +
+                    "and the graph read-back does not prove its memory was populated with complete " +
+                    "provenance; refusing to manufacture a score.");
+            }
+
+            // Carried to the single completion record. Recording here and continuing would
+            // double-record the question — the defect that killed the previous acceptance run.
+            retrievalEmpty = true;
+            retrievalStructuredEmpty = true;
         }
 
         if (_options.ChronologicalAnswerContext)
@@ -728,17 +791,43 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         // L2. Ask the graph how many live facts exist under the relation(s) this question named.
         // Null when no probe is wired or nothing resolved - "not measured", never "complete".
+        // The answer-presence gate. Deliberately reads the OWNER'S WHOLE MEMORY rather than what
+        // retrieval returned: checking the retrieved set would conflate the two failures this exists
+        // to tell apart. Null when no probe is wired — "not measured", never "absent".
+        LongMemEvalAnswerPresenceResult? answerPresence = null;
+        if (_options.GraphProbe is not null && evidenceQuestion is not null)
+        {
+            var memoryText = await _options.GraphProbe
+                .ReadMemoryTextAsync(ownerId, cancellationToken)
+                .ConfigureAwait(false);
+            answerPresence = LongMemEvalAnswerPresence.Evaluate(evidenceQuestion.GoldAnswer, memoryText);
+        }
+
         var relationStoredKeys = (recall.Context.ResolvedQueryRelations ?? [])
             .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
             .Where(key => !string.IsNullOrEmpty(key))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         IReadOnlyDictionary<string, int>? relationGraphCounts = null;
+        int? relationUnionGraphTotal = null;
         if (_options.GraphProbe is not null && relationStoredKeys.Length > 0)
         {
             relationGraphCounts = await _options.GraphProbe
                 .ReadRelationFactCountsAsync(ownerId, relationStoredKeys, cancellationToken)
                 .ConfigureAwait(false);
+
+            // L13a. The budget is shared with the top-K hits' own predicates, so the union - not the
+            // question's relations alone - is what decides whether it was exhausted.
+            var unionKeys = recall.Context.RelevantFacts.Items
+                .Select(fact => MemoryTripleCanonicalizer.Canonical(fact.Predicate))
+                .Concat(relationStoredKeys)
+                .Where(key => !string.IsNullOrEmpty(key))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var unionCounts = await _options.GraphProbe
+                .ReadRelationFactCountsAsync(ownerId, unionKeys, cancellationToken)
+                .ConfigureAwait(false);
+            relationUnionGraphTotal = unionCounts?.Values.Sum();
         }
 
         RecordTelemetry(
@@ -746,7 +835,9 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             messagesStored,
             recall.TotalItemsRetrieved,
             recall.Truncated,
-            "completed",
+            retrievalStructuredEmpty ? "retrieval-structured-empty"
+                : retrievalEmpty ? "retrieval-empty"
+                : "completed",
             evidenceQuestion?.QuestionId,
             retrievalEvidence,
             extractionUnits,
@@ -771,7 +862,12 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     relationStoredKeys,
                     relationGraphCounts,
                     recall.Context.RelevantFacts.Items,
-                    _options.MaxExpandedFacts),
+                    _options.MaxExpandedFacts,
+                    // The union expansion actually searched: the question's relations PLUS the
+                    // canonical predicate of every top-K hit, which is what shares the one budget.
+                    unionGraphTotal: relationUnionGraphTotal),
+            answerPresence: answerPresence,
+            questionType: evidenceQuestion?.QuestionType,
             retrievedGoldCoverage: RetrievedGoldCoverage(
                 recall.Context.RelevantFacts.Items,
                 originsByMessageId
@@ -802,6 +898,32 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         };
     }
 
+    /// <summary>
+    /// Whether an empty retrieval is a measurable result rather than a broken run.
+    /// </summary>
+    /// <remarks>
+    /// Refusing to score an empty retrieval is right when it means the harness malfunctioned. It is
+    /// wrong when the memory system simply returned nothing: the n=50 rebuild of 2026-08-10 hit a
+    /// question that retrieved zero from a graph the read-back had already proven held 504 facts,
+    /// 346 entities and 1,336 learned items with complete provenance, whose gold evidence was
+    /// demonstrably learned, and whose raw-message search ranked the gold turn first. Nothing was
+    /// broken. The honest score for that is <i>wrong</i>, not <i>unmeasurable</i>.
+    /// <para>
+    /// Throwing cost the whole run: the structured arm produced 49 answers to hybrid's 50, so the
+    /// pair was unpaired and the comparison was rejected — discarding 83 minutes of extraction over
+    /// the single question that most sharply discriminates the two arms.
+    /// </para>
+    /// <para>
+    /// This <b>refines</b> the guard rather than weakening it. The graph read-back runs earlier and
+    /// already throws when it cannot prove the memory is populated, so "populated with complete
+    /// provenance" is exactly the evidence separating a retrieval failure from a preparation
+    /// failure. With no snapshot there is no proof, the two are indistinguishable, and the guard
+    /// must still fire — guessing is what it exists to prevent.
+    /// </para>
+    /// </remarks>
+    internal static bool CanScoreEmptyRetrieval(LongMemEvalGraphSnapshot? graphSnapshot) =>
+        graphSnapshot is { TotalLearned: > 0, CompleteProvenance: true };
+
     private void RecordTelemetry(
         int questionNumber,
         int messagesStored,
@@ -821,6 +943,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         LongMemEvalGoldEvidenceCoverage? goldCoverage = null,
         double? retrievedGoldCoverage = null,
         LongMemEvalRelationCompleteness? relationCompleteness = null,
+        LongMemEvalAnswerPresenceResult? answerPresence = null,
+        string? questionType = null,
         string? answerPromptText = null)
     {
         lock (_stateLock)
@@ -838,6 +962,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 EntitiesRetrieved = context?.RelevantEntities.Items.Count ?? 0,
                 ExtractionCallsPlanned = extractionCallsPlanned,
                 FactsRetrieved = context?.RelevantFacts.Items.Count ?? 0,
+                EpisodicFactsRetrieved = CountEpisodicFacts(context),
                 PreferencesRetrieved = context?.RelevantPreferences.Items.Count ?? 0,
                 GraphRagIncluded = !string.IsNullOrWhiteSpace(context?.GraphRagContext),
                 // K6. "Included" only ever said the string was non-empty. These two say how many
@@ -849,6 +974,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // and the n=50 result could not say why Structured loses multi-session questions.
                 RetrievedGoldCoverage = retrievedGoldCoverage,
                 RelationCompleteness = relationCompleteness,
+                AnswerPresence = answerPresence,
+                QuestionType = questionType,
                 // Makes "expansion had nothing to expand" visible per question, instead of
                 // requiring the lexicon to be consulted by hand after a run.
                 ResolvedQueryRelations = context?.ResolvedQueryRelations ?? [],
@@ -913,7 +1040,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         IReadOnlyList<string> storedPredicateKeys,
         IReadOnlyDictionary<string, int>? graphCounts,
         IReadOnlyCollection<Fact> retrievedFacts,
-        int expansionLimit = 0)
+        int expansionLimit = 0,
+        int? unionGraphTotal = null)
     {
         ArgumentNullException.ThrowIfNull(storedPredicateKeys);
         ArgumentNullException.ThrowIfNull(retrievedFacts);
@@ -945,9 +1073,20 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             Ratio = denominator == 0 ? null : (double)numerator / denominator,
             Complete = denominator == 0 ? null : numerator >= denominator,
             RelationAbsentFromGraph = denominator == 0,
-            // Completeness is arithmetically impossible when the graph holds more than the single
-            // shared LIMIT can return. That is a budget fact, not a retrieval defect.
-            LimitBinding = expansionLimit > 0 && denominator > expansionLimit,
+            // L13a. The budget is ONE shared LIMIT over the whole predicate union - the question's
+            // relations plus the canonical predicate of every top-K vector hit - ordered globally by
+            // confidence. So it binds when the UNION exceeds it, not when this relation alone does.
+            //
+            // The first definition compared `denominator > expansionLimit`, i.e. this relation
+            // against the budget, and reported false on every real question while the budget was
+            // exhausted on all of them: one question held 49 facts under its relation, had a 60-row
+            // budget, and received 22 because 38 slots went to unrelated higher-confidence
+            // predicates. Null when the union total was not measured, because "unknown" must never
+            // read as "the budget was fine" - that is precisely the error being corrected.
+            LimitBinding = unionGraphTotal is null || expansionLimit <= 0
+                ? null
+                : unionGraphTotal > expansionLimit,
+            UnionGraphTotal = unionGraphTotal,
             ExpansionLimit = expansionLimit,
         };
     }
@@ -1255,6 +1394,45 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     private static string Sanitize(string value) =>
         string.Concat(value.Select(character =>
             char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
+
+    /// <summary>
+    /// The canonical subject under which episodic facts are written — see
+    /// <c>ExtractionPromptSemantics</c>, which instructs the extractor to use the assistant as the
+    /// subject for what the assistant did.
+    /// </summary>
+    private static readonly string EpisodicSubjectKey =
+        MemoryTripleCanonicalizer.CanonicalValue("assistant");
+
+    /// <summary>
+    /// Counts retrieved facts whose subject is the assistant — the episodic half of memory.
+    /// </summary>
+    /// <remarks>
+    /// The subject is canonicalized rather than compared with <c>==</c>, so "Assistant" and
+    /// "assistant " are the same subject here for exactly the reason they are the same subject to the
+    /// write path's MERGE key. Comparing raw strings would undercount by whatever the extractor
+    /// happened to capitalise.
+    /// </remarks>
+    private static int CountEpisodicFacts(MemoryContext? context)
+    {
+        if (context is null)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        foreach (var fact in context.RelevantFacts.Items)
+        {
+            if (string.Equals(
+                    MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
+                    EpisodicSubjectKey,
+                    StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
 }
 
 internal sealed class LongMemEvalExtractionAccountingException
@@ -1437,6 +1615,36 @@ public sealed record LongMemEvalQuestionTelemetry(
 
     public int FactsRetrieved { get; init; }
 
+    /// <summary>
+    /// How many of <see cref="FactsRetrieved"/> are EPISODIC — a record of what the assistant did in
+    /// the conversation, rather than a claim about the world.
+    /// </summary>
+    /// <remarks>
+    /// Episodic CAPTURE is measured (0 → 3,048 relations); its RETRIEVAL half never was, because
+    /// nothing recorded <i>which</i> facts came back. <see cref="FactsRetrieved"/> says 38 without
+    /// saying whether any of them was episodic, and <c>RetrievalEvidence.RankedItems</c> is empty on
+    /// the prepared path — so "is episodic memory ever retrieved" had no instrument, which is why it
+    /// stayed unmeasured rather than measured-and-inconclusive.
+    /// <para>
+    /// Identified by SUBJECT. The extraction prompt writes these with the assistant as the subject,
+    /// so the subject is the marker; the predicate vocabulary (recommended/told/provided/suggested/
+    /// explained) is deliberately not relied on, since the model may reach for a verb outside it.
+    /// </para>
+    /// <para>
+    /// <b>A heuristic, and its false-positive rate is measured rather than assumed.</b> A user turn
+    /// genuinely about "the assistant" is counted here too. Probing both frozen bases directly:
+    /// <list type="bullet">
+    /// <item><description><b>Ignore</b> base — 17 of 25,668 facts, <b>0.07%</b>.</description></item>
+    /// <item><description><b>Utterance</b> base — 13,251 of 36,489 facts, <b>36.3%</b>.</description></item>
+    /// </list>
+    /// So the floor is 0.07%, <i>not</i> zero — an earlier draft of this comment asserted it must be
+    /// exactly 0, which the probe disproved. Against a 36.3% signal a 0.07% floor cannot manufacture
+    /// the result, which is what makes the marker usable; a count near the floor in Utterance mode
+    /// would indict this counter rather than reveal anything about memory.
+    /// </para>
+    /// </remarks>
+    public int EpisodicFactsRetrieved { get; init; }
+
     public int PreferencesRetrieved { get; init; }
 
     public bool GraphRagIncluded { get; init; }
@@ -1449,6 +1657,27 @@ public sealed record LongMemEvalQuestionTelemetry(
 
     /// <summary>L2. Graph truth vs context for the relation(s) this question named.</summary>
     public LongMemEvalRelationCompleteness? RelationCompleteness { get; init; }
+
+    /// <summary>
+    /// Whether the gold answer is present in this owner's stored memory <b>at all</b>.
+    /// </summary>
+    /// <remarks>
+    /// The one question no other field answers. Relation completeness, gold coverage and recall@K all
+    /// ask "did retrieval find what was stored"; this asks whether the answer was ever stored, which
+    /// is what separates an <b>extraction</b> failure from a <b>retrieval</b> failure. Null means the
+    /// graph probe was not wired — never "absent", and never "fine".
+    /// </remarks>
+    public LongMemEvalAnswerPresenceResult? AnswerPresence { get; init; }
+
+    /// <summary>
+    /// The benchmark's own question type, carried so the gate can be read per type.
+    /// </summary>
+    /// <remarks>
+    /// It lives on the evidence question and on AgentEval's result, but never reached the record that
+    /// holds the gate verdict — so "absent because not stored" and "absent because the answer is
+    /// computed from what IS stored" could not be told apart.
+    /// </remarks>
+    public string? QuestionType { get; init; }
 
     /// <summary>Canonical relations this question resolved to; empty means expansion had nothing.</summary>
     public IReadOnlyList<string> ResolvedQueryRelations { get; init; } = Array.Empty<string>();
@@ -1641,8 +1870,14 @@ public sealed record LongMemEvalRelationCompleteness
     /// <summary>The relation resolved but the graph holds none of it — an EXTRACTION miss.</summary>
     public bool RelationAbsentFromGraph { get; init; }
 
-    /// <summary>The graph holds more than the expansion budget could ever return.</summary>
-    public bool LimitBinding { get; init; }
+    /// <summary>
+    /// Whether the shared expansion budget was exhausted by the whole predicate union. Null when the
+    /// union total was not measured — never <see langword="false"/> by default.
+    /// </summary>
+    public bool? LimitBinding { get; init; }
+
+    /// <summary>Live facts under the ENTIRE predicate union the expansion query searched.</summary>
+    public int? UnionGraphTotal { get; init; }
 
     /// <summary>The MaxExpandedFacts in force, recorded so LimitBinding is checkable.</summary>
     public int ExpansionLimit { get; init; }

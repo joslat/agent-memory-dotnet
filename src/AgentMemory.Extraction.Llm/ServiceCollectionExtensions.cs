@@ -26,6 +26,30 @@ public static class ServiceCollectionExtensions
                 "LlmExtraction MaxConcurrentBatchesPerExtraction must be positive.")
             .Validate(o => o.MaxConcurrentExtractionBatches >= 0,
                 "LlmExtraction MaxConcurrentExtractionBatches must be non-negative.")
+            // Unified extraction issues ONE prompt covering entities, facts, preferences and relations,
+            // so the four per-kind override prompts cannot be applied to it. Before this guard they were
+            // read by nobody and dropped in silence: a consumer who had configured FactExtractionPrompt
+            // and then enabled unified extraction got neither their prompt nor any sign it was ignored.
+            // Failing closed turns that into a startup error naming the offending property.
+            //
+            // EntityTypes is deliberately NOT in this list - it is the one setting unified now honours,
+            // wired up in LlmUnifiedMemoryExtractor.BuildSystemPrompt at the same time as this check.
+            .Validate(o => !o.UseUnifiedExtraction || o.EntityExtractionPrompt is null,
+                "LlmExtraction EntityExtractionPrompt cannot be combined with UseUnifiedExtraction: "
+                + "unified extraction uses a single prompt for all memory kinds. Disable "
+                + "UseUnifiedExtraction to use per-kind prompt overrides.")
+            .Validate(o => !o.UseUnifiedExtraction || o.FactExtractionPrompt is null,
+                "LlmExtraction FactExtractionPrompt cannot be combined with UseUnifiedExtraction: "
+                + "unified extraction uses a single prompt for all memory kinds. Disable "
+                + "UseUnifiedExtraction to use per-kind prompt overrides.")
+            .Validate(o => !o.UseUnifiedExtraction || o.RelationshipExtractionPrompt is null,
+                "LlmExtraction RelationshipExtractionPrompt cannot be combined with UseUnifiedExtraction: "
+                + "unified extraction uses a single prompt for all memory kinds. Disable "
+                + "UseUnifiedExtraction to use per-kind prompt overrides.")
+            .Validate(o => !o.UseUnifiedExtraction || o.PreferenceExtractionPrompt is null,
+                "LlmExtraction PreferenceExtractionPrompt cannot be combined with UseUnifiedExtraction: "
+                + "unified extraction uses a single prompt for all memory kinds. Disable "
+                + "UseUnifiedExtraction to use per-kind prompt overrides.")
             .ValidateOnStart();
 
         // Replace (not TryAdd) so the real extractors authoritatively override the Core no-op stub

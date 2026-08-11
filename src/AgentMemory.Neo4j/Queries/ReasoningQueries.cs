@@ -129,8 +129,11 @@ internal static class ReasoningQueries
     /// <summary>
     /// Vector similarity search over ReasoningTrace task embeddings, with an optional success filter
     /// and an optional owner/shared filter (R1). When scoped, over-fetches <paramref name="topK"/>
-    /// candidates then LIMITs to <c>$limit</c> after filtering, so the owner filter is never starved
-    /// by higher-scoring foreign rows (the vector index cannot pre-filter on a property).
+    /// candidates then LIMITs to <c>$limit</c> after filtering, which <b>reduces but does not remove</b>
+    /// starvation by higher-scoring foreign rows — the vector index cannot pre-filter on a property.
+    /// The earlier "never starved" wording was measured and is false (a mean of 7 of 60 candidates
+    /// reached the querying owner on a 50-owner corpus). Unlike the fact path, trace search does
+    /// <b>not</b> escalate on an empty scoped result.
     /// </summary>
     public static string SearchByTaskVector(bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK)
     {

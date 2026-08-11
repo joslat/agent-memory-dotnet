@@ -8,6 +8,52 @@ internal sealed record LongMemEvalRunValidation(
 
 internal static class LongMemEvalRunValidator
 {
+    /// <summary>
+    /// Whether a question retrieved nothing as a <b>measured result</b> rather than a broken run.
+    /// </summary>
+    /// <remarks>
+    /// Delegates the judgement to <see cref="AgentMemoryLongMemEvalAdapter.CanScoreEmptyRetrieval"/>
+    /// rather than re-deriving it. The validator enforces this rule independently of the adapter, so
+    /// two copies of the reasoning would drift — and the drift would look like an accepted run on one
+    /// side and a rejected one on the other.
+    /// <para>
+    /// The status must be exactly <c>retrieval-empty</c>. A <c>storage-error</c> or a
+    /// <c>graph-readback-empty</c> against a populated graph is still a broken run; only "retrieval
+    /// ran and returned nothing" is a result worth scoring.
+    /// </para>
+    /// </remarks>
+    internal static bool IsScoredEmptyRetrieval(string? status, LongMemEvalGraphSnapshot? graphSnapshot) =>
+        (string.Equals(status, "retrieval-empty", StringComparison.Ordinal) ||
+         // Third site of the same rule: a memory-only arm that retrieved items but zero LEARNED
+         // ones. Same meaning - structured memory returned nothing - and fatal for the same wrong
+         // reason. Fixing the other two sites and not this one cost an entire run.
+         string.Equals(status, "retrieval-structured-empty", StringComparison.Ordinal)) &&
+        AgentMemoryLongMemEvalAdapter.CanScoreEmptyRetrieval(graphSnapshot);
+
+    /// <summary>
+    /// Whether the diagnostic judge retry already produced a valid verdict for this question.
+    /// </summary>
+    /// <remarks>
+    /// The judge's phrasing varies, and an unparseable first explanation is precisely what the
+    /// retry exists to repair. When it succeeds the verdict is real, and rejecting the run because
+    /// AgentEval's <i>original</i> explanation was unparseable throws away a completed measurement
+    /// over a stale artifact — diagnostics run before validation and are handed straight to it, so
+    /// the answer was already in hand.
+    /// <para>
+    /// Deliberately narrow: only a retry that actually recovered a valid verdict excuses the
+    /// question. One that failed, or that belongs to a different question, is still a rejection.
+    /// This does not tolerate an unjudged question; it stops mis-reporting a judged one.
+    /// </para>
+    /// </remarks>
+    internal static bool HasRecoveredVerdict(
+        string? questionId,
+        IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries) =>
+        questionId is not null &&
+        judgeRetries is not null &&
+        judgeRetries.Any(retry =>
+            retry.ValidVerdict &&
+            string.Equals(retry.QuestionId, questionId, StringComparison.Ordinal));
+
     internal static LongMemEvalRunValidation Validate(
         int questionCount,
         int llmCalls,
@@ -18,7 +64,8 @@ internal static class LongMemEvalRunValidator
         LongMemEvalChatCallSnapshot? extractionCalls = null,
         long expectedInitialExtractionCalls = 0,
         int diagnosticJudgeCalls = 0,
-        int agentEvalJudgeRetryAllowance = 0)
+        int agentEvalJudgeRetryAllowance = 0,
+        IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries = null)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -79,11 +126,19 @@ internal static class LongMemEvalRunValidator
                 "base judge calls.");
         }
 
+        // AgentEval's llmCalls ALREADY includes diagnostic judge retries - the message just above
+        // says so in as many words ("N LLM calls (N-1 base after excluding 1 diagnostic judge
+        // retries)") - and the observed meters count real provider calls, retries included. Adding
+        // diagnosticJudgeCalls again double-counted them, so a hybrid arm with one judge retry
+        // failed while reporting "total 103, but AgentEval reported 103": a rule contradicting its
+        // own message.
         if (answerCalls is not null && judgeCalls is not null &&
-            answerCalls.Calls + judgeCalls.Calls != llmCalls + diagnosticJudgeCalls)
+            answerCalls.Calls + judgeCalls.Calls != llmCalls)
         {
             issues.Add(
-                $"Observed answer and judge calls total {answerCalls.Calls + judgeCalls.Calls}, but AgentEval reported {llmCalls}.");
+                $"Observed answer and judge calls total {answerCalls.Calls + judgeCalls.Calls}, " +
+                $"but AgentEval reported {llmCalls} (including {diagnosticJudgeCalls} diagnostic " +
+                "judge retries).");
         }
 
         if (extractionCalls is not null && extractionCalls.Calls < expectedInitialExtractionCalls)
@@ -103,6 +158,25 @@ internal static class LongMemEvalRunValidator
         }
 
 
+        // One telemetry entry per question, always. A second entry for the same question means a
+        // code path recorded and then continued instead of terminating - which is a programming
+        // error, not a measurement outcome. It first surfaced as "An item with the same key has
+        // already been added", naming a dictionary rather than the cause, so it is checked here
+        // where the message can say what actually happened.
+        var duplicateQuestions = telemetry
+            .GroupBy(item => item.QuestionNumber)
+            .Where(group => group.Count() > 1)
+            .Select(group => $"position {group.Key} recorded {group.Count()}x " +
+                             $"({string.Join(", ", group.Select(item => item.Status))})")
+            .ToArray();
+        if (duplicateQuestions.Length > 0)
+        {
+            issues.Add(
+                "Telemetry contains more than one record for the same question: " +
+                string.Join("; ", duplicateQuestions) +
+                ". A path recorded telemetry and then continued instead of terminating.");
+        }
+
         var preparedQuestions = telemetry.Count(item => item.PreparedMemory);
         if (preparedQuestions != 0 && preparedQuestions != telemetry.Count)
         {
@@ -117,7 +191,12 @@ internal static class LongMemEvalRunValidator
                     item.MessagesPrepared <= 0 ||
                     item.ExtractionUnits != 0 ||
                     item.ExtractionUnitsPrepared <= 0 ||
-                    item.ItemsRetrieved == 0))
+                    // A retrieval that ran against a graph already PROVEN populated with complete
+                    // provenance, and returned nothing, is a measured failure of retrieval - not an
+                    // unsound preparation. Rejecting the run over it discards the very question that
+                    // most sharply separates the arms.
+                    (item.ItemsRetrieved == 0 &&
+                     !IsScoredEmptyRetrieval(item.Status, item.GraphReadBack))))
             {
                 issues.Add(
                     "At least one prepared LongMemEval question wrote during evaluation, lacks sealed preparation work, or retrieved no items.");
@@ -130,14 +209,17 @@ internal static class LongMemEvalRunValidator
             }
         }
         else if (telemetry.Any(item =>
-                     item.MessagesStored == 0 || item.ItemsRetrieved == 0))
+                     item.MessagesStored == 0 ||
+                     (item.ItemsRetrieved == 0 &&
+                      !IsScoredEmptyRetrieval(item.Status, item.GraphReadBack))))
         {
             issues.Add(
                 "At least one LongMemEval question bypassed AgentMemory storage or retrieved no items.");
         }
 
         foreach (var failedStage in telemetry.Where(item =>
-                     !string.Equals(item.Status, "completed", StringComparison.Ordinal)))
+                     !string.Equals(item.Status, "completed", StringComparison.Ordinal) &&
+                     !IsScoredEmptyRetrieval(item.Status, item.GraphReadBack)))
         {
             issues.Add(
                 $"AgentMemory recorded {failedStage.Status} at question position {failedStage.QuestionNumber}.");
@@ -163,10 +245,24 @@ internal static class LongMemEvalRunValidator
                 continue;
             }
 
-            if (!TryParseJudgeVerdict(explanation, out var judgedCorrect))
+            // The parse stays the guard, deliberately. It is tempting to trust
+            // QuestionResult.JudgeStatus instead -- it is a typed enum and the explanation is only a
+            // rendering of it -- but the status is NOT purely the judge's decision: when not set
+            // explicitly it is INFERRED from Correct ("legacy successful JSON without this field
+            // infers Yes or No from Correct"). Trusting it would let `Correct = false` with an empty
+            // judge response report a clean "No", which is exactly the silent miscount
+            // Validate_RejectsEmptyJudgeVerdictInsteadOfCountingItIncorrect exists to prevent. That
+            // test caught this change and was right to.
+            if (!TryParseJudgeVerdict(explanation, out var judgedCorrect) &&
+                !HasRecoveredVerdict(question.QuestionId, judgeRetries))
             {
+                // The status still improves the MESSAGE even though it cannot replace the guard.
+                // "no valid yes/no verdict" described our parse failure and sent the same
+                // investigation down the wrong path twice; Empty, Invalid and ProviderError are
+                // different problems with different fixes, and the judge already told us which.
                 issues.Add(
-                    $"AgentEval judge returned no valid yes/no verdict for question {question.QuestionId}.");
+                    $"AgentEval judge returned no usable verdict for question {question.QuestionId} " +
+                    $"(judge status: {question.JudgeStatus?.ToString() ?? "none"}).");
                 continue;
             }
 

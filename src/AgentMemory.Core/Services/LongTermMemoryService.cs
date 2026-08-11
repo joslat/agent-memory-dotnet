@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for long-term (structured knowledge) memory operations.
 /// </summary>
-internal sealed class LongTermMemoryService : ILongTermMemoryService
+internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLongTermSearch
 {
     private const int FactDedupLockStripeCount = 256;
     private static readonly SemaphoreSlim[] FactDedupLockStripes =
@@ -128,9 +128,26 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsync)), cancellationToken).ConfigureAwait(false);
+        var scored = await SearchEntitiesWithScoresAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Entity).ToList();
     }
+
+    /// <summary>
+    /// Returns the repository's already-ranked entity results without a second query — see
+    /// <see cref="IScoredLongTermSearch"/> for why this is a separate internal contract.
+    /// </summary>
+    /// <remarks>
+    /// The isolation-policy operation name stays <c>SearchEntitiesAsync</c>: the policy logs and (in
+    /// StrictMultiTenant) throws with that name, and asking for scores must not change what an operator
+    /// sees in the audit trail.
+    /// </remarks>
+    public Task<IReadOnlyList<(Entity Entity, double Score)>> SearchEntitiesWithScoresAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        _entityRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public async Task<Preference> AddPreferenceAsync(
@@ -203,9 +220,22 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsync)), cancellationToken).ConfigureAwait(false);
+        var scored = await SearchPreferencesWithScoresAsync(queryEmbedding, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Preference).ToList();
     }
+
+    /// <summary>
+    /// Returns the repository's already-ranked preference results without a second query. Operation name
+    /// pinned to <c>SearchPreferencesAsync</c> for the same reason as
+    /// <see cref="SearchEntitiesWithScoresAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<(Preference Preference, double Score)>> SearchPreferencesWithScoresAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public async Task<Fact> AddFactAsync(
@@ -349,7 +379,25 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
             Array.Empty<string>(), cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<Fact>> SearchFactsAsync(
+    public Task<IReadOnlyList<Fact>> SearchFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken) =>
+        SearchFactsCoreAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            questionRelations, scoreSink: null, cancellationToken);
+
+    /// <summary>
+    /// Fact recall that also hands back the similarity scores the vector index already produced — see
+    /// <see cref="IScoredLongTermSearch"/>. Operation name pinned to <c>SearchFactsAsync</c> for the same
+    /// reason as <see cref="SearchEntitiesWithScoresAsync"/>.
+    /// </summary>
+    public async Task<ScoredFactSearchResult> SearchFactsWithScoresAsync(
         float[] queryEmbedding,
         int limit,
         double minScore,
@@ -359,9 +407,36 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         IReadOnlyList<string> questionRelations,
         CancellationToken cancellationToken)
     {
+        var scoreSink = new List<(Fact Fact, double Score)>();
+        var facts = await SearchFactsCoreAsync(
+            queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
+            questionRelations, scoreSink, cancellationToken).ConfigureAwait(false);
+        return new ScoredFactSearchResult(facts, scoreSink);
+    }
+
+    /// <summary>
+    /// The single fact-recall implementation. <paramref name="scoreSink"/> is a sink rather than a second
+    /// return value so the ordinary (diagnostics-off) call keeps exactly its previous allocations: null
+    /// sink ⇒ one null check and nothing else.
+    /// </summary>
+    private async Task<IReadOnlyList<Fact>> SearchFactsCoreAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        List<(Fact Fact, double Score)>? scoreSink,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(questionRelations);
         var resolved = Resolve(scope, nameof(SearchFactsAsync));
         var scored = await _factRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, resolved, cancellationToken).ConfigureAwait(false);
+        // Only the similarity search scores anything. Expansion below appends facts fetched by predicate,
+        // which carry no comparable score and are deliberately left out of the sink rather than given a
+        // stand-in one.
+        scoreSink?.AddRange(scored);
         var top = scored.Select(r => r.Fact).ToList();
         // A question that names its relations outright does not need the top-K to nominate them, so an
         // empty top-K is only a dead end when there is nothing else to expand on.
@@ -382,8 +457,23 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
             .Where(predicate => predicate.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        // J3.1. The predicate set above deliberately mixes two very different things: relations the
+        // QUESTION named, and predicates BORROWED from whatever top-K happened to return. They share
+        // one budget ordered by confidence, so a borrowed predicate with high-confidence facts can
+        // exhaust it before the named relation is complete - which defeats the completeness guarantee
+        // this method exists to provide. Measured before fixing: a question holding 49 facts under
+        // planned/plans, with a 60-row budget, received 22.
+        //
+        // Passing the named relations as priority makes them a tiebreak ahead of the borrowed ones.
+        // Empty when the question named nothing, so the ordering is unchanged for every other path.
+        var priorityPredicates = questionRelations
+            .SelectMany(MemoryRelationLexicon.Default.StoredFormsOf)
+            .Where(predicate => predicate.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var expanded = await _factRepo.SearchByCanonicalPredicatesAsync(
-            predicates, expansionLimit, resolved, cancellationToken).ConfigureAwait(false);
+            predicates, expansionLimit, resolved, cancellationToken, priorityPredicates)
+            .ConfigureAwait(false);
 
         var seen = top.Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
         foreach (var fact in expanded)
@@ -445,9 +535,22 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsOfAsync)), cancellationToken).ConfigureAwait(false);
+        var scored = await SearchEntitiesAsOfWithScoresAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Entity).ToList();
     }
+
+    /// <summary>
+    /// Point-in-time entity search that keeps its scores. Operation name pinned to
+    /// <c>SearchEntitiesAsOfAsync</c> for the same reason as <see cref="SearchEntitiesWithScoresAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<(Entity Entity, double Score)>> SearchEntitiesAsOfWithScoresAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        _entityRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchEntitiesAsOfAsync)), cancellationToken);
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> SearchFactsAsOfAsync(
@@ -459,9 +562,24 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         DateTimeOffset? systemAsOf = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchFactsAsOfAsync)), systemAsOf, cancellationToken).ConfigureAwait(false);
+        var scored = await SearchFactsAsOfWithScoresAsync(queryEmbedding, asOf, limit, minScore, scope, systemAsOf, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Fact).ToList();
     }
+
+    /// <summary>
+    /// Point-in-time fact search that keeps its scores. Unlike the live path this has no predicate
+    /// expansion, so every returned fact is scored and a plain scored list suffices. Operation name pinned
+    /// to <c>SearchFactsAsOfAsync</c> for the same reason as <see cref="SearchEntitiesWithScoresAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<(Fact Fact, double Score)>> SearchFactsAsOfWithScoresAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        DateTimeOffset? systemAsOf,
+        CancellationToken cancellationToken) =>
+        _factRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchFactsAsOfAsync)), systemAsOf, cancellationToken);
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Preference>> SearchPreferencesAsOfAsync(
@@ -472,9 +590,23 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var scored = await _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsOfAsync)), cancellationToken).ConfigureAwait(false);
+        var scored = await SearchPreferencesAsOfWithScoresAsync(queryEmbedding, asOf, limit, minScore, scope, cancellationToken).ConfigureAwait(false);
         return scored.Select(r => r.Preference).ToList();
     }
+
+    /// <summary>
+    /// Point-in-time preference search that keeps its scores. Operation name pinned to
+    /// <c>SearchPreferencesAsOfAsync</c> for the same reason as
+    /// <see cref="SearchEntitiesWithScoresAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<(Preference Preference, double Score)>> SearchPreferencesAsOfWithScoresAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken) =>
+        _prefRepo.SearchByVectorAsOfAsync(queryEmbedding, asOf, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsOfAsync)), cancellationToken);
 
     // ── Invalidation & supersession (D5 / D7) — thin owner-scoped delegations, gated through the
     // central isolation policy (#100): these never had a fallback derivation of their own, so this adds
@@ -512,3 +644,82 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService
     private string? ResolveOwner(string? ownerId, string operationName) =>
         _isolationPolicy.ResolveWriteOwner(ownerId, operationName, MemoryOperationAccess.Tenant);
 }
+
+/// <summary>
+/// Internal scored-search capability implemented by the built-in long-term memory service. Every one of
+/// these searches is scored by the vector index and the score is then dropped on the way out of
+/// <see cref="ILongTermMemoryService"/>; this contract recovers it <b>without issuing a second query</b>,
+/// so <c>MemoryContextSection.RankedItems</c> can be populated for facts, entities and preferences.
+/// Kept separate from the public interface for the same reason as <see cref="IScoredMessageSearch"/>:
+/// the interface is SemVer-locked and adding members would break every external implementor.
+/// </summary>
+internal interface IScoredLongTermSearch
+{
+    Task<IReadOnlyList<(Entity Entity, double Score)>> SearchEntitiesWithScoresAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<(Preference Preference, double Score)>> SearchPreferencesWithScoresAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken);
+
+    Task<ScoredFactSearchResult> SearchFactsWithScoresAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        bool expandByPredicate,
+        int expansionLimit,
+        IReadOnlyList<string> questionRelations,
+        CancellationToken cancellationToken);
+
+    // Point-in-time siblings. Bitemporal recall assembles the same five sections from a second code path,
+    // so leaving these out would have shipped the instrument to only one of the two recall paths.
+
+    Task<IReadOnlyList<(Entity Entity, double Score)>> SearchEntitiesAsOfWithScoresAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<(Preference Preference, double Score)>> SearchPreferencesAsOfWithScoresAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<(Fact Fact, double Score)>> SearchFactsAsOfWithScoresAsync(
+        float[] queryEmbedding,
+        DateTimeOffset asOf,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        DateTimeOffset? systemAsOf,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Fact recall split into the two things a diagnostics-enabled caller needs.
+/// </summary>
+/// <param name="Facts">
+/// Every fact that goes into the context, predicate expansion included — identical, in content and order,
+/// to what <c>SearchFactsAsync</c> returns for the same arguments.
+/// </param>
+/// <param name="Scored">
+/// The subset the vector index actually scored. Expansion facts are retrieved by predicate, not by
+/// similarity, so they have no score and are absent here rather than carrying a fabricated one — which is
+/// what lets a reader tell "retrieved weakly" apart from "not ranked at all".
+/// </param>
+internal sealed record ScoredFactSearchResult(
+    IReadOnlyList<Fact> Facts,
+    IReadOnlyList<(Fact Fact, double Score)> Scored);

@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -156,11 +157,13 @@ internal static class LongMemEvalPreparedPairProgram
                         CancellationToken.None,
                         baseVolumeName,
                         enableBatchedPreparation: !options.IsDiagnostic,
+                        multiSessionBatch: options.MultiSessionBatch,
                         maxConcurrentBatchesPerExtraction:
                             options.IsDiagnostic ? 1 : options.MaxConcurrentBatchesPerExtraction,
                         maxConcurrentExtractionBatches:
                             options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
-                        usePredicateVocabulary: options.UsePredicateVocabulary)
+                        usePredicateVocabulary: options.UsePredicateVocabulary,
+                        assistantContent: options.AssistantContent)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -448,10 +451,26 @@ internal static class LongMemEvalPreparedPairProgram
                 ValidatePreparationTelemetry(preparationTelemetry, questions.Length);
                 var initialExtractionCalls = batchExecution.PlannedCalls;
                 var extractionSnapshot = extractionCalls.Snapshot();
-                if (extractionSnapshot.Calls != initialExtractionCalls ||
-                    extractionSnapshot.CompletedCalls != initialExtractionCalls ||
-                    extractionSnapshot.Failures != 0 ||
-                    extractionSnapshot.RetryCalls != 0 ||
+                // Routed through the SAME decision as the per-question guard, so the two cannot
+                // drift apart. They already had: the per-question one was refined to accept excess
+                // calls a recorded split or retry explains, this one still demanded exact equality,
+                // and a 75-minute rebuild died at 682 calls against 680 planned with failures 0 and
+                // retries 0. Split sub-calls run under their own Activity, so the activity-based
+                // retry counter cannot see them - a split appears as bare extra calls that neither
+                // counter accounts for. One guard accepted that shape and the other rejected it.
+                var recordedSplits = baseProfile.Services
+                    .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot().Splits;
+                var successfulCalls = extractionSnapshot.Calls - extractionSnapshot.Failures;
+                var accountingAcceptable =
+                    AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable(
+                        successfulCalls,
+                        successfulCalls,
+                        otherCalls: 0,
+                        recordedSplits,
+                        extractionSnapshot.RetryCalls,
+                        checked((int)initialExtractionCalls));
+                if (!accountingAcceptable ||
+                    extractionSnapshot.CompletedCalls != extractionSnapshot.Calls ||
                     extractionSnapshot.MaximumConcurrency <= 1 ||
                     extractionSnapshot.MaximumConcurrency > options.MaxConcurrentExtractionBatches)
                 {
@@ -460,7 +479,9 @@ internal static class LongMemEvalPreparedPairProgram
                         $"{extractionSnapshot.Calls}/{extractionSnapshot.CompletedCalls}, failures " +
                         $"{extractionSnapshot.Failures}, retries {extractionSnapshot.RetryCalls}, maximum " +
                         $"provider concurrency {extractionSnapshot.MaximumConcurrency}; expected exactly " +
-                        $"{initialExtractionCalls} completed calls, zero failures/retries, and concurrency 2..{options.MaxConcurrentExtractionBatches}.");
+                        $"at least {initialExtractionCalls} successful calls with any excess " +
+                        $"explained by a recorded split or retry (splits={recordedSplits}), every " +
+                        $"started call completed, and concurrency 2..{options.MaxConcurrentExtractionBatches}.");
                 }
 
                 var preparedQuestions = questions.Select((question, index) =>
@@ -638,6 +659,12 @@ internal static class LongMemEvalPreparedPairProgram
                         ? expectation.ExtractionResponseContract
                         : "unspecified",
                     extractionExecution = "unified-multi-session-batch",
+                    // The harness asks for temperature 0; this deployment refuses it and the
+                    // compatibility wrapper drops the request, so extraction runs at the provider
+                    // default. Recorded because three builds of one configuration shared only 7.5% of
+                    // their stored triples, and an artifact that implies determinism it never had is
+                    // worse than one that admits the gap.
+                    extractionTemperatureHonoured = !ProviderCompatibleExtractionChatClient.TemperatureRequestWasDropped,
                     preparationWorkers = options.PreparationWorkers,
                     // Null on a reused run: this run observed no preparation concurrency because it
                     // performed no preparation. The nullable type is compiler-verified.
@@ -655,6 +682,14 @@ internal static class LongMemEvalPreparedPairProgram
                     expandFactsByPredicate = options.ExpandFactsByPredicate,
                     resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
+                    // Fingerprinted for the same reason the vocabulary is: it changes what
+                    // gets stored, so two bases built under different modes are not
+                    // comparable and must not be confusable in an artifact.
+                    assistantContent = options.AssistantContent.ToString(),
+                    // Records WHICH extractor ran. Without it, a single-session-unified run and a
+                    // multi-session batch run are indistinguishable in the artifact despite using
+                    // different code and different prompts.
+                    multiSessionBatch = options.MultiSessionBatch,
                     maxItemsPerSourceSession = options.MaxItemsPerSourceSession,
                     // K6. Additive on top of the mode budget, so a score compared against a run
                     // without it is confounded with the larger context. Recorded here so no later
@@ -701,6 +736,25 @@ internal static class LongMemEvalPreparedPairProgram
                     new JsonSerializerOptions { WriteIndented = true }) +
                 Environment.NewLine).ConfigureAwait(false);
 
+            // Accepting a scored empty retrieval must never be quiet. It is a real failure of the
+            // memory system that the run now measures instead of aborting on, and a reader comparing
+            // two accuracies deserves to know one arm answered a question from nothing.
+            foreach (var arm in new[] { ("structured", structured), ("hybrid", hybrid) })
+            {
+                var empties = arm.Item2.Telemetry
+                    .Where(item => LongMemEvalRunValidator.IsScoredEmptyRetrieval(
+                        item.Status, item.GraphReadBack))
+                    .ToArray();
+                foreach (var item in empties)
+                {
+                    Console.Error.WriteLine(
+                        $"longmemeval: WARNING: {arm.Item1}: question {item.QuestionId} " +
+                        $"(position {item.QuestionNumber}) retrieved NOTHING from a graph proven to " +
+                        $"hold {item.GraphReadBack!.TotalLearned} learned items. Scored as a memory " +
+                        "failure rather than aborting the run; this is a real retrieval defect.");
+                }
+            }
+
             if (!accepted)
             {
                 foreach (var issue in issues)
@@ -712,6 +766,18 @@ internal static class LongMemEvalPreparedPairProgram
 
             Console.WriteLine(
                 $"longmemeval: prepared pair accepted; structured={structured.Result.OverallAccuracy:F1}% hybrid={hybrid.Result.OverallAccuracy:F1}%.");
+
+            // The headline is the line everyone quotes, and it used to say nothing about WHICH
+            // extraction configuration produced it. This benchmark runs with UseUnifiedExtraction
+            // ON (LongMemEvalMemoryProfile sets it from enableBatchedPreparation), while the shipped
+            // default in LlmExtractionOptions is OFF. Every quality number here therefore describes a
+            // configuration a default install does not get, and that went unstated for an entire
+            // measurement track. It is stated here, next to the number, because a caveat that lives
+            // only in a plan document does not travel with the result.
+            Console.WriteLine(
+                $"longmemeval: measured with UseUnifiedExtraction={manifest.UseUnifiedExtraction}, " +
+                $"UseMultiSessionBatchExtraction={manifest.UseMultiSessionBatchExtraction} " +
+                "(shipped default for both is false).");
             Console.WriteLine($"longmemeval: report {destination}");
             return 0;
         }
@@ -743,6 +809,10 @@ internal static class LongMemEvalPreparedPairProgram
         string deployment,
         int embeddingDimensions)
     {
+        // Scoped to this arm so structured and hybrid yields never mix. Until now the eight
+        // instrumented vector searches emitted these spans on every run and NOTHING listened, so the
+        // owner post-filter starvation figure rested on one hand measurement of one path.
+        using var vectorYield = new LongMemEvalVectorYieldListener();
         using var answerCalls = new LongMemEvalChatCallMeter(
             azureClient.GetChatClient(deployment).AsIChatClient());
         using var judgeCalls = new LongMemEvalChatCallMeter(
@@ -850,6 +920,9 @@ internal static class LongMemEvalPreparedPairProgram
             extractionSnapshot,
             expectedInitialExtractionCalls: 0,
             diagnosticJudgeCalls: diagnostics.JudgeRetries.Count,
+            // Diagnostics ran a call earlier; a verdict it already recovered must not be
+            // reported as missing on the strength of AgentEval's original explanation.
+            judgeRetries: diagnostics.JudgeRetries,
             agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts);
         total.Stop();
         return new PreparedArmExecution(
@@ -870,7 +943,8 @@ internal static class LongMemEvalPreparedPairProgram
                     item.StageTimings?.RetrievalMs ?? 0),
                 adapter.QuestionTelemetry.Sum(item =>
                     item.StageTimings?.AnswerMs ?? 0),
-                total.Elapsed.TotalMilliseconds));
+                total.Elapsed.TotalMilliseconds),
+            LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
     }
 
     private static object ProjectArm(
@@ -898,7 +972,17 @@ internal static class LongMemEvalPreparedPairProgram
             rawMessagesRetrieved = arm.Telemetry.Sum(item => item.RawMessagesRetrieved),
             entitiesRetrieved = arm.Telemetry.Sum(item => item.EntitiesRetrieved),
             factsRetrieved = arm.Telemetry.Sum(item => item.FactsRetrieved),
+            // The retrieval half of episodic memory. Capture was measured; this is the first run
+            // shape that can say whether any of it comes BACK, and — read against factsRetrieved —
+            // whether it arrives by crowding the semantic facts out of the same top-K.
+            episodicFactsRetrieved = arm.Telemetry.Sum(item => item.EpisodicFactsRetrieved),
+            questionsWithEpisodicFact = arm.Telemetry.Count(item => item.EpisodicFactsRetrieved > 0),
             preferencesRetrieved = arm.Telemetry.Sum(item => item.PreferencesRetrieved),
+            // P5. The eight instrumented vector searches were emitting into the void on every run
+            // because nothing in this harness subscribed. starvedSearches is the load-bearing field:
+            // a search that SUCCEEDED and returned nothing is the owner post-filter shape, and a mean
+            // hides it completely.
+            vectorYield = arm.VectorYield,
             // K6. Zero on every run before this flag existed, because the budget was zero. Reported
             // as a pair: the count says whether the mechanism works at all, and the overlap says
             // whether what came back was already in the structured context.
@@ -906,6 +990,29 @@ internal static class LongMemEvalPreparedPairProgram
             graphRagFactsAlreadyRetrieved =
                 arm.Telemetry.Sum(item => item.GraphRagFactsAlreadyRetrieved),
             questions = arm.Telemetry,
+            // The gate read per question type. "Absent" means two different things: not stored, or
+            // stored but the gold answer is DERIVED from what is stored (750 = 800 - 50, and memory
+            // holds the two prices, never their difference). Reported as a group so a derived-answer
+            // type's absences are not read as extraction failures.
+            answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
+            // The judge's own record, kept alongside our telemetry. AgentEval has always handed us
+            // the agent's answer, the judge's explanation and a TYPED status; the report dropped all
+            // three, so "do you agree with the judge?" was unanswerable and a disagreement between
+            // the answer-presence gate and the judge could not be adjudicated at all. Emitted under
+            // the evidence-detail setting, so a run that must not retain answer text still can't.
+            judgments = evidenceDetail == LongMemEvalEvidenceDetail.None
+                ? null
+                : arm.Result.QuestionResults.Select(q => new
+                {
+                    q.QuestionId,
+                    status = q.JudgeStatus?.ToString(),
+                    q.Correct,
+                    q.RawScore,
+                    q.JudgeLlmCallCount,
+                    q.JudgeTokensUsed,
+                    agentResponse = q.AgentResponse,
+                    judgeExplanation = q.JudgeExplanation,
+                }).ToArray(),
             timings = new
             {
                 arm.Timings.ProfileStartupMs,
@@ -1118,6 +1225,11 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--preflight-only"),
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
+            ParseAssistantContent(Value("--assistant-content")),
+            // Default true reproduces every run recorded so far. Passing --single-session-unified
+            // measures LlmUnifiedMemoryExtractor, the extractor an ordinary consumer gets from
+            // UseUnifiedExtraction and which no measurement had ever exercised.
+            !Has("--single-session-unified"),
             Has("--expand-facts-by-predicate"),
             Has("--resolve-query-relations"),
             Value("--reuse-prepared-volumes"),
@@ -1213,6 +1325,31 @@ internal static class LongMemEvalPreparedPairProgram
         if (value is null) return defaultValue;
         if (!int.TryParse(value, out var parsed) || parsed <= 0)
             throw new ArgumentException($"{option} must be a positive integer.");
+        return parsed;
+    }
+
+    /// <summary>
+    /// Parses <c>--assistant-content ignore|utterance|fact</c>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="AssistantContentMode.Ignore"/>, which reproduces the prompts every
+    /// existing sealed base was built under. An unrecognised value throws rather than silently
+    /// falling back: a typo that quietly builds an 83-minute base in the wrong mode is exactly the
+    /// kind of failure that is discovered only after the run.
+    /// </remarks>
+    private static AssistantContentMode ParseAssistantContent(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return AssistantContentMode.Ignore;
+
+        if (!Enum.TryParse<AssistantContentMode>(value, ignoreCase: true, out var parsed) ||
+            !Enum.IsDefined(parsed))
+        {
+            throw new ArgumentException(
+                $"--assistant-content must be one of " +
+                $"{string.Join(", ", Enum.GetNames<AssistantContentMode>()).ToLowerInvariant()}; got '{value}'.");
+        }
+
         return parsed;
     }
 
@@ -1339,6 +1476,8 @@ internal static class LongMemEvalPreparedPairProgram
         bool PreflightOnly,
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
+        AssistantContentMode AssistantContent,
+        bool MultiSessionBatch,
         bool ExpandFactsByPredicate,
         bool ResolveQueryRelations,
         string? ReusePreparedVolume,
@@ -1372,5 +1511,6 @@ internal static class LongMemEvalPreparedPairProgram
         LongMemEvalChatCallSnapshot JudgeCalls,
         LongMemEvalChatCallSnapshot DiagnosticCalls,
         LongMemEvalChatCallSnapshot ExtractionCalls,
-        PreparedArmTimings Timings);
+        PreparedArmTimings Timings,
+        LongMemEvalVectorYieldSummary VectorYield);
 }

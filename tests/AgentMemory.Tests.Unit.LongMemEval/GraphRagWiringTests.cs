@@ -92,6 +92,8 @@ public sealed class GraphRagWiringTests
                 maxConcurrentBatchesPerExtraction: 1,
                 maxConcurrentExtractionBatches: 6,
                 usePredicateVocabulary: true,
-                graphRagIndexName)
+                // Named, so a future parameter inserted here cannot silently rebind this argument.
+                assistantContent: AssistantContentMode.Ignore,
+                graphRagIndexName: graphRagIndexName)
             .BuildServiceProvider();
 }

@@ -142,7 +142,7 @@ graph TD
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.0 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 51 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, UnifiedExtractionResult, etc.), 41 service interfaces (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, and `IMultiSessionUnifiedMemoryExtractor`), 11 repository interfaces, 16 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`), 24 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`) |
+| **Key types** | 51 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, UnifiedExtractionResult, etc.), 41 service interfaces (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, and `IMultiSessionUnifiedMemoryExtractor`), 11 repository interfaces, 16 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`), 26 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`) |
 
 **Namespace structure:**
 ```
@@ -663,6 +663,33 @@ AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 AgentMemory.Observability    — all types (decorators, metrics, activity source, DI)
 ```
 
+#### 3.4.3b Which extractor your configuration selects
+
+Two boolean options choose between **three different extractors with three different prompts**, and
+they are not tiers of the same thing — they extract materially different memory. Measured on identical
+input (6 units, 15 turns):
+
+| your configuration | extractor that runs | facts | entities | subtype | description |
+|---|---|---|---|---|---|
+| **both flags false — the shipped default** | four per-kind extractors, one call each | 293 | 224 | 223 | 224 |
+| `UseUnifiedExtraction` only | `LlmUnifiedMemoryExtractor`, one call | 75 | 52 | **0** | **0** |
+| **both** flags, via `ExtractBatchAsync` | `LlmMultiSessionUnifiedMemoryExtractor` | 103 | 57 | 6 | 8 |
+
+Fact-triple overlap between the shipped path and either unified path is **Jaccard ≈ 0.02** — they do
+not merely extract *less*, they extract *different things*. The unified prompts also drop the per-kind
+prompt's opinion filter and confidence calibration.
+
+**Two consequences worth knowing before you flip either flag:**
+
+1. `UseUnifiedExtraction` alone selects the **single-session** extractor. `UseMultiSessionBatchExtraction`
+   only takes effect through `IMemoryExtractionPipeline.ExtractBatchAsync`; ordinary
+   single-conversation extraction never uses it, no matter how the flags are set.
+2. Unified extraction **cannot honour the four per-kind prompt overrides**, so setting one alongside it
+   now fails at startup naming the property, rather than ignoring it. It does honour `EntityTypes`.
+
+Both flags default to **false**. The benchmark figures published for this project were produced with
+**both true**, i.e. by the batch extractor — so they describe the third row, not the first.
+
 #### 3.4.4 AgentMemory.Extraction.AzureLanguage (Phase 5 ✅ COMPLETE)
 
 | Attribute | Value |
@@ -871,12 +898,14 @@ CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningS
 
 ### 4.6 Property Indexes (Implemented in SchemaBootstrapper)
 
-**21 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
+**27 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
 
 ```cypher
 CREATE INDEX conversation_session_idx IF NOT EXISTS FOR (c:Conversation) ON (c.session_id)
 CREATE INDEX message_timestamp_idx IF NOT EXISTS FOR (m:Message) ON (m.timestamp)
 CREATE INDEX message_role_idx IF NOT EXISTS FOR (m:Message) ON (m.role)
+CREATE INDEX message_session_idx IF NOT EXISTS FOR (m:Message) ON (m.session_id)
+CREATE INDEX message_session_timestamp_idx IF NOT EXISTS FOR (m:Message) ON (m.session_id, m.timestamp)
 CREATE INDEX entity_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.type)
 CREATE INDEX entity_name_idx IF NOT EXISTS FOR (e:Entity) ON (e.name)
 CREATE INDEX entity_canonical_idx IF NOT EXISTS FOR (e:Entity) ON (e.canonical_name)
@@ -889,12 +918,16 @@ CREATE INDEX tool_call_status_idx IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
 CREATE INDEX schema_name_idx IF NOT EXISTS FOR (s:Schema) ON (s.name)
 CREATE INDEX schema_version_idx IF NOT EXISTS FOR (s:Schema) ON (s.version)
 CREATE INDEX fact_owner_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_id)
+CREATE INDEX fact_merge_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.subject_key, f.object_key, f.predicate_key, f.owner_key)
+CREATE INDEX fact_owner_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.owner_key)
+CREATE INDEX fact_predicate_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.predicate_key)
 CREATE INDEX entity_owner_idx IF NOT EXISTS FOR (e:Entity) ON (e.owner_id)
 CREATE INDEX preference_owner_idx IF NOT EXISTS FOR (p:Preference) ON (p.owner_id)
 CREATE INDEX trace_owner_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.owner_id)
 CREATE INDEX rel_owner_idx IF NOT EXISTS FOR ()-[r:RELATED_TO]-() ON (r.owner_id)
 CREATE INDEX conversation_archived_idx IF NOT EXISTS FOR (c:Conversation) ON (c.archived)
 CREATE INDEX memory_read_audit_kind_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.kind)
+CREATE INDEX memory_read_audit_memory_id_idx IF NOT EXISTS FOR (a:MemoryReadAudit) ON (a.memory_id)
 ```
 
 **1 point index** (also in `SchemaQueries.PropertyIndexes`, for geospatial entity queries):

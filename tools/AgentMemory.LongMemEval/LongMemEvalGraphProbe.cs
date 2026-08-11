@@ -24,6 +24,31 @@ internal interface ILongMemEvalGraphProbe
     /// probe that cannot answer must not be able to assert coverage it never checked, so the absent
     /// case falls through to the pre-existing verdicts rather than silently reporting a clean build.
     /// </remarks>
+    /// <summary>
+    /// The owner's stored memory as plain text, so presence of an answer can be checked by
+    /// <b>content</b> rather than by provenance.
+    /// </summary>
+    /// <remarks>
+    /// This interface already promised to separate <i>"extraction lost the fact"</i> from
+    /// <i>"retrieval missed it"</i>, and <see cref="ReadGoldCoverageAsync"/> was meant to deliver it.
+    /// It does not: it counts <c>EXTRACTED_FROM</c> edges, and those turned out to be batch-level —
+    /// a fact links to a mean of 12 messages — so the coverage number cannot fail regardless of what
+    /// was actually learned. The intent was right; the implementation measured the wrong thing.
+    /// <para>
+    /// Reading the text itself is the version that can fail. If the answer's distinctive tokens
+    /// appear nowhere in the owner's memory, the question is unanswerable from memory in principle
+    /// and every retrieval metric on it is measuring noise.
+    /// </para>
+    /// <para>
+    /// Defaults to empty, meaning <b>not probed</b>. Callers must treat that as "not measured",
+    /// never as "nothing stored" — the same convention the rest of this interface follows.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<string>> ReadMemoryTextAsync(
+        string ownerId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
+
     Task<LongMemEvalGoldEvidenceCoverage?> ReadGoldCoverageAsync(
         string ownerId,
         IReadOnlyList<string> goldSourceMessageIds,
@@ -170,6 +195,38 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
                 record["goldLearnedItems"].As<int>(),
                 record["goldSourceMessagesCovered"].As<int>(),
                 goldSourceMessageIds.Count);
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Every fact triple, entity name and preference this owner holds, as text.</summary>
+    private const string MemoryTextQuery = """
+        MATCH (f:Fact) WHERE f.owner_id = $ownerId AND f.invalidated_at IS NULL
+        RETURN f.subject + ' ' + f.predicate + ' ' + f.object AS text
+        UNION ALL
+        MATCH (e:Entity) WHERE e.owner_id = $ownerId
+        RETURN e.name + ' ' + coalesce(e.description, '') AS text
+        UNION ALL
+        MATCH (p:Preference) WHERE p.owner_id = $ownerId
+        RETURN coalesce(p.category, '') + ' ' + coalesce(p.preference, '') AS text
+        """;
+
+    public async Task<IReadOnlyList<string>> ReadMemoryTextAsync(
+        string ownerId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
+        await using var session = driver.AsyncSession();
+        return await session.ExecuteReadAsync(async transaction =>
+        {
+            var cursor = await transaction.RunAsync(
+                MemoryTextQuery,
+                new { ownerId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return (IReadOnlyList<string>)records
+                .Select(record => record["text"].As<string>())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
         }).ConfigureAwait(false);
     }
 

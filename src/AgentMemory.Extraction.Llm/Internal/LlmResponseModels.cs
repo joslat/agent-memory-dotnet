@@ -42,6 +42,15 @@ internal sealed class LlmFactDto
 
     [JsonPropertyName("confidence")]
     public double Confidence { get; set; } = 0.9;
+
+    // Prospective memory. Null unless TemporalValidityMode.Extract asked for it, and null is the
+    // meaningful value: live recall filters on these columns, so an invented expiry silently removes
+    // a memory from every future answer.
+    [JsonPropertyName("valid_from")]
+    public DateTimeOffset? ValidFrom { get; set; }
+
+    [JsonPropertyName("valid_until")]
+    public DateTimeOffset? ValidUntil { get; set; }
 }
 
 internal sealed class LlmPreferenceDto

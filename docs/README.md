@@ -5,6 +5,7 @@ Start with **[getting-started.md](getting-started.md)** to install and run.
 | Doc | What it covers |
 |-----|----------------|
 | [getting-started.md](getting-started.md) | Prerequisites, install, DI config, first memory store, multi-tenant / multi-database setup |
+| [memory-map.md](memory-map.md) | The memory types, what makes a memory system more than a store, and an honest map of what this library covers today — labelled BUILT / WIRED / MEASURED, with what is deliberately not built |
 | [architecture.md](architecture.md) | Packages, layers, boundaries, dependency rules, the Neo4j graph model |
 | [agent-framework.md](agent-framework.md) | Using AgentMemory with the Microsoft Agent Framework — the `AIContextProvider` lifecycle, memory tools, identity/scoping |
 | [schema.md](schema.md) | Neo4j schema — node labels, relationship types, indexes, temporal and owner semantics |

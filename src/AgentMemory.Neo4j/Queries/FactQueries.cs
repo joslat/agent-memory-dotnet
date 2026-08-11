@@ -58,13 +58,28 @@ internal static class FactQueries
     /// ~1,000 facts would simply exhaust the answer budget.
     /// </para>
     /// </remarks>
-    public static string SearchByCanonicalPredicates(bool hasOwnerFilter, bool includeShared)
+    public static string SearchByCanonicalPredicates(
+        bool hasOwnerFilter,
+        bool includeShared,
+        bool hasPriorityKeys = false)
     {
         // Mirrors GetBySubject's owner-conditional shape rather than inventing its own. The first
         // version hard-coded `f.owner_key = $ownerKey` with `scope.OwnerId ?? OwnerKeyShared`, which
         // (a) never matched shared facts even when IncludeShared was set, silently breaking the
         // "relation whole" guarantee, and (b) coerced a null-owner scope to the shared bucket, so it
         // returned nothing exactly where top-K returned everything.
+        // J3.1. One shared LIMIT covers the question's resolved relations AND the canonical predicate
+        // of every top-K vector hit, ordered globally by confidence, so unrelated high-confidence
+        // facts consume the budget before the relation the question named is exhausted. Measured:
+        // a9f6b44c holds 49 facts under planned/plans, had a 60-row budget, and received 22.
+        //
+        // Ordering the question's own keys first is a TIEBREAK, not a filter: it changes nothing
+        // when the budget is not binding, and it never widens what is visible - the WHERE clause is
+        // untouched. Empty when no priority keys are supplied, so every existing caller gets the
+        // byte-identical query it had before.
+        var priority = hasPriorityKeys
+            ? "CASE WHEN f.predicate_key IN $priorityKeys THEN 0 ELSE 1 END, "
+            : string.Empty;
         var owner = !hasOwnerFilter ? string.Empty
             : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
                             : " AND f.owner_id = $ownerId";
@@ -73,7 +88,7 @@ internal static class FactQueries
             WHERE f.predicate_key IN $predicateKeys
               AND f.invalidated_at IS NULL{owner}
             RETURN f
-            ORDER BY f.confidence DESC, f.id ASC
+            ORDER BY {priority}f.confidence DESC, f.id ASC
             LIMIT $limit";
     }
 
@@ -188,8 +203,12 @@ internal static class FactQueries
 
     /// <summary>
     /// Vector similarity search on fact embeddings, with an optional owner/shared filter (R1).
-    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering, so
-    /// an owner filter is never starved by higher-scoring foreign rows. When
+    /// Over-fetches <paramref name="topK"/> candidates then LIMITs to <c>$limit</c> after filtering,
+    /// which <b>reduces but does not remove</b> starvation by higher-scoring foreign rows. This comment
+    /// previously claimed the owner filter "is never starved"; that claim was measured and is false —
+    /// on a 50-owner corpus the querying owner received a mean of 7 of 60 candidates, and one question
+    /// received none at all. See <c>OwnerVectorOverFetch</c>, which escalates once when a scoped search
+    /// returns empty. When
     /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
     /// order key (<c>$tmpWeight</c>); when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
@@ -304,20 +323,48 @@ internal static class FactQueries
     // ── FindByTripleAsync ──────────────────────────────────────────────
 
     /// <summary>
-    /// Case-insensitive lookup of a fact by its subject/predicate/object triple, with an optional
-    /// owner/shared filter (R1) so a triple lookup cannot reach into another owner's private facts.
-    /// Null owner ⇒ unscoped.
+    /// Looks a fact up by the same canonical triple the write path MERGEs on, with an optional
+    /// owner/shared filter (R1) so a lookup cannot reach into another owner's private facts.
     /// </summary>
+    /// <remarks>
+    /// <b>This used to ask a different question than the write path answers.</b> It matched
+    /// <c>toLower(f.subject) = toLower($subject)</c> on all three properties, while
+    /// <see cref="UpsertBatch"/> and <c>FusedPersistenceQueries.FactUpsertBatch</c> MERGE on
+    /// <c>{subject_key, predicate_key, object_key, owner_key}</c>.
+    /// <para>
+    /// Those are not the same predicate. <c>MemoryTripleCanonicalizer.CanonicalValue</c> applies
+    /// <c>ToLowerInvariant</c> <i>and collapses whitespace runs</i>; Cypher's <c>toLower</c> does
+    /// neither, and the two disagree outright on U+0130 — the documented reason these keys are
+    /// computed in C# and never in Cypher. So this lookup could find a <b>different fact than a
+    /// MERGE would collapse onto</b>, which is a correctness bug independent of any performance
+    /// concern.
+    /// </para>
+    /// <para>
+    /// It is also the only shape that can use an index. Measured on 5.26 with 20,000 facts: the
+    /// <c>toLower</c> form plans a <c>NodeByLabelScan</c>; filtering all four canonical keys plans a
+    /// <c>NodeIndexSeek</c> returning one row. <b>Three of the four columns is not enough</b> —
+    /// <c>fact_merge_key_idx</c> requires every column filtered, not merely a leading prefix, which
+    /// is why the owner clause here matches <c>owner_key</c> rather than <c>owner_id</c>.
+    /// </para>
+    /// <para>
+    /// <b>Unscoped lookups still scan</b>, and deliberately so: with no owner there is no fourth
+    /// column to filter. They keep the correctness fix and lose three per-row <c>toLower</c> calls,
+    /// but no seek is claimed for them.
+    /// </para>
+    /// </remarks>
     public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
     {
+        // owner_key, not owner_id: only owner_key is part of the merge-key index, and only a filter
+        // on every one of its columns produces a seek. Shared facts carry the shared marker as their
+        // owner_key, so include-shared admits both rather than testing for a null owner.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
-                            : " AND f.owner_id = $ownerId";
+            : includeShared ? " AND f.owner_key IN [$ownerKey, $sharedOwnerKey]"
+                            : " AND f.owner_key = $ownerKey";
         return $@"
             MATCH (f:Fact)
-            WHERE toLower(f.subject) = toLower($subject)
-              AND toLower(f.predicate) = toLower($predicate)
-              AND toLower(f.object) = toLower($object){owner}
+            WHERE f.subject_key = $subjectKey
+              AND f.predicate_key = $predicateKey
+              AND f.object_key = $objectKey{owner}
             RETURN f LIMIT 1";
     }
 }

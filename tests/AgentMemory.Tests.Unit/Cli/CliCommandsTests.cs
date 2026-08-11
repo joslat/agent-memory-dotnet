@@ -76,6 +76,51 @@ public sealed class CliCommandsTests
             .And.Contain("bootstrap");
     }
 
+    /// <summary>
+    /// L10. A FAILED index is <b>present by name</b>, so a name-only conformance check reports OK on
+    /// exactly the condition an operator opens <c>schema-check</c> to diagnose: queries still succeed
+    /// through full scans, and the only symptom is unexplained slowness.
+    /// </summary>
+    [Fact]
+    public async Task SchemaCheckCommand_OwnedIndexFailed_ReturnsOne_EvenThoughEveryNameIsPresent()
+    {
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var broken = SchemaConformance.ExpectedObjectNames(1536)[0];
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string[]>>>(), Arg.Any<CancellationToken>())
+              .Returns([$"{broken} (RANGE)"]);
+
+        var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
+
+        exit.Should().Be(1);
+        _output.ToString().Should().Contain("FAILED").And.Contain(broken);
+    }
+
+    /// <summary>
+    /// The scoping half: a neighbouring application's failed index on a shared database is reported
+    /// for the operator's benefit but is not this library's conformance failure, so the exit code
+    /// stays 0 — otherwise <c>schema-check</c> can never pass on a shared instance.
+    /// </summary>
+    [Fact]
+    public async Task SchemaCheckCommand_ForeignIndexFailed_StillReturnsZero_ButSaysSo()
+    {
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string[]>>>(), Arg.Any<CancellationToken>())
+              .Returns(["someone_elses_idx (RANGE)"]);
+
+        var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("someone_elses_idx").And.Contain("not created by AgentMemory");
+    }
+
     [Fact]
     public async Task ConsolidateCommand_DefaultsToDryRun()
     {

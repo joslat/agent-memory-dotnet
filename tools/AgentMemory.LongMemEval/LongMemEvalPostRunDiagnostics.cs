@@ -34,7 +34,24 @@ public sealed record LongMemEvalJudgeRetryResult(
     /// The leading letter-token the parser rejected, which is the judge's own verdict word (e.g.
     /// "Partially"). Never the explanation body.
     /// </summary>
-    string? RejectedToken = null);
+    string? RejectedToken = null,
+    /// <summary>
+    /// The leading letter-token <b>after</b> a <c>Judge:</c>-style label, when one is present.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RejectedToken"/> alone cannot tell the two failures apart. Both of these report
+    /// <c>RejectedToken = "Judge"</c>:
+    /// <list type="bullet">
+    /// <item><description><c>"Judge: yes, the answer is correct"</c> — a <b>parser defect</b>, the
+    /// verdict is right there.</description></item>
+    /// <item><description><c>"Judge deemed the response partially correct"</c> — a <b>genuine
+    /// non-verdict</b>, and refusing it is correct behaviour.</description></item>
+    /// </list>
+    /// Question <c>7405e8b1</c> failed this way in two separate runs and the artifact could not say
+    /// which case it was, so the same investigation had to start from nothing twice. One extra token
+    /// settles it, and carries no more user content than the existing one does.
+    /// </remarks>
+    string? RejectedAfterLabel = null);
 
 public sealed record LongMemEvalOracleResult(
     string QuestionId,
@@ -280,6 +297,7 @@ internal static class LongMemEvalPostRunDiagnostics
 
         string? failureKind = null;
         string? rejectedToken = null;
+        string? rejectedAfterLabel = null;
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
             try
@@ -292,6 +310,7 @@ internal static class LongMemEvalPostRunDiagnostics
                         judgment.Explanation, out var parsed))
                 {
                     rejectedToken = LeadingToken(judgment.Explanation);
+                    rejectedAfterLabel = LeadingTokenAfterLabel(judgment.Explanation);
                     failureKind = "unparseable";
                 }
                 else if (parsed != judgment.Correct)
@@ -329,11 +348,36 @@ internal static class LongMemEvalPostRunDiagnostics
         return new LongMemEvalJudgeRetryResult(
             indexed.QuestionId, "invalid", attempts, false, null, null, attempts,
             failureKind ?? "unparseable",
-            rejectedToken);
+            rejectedToken,
+            rejectedAfterLabel);
     }
 
 
     /// <summary>The leading letter-token of a judge explanation, capped, for diagnostics only.</summary>
+    /// <summary>
+    /// The leading letter-token after a short <c>Judge:</c>-style label, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors the label rule in <c>LongMemEvalRunValidator.TryParseJudgeVerdict</c> exactly — same
+    /// 32-character bound, same <c>"judg"</c> prefix — so the diagnostic describes the parser that
+    /// actually ran rather than a second, drifting copy of its logic.
+    /// </remarks>
+    private static string? LeadingTokenAfterLabel(string? explanation)
+    {
+        if (string.IsNullOrWhiteSpace(explanation))
+            return null;
+
+        var value = explanation.Trim();
+        var colon = value.IndexOf(':', StringComparison.Ordinal);
+        if (colon <= 0 || colon > 32 ||
+            !value.AsSpan(0, colon).TrimStart().StartsWith("judg", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return LeadingToken(value[(colon + 1)..].Trim());
+    }
+
     private static string LeadingToken(string? explanation)
     {
         if (string.IsNullOrWhiteSpace(explanation))

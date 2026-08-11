@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 using Neo4j.Driver;
 using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
 
+using AgentMemory.Neo4j.Infrastructure;
+
 namespace AgentMemory.Neo4j.Repositories;
 
 internal sealed partial class Neo4jFactRepository
@@ -22,6 +24,23 @@ internal sealed partial class Neo4jFactRepository
             .Select(group => group.Last())
             .ToList();
         var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+
+        // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
+        // owner_key}, and it is now backed by a range index — so an oversized value stops being a
+        // slow scan and becomes a driver failure from inside the write. Reject it here, naming the
+        // property and the fact, rather than surfacing an opaque message from mid-batch.
+        foreach (var fact in deduped)
+        {
+            IndexKeyBudget.EnsureCompositeIndexable(
+                [
+                    ("subject_key", MemoryTripleCanonicalizer.CanonicalValue(fact.Subject)),
+                    ("predicate_key", MemoryTripleCanonicalizer.Canonical(fact.Predicate)),
+                    ("object_key", MemoryTripleCanonicalizer.CanonicalValue(fact.Object)),
+                    ("owner_key", fact.OwnerId ?? OwnerKeyShared)
+                ],
+                fact.FactId);
+        }
+
         var items = deduped.Select(fact => new Dictionary<string, object?>
         {
             ["id"] = fact.FactId,

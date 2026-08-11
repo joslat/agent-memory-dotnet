@@ -80,16 +80,55 @@ public sealed class RelationCompletenessTests
     }
 
     [Fact]
-    public void TheExpansionLimitBeingBindingIsReportedSeparately()
+    public void TheBudgetIsBindingWhenTHE_UNION_ExceedsIt_NotJustThisRelation()
     {
-        // If the graph holds more facts than the single shared LIMIT can return, completeness is
-        // arithmetically impossible and that is not a retrieval defect. Reporting it lets the two
-        // be told apart instead of inferred.
-        var r = Compute(["serviced"], graph: new() { ["serviced"] = 140 }, retrieved: 100,
-                        expansionLimit: 100);
+        // L13a. The budget is a SINGLE shared LIMIT over the whole predicate union - the question's
+        // relations PLUS the canonical predicate of every top-K vector hit - ordered globally by
+        // confidence. So it binds when the union exceeds it, which is the common case, not when this
+        // one relation does.
+        //
+        // The original definition was `D > ExpansionLimit`, i.e. "does this relation alone exceed the
+        // budget". It reported false on every real question while the budget was in fact exhausted on
+        // all of them: a9f6b44c had D=49 against a limit of 60 and received 22, because 38 slots went
+        // to unrelated higher-confidence predicates. Testing the wrong quantity made a live defect
+        // look like a clean run.
+        var r = AgentMemoryLongMemEvalAdapter.ComputeRelationCompleteness(
+            ["serviced"],
+            new Dictionary<string, int> { ["serviced"] = 40 },
+            [Fact("serviced")],
+            expansionLimit: 60,
+            unionGraphTotal: 140);
 
-        r.LimitBinding.Should().BeTrue();
+        r.LimitBinding.Should().BeTrue("the union of 140 exceeds the 60-row budget");
         r.Complete.Should().BeFalse();
+    }
+
+    [Fact]
+    public void TheBudgetIsNotBindingWhenTheWholeUnionFits()
+    {
+        // The control: an incomplete relation with room to spare is a genuine retrieval defect, and
+        // must not be excused as a budget limitation.
+        var r = AgentMemoryLongMemEvalAdapter.ComputeRelationCompleteness(
+            ["serviced"],
+            new Dictionary<string, int> { ["serviced"] = 40 },
+            [Fact("serviced")],
+            expansionLimit: 60,
+            unionGraphTotal: 45);
+
+        r.LimitBinding.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AnUnknownUnionTotalDoesNotClaimTheBudgetWasFine()
+    {
+        // Not measured must not read as "not binding" - that is the failure mode being fixed.
+        var r = AgentMemoryLongMemEvalAdapter.ComputeRelationCompleteness(
+            ["serviced"],
+            new Dictionary<string, int> { ["serviced"] = 40 },
+            [Fact("serviced")],
+            expansionLimit: 60);
+
+        r.LimitBinding.Should().BeNull();
     }
 
     [Fact]

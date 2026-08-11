@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Options;
+
 namespace AgentMemory.Extraction.Llm;
 
 /// <summary>
@@ -22,10 +24,30 @@ public sealed class LlmExtractionOptions
     public bool UseJsonResponseFormat { get; set; } = true;
 
     /// <summary>
+    /// What extraction does with what the <b>assistant</b> said.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="AssistantContentMode.Ignore"/>, which is the behaviour every existing
+    /// measurement was taken under and reproduces today's prompts byte-for-byte. The other modes
+    /// store different things and therefore retrieve differently; which is better is an empirical
+    /// question this setting exists to let us ask.
+    /// </remarks>
+    public AssistantContentMode AssistantContent { get; set; } = AssistantContentMode.Ignore;
+
+    /// <summary>
     /// Uses one typed model response for entities, facts, preferences, and relationships.
     /// Disabled by default until the unified path passes live extraction-quality acceptance;
     /// the existing four-category extraction path remains the compatibility control.
     /// </summary>
+    /// <summary>
+    /// Whether extraction records how long a fact is expected to hold (prospective memory).
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="TemporalValidityMode.Ignore"/>, which appends nothing to any prompt and
+    /// so reproduces the prompts every existing measurement was taken with, byte for byte.
+    /// </remarks>
+    public TemporalValidityMode TemporalValidity { get; set; } = TemporalValidityMode.Ignore;
+
     public bool UseUnifiedExtraction { get; set; }
 
     /// <summary>

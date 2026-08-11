@@ -85,20 +85,30 @@ public sealed class ScopedNonVectorReadQueryTests
     public void FindByTriple_Unscoped_HasNoOwnerPredicate()
     {
         var cypher = FactQueries.FindByTriple(hasOwnerFilter: false, includeShared: true);
-        cypher.Should().Contain("toLower(f.subject) = toLower($subject)").And.NotContain("owner_id");
+        // The invariant this guards - an unscoped lookup carries NO owner predicate - is unchanged.
+        // Only the match shape moved: from toLower(f.subject) to the canonical key the write path
+        // MERGEs on, so a lookup and a MERGE agree on what "the same triple" means.
+        cypher.Should().Contain("f.subject_key = $subjectKey")
+            .And.NotContain("owner_id").And.NotContain("owner_key");
     }
 
     [Fact]
     public void FindByTriple_ScopedIncludeShared_MatchesOwnerOrNull()
     {
+        // Same admission set, expressed on the indexed column. A shared fact is written with
+        // owner_id = null AND owner_key = the shared marker, so "owner_key IN [mine, shared]" admits
+        // exactly what "owner_id = mine OR owner_id IS NULL" did - and unlike the old form it can be
+        // seeked, because owner_key is part of fact_merge_key_idx and owner_id is not.
         FactQueries.FindByTriple(hasOwnerFilter: true, includeShared: true)
-            .Should().Contain("(f.owner_id = $ownerId OR f.owner_id IS NULL)");
+            .Should().Contain("f.owner_key IN [$ownerKey, $sharedOwnerKey]");
     }
 
     [Fact]
     public void FindByTriple_ScopedExcludeShared_MatchesOwnerOnly()
     {
         var cypher = FactQueries.FindByTriple(hasOwnerFilter: true, includeShared: false);
-        cypher.Should().Contain("f.owner_id = $ownerId").And.NotContain("IS NULL");
+        // owner_key, not owner_id: only owner_key belongs to fact_merge_key_idx, and the
+        // isolation guarantee is identical because an owned fact stores the same value in both.
+        cypher.Should().Contain("f.owner_key = $ownerKey").And.NotContain("IS NULL");
     }
 }

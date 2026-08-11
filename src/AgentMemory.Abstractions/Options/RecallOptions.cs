@@ -78,6 +78,8 @@ public sealed record RecallOptions
     /// <remarks>
     /// The repository and its Cypher have always supported this, and automatic recall passed a
     /// hardcoded <c>null</c>, so nothing could ever reach it — a built, plumbed, unreachable option.
+    /// It is now honoured on both recall paths: live and point-in-time (<c>AssembleContextAsOfAsync</c>,
+    /// which forwarded a hardcoded <c>null</c> of its own for longer than the live path did).
     /// <para>
     /// It matters because a recalled trace is presented to the reader as precedent with nothing
     /// marking it as a failure, so imitating reasoning that did not work is worse than recalling

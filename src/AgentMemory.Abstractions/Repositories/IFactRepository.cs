@@ -131,11 +131,25 @@ public interface IFactRepository
     /// Defaults to empty so existing implementations remain source-compatible; a store that cannot
     /// retrieve by relation simply contributes nothing rather than failing.
     /// </para>
+    /// <para>
+    /// J3.1: the budget is shared with predicates the caller borrowed from top-K, so without a
+    /// priority set an unrelated high-confidence predicate can exhaust it before the named relation
+    /// is complete — defeating the whole guarantee. <c>priorityPredicates</c> is optional and
+    /// trailing, so existing implementations and callers are unaffected.
+    /// </para>
     /// </remarks>
+    /// <param name="canonicalPredicates">Canonical predicate keys to retrieve, whole.</param>
+    /// <param name="limit">Maximum facts returned across all of them combined.</param>
+    /// <param name="scope">Owner scope for the read.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="priorityPredicates">
+    /// Predicates the caller asked for by name, ordered ahead of the rest when the budget binds.
+    /// </param>
     Task<IReadOnlyList<Fact>> SearchByCanonicalPredicatesAsync(
         IReadOnlyList<string> canonicalPredicates,
         int limit,
         MemoryScope scope,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? priorityPredicates = null) =>
         Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
 }

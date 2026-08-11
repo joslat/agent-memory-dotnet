@@ -179,9 +179,43 @@ public sealed class AgentTraceRecorder
     /// <param name="traceId">Identifier of the trace to complete.</param>
     /// <param name="outcome">Human-readable description of how the agent run concluded.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <summary>
+    /// Completes a trace without recording whether it succeeded.
+    /// </summary>
+    /// <remarks>
+    /// Kept for source compatibility, and it is the reason every MAF-recorded trace carried
+    /// <c>success = null</c>: this overload cannot express an outcome, and it was the only one.
+    /// Prefer the overload taking <c>success</c> — a trace with no outcome label is rendered to the
+    /// model as a <b>failed</b> precedent and is invisible to a successful-only recall.
+    /// </remarks>
+    public Task CompleteTraceAsync(
+        string traceId,
+        string outcome,
+        CancellationToken cancellationToken = default) =>
+        CompleteTraceAsync(traceId, outcome, success: null, cancellationToken);
+
+    /// <summary>
+    /// Completes a trace, recording whether it succeeded.
+    /// </summary>
+    /// <remarks>
+    /// <c>IReasoningMemoryService.CompleteTraceAsync</c> has always accepted <c>bool? success</c>, and
+    /// the TCK bridge has always passed it (<c>TckBridge/Program.cs:571</c>). The MAF recorder did
+    /// not, so every trace it persisted stored <c>success = null</c>. Two consequences, both verified:
+    /// <list type="bullet">
+    /// <item><description><c>MemoryQueryFacade</c> renders a recalled trace as
+    /// <c>t.Success == true ? "✓" : "✗"</c>, so a null-outcome trace is presented to the model as a
+    /// <b>failed</b> precedent — worse than not recalling it.</description></item>
+    /// <item><description><c>RecallOptions.SuccessfulTracesOnly = true</c> filters on
+    /// <c>node.success = $successFilter</c>, and in Cypher <c>null = true</c> is null, so a
+    /// successful-only recall returned <b>nothing</b>.</description></item>
+    /// </list>
+    /// Added as an <b>overload</b> rather than an optional parameter: this is a published surface, and
+    /// adding an optional parameter to one is a binary break.
+    /// </remarks>
     public async Task CompleteTraceAsync(
         string traceId,
         string outcome,
+        bool? success,
         CancellationToken cancellationToken = default)
     {
         if (traceId is null) throw new ArgumentNullException(nameof(traceId));
@@ -196,7 +230,7 @@ public sealed class AgentTraceRecorder
         if (_persist)
         {
             await _reasoningService.CompleteTraceAsync(
-                traceId, outcome, cancellationToken: cancellationToken).ConfigureAwait(false);
+                traceId, outcome, success, cancellationToken).ConfigureAwait(false);
         }
 
         _stepCounts.TryRemove(traceId, out _);

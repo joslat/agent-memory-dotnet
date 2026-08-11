@@ -66,9 +66,7 @@ internal static class LongMemEvalPreparedBatchExecutor
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSessionsPerBatch);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInputTokens);
 
-        var planner = services
-            .GetServices<IMultiSessionUnifiedMemoryExtractor>()
-            .Single(extractor => extractor.IsEnabled);
+        var planner = RequirePlanner(services);
         var plans = new MultiSessionExtractionPlan[questions.Count];
         for (var index = 0; index < questions.Count; index++)
         {
@@ -171,9 +169,7 @@ internal static class LongMemEvalPreparedBatchExecutor
                 {
                     await using var scope = services.CreateAsyncScope();
                     var scoped = scope.ServiceProvider;
-                    var planner = scoped
-                        .GetServices<IMultiSessionUnifiedMemoryExtractor>()
-                        .Single(extractor => extractor.IsEnabled);
+                    var planner = RequirePlanner(scoped);
                     var adapter = new AgentMemoryLongMemEvalAdapter(
                         scoped.GetRequiredService<IMemoryService>(),
                         extractionCalls,
@@ -262,6 +258,41 @@ internal static class LongMemEvalPreparedBatchExecutor
             observed = previous;
         }
     }
+
+    /// <summary>
+    /// The multi-session extractor this executor is built on, or a diagnosable error.
+    /// </summary>
+    /// <remarks>
+    /// Both call sites used <c>Single(extractor =&gt; extractor.IsEnabled)</c>, so running with
+    /// <c>UseMultiSessionBatchExtraction=false</c> failed with <c>InvalidOperationException: Sequence
+    /// contains no matching element</c> — an opaque message naming neither the option nor the
+    /// component, for a configuration a user can legitimately ask for.
+    /// <para>
+    /// <b>The constraint it now states plainly:</b> prepared-pair preparation IS multi-session batch
+    /// execution. It plans batches, seals a manifest over the planned call count and reconciles that
+    /// count afterwards, none of which has a single-session equivalent — so the single-session
+    /// <c>LlmUnifiedMemoryExtractor</c> cannot be measured through this path. Supporting it means
+    /// giving this executor a per-session planning mode with its own accounting, not relaxing a check.
+    /// </para>
+    /// </remarks>
+    private static IMultiSessionUnifiedMemoryExtractor RequirePlanner(IServiceProvider services)
+    {
+        var planner = services
+            .GetServices<IMultiSessionUnifiedMemoryExtractor>()
+            .FirstOrDefault(extractor => extractor.IsEnabled);
+        if (planner is null)
+        {
+            throw new InvalidOperationException(
+                "Prepared-pair preparation requires an enabled IMultiSessionUnifiedMemoryExtractor, "
+                + "which needs both UseUnifiedExtraction and UseMultiSessionBatchExtraction. "
+                + "--single-session-unified disables the second, and preparation has no single-session "
+                + "planning mode: it plans batches and seals a manifest over the planned call count. "
+                + "Measuring the single-session unified extractor requires adding that mode here.");
+        }
+
+        return planner;
+    }
+
 }
 
 internal sealed record LongMemEvalPreparedBatchExecution(

@@ -875,7 +875,7 @@ public sealed class MemoryContextAssemblerTests
             (third, 0.77)
         ];
 
-        var ranked = MemoryContextAssembler.BuildRankedItems([first, third], retrieved);
+        var ranked = MemoryContextAssembler.BuildRankedItems([first, third], retrieved, m => m.MessageId);
 
         ranked.Should().Equal(
             new MemoryContextRankedItem("first", 0.99, RetrievalRank: 1, ContextRank: 1),

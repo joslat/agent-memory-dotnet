@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Options;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -50,7 +51,8 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     {
         var conversationText = ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
-            _options.FactExtractionPrompt ?? DefaultSystemPrompt,
+            _options.FactExtractionPrompt
+                ?? BuildSystemPrompt(_options.AssistantContent, _options.TemporalValidity),
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,
@@ -70,8 +72,25 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
                 Subject = f.Subject,
                 Predicate = f.Predicate,
                 Object = f.Object,
-                Confidence = f.Confidence
+                Confidence = f.Confidence,
+                ValidFrom = f.ValidFrom,
+                ValidUntil = f.ValidUntil
             })
             .ToList();
     }
+
+    /// <summary>The default prompt plus whatever the assistant-content setting asks for.</summary>
+    /// <remarks>
+    /// Shared with the two unified extractors through <see cref="ExtractionPromptSemantics"/>, so the
+    /// three rungs of the extraction ladder cannot disagree about semantics again.
+    /// </remarks>
+    internal static string BuildSystemPrompt(AssistantContentMode assistantContent) =>
+        BuildSystemPrompt(assistantContent, TemporalValidityMode.Ignore);
+
+    /// <inheritdoc cref="BuildSystemPrompt(AssistantContentMode)"/>
+    internal static string BuildSystemPrompt(
+        AssistantContentMode assistantContent, TemporalValidityMode temporalValidity) =>
+        DefaultSystemPrompt
+        + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
+        + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
 }

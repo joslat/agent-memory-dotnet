@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
@@ -16,10 +17,6 @@ namespace AgentMemory.Neo4j.Repositories;
 internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPersistsProvenance,
     IBatchMemoryRepository<Fact>, IFusedBatchMemoryRepository<Fact>
 {
-    // Owner-scoped vector search over-fetches candidates (topK > limit) so an owner filter is not
-    // starved by higher-scoring foreign rows; the post-WHERE then LIMITs to the requested count (R1).
-    internal const int OwnerOverFetchFactor = 5;
-    internal const int OwnerOverFetchFloor = 50;
 
     // Non-null sentinel for the shared/global owner, used only as the MERGE-pattern owner_key so that
     // a shared fact (owner_id null) stays distinct from owned facts with the same S/P/O triple.
@@ -49,6 +46,22 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     {
         _logger.LogDebug("Upserting fact {Id}", fact.FactId);
 
+        var subjectKey = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject);
+        var predicateKey = MemoryTripleCanonicalizer.Canonical(fact.Predicate);
+        var objectKey = MemoryTripleCanonicalizer.CanonicalValue(fact.Object);
+        // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
+        // owner_key}, and it is now backed by a range index — so an oversized value stops being a
+        // slow scan and becomes a driver failure from inside the write. Reject it here, naming the
+        // property and the fact, rather than surfacing an opaque message from mid-batch.
+        IndexKeyBudget.EnsureCompositeIndexable(
+            [
+                ("subject_key", subjectKey),
+                ("predicate_key", predicateKey),
+                ("object_key", objectKey),
+                ("owner_key", fact.OwnerId ?? OwnerKeyShared)
+            ],
+            fact.FactId);
+
         return await _tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
@@ -57,9 +70,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["subject"] = fact.Subject,
                 ["predicate"] = fact.Predicate,
                 // Identity is the canonical trio; the raw strings above stay for display and audit.
-                ["subjectKey"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Subject),
-                ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(fact.Predicate),
-                ["objectKey"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Object),
+                ["subjectKey"] = subjectKey,
+                ["predicateKey"] = predicateKey,
+                ["objectKey"] = objectKey,
                 ["object"] = fact.Object,
                 ["ownerId"] = fact.OwnerId,
                 ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
@@ -121,6 +134,23 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             .ToList();
 
         var updatedAt = DateTimeOffset.UtcNow.ToString("O");
+
+        // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
+        // owner_key}, and it is now backed by a range index — so an oversized value stops being a
+        // slow scan and becomes a driver failure from inside the write. Reject it here, naming the
+        // property and the fact, rather than surfacing an opaque message from mid-batch.
+        foreach (var f in deduped)
+        {
+            IndexKeyBudget.EnsureCompositeIndexable(
+                [
+                    ("subject_key", MemoryTripleCanonicalizer.CanonicalValue(f.Subject)),
+                    ("predicate_key", MemoryTripleCanonicalizer.Canonical(f.Predicate)),
+                    ("object_key", MemoryTripleCanonicalizer.CanonicalValue(f.Object)),
+                    ("owner_key", f.OwnerId ?? OwnerKeyShared)
+                ],
+                f.FactId);
+        }
+
         var items = deduped.Select(f => new Dictionary<string, object?>
         {
             ["id"] = f.FactId,
@@ -244,12 +274,17 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Fact, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Recall-yield signal. The mean-7-of-60 starvation documented on OwnerVectorOverFetch was found by
+        // a one-off study; nothing in the running system reported it. This span makes it standing. Started
+        // AFTER the degraded-embedding short-circuit above, so a search that never reached the index does
+        // not publish a zero-yield reading it never earned.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.fact_vector");
         _logger.LogDebug("Vector search facts, limit={Limit}, owner={Owner}", limit, scope?.OwnerId);
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
         bool recencyRerank = ranking.RecencyRerankEnabled;
-        var cypher = FactQueries.SearchByVector(hasOwner, includeShared, topK, recencyRerank);
         var parameters = new Dictionary<string, object?>
         {
             ["embedding"] = queryEmbedding.ToList(),
@@ -259,17 +294,74 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
         if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
-        return await _tx.ReadAsync(async runner =>
+        async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
-            var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r =>
+            var cypher = FactQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            return await _tx.ReadAsync(async runner =>
             {
-                var node = r["node"].As<INode>();
-                var score = r["score"].As<double>();
-                return (MapToFact(node, ReadEmbedding(node)), score);
-            }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r =>
+                {
+                    var node = r["node"].As<INode>();
+                    var score = r["score"].As<double>();
+                    return (MapToFact(node, ReadEmbedding(node)), score);
+                }).ToList();
+            }, ct).ConfigureAwait(false) ?? [];
+        }
+
+        var results = await QueryAsync(topK, cancellationToken).ConfigureAwait(false);
+
+        // The index is global, so the owner filter runs AFTER top-K and the owner's own rows can be
+        // crowded out entirely by other tenants'. Measured on a 50-owner base, the owner received a
+        // mean of 7 of 60 candidates and one question received none at all from a graph holding 504
+        // of its own live, embedded, above-threshold facts. Empty is total failure, so it is worth
+        // one wider query; anything non-empty is left alone, because escalating on "short" would tax
+        // every small tenant forever.
+        int? escalatedTopK = null;
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        {
+            var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
+            if (widened > topK)
+            {
+                _logger.LogDebug(
+                    "Owner-scoped fact vector search returned nothing at topK={TopK}; retrying at {Widened}.",
+                    topK, widened);
+                escalatedTopK = widened;
+                results = await QueryAsync(widened, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (activity is not null)
+        {
+            // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks:
+            // the tag block is the only work here that exists purely to produce telemetry, so it is skipped
+            // whole (no boxing, no allocation) when nobody is listening.
+            //
+            // owner_scoped separates the two populations: unscoped searches have no post-filter and so no
+            // starvation to report, and folding them into an aggregate would dilute the very signal this
+            // exists to raise. limit is the denominator — `returned` is capped by the Cypher's LIMIT $limit,
+            // so 7 rows means something different at limit 10 than at limit 7.
+            //
+            // Success path only: a search that threw is left untagged rather than tagged `returned = 0`,
+            // because a failed query measured nothing and a false zero here reads as starvation.
+            activity.SetTag("memory.vector.owner_scoped", hasOwner);
+            activity.SetTag("memory.vector.limit", limit);
+            activity.SetTag("memory.vector.requested_topk", topK);
+            // The width that ACTUALLY produced `returned`. Without it a consumer computing
+            // returned / requested_topk gets a wrong ratio whenever escalation fired, because
+            // `returned` then came from the widened query and `requested_topk` is the first pass.
+            // Deriving it requires knowing the escalation rule, so it is emitted rather than implied.
+            activity.SetTag("memory.vector.effective_topk", escalatedTopK ?? topK);
+            activity.SetTag("memory.vector.returned", results.Count);
+            activity.SetTag("memory.vector.escalated", escalatedTopK is not null);
+            // Absent, never defaulted, when no second pass was issued: a width nobody asked for is not a
+            // measurement. Same rule as LimitBinding, which is null rather than false when unmeasured.
+            if (escalatedTopK is { } widenedTopK)
+                activity.SetTag("memory.vector.escalated_topk", widenedTopK);
+        }
+
+        return results.Select(r => (r.Item1, r.Item2)).ToList();
     }
 
     public async Task<Fact?> FindDuplicateAsync(
@@ -490,11 +582,27 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
         var cypher = FactQueries.FindByTriple(hasOwner, includeShared);
 
+        // Canonicalized in C#, exactly as the write path does. Cypher's toLower() and
+        // ToLowerInvariant disagree on U+0130, so computing the key here is what keeps a lookup and a
+        // MERGE talking about the same triple.
+        // Dictionary<string, object>, matching the driver's IDictionary overload that every other
+        // parameterized read here uses. A nullable value type binds to RunAsync(string, object)
+        // instead and the query silently takes a different path.
+        var parameters = new Dictionary<string, object>
+        {
+            ["subjectKey"] = MemoryTripleCanonicalizer.CanonicalValue(subject),
+            ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(predicate),
+            ["objectKey"] = MemoryTripleCanonicalizer.CanonicalValue(@object),
+        };
+        if (hasOwner)
+        {
+            parameters["ownerKey"] = scope!.OwnerId!;
+            if (includeShared) parameters["sharedOwnerKey"] = OwnerKeyShared;
+        }
+
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = hasOwner
-                ? await runner.RunAsync(cypher, new Dictionary<string, object> { ["subject"] = subject, ["predicate"] = predicate, ["object"] = @object, ["ownerId"] = scope!.OwnerId! }).ConfigureAwait(false)
-                : await runner.RunAsync(cypher, new { subject, predicate, @object }).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
             var node = records[0]["f"].As<INode>();
@@ -515,7 +623,17 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (queryEmbedding is not { Length: > 0 }) return Array.Empty<(Fact, double)>();
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
-        int topK = hasOwner ? Math.Max(limit * OwnerOverFetchFactor, limit + OwnerOverFetchFloor) : limit;
+        int topK = OwnerVectorOverFetch.InitialTopK(limit, hasOwner);
+
+        // Recall-yield signal, on a span of its own. This path queries the same global vector index and
+        // applies the owner filter after top-K, so it is exposed to the same starvation documented on
+        // OwnerVectorOverFetch — but it is a different population from the live search: it reads a corpus
+        // as it stood at a past clock reading, which was legitimately smaller. Sharing the live span name
+        // would let a collapse in either be averaged away by the other, so they are named apart.
+        // Started AFTER the degraded-embedding short-circuit above, so a search that never reached the
+        // index does not publish a zero-yield reading it never earned.
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.fact_vector_as_of");
+
         // D6 bitemporal: asOf is the valid-time clock; systemAsOf is the transaction clock (defaults to asOf
         // for ordinary single-clock recall — identical to the previous behaviour).
         _logger.LogDebug("Temporal vector search facts valid@{ValidAsOf} system@{SystemAsOf}, limit={Limit}, owner={Owner}",
@@ -532,7 +650,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -542,7 +660,45 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 var score = r["score"].As<double>();
                 return (MapToFact(node, ReadEmbedding(node)), score);
             }).ToList();
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        if (activity is not null)
+        {
+            // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks:
+            // the tag block is the only work here that exists purely to produce telemetry, so it is skipped
+            // whole (no boxing, no allocation) when nobody is listening.
+            //
+            // Success path only: a search that threw measured nothing, and is left untagged rather than
+            // tagged `returned = 0`, because a false zero here is indistinguishable from real starvation.
+            activity.SetTag("memory.vector.owner_scoped", hasOwner);
+            activity.SetTag("memory.vector.limit", limit);
+            activity.SetTag("memory.vector.requested_topk", topK);
+            activity.SetTag("memory.vector.returned", results.Count);
+            // Constant false, and emitted anyway. This path issues exactly one query — the empty-result
+            // widening belongs to the live search alone — so `escalated` records what happened, not a
+            // choice that was weighed. It is emitted rather than omitted because omission is ambiguous:
+            // an absent flag reads as an instrumentation gap, while a measured `false` lets a consumer
+            // counting "total-failure recalls that got no second chance" find these rather than miss them.
+            //
+            // `effective_topk` is deliberately NOT emitted. On the live path it exists only because a
+            // second, wider query can produce `returned` while `requested_topk` still names the first
+            // pass. Here one width ever runs, so `requested_topk` IS the width that produced `returned`
+            // and is a correct denominator by itself. Echoing it under a second name would publish a
+            // distinction that does not exist and invite an alert on `effective_topk > requested_topk`,
+            // a condition this path cannot reach. `escalated_topk` is absent for the same reason it is
+            // absent on the live path's first pass: no second query was issued, so there is no width to
+            // report, and a width nobody asked for is not a measurement.
+            // effective_topk is emitted here too, even though it can only equal requested_topk on a
+            // path that never escalates. The earlier reasoning - that a redundant tag "invites an
+            // alert on effective_topk > requested_topk" - optimised for one consumer at the cost of
+            // every consumer: omitting it means returned/effective_topk works on six spans and
+            // silently breaks on this one, and an absent tag is indistinguishable from a site that
+            // emits nothing. Uniform vocabulary across all eight spans beats a locally tidier one.
+            activity.SetTag("memory.vector.effective_topk", topK);
+            activity.SetTag("memory.vector.escalated", false);
+        }
+
+        return results;
     }
 
     /// <inheritdoc />
@@ -550,7 +706,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IReadOnlyList<string> canonicalPredicates,
         int limit,
         MemoryScope scope,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? priorityPredicates = null)
     {
         ArgumentNullException.ThrowIfNull(canonicalPredicates);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -566,12 +723,16 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["predicateKeys"] = canonicalPredicates.ToArray(),
             ["limit"] = limit
         };
+        // Only bind the parameter when it is actually used, so the un-prioritised query stays
+        // byte-identical and its plan cache entry is unchanged.
+        var priorityKeys = priorityPredicates?.Where(p => !string.IsNullOrEmpty(p)).ToArray() ?? [];
+        if (priorityKeys.Length > 0) parameters["priorityKeys"] = priorityKeys;
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
         return await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
-                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared),
+                FactQueries.SearchByCanonicalPredicates(hasOwner, includeShared, priorityKeys.Length > 0),
                 parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<Fact>)records

@@ -66,19 +66,65 @@ public sealed class TraceSuccessFilterWiringTests
             Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
-    private async Task AssembleAsync(RecallOptions options)
+    /// <summary>
+    /// The same option must mean the same thing on both recall paths. It did not: the as-of path
+    /// passed a hardcoded <c>null</c>, so a caller who asked for successful-only got it from
+    /// <c>AssembleContextAsync</c> and silently did not get it from <c>AssembleContextAsOfAsync</c>.
+    /// </summary>
+    /// <remarks>
+    /// Nothing about point-in-time semantics justifies dropping it. The as-of Cypher applies the same
+    /// <c>node.success = $successFilter</c> predicate as the live one
+    /// (<c>ReasoningQueries.SearchByTaskVectorAsOf</c>), its only extra predicate is
+    /// <c>node.started_at &lt;= datetime($asOf)</c>, and the row it returns already carries the trace's
+    /// present-time <c>success</c> — so filtering on it exposes nothing the result did not already show.
+    /// The <c>null</c> case is the default and is asserted here too: it is what pins today's behaviour.
+    /// </remarks>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BothRecallPathsHonourTheSameOption(bool? successFilter)
+    {
+        var options = new RecallOptions { MaxTraces = 5, SuccessfulTracesOnly = successFilter };
+
+        await AssembleAsync(options).ConfigureAwait(true);
+        await AssembleAsOfAsync(options).ConfigureAwait(true);
+
+        await _reasoning.Received(1).SearchSimilarTracesAsync(
+            Arg.Any<float[]>(), successFilter, Arg.Any<int>(), Arg.Any<double>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _reasoning.Received(1).SearchSimilarTracesAsOfAsync(
+            Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), successFilter, Arg.Any<int>(),
+            Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    private Task AssembleAsync(RecallOptions options) =>
+        CreateAssembler().AssembleContextAsync(
+            new RecallRequest { SessionId = "s", Query = "q", Options = options });
+
+    private Task AssembleAsOfAsync(RecallOptions options) =>
+        CreateAssembler().AssembleContextAsOfAsync(
+            new RecallRequest { SessionId = "s", Query = "q", Options = options },
+            new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+    private MemoryContextAssembler CreateAssembler()
     {
         _reasoning
             .SearchSimilarTracesAsync(
                 Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), Arg.Any<double>(),
                 Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>([]));
+        _reasoning
+            .SearchSimilarTracesAsOfAsync(
+                Arg.Any<float[]>(), Arg.Any<DateTimeOffset>(), Arg.Any<bool?>(), Arg.Any<int>(),
+                Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>([]));
 
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[8]));
 
-        var assembler = new MemoryContextAssembler(
+        return new MemoryContextAssembler(
             Substitute.For<IShortTermMemoryService>(),
             Substitute.For<ILongTermMemoryService>(),
             _reasoning,
@@ -90,9 +136,5 @@ public sealed class TraceSuccessFilterWiringTests
             new DefaultMemoryIsolationPolicy(
                 Options.Create(new MemoryIsolationOptions()),
                 NullLogger<DefaultMemoryIsolationPolicy>.Instance));
-
-        await assembler.AssembleContextAsync(
-                new RecallRequest { SessionId = "s", Query = "q", Options = options })
-            .ConfigureAwait(true);
     }
 }

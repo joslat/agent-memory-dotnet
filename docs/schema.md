@@ -125,6 +125,8 @@ Range/point/relationship indexes:
 | `conversation_session_idx` | `Conversation.session_id` |
 | `message_timestamp_idx` | `Message.timestamp` |
 | `message_role_idx` | `Message.role` |
+| `message_session_idx` | `Message.session_id` — backs the primary short-term recall path, which filters `session_id` alone |
+| `message_session_timestamp_idx` | `Message.session_id`, `Message.timestamp` composite — backs session reads that also bound time |
 | `entity_type_idx` | `Entity.type` |
 | `entity_name_idx` | `Entity.name` |
 | `entity_canonical_idx` | `Entity.canonical_name` |
@@ -138,12 +140,23 @@ Range/point/relationship indexes:
 | `schema_version_idx` | `Schema.version` |
 | `entity_location_idx` | `Entity.location` point index |
 | `fact_owner_idx` | `Fact.owner_id` |
+| `fact_merge_key_idx` | `Fact.subject_key`, `Fact.object_key`, `Fact.predicate_key`, `Fact.owner_key` composite — backs the fact merge key and the triple lookup |
+| `fact_owner_key_idx` | `Fact.owner_key` — backs duplicate detection, which filters `owner_key` alone |
+| `fact_predicate_key_idx` | `Fact.predicate_key` — backs relation-completeness retrieval |
+
+> **Composite indexes need every column, not a prefix.** Measured on Neo4j 5.26 with 20,000 facts:
+> filtering all four columns of `fact_merge_key_idx` plans a `NodeIndexSeek`; filtering three of the
+> four contiguous columns plans a `NodeByLabelScan`, as does filtering one. This is why
+> `fact_owner_key_idx` and `fact_predicate_key_idx` exist as single-column indexes even though both
+> columns already appear inside the composite — a composite serves only queries that constrain **all**
+> of its columns.
 | `entity_owner_idx` | `Entity.owner_id` |
 | `preference_owner_idx` | `Preference.owner_id` |
 | `trace_owner_idx` | `ReasoningTrace.owner_id` |
 | `rel_owner_idx` | `RELATED_TO.owner_id` relationship-property index |
 | `conversation_archived_idx` | `Conversation.archived` |
 | `memory_read_audit_kind_idx` | `MemoryReadAudit.kind` |
+| `memory_read_audit_memory_id_idx` | `MemoryReadAudit.memory_id` — backs the history read-back |
 
 ## Fact Merge Semantics
 
