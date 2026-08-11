@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -199,7 +199,16 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
             var traces = await _reasoning.SearchSimilarTracesAsync(embedding, scope: ResolveScope("find_similar_tasks"), cancellationToken: cancellationToken).ConfigureAwait(false);
             if (traces.Count == 0) return "No similar tasks found.";
             var sb = new StringBuilder();
-            foreach (var t in traces) sb.AppendLine($"[{(t.Success == true ? "✓" : "✗")}] {t.Task}: {t.Outcome}");
+            // Three states, not two. Success is bool? and null means UNRECORDED, not failed -- and
+            // null is the common case: AgentTraceRecorder had no success parameter at all until
+            // recently, so every trace it wrote carries null. Collapsing that into "✗" presented the
+            // model with a precedent library in which everything had failed, which is worse than
+            // showing nothing: a wrong precedent is acted on, an absent one is investigated.
+            foreach (var t in traces)
+            {
+                var mark = t.Success switch { true => "✓", false => "✗", null => "?" };
+                sb.AppendLine($"[{mark}] {t.Task}: {t.Outcome}");
+            }
             return sb.ToString().Trim();
         }).ConfigureAwait(false);
     }

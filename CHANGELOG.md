@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A reasoning trace with no recorded outcome is no longer shown to the model as a failure.**
+  `ReasoningTrace.Success` is `bool?` and null means *unrecorded* — and null was the common case,
+  because `AgentTraceRecorder` had no success parameter at all until recently. `find_similar_tasks`
+  rendered `Success == true ? "✓" : "✗"`, so every MAF-recorded trace appeared as a **failed**
+  precedent. Now renders three states. A wrong precedent is acted on; an absent one is investigated.
+
 - **The query embedding is no longer generated when nothing will read it.** Every vector search is
   gated on its own `MaxX > 0`; the embedding was not, so a policy that narrowed a turn still paid for a
   provider round trip whose result nothing consumed. Remote-shaped that is the single largest stage of a
