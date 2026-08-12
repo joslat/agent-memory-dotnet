@@ -77,6 +77,15 @@ internal static class LongMemEvalPreparedPairProgram
             var datasetSha256 = Convert.ToHexStringLower(
                 SHA256.HashData(
                     await File.ReadAllBytesAsync(options.DatasetPath).ConfigureAwait(false)));
+            // Checked here because this is the last cheap moment: a cold build is 7-9 hours, and a
+            // dataset that is not the one every sealed corpus used produces numbers comparable to
+            // nothing. Warns rather than fails -- a different variant is legitimate work, and the
+            // actual sha travels in the fingerprint -- but it must never pass silently.
+            if (LongMemEvalDatasetLocator.DescribeMismatch(options.DatasetPath, datasetSha256)
+                is { } datasetWarning)
+            {
+                Console.Error.WriteLine(datasetWarning);
+            }
             var agentEvalRevision = AgentEvalRevision();
             var expectation = LongMemEvalPreparationFingerprint.Expect(
                 datasetSha256,
@@ -1312,7 +1321,11 @@ internal static class LongMemEvalPreparedPairProgram
             Array.IndexOf(args, name) >= 0;
 
         return new PreparedPairOptions(
-            Value("--dataset") ?? string.Empty,
+            // Explicit --dataset wins; LONGMEMEVAL_DATASET is the standing setting; the known
+            // checkout locations are the last resort. The path used to live only in shell history,
+            // which is how it went missing.
+            LongMemEvalDatasetLocator.Resolve(
+                Value("--dataset"), Environment.GetEnvironmentVariable) ?? string.Empty,
             ParsePositive(Value("--questions"), DefaultQuestions, "--questions"),
             ParsePositive(Value("--seed"), DefaultSeed, "--seed"),
             ParsePositive(Value("--max-relevant"), DefaultMaxRelevant, "--max-relevant"),
@@ -1396,7 +1409,11 @@ internal static class LongMemEvalPreparedPairProgram
         }
 
         if (string.IsNullOrWhiteSpace(options.DatasetPath))
-            throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required.");
+            throw new ArgumentException(
+                "--dataset <longmemeval_s_cleaned.json> is required, or set "
+                + $"{LongMemEvalDatasetLocator.PathVariable}. The file is gitignored here AND in "
+                + "AgentEval and is tracked by neither, so it exists on exactly one disk; the sha256 "
+                + $"of the one every recorded result used is {LongMemEvalDatasetLocator.KnownGoodSha256}.");
         if (!File.Exists(options.DatasetPath))
             throw new FileNotFoundException("LongMemEval dataset not found.", options.DatasetPath);
         if ((options.DiagnosticQuestionPosition is null) !=

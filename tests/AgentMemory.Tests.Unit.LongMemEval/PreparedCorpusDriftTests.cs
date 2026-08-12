@@ -142,15 +142,45 @@ public sealed class PreparedCorpusDriftTests
     [Fact]
     public void AnOlderManifestThatRecordedNothingIsDriftNotAgreement()
     {
-        // Schema 5 and earlier did not record assistantContent at all, so the field comes back empty.
-        // "We do not know how this was built" must never read as "it matches" -- treating unknown as
-        // equal is precisely how a check stops being able to fail.
-        var legacy = Prepared() with { AssistantContent = "", ExtractionVocabularySha256 = "" };
+        // Schema 5 and earlier carried none of the ingestion-identity fields, so deserialising one
+        // fills them from the record's DEFAULTS -- "Ignore", "Batch", false. Those are plausible
+        // values, and comparing against them reported a corpus built with Utterance as MATCHING a run
+        // configured for Ignore. Unknown silently reading as agreement is the one thing this check
+        // exists to prevent, and it survived the first version because the two defaults coincided.
+        var legacy = Prepared(assistantContent: "Ignore") with { SchemaVersion = 5 };
 
-        var drift = LongMemEvalPreparedCorpusDrift.Compare(legacy, Current());
+        var drift = LongMemEvalPreparedCorpusDrift.Compare(legacy, Current(assistantContent: "Ignore"));
 
-        drift.Select(d => d.Field)
-            .Should().Contain("assistantContent").And.Contain("extractionVocabularySha256");
+        drift.Select(d => d.Field).Should()
+            .Contain("assistantContent", "the default must not stand in for a value never recorded")
+            .And.Contain("extractionProvenance")
+            .And.Contain("usePredicateVocabulary")
+            .And.Contain("questionSeed");
+
+        // memoryTypes is the exception, and deliberately so: empty means "every type", and a corpus
+        // built before typed sampling existed genuinely IS an all-types corpus. Empty-against-empty
+        // is a real match here rather than an unrecorded value, which is why an episodic run against
+        // the same legacy corpus still drifts (asserted separately).
+        drift.Select(d => d.Field).Should().NotContain("memoryTypes");
+    }
+
+    [Fact]
+    public void ALegacyCorpusStillDriftsAgainstATypedRun()
+    {
+        // The other half of the memoryTypes exception: "all types" matching "all types" must not also
+        // mean it matches an episodic sample, whose questions it never ingested.
+        var legacy = Prepared() with { SchemaVersion = 5 };
+
+        LongMemEvalPreparedCorpusDrift.Compare(legacy, Current(memoryTypes: ["episodic"]))
+            .Select(d => d.Field).Should().Contain("memoryTypes");
+    }
+
+    [Fact]
+    public void ACurrentManifestIsStillComparedOnItsRealValues()
+    {
+        // The other side of that: schema 6 records these for real, so a matching corpus must still
+        // report clean rather than being blanketed as unrecorded.
+        LongMemEvalPreparedCorpusDrift.Compare(Prepared(), Current()).Should().BeEmpty();
     }
 
     [Fact]
@@ -207,5 +237,62 @@ public sealed class PreparedCorpusDriftTests
         var b = a with { Description = "something else" };
 
         LongMemEvalPreparationManifest.ComputeFingerprint(b).Should().Be(a.Fingerprint);
+    }
+
+    // ── older corpora must stay readable ──────────────────────────────────
+
+    [Fact]
+    public void AManifestSealedUnderAnOlderSchemaStillVerifies()
+    {
+        // THE regression this caught on real data. Bumping CurrentSchemaVersion to 6 made
+        // VerifyIntegrity reject every corpus sealed at schema 5 -- each one a 7-9 hour build --
+        // which is the precise opposite of what recording ingestion identity is for. Older schemas
+        // are read with the field set they were written under; only NEWER ones are refused.
+        var current = Prepared();
+        var legacy = current with { SchemaVersion = 5 };
+        var legacySealed = legacy with
+        {
+            Fingerprint = LongMemEvalPreparationManifest.ComputeFingerprint(legacy),
+        };
+
+        var verify = () => legacySealed.VerifyIntegrity();
+
+        verify.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ALegacyManifestHashesDifferentlyFromACurrentOne()
+    {
+        // The two field sets must stay genuinely separate: if the legacy path silently included the
+        // schema-6 fields, an old manifest would fail to verify for a reason nobody could see.
+        var current = Prepared();
+        var legacy = current with { SchemaVersion = 5 };
+
+        LongMemEvalPreparationManifest.ComputeFingerprint(legacy)
+            .Should().NotBe(LongMemEvalPreparationManifest.ComputeFingerprint(current));
+    }
+
+    [Fact]
+    public void AManifestFromANewerBuildIsRefused()
+    {
+        // It was written by a build that knew things this one does not, so its fingerprint cannot be
+        // recomputed here and its extra fields would be dropped in silence.
+        var future = Prepared() with { SchemaVersion = 99 };
+
+        var verify = () => future.VerifyIntegrity();
+
+        verify.Should().Throw<InvalidOperationException>().WithMessage("*newer build*");
+    }
+
+    [Fact]
+    public void ATamperedManifestStillFailsAtEverySchema()
+    {
+        // Version tolerance must not become "any fingerprint will do". The point of the check is that
+        // a manifest matches its own contents.
+        var tampered = Prepared() with { Fingerprint = "not-the-real-hash" };
+
+        ((Action)(() => tampered.VerifyIntegrity())).Should().Throw<InvalidOperationException>();
+        ((Action)(() => (tampered with { SchemaVersion = 5 }).VerifyIntegrity()))
+            .Should().Throw<InvalidOperationException>();
     }
 }

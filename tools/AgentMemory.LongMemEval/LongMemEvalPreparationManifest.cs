@@ -172,9 +172,32 @@ internal sealed record LongMemEvalPreparationManifest(
         return manifest with { Fingerprint = ComputeFingerprint(manifest) };
     }
 
+    /// <summary>
+    /// Checks a manifest against itself: that its recorded fingerprint matches its recorded contents.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Older schemas are read, not rejected.</b> Requiring an exact schema match orphaned every
+    /// corpus sealed before the current version -- each one a 7-9 hour build -- which is the precise
+    /// opposite of what recording ingestion identity is for. A manifest written by an older build is
+    /// still a valid description of a real corpus; what it lacks is fields, and the drift comparison
+    /// already treats an unrecorded field as drift rather than as agreement.
+    /// </para>
+    /// <para>
+    /// A <i>newer</i> schema is still refused. It was written by a build that knew things this one
+    /// does not, so its fingerprint cannot be recomputed here and its extra fields would be silently
+    /// dropped.
+    /// </para>
+    /// </remarks>
     internal void VerifyIntegrity()
     {
-        if (SchemaVersion != CurrentSchemaVersion)
+        if (SchemaVersion > CurrentSchemaVersion)
+        {
+            throw new InvalidOperationException(
+                $"LongMemEval preparation manifest schema {SchemaVersion} was written by a newer "
+                + $"build than this one (schema {CurrentSchemaVersion}); it cannot be verified here.");
+        }
+        if (SchemaVersion < 1)
         {
             throw new InvalidOperationException(
                 $"Unsupported LongMemEval preparation manifest schema {SchemaVersion}.");
@@ -185,9 +208,67 @@ internal sealed record LongMemEvalPreparationManifest(
             throw new InvalidOperationException("LongMemEval preparation manifest fingerprint mismatch.");
     }
 
+    /// <summary>
+    /// The fingerprint of a manifest, computed with the field set its own schema wrote.
+    /// </summary>
+    /// <remarks>
+    /// Schema 6 added five ingestion-identity fields to the hash. Hashing a schema-5 manifest with
+    /// them would never reproduce its recorded fingerprint, so every older corpus would read as
+    /// corrupt rather than as older -- and a corpus that took nine hours to build would be discarded
+    /// over a field it was never asked to record.
+    /// </remarks>
     internal static string ComputeFingerprint(LongMemEvalPreparationManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        return manifest.SchemaVersion >= 6
+            ? ComputeCurrentFingerprint(manifest)
+            : ComputeLegacyFingerprint(manifest);
+    }
+
+    /// <summary>The pre-schema-6 field set, preserved verbatim so older manifests still verify.</summary>
+    private static string ComputeLegacyFingerprint(LongMemEvalPreparationManifest manifest)
+    {
+        var canonical = new
+        {
+            manifest.SchemaVersion,
+            manifest.PreparationId,
+            manifest.DatasetSha256,
+            manifest.AgentEvalRevision,
+            manifest.ScopeRunIdSha256,
+            manifest.AnswerModelId,
+            manifest.JudgeModelId,
+            manifest.ExtractionModelId,
+            manifest.EmbeddingModelId,
+            manifest.EmbeddingDimensions,
+            manifest.MaxRelevantMessages,
+            manifest.ExtractionSourceTime,
+            manifest.UseJsonResponseFormat,
+            manifest.ExtractionResponseContract,
+            manifest.UseUnifiedExtraction,
+            manifest.UseMultiSessionBatchExtraction,
+            manifest.PreparationWorkers,
+            manifest.MaxSessionsPerBatch,
+            manifest.MaxInputTokens,
+            manifest.MaxConcurrentBatchesPerExtraction,
+            manifest.MaxConcurrentExtractionBatches,
+            Questions = manifest.Questions.Select(question => new
+            {
+                question.QuestionNumber,
+                question.QuestionId,
+                question.HistorySha256,
+                question.ScopeSha256,
+                question.MessagesPrepared,
+                question.SourceSessions,
+                question.ExtractionUnitsPrepared,
+                question.GraphSnapshot
+            }),
+            manifest.InitialExtractionCalls
+        };
+        return Hash(JsonSerializer.Serialize(canonical, JsonOptions));
+    }
+
+    private static string ComputeCurrentFingerprint(LongMemEvalPreparationManifest manifest)
+    {
         var canonical = new
         {
             manifest.SchemaVersion,
