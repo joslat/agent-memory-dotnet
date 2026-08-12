@@ -103,7 +103,12 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         using var ownerScope = _ownerContext?.BeginOwnerScope(userId);
         try
         {
-            var userMessages = messages
+            // Materialised once: the thread is enumerated for the query below AND handed to the
+            // mapper for dedup, and `messages` is an IEnumerable that a caller may well have built
+            // lazily. Enumerating it twice would be a silent correctness bug for a generator source.
+            var liveThread = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+
+            var userMessages = liveThread
                 .Where(m => m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.Text))
                 .ToList();
 
@@ -194,7 +199,13 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
                 return BuildResult();
             }
 
-            var contextMessages = MafTypeMapper.ToContextMessages(recallResult.Context, _formatOptions, _admissionPolicy, _logger);
+            // 2.5. The host is already sending the live thread; recall returns the same recent turns
+            // from storage, so without this the model sees them twice and pays for both. Passed here
+            // rather than filtered afterwards because the mapper drops duplicates BEFORE applying
+            // MaxChatHistoryMessages -- so the same budget carries that many genuinely new messages.
+            var contextMessages = MafTypeMapper.ToContextMessages(
+                recallResult.Context, _formatOptions, _admissionPolicy, _logger,
+                _agentOptions.DeduplicateRecalledHistory ? liveThread : null);
 
             if (contextMessages.Count == 0)
                 return BuildResult();
