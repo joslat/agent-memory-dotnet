@@ -8,6 +8,7 @@ What AgentMemory costs you per agent turn, how that cost is measured, and how to
 | [`hermetic-S.json`](../../eng/perf/baselines/hermetic-S.json) | Machine-readable counter + quality baseline enforced on pull requests |
 | [baseline-1.3.0.md](baseline-1.3.0.md) | The measured cost model for release 1.3.0 |
 | [bulk-ingestion.md](bulk-ingestion.md) | Loading a backlog without degrading p99 for everyone else in the process |
+| [token-breakdown.md](token-breakdown.md) | What answering from memory costs against sending the whole transcript |
 
 ---
 
