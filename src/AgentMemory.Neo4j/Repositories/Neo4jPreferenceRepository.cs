@@ -20,6 +20,8 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
+    /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
+    private readonly bool _skipEscalationWhenOwnerHasNoRows;
     /// <summary>Payload projection: drop the ~3 KB vector nothing on the recall path reads.</summary>
     private readonly bool _omitEmbeddingsFromRecall;
     private readonly ILogger<Neo4jPreferenceRepository> _logger;
@@ -68,6 +70,8 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         IOptions<MemoryOptions>? memoryOptions = null)
     {
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _skipEscalationWhenOwnerHasNoRows =
+            memoryOptions?.Value.SkipEscalationWhenOwnerHasNoRows ?? false;
         _omitEmbeddingsFromRecall = memoryOptions?.Value.OmitEmbeddingsFromRecall ?? false;
         _tx = tx;
         _logger = logger;
@@ -268,7 +272,8 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         // 0 of the owner's 4 rows, and this retry restored all 4. Preferences run the identical
         // global-index-then-post-filter shape, so the exposure was identical.
         int? escalatedTopK = null;
-        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner)
+            && await ShouldClimbLadderAsync(scope, includeShared, cancellationToken).ConfigureAwait(false))
         {
             var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
             if (widened > topK)
@@ -622,5 +627,37 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         if (activity is not null) TagVectorYield(activity, hasOwner, limit, topK, results.Count);
 
         return results;
+    }
+
+    /// <summary>
+    /// Whether the escalation ladder can possibly help this owner (2.13).
+    /// </summary>
+    /// <remarks>
+    /// Returns <see langword="true"/> unless the option is on AND the owner provably holds no rows of
+    /// this label. Defaulting to "escalate" is the safe direction: a probe that wrongly reported empty
+    /// would skip a rescue that would have worked, and a silent recall loss costs far more than one
+    /// avoided query.
+    /// </remarks>
+    private async Task<bool> ShouldClimbLadderAsync(
+        MemoryScope? scope, bool includeShared, CancellationToken cancellationToken)
+    {
+        if (!_skipEscalationWhenOwnerHasNoRows || scope?.OwnerId is null) return true;
+
+        var present = await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                OwnerRowExistence.Any("Preference", includeShared),
+                new { ownerId = scope.OwnerId }).ConfigureAwait(false);
+            return (await cursor.ToListAsync().ConfigureAwait(false)).Count > 0;
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (!present)
+        {
+            _logger.LogDebug(
+                "Owner {Owner} holds no Preference rows; skipping the escalation ladder (2.13).",
+                scope.OwnerId);
+        }
+
+        return present;
     }
 }
