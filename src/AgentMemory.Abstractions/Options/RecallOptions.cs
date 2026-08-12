@@ -5,6 +5,29 @@
 /// </summary>
 public sealed record RecallOptions
 {
+    /// <summary>
+    /// How long recall may spend assembling context before returning what it has (rank 13).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see langword="null"/> — the default — waits for every section, which is exactly today's
+    /// behaviour. When set, sections still running when the budget expires are dropped and the
+    /// context comes back without them.
+    /// </para>
+    /// <para>
+    /// <b>Degradation is marked, never silent.</b> Every dropped section reports
+    /// <c>TimedOut</c> in its diagnostics, and <c>RecallResult.Metadata["latencyBudgetExceeded"]</c>
+    /// is set. A section cut short otherwise looks identical to one that searched and found nothing,
+    /// and a caller answering from a context it believes is complete is worse off than one that
+    /// waited.
+    /// </para>
+    /// <para>
+    /// Abandoned work is not cancelled mid-flight — the queries are already in the driver, and
+    /// tearing them down buys nothing the caller is waiting for. Their results are simply not used.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? LatencyBudget { get; init; }
+
     /// <summary>Maximum recent messages to include.</summary>
     public int MaxRecentMessages { get; init; } = 10;
 
