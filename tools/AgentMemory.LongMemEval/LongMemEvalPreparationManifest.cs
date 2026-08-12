@@ -51,6 +51,9 @@ internal sealed record LongMemEvalPreparationManifest(
     string QueryRelationLexiconSha256 = "",
     string ExtractionProvenance = "Batch",
     string AbstentionPolicy = "AsSampled",
+    // Sessions whose content the provider refused, so their material is absent from this corpus.
+    // Part of the fingerprint: a corpus with gaps is not the same corpus as one without.
+    int RefusedSourceSessions = 0,
     // ── Catalog metadata (schema 6) ──────────────────────────────────────
     // Not part of the fingerprint: these describe the build for a human, and two corpora that differ
     // only in their description are the same corpus.
@@ -95,6 +98,7 @@ internal sealed record LongMemEvalPreparationManifest(
         string queryRelationLexiconSha256 = "",
         string extractionProvenance = "Batch",
         string abstentionPolicy = "AsSampled",
+        int refusedSourceSessions = 0,
         string preparedAtUtc = "",
         string description = "",
         IReadOnlyList<string>? memoryTypes = null,
@@ -168,6 +172,7 @@ internal sealed record LongMemEvalPreparationManifest(
             QueryRelationLexiconSha256: queryRelationLexiconSha256,
             ExtractionProvenance: extractionProvenance,
             AbstentionPolicy: abstentionPolicy,
+            RefusedSourceSessions: refusedSourceSessions,
             PreparedAtUtc: preparedAtUtc,
             Description: description,
             MemoryTypes: memoryTypes ?? [],
@@ -295,6 +300,7 @@ internal sealed record LongMemEvalPreparationManifest(
             manifest.QueryRelationLexiconSha256,
             manifest.ExtractionProvenance,
             manifest.AbstentionPolicy,
+            manifest.RefusedSourceSessions,
             manifest.QuestionSeed,
             manifest.UseJsonResponseFormat,
             manifest.ExtractionResponseContract,

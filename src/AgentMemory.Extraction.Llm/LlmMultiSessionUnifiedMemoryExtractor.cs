@@ -247,6 +247,23 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         // count. Removing it does not remove a working recovery; it removes a misleading one. A real
         // transport retry is tracked separately, because it must be reconciled with the harness's
         // exact-call-count invariant rather than quietly breaking it.
+        // The provider refused this content and will refuse it again, at any batch size. Skipping the
+        // affected sessions costs their extraction; propagating costs the ENTIRE preparation, which
+        // for 50 questions is ~616 calls and over an hour. Recorded, never silent: the count reaches
+        // the manifest, so a corpus with gaps says so instead of looking complete.
+        catch (Exception ex) when (IsContentRejection(ex))
+        {
+            _batchDiagnostics?.RecordContentRejection(ex, batch.Count);
+            _logger.LogWarning(
+                ex,
+                "Provider refused the content of {Count} source session(s); their extraction is "
+                + "skipped and recorded. The corpus will be missing whatever those sessions held.",
+                batch.Count);
+            return batch.ToDictionary(
+                request => request.SessionId,
+                _ => new UnifiedExtractionResult(),
+                StringComparer.Ordinal);
+        }
         catch (Exception ex) when (batch.Count > 1 && IsBatchShapeFailure(ex))
         {
             _batchDiagnostics?.RecordSplit(ex, batch.Count);
@@ -508,8 +525,42 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         if (exception is FormatException)
             return true;
 
+        // A content-filter rejection is a 4xx, but it is NOT a shape failure: the request is
+        // well-formed and the provider is refusing the content. Splitting re-sends the same text to
+        // the same filter, so it can only fail again, one session at a time, until the batch reaches
+        // size 1 and the exception escapes.
+        if (IsContentRejection(exception)) return false;
+
         var status = Internal.LlmExtractionRunner.TryGetStatus(exception);
         return status is >= 400 and < 500 and not 408 and not 429;
+    }
+
+    /// <summary>
+    /// Whether the provider refused this content outright, rather than failing to process it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Terminal by nature. A retry sends the same text to the same policy, and a split sends smaller
+    /// pieces of the same text; neither can succeed. Measured cost of treating it as retryable: a
+    /// 50-question preparation died after <b>270 of 616</b> calls because two sessions of a public
+    /// research dataset tripped an Azure content policy.
+    /// </para>
+    /// <para>
+    /// Matched on the provider's own vocabulary rather than on status alone, because 400 covers both
+    /// "your request is malformed" (which splitting legitimately diagnoses) and "I will not process
+    /// this" (which it cannot).
+    /// </para>
+    /// </remarks>
+    internal static bool IsContentRejection(Exception exception)
+    {
+        var status = Internal.LlmExtractionRunner.TryGetStatus(exception);
+        if (status != 400) return false;
+
+        var message = exception.Message;
+        return message.Contains("content_filter", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("content filter", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("cyber_policy", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("ResponsibleAIPolicyViolation", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class BatchValidationException(string message) : FormatException(message);

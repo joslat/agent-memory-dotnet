@@ -32,6 +32,16 @@ internal static class LongMemEvalPreparedPairProgram
     private const double ColdBuildSpeedTargetMilliseconds = 900_000d;
 
     private const int FixedTenExpectedSourceSessions = 474;
+
+    /// <summary>
+    /// How much of a corpus may be missing to provider content refusals before it stops being usable.
+    /// </summary>
+    /// <remarks>
+    /// A handful of sessions out of thousands is noise; hundreds is a different corpus wearing the
+    /// same name. 2% is deliberately low — the observed rate on this dataset is a fraction of one
+    /// percent, so a run approaching this limit has something new happening and should stop.
+    /// </remarks>
+    private const double MaximumRefusedSessionShare = 0.02;
     internal static async Task<int> RunAsync(string[] args)
     {
         try
@@ -546,8 +556,36 @@ internal static class LongMemEvalPreparedPairProgram
                 // retries 0. Split sub-calls run under their own Activity, so the activity-based
                 // retry counter cannot see them - a split appears as bare extra calls that neither
                 // counter accounts for. One guard accepted that shape and the other rejected it.
-                var recordedSplits = baseProfile.Services
-                    .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot().Splits;
+                var batchDiagnostics = baseProfile.Services
+                    .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot();
+                var recordedSplits = batchDiagnostics.Splits;
+
+                // A corpus with gaps must never look complete. The provider refuses some content
+                // outright -- two sessions of this public research dataset tripped an Azure policy --
+                // and skipping them is far better than losing a 616-call preparation to it. But the
+                // loss is real: those sessions contributed nothing to the graph, so any question
+                // depending on them is unanswerable for a reason that has nothing to do with recall.
+                //
+                // Tolerated up to a small share and REFUSED beyond it, because the failure changes
+                // character with scale: a handful of sessions out of 2,418 is noise, and hundreds is a
+                // different corpus wearing the same name.
+                if (batchDiagnostics.SessionsRefused > 0)
+                {
+                    var refusedShare = (double)batchDiagnostics.SessionsRefused / Math.Max(1, plannedSourceSessions);
+                    Console.Error.WriteLine(
+                        $"longmemeval: WARNING - the provider refused {batchDiagnostics.ContentRejections} "
+                        + $"batch(es) covering {batchDiagnostics.SessionsRefused} of {plannedSourceSessions} "
+                        + $"source sessions ({refusedShare:P1}). Their content is absent from this corpus, "
+                        + "and it is recorded in the manifest so a later reuse cannot mistake it for complete.");
+                    if (refusedShare > MaximumRefusedSessionShare)
+                    {
+                        throw new InvalidOperationException(
+                            $"Provider content refusals cost {batchDiagnostics.SessionsRefused} of "
+                            + $"{plannedSourceSessions} source sessions ({refusedShare:P1}), above the "
+                            + $"{MaximumRefusedSessionShare:P0} tolerance. A corpus missing that much is a "
+                            + "different corpus, and measuring against it would attribute the loss to recall.");
+                    }
+                }
                 var successfulCalls = extractionSnapshot.Calls - extractionSnapshot.Failures;
                 var accountingAcceptable =
                     AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable(
@@ -632,6 +670,7 @@ internal static class LongMemEvalPreparedPairProgram
                     extractionVocabularySha256: MemoryPredicateSeedVocabulary.Fingerprint,
                     queryRelationLexiconSha256: MemoryRelationSeedTable.Fingerprint,
                     abstentionPolicy: options.AbstentionPolicy.ToString(),
+                    refusedSourceSessions: checked((int)batchDiagnostics.SessionsRefused),
                     preparedAtUtc: DateTimeOffset.UtcNow.ToString("O"),
                     description: options.Description ?? string.Empty,
                     memoryTypes: options.MemoryTypes,
