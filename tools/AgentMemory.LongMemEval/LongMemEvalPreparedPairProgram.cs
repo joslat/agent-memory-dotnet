@@ -167,6 +167,7 @@ internal static class LongMemEvalPreparedPairProgram
                 new ProviderCompatibleExtractionChatClient(
                     azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
             LongMemEvalPreparationManifest manifest;
+            IReadOnlyList<LongMemEvalRefusedEvidence.RefusedSession> refusedEvidence = [];
             IReadOnlyList<LongMemEvalPreparedCorpusDrift.Difference> reuseDrift = [];
             IReadOnlyList<LongMemEvalQuestionTelemetry> preparationTelemetry;
             LongMemEvalPreparedBatchExecution? batchExecution = null;
@@ -580,8 +581,22 @@ internal static class LongMemEvalPreparedPairProgram
                         + "for complete.");
                     // The ids, so the refusal is investigable. Content filters recur, and "something
                     // was refused" is not a report anyone can act on or raise with a provider.
-                    foreach (var refusedId in batchDiagnostics.RefusedSessionIds ?? [])
-                        Console.Error.WriteLine($"  - refused session: {refusedId}");
+                    //
+                    // And, more important than the count: did it COST anything? A refused session
+                    // holding a question's gold evidence makes that question unanswerable from memory
+                    // for a reason unrelated to retrieval, so scoring it wrong attributes a
+                    // content-policy decision to recall quality.
+                    refusedEvidence = LongMemEvalRefusedEvidence.Analyse(
+                        batchDiagnostics.RefusedSessionIds ?? [], questions);
+                    foreach (var refused in refusedEvidence)
+                    {
+                        var cost = refused.HeldGoldEvidence
+                            ? $"HELD GOLD EVIDENCE for question {refused.QuestionId}"
+                            : refused.QuestionId is null
+                                ? "unresolved question - treat as unknown, not harmless"
+                                : $"context only for question {refused.QuestionId}";
+                        Console.Error.WriteLine($"  - refused session: {refused.SessionId} ({cost})");
+                    }
                     if (refusedShare > MaximumRefusedSessionShare)
                     {
                         throw new InvalidOperationException(
@@ -852,6 +867,13 @@ internal static class LongMemEvalPreparedPairProgram
                     // --allow-stale-prepared was used, so a result taken over a drifted corpus carries
                     // that fact with it instead of looking like any other run.
                     preparedCorpusDrift = reuseDrift.Select(d => d.ToString()).ToArray(),
+                    // Empty on a clean build. Non-empty means questions in THIS sample lost evidence
+                    // to a content policy, which is the difference between a number that is low and a
+                    // number that is measuring the wrong thing.
+                    refusedSessionsHoldingGoldEvidence = refusedEvidence
+                        .Where(r => r.HeldGoldEvidence)
+                        .Select(r => new { r.SessionId, r.QuestionId })
+                        .ToArray(),
                     preparedCorpusPreparedAtUtc = reusing ? manifest.PreparedAtUtc : null,
                     preparedCorpusDescription = reusing ? manifest.Description : options.Description,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
