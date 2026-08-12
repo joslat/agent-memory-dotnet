@@ -271,7 +271,13 @@ internal static class LongMemEvalProgram
                     totalPreferencesRetrieved = adapter.QuestionTelemetry.Sum(item => item.PreferencesRetrieved),
                     graphRagQuestions = adapter.QuestionTelemetry.Count(item => item.GraphRagIncluded),
                     zeroStoreQuestions = adapter.QuestionTelemetry.Count(item => item.MessagesStored == 0),
-                    zeroRecallQuestions = adapter.QuestionTelemetry.Count(item => item.ItemsRetrieved == 0)
+                    zeroRecallQuestions = adapter.QuestionTelemetry.Count(item => item.ItemsRetrieved == 0),
+                    // PLAN 4.2. Does the sufficiency signal ORDER answerable questions above
+                    // unanswerable ones? Emitted on every run because it costs nothing -- no extra
+                    // call, no rebuild, it reads two fields already recorded -- and because a number
+                    // that appears only when someone remembers to ask for it never gets asked for.
+                    // Null auc means one class was empty and the signal was never put to the test.
+                    sufficiencyAuc = LongMemEvalSufficiencyReport.From(adapter.QuestionTelemetry),
                 },
                 callAccounting = new
                 {
