@@ -79,6 +79,7 @@ internal static class LongMemEvalPreparedPairProgram
                 options.JudgeRetryAttempts,
                 options.EvidenceDetail,
                 options.MaxRelevantMessages,
+                options.JudgeProtocol,
                 // Typed sampling reaches the PREPARATION, not only the evaluation: an episodic-only
                 // sample selects different questions, whose conversation histories have to be ingested
                 // for the corpus to answer them at all. This is why an episodic arm cannot reuse a
@@ -879,6 +880,14 @@ internal static class LongMemEvalPreparedPairProgram
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
+                    // 3.7. A COMPARABILITY BREAK, recorded like one. StructuredJson fixes a
+                    // systematic free-text mis-scoring -- the parser vetoes a leading "yes" when the
+                    // word "no" appears later, so "there is no discrepancy" scores as a failure -- but
+                    // AgentEval's own docs say results under it are not comparable with a free-text
+                    // base, and every sealed base here is free-text. Emitted unconditionally so a
+                    // StructuredJson score can never be read beside a FreeText one without the
+                    // difference being visible in the artifact itself.
+                    judgeVerdictProtocol = options.JudgeProtocol.ToString(),
                     neo4jImage = "neo4j:5.26",
                     agentEval = agentEvalRevision,
                     agentEvalDependency = "source-project:AgentEval.Memory"
@@ -1421,7 +1430,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
         "--description", "--memory-types", "--allow-stale-prepared",
         "--abstention", "--abstention-proportion",
-        "--use-predicate-vocabulary",
+        "--use-predicate-vocabulary", "--judge-protocol",
     ];
 
     private static PreparedPairOptions Parse(string[] args)
@@ -1490,7 +1499,8 @@ internal static class LongMemEvalPreparedPairProgram
             ParseMemoryTypes(Value("--memory-types")),
             Has("--allow-stale-prepared"),
             ParseAbstention(Value("--abstention")),
-            ParseAbstentionProportion(Value("--abstention-proportion")));
+            ParseAbstentionProportion(Value("--abstention-proportion")),
+            ParseJudgeProtocol(Value("--judge-protocol")));
     }
 
     /// <summary>
@@ -1529,6 +1539,28 @@ internal static class LongMemEvalPreparedPairProgram
     /// sample contains changes every number computed from it.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Parses <c>--judge-protocol</c>. Defaults to <c>FreeText</c> — the protocol every sealed base
+    /// here was scored under.
+    /// </summary>
+    /// <remarks>
+    /// <b>Never flipped silently.</b> StructuredJson is the real fix for a systematic free-text
+    /// mis-scoring, and AgentEval's own documentation says results under it are not comparable with a
+    /// free-text base. Changing the default would not produce a wrong number; it would produce a
+    /// better one that silently invalidates every comparison anybody makes against the existing runs.
+    /// </remarks>
+    private static JudgeVerdictProtocol ParseJudgeProtocol(string? value) => value?.ToLowerInvariant() switch
+    {
+        null or "" or "free-text" or "freetext" => JudgeVerdictProtocol.FreeText,
+        "structured-json" or "structuredjson" or "json" => JudgeVerdictProtocol.StructuredJson,
+        _ => throw new ArgumentException(
+            "--judge-protocol must be one of: free-text, structured-json."),
+    };
+
+    /// <summary>Test seam for the parser above; the method itself stays private.</summary>
+    internal static JudgeVerdictProtocol ParseJudgeProtocolForTests(string? value) =>
+        ParseJudgeProtocol(value);
+
     private static AbstentionSamplingPolicy ParseAbstention(string? value) =>
         value?.ToLowerInvariant() switch
         {
@@ -1811,7 +1843,8 @@ internal static class LongMemEvalPreparedPairProgram
         IReadOnlyList<string>? MemoryTypesRequested = null,
         bool AllowStalePrepared = false,
         AbstentionSamplingPolicy AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
-        double? AbstentionProportion = null)
+        double? AbstentionProportion = null,
+        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];
