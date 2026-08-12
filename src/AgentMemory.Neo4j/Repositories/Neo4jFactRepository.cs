@@ -239,6 +239,37 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
+        string winnerFactId,
+        string subject,
+        string predicate,
+        string @object,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasOwner = scope?.HasOwnerFilter == true;
+        bool includeShared = scope?.IncludeShared ?? true;
+
+        var cypher = FactQueries.FindSupersededCandidates(hasOwner, includeShared);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["winnerId"]     = winnerFactId,
+            ["subjectKey"]   = MemoryTripleCanonicalizer.CanonicalValue(subject),
+            ["predicateKey"] = MemoryTripleCanonicalizer.Canonical(predicate),
+            ["objectKey"]    = MemoryTripleCanonicalizer.CanonicalValue(@object),
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records
+                .Select(r => MapToFact(r["f"].As<INode>(), embedding: null))
+                .ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Fact>> GetBySubjectAsync(
         string subject, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {

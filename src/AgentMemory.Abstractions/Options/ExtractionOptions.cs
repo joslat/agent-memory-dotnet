@@ -71,6 +71,30 @@ public sealed class ExtractionOptions
     /// <see cref="MemoryTrustLevel.ApplicationTrusted"/>.
     /// </summary>
     public MemoryTrustLevel DefaultTrustLevel { get; set; } = MemoryTrustLevel.UserProvided;
+
+    /// <summary>
+    /// Whether a newly written fact about a <b>functional</b> relation supersedes the earlier
+    /// assertion it replaces, instead of accumulating beside it (M1).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default. It changes what live recall returns — a superseded fact drops out of it — and
+    /// every recorded measurement was taken with append-only writes, so a default flip would move
+    /// results with no setting changed.
+    /// </para>
+    /// <para>
+    /// <b>Only relations the vocabulary declares functional are eligible</b> (<c>lives in</c>,
+    /// <c>works at</c>, …). A person likes many things and attends many events; superseding a
+    /// multi-valued predicate would close a true fact. Undeclared predicates, including any the
+    /// extractor invents, are treated as multi-valued and are never superseded.
+    /// </para>
+    /// <para>
+    /// Non-destructive: losers keep their content, gain <c>invalidated_at</c> and a
+    /// <c>:SUPERSEDED_BY</c> edge, and stay visible to as-of recall. Requires a store implementing
+    /// <c>IFactRepository.FindSupersededCandidatesAsync</c>; one that does not simply keeps appending.
+    /// </para>
+    /// </remarks>
+    public bool SupersedeReplacedFacts { get; set; }
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

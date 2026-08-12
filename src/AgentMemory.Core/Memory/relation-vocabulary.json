@@ -193,7 +193,9 @@
         "joins",
         "member of",
         "played for the"
-      ]
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "One owner at a time; a transfer is a replacement, not an addition."
     },
     "booked": {
       "family": "event",
@@ -376,7 +378,9 @@
         "cost",
         "cost me",
         "priced at"
-      ]
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "The current price of one thing. A new price replaces the old."
     },
     "created": {
       "family": "event",
@@ -540,7 +544,9 @@
         "expired",
         "expiring",
         "expiry"
-      ]
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "One expiry instant per subject. Two live expiry dates for the same thing is a contradiction, not two facts."
     },
     "feels": {
       "family": "state",
@@ -866,7 +872,9 @@
         "resides in",
         "residing in",
         "stays in"
-      ]
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "A person has one current residence. 'moved to' is the event that changes it."
     },
     "lost": {
       "family": "event",
@@ -1584,7 +1592,9 @@
       "surfaceForms": [
         "weigh",
         "weight"
-      ]
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "A measurement of one subject at one time. A new reading replaces the old."
     },
     "welcomed": {
       "family": "event",
@@ -1637,7 +1647,9 @@
         "work",
         "working",
         "works for"
-      ]
+      ],
+      "cardinality": "single",
+      "cardinalityWhy": "One current employer. Second jobs exist, but the corpus's 'works at' assertions replace rather than accumulate, and a second employer is expressible as a separate subject-qualified fact."
     },
     "works on": {
       "family": "state",

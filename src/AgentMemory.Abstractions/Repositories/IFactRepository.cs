@@ -119,6 +119,33 @@ public interface IFactRepository
     Task<bool> SupersedeAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The <b>live</b> facts asserting a different object for the same subject and predicate as
+    /// <paramref name="winnerFactId"/> — the ones a newly written fact about a functional relation
+    /// replaces (M1 write-time supersession). Never returns the winner itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Matching is on the canonical <c>subject_key</c>/<c>predicate_key</c>/<c>object_key</c>, the same
+    /// keys the write path MERGEs on, so a restatement in different words is recognised as the same
+    /// assertion rather than accumulating beside it.
+    /// </para>
+    /// <para>
+    /// <b>Default: none.</b> A store that has not implemented this simply does not perform write-time
+    /// supersession — the append behaviour it already had. Returning nothing is the only safe default:
+    /// throwing would break every third-party repository on a feature they never opted into, and there
+    /// is no store-agnostic way to answer the question correctly.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
+        string winnerFactId,
+        string subject,
+        string predicate,
+        string @object,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>([]);
+
+    /// <summary>
     /// Finds an existing fact matching the subject-predicate-object triple. When <paramref name="scope"/>
     /// is supplied (R1) the lookup is confined to the owner's own and (optionally) shared facts. Null
     /// scope ⇒ unscoped.

@@ -330,9 +330,45 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
 
+            await SupersedeReplacedFactsAsync(persisted).ConfigureAwait(false);
+
             persistedFactCount++;
             _logger.LogDebug("Persisted fact '{S} {P} {O}'.",
                 persisted.Subject, persisted.Predicate, persisted.Object);
+        }
+
+        // M1 write-time UPDATE. Runs after the write, so the incoming fact is already the winner and a
+        // failure here leaves the graph in the append-only state it was in before -- strictly the old
+        // behaviour, never a half-resolved one. Best-effort by design: losing a supersession costs
+        // precision in live recall, while failing the ingestion over it would lose the memory itself.
+        async Task SupersedeReplacedFactsAsync(Fact winner)
+        {
+            if (!_options.SupersedeReplacedFacts || !WriteTimeFactResolution.CanSupersede(winner))
+                return;
+
+            var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+            try
+            {
+                var losers = await _factRepository.FindSupersededCandidatesAsync(
+                    winner.FactId, winner.Subject, winner.Predicate, winner.Object, scope,
+                    cancellationToken).ConfigureAwait(false);
+
+                foreach (var loser in losers)
+                {
+                    await _factRepository.SupersedeAsync(
+                        loser.FactId, winner.FactId, scope, cancellationToken).ConfigureAwait(false);
+                    _logger.LogDebug(
+                        "Superseded fact '{Loser}' with '{Winner}' ({S} {P}).",
+                        loser.FactId, winner.FactId, winner.Subject, winner.Predicate);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Write-time supersession failed for fact '{Id}'; it remains stored alongside the "
+                    + "assertion it replaces.", winner.FactId);
+            }
         }
 
         async Task PersistFactIndividuallyAsync(Fact item, string sourceKey)
