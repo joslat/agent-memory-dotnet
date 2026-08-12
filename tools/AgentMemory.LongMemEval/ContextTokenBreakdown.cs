@@ -8,7 +8,7 @@ namespace AgentMemory.LongMemEval;
 /// <param name="Section">Section name, as it appears on <see cref="MemoryContext"/>.</param>
 /// <param name="Items">How many memories the section contributed.</param>
 /// <param name="Tokens">Their cost, counted with the real tokenizer.</param>
-internal sealed record ContextSectionTokens(string Section, int Items, int Tokens);
+public sealed record ContextSectionTokens(string Section, int Items, int Tokens);
 
 /// <summary>
 /// The token cost of answering from memory versus from the whole conversation (B3).
@@ -31,16 +31,16 @@ internal sealed record ContextSectionTokens(string Section, int Items, int Token
 /// result by measuring against a system that has already given up on remembering.
 /// </para>
 /// </remarks>
-internal sealed record ContextTokenBreakdown
+public sealed record ContextTokenBreakdown
 {
     /// <summary>Per-section costs, largest first.</summary>
-    internal required IReadOnlyList<ContextSectionTokens> Sections { get; init; }
+    public required IReadOnlyList<ContextSectionTokens> Sections { get; init; }
 
     /// <summary>Total tokens in the assembled memory context.</summary>
-    internal int ContextTokens => Sections.Sum(s => s.Tokens);
+    public int ContextTokens => Sections.Sum(s => s.Tokens);
 
     /// <summary>Tokens in the full conversation the memory was built from.</summary>
-    internal required int FullHistoryTokens { get; init; }
+    public required int FullHistoryTokens { get; init; }
 
     /// <summary>How the counting was done, so a reader can tell a real count from a fallback.</summary>
     /// <remarks>
@@ -48,10 +48,10 @@ internal sealed record ContextTokenBreakdown
     /// when it cannot resolve an encoding for the model, and a compression ratio computed from an
     /// estimate must not be readable as a measurement.
     /// </remarks>
-    internal required string CountMethod { get; init; }
+    public required string CountMethod { get; init; }
 
     /// <summary>The encoding used, when one was resolved.</summary>
-    internal string? Encoding { get; init; }
+    public string? Encoding { get; init; }
 
     /// <summary>
     /// How many times smaller the memory context is than the full history.
@@ -61,7 +61,7 @@ internal sealed record ContextTokenBreakdown
     /// infinity, it is an absent measurement, and reporting a number there would be the single most
     /// flattering way to be wrong.
     /// </remarks>
-    internal double? CompressionRatio =>
+    public double? CompressionRatio =>
         FullHistoryTokens == 0 ? null : (double)FullHistoryTokens / Math.Max(1, ContextTokens);
 
     /// <summary>

@@ -27,6 +27,18 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     private readonly IChatClient _chatClient;
     private readonly string _runId;
     private readonly LongMemEvalAdapterOptions _options;
+
+    /// <summary>
+    /// Tokenizer for the B3 breakdown, built lazily from the answer model.
+    /// </summary>
+    /// <remarks>
+    /// Lazy because constructing a tiktoken encoding is not free and a run that never reaches a
+    /// successful recall never needs one.
+    /// </remarks>
+    private LongMemEvalTokenCounter? _tokenCounter;
+
+    private LongMemEvalTokenCounter TokenCounter =>
+        _tokenCounter ??= new LongMemEvalTokenCounter(_options.ModelId);
     private readonly object _stateLock = new();
     private readonly List<LongMemEvalQuestionTelemetry> _telemetry = [];
     private IReadOnlyList<(string UserMessage, string AssistantResponse)>? _pendingHistory;
@@ -842,11 +854,14 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             retrievalEvidence,
             extractionUnits,
             recall.Context,
-            graphSnapshot,
-            timings.Snapshot(),
-            preparedQuestion?.MessagesPrepared ?? 0,
-            preparedQuestion?.ExtractionUnitsPrepared ?? 0,
-            preparedQuestion is not null,
+            // B3: the transcript this context was distilled from, so the compression ratio has a
+            // denominator. Named from here on -- the positional tail is what a new parameter breaks.
+            fullHistory: messages,
+            graphSnapshot: graphSnapshot,
+            stageTimings: timings.Snapshot(),
+            messagesPrepared: preparedQuestion?.MessagesPrepared ?? 0,
+            extractionUnitsPrepared: preparedQuestion?.ExtractionUnitsPrepared ?? 0,
+            preparedMemory: preparedQuestion is not null,
             goldCoverage: goldCoverage,
             // Computed here rather than inside RecordTelemetry, which has neither the gold message
             // origins nor the evidence question in scope.
@@ -974,6 +989,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         LongMemEvalRetrievalEvidence? retrievalEvidence = null,
         int extractionUnits = 0,
         MemoryContext? context = null,
+        IReadOnlyList<Message>? fullHistory = null,
         LongMemEvalGraphSnapshot? graphSnapshot = null,
         LongMemEvalStageTimings? stageTimings = null,
         int messagesPrepared = 0,
@@ -994,6 +1010,12 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 questionNumber, messagesStored, itemsRetrieved, recallTruncated, status)
             {
                 QuestionId = questionId,
+                // B3. Measured only when both halves are present: a breakdown against an absent
+                // transcript would report a null ratio, which is an absent measurement rather than a
+                // flattering one -- but emitting the row at all would invite it being read as zero.
+                TokenBreakdown = context is not null && fullHistory is { Count: > 0 }
+                    ? ContextTokenBreakdown.Measure(context, fullHistory, TokenCounter)
+                    : null,
                 RetrievalEvidence = retrievalEvidence,
                 ExtractionUnits = extractionUnits,
                 MessagesPrepared = messagesPrepared,
@@ -1641,6 +1663,17 @@ public sealed record LongMemEvalQuestionTelemetry(
 
     /// <summary>Approximate tokens in that prompt. An estimate, and named one.</summary>
     public int EstimatedContextTokens { get; init; }
+
+    /// <summary>
+    /// B3. The real token cost of the assembled memory context against the full transcript.
+    /// </summary>
+    /// <remarks>
+    /// Sits beside <see cref="EstimatedContextTokens"/> rather than replacing it, so the chars/4
+    /// estimate every earlier run recorded stays comparable with itself. The published claim —
+    /// "answering from memory costs a fraction of sending the conversation" — is read off this one,
+    /// because a compression ratio derived from an estimate is a claim about arithmetic.
+    /// </remarks>
+    public ContextTokenBreakdown? TokenBreakdown { get; init; }
 
     public string? QuestionId { get; init; }
 

@@ -92,10 +92,22 @@ public sealed class AgentMemoryLongMemEvalAdapterTests
                     // J5.1 context cost: a real measurement of this run, not a fixed expectation, so
                     // it is asserted below on its own terms rather than frozen into this shape.
                     .Excluding(info => info.Path == "AnswerPromptCharacters")
-                    .Excluding(info => info.Path == "EstimatedContextTokens"));
+                    .Excluding(info => info.Path == "EstimatedContextTokens")
+                    // B3: a real measurement of this run, asserted below on its own terms.
+                    .Excluding(info => info.Path.StartsWith("TokenBreakdown", StringComparison.Ordinal)));
         // The arm's actual cost must be recorded and non-zero: a prompt was demonstrably built above.
         telemetry.AnswerPromptCharacters.Should().BeGreaterThan(0);
         telemetry.EstimatedContextTokens.Should().BeGreaterThan(0);
+
+        // B3 wiring: the breakdown has to be PRODUCED by a real run, not merely producible. Its own
+        // tests prove the arithmetic; this proves something calls it.
+        telemetry.TokenBreakdown.Should().NotBeNull();
+        telemetry.TokenBreakdown!.ContextTokens.Should().BeGreaterThan(0);
+        telemetry.TokenBreakdown.FullHistoryTokens.Should().BeGreaterThan(0);
+        telemetry.TokenBreakdown.CompressionRatio.Should().NotBeNull();
+        // The counting method travels with the number: this fixture's model resolves no tiktoken
+        // encoding, so the value is an estimate and says so rather than passing as a measurement.
+        telemetry.TokenBreakdown.CountMethod.Should().NotBeNullOrWhiteSpace();
         telemetry.StageTimings.Should().NotBeNull(
             "accepted LongMemEval questions must expose a phase waterfall");
         telemetry.StageTimings!.StorageMs.Should().BeGreaterThan(0);
