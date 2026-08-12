@@ -89,6 +89,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     Confidence = item.Confidence,
                     ValidFrom = item.ValidFrom,
                     ValidUntil = item.ValidUntil,
+                    SourceRole = item.SourceRole,
                 }).ToArray(),
             Preferences = (response.Preferences ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Preference))
@@ -98,6 +99,7 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     PreferenceText = item.Preference,
                     Context = item.Context,
                     Confidence = item.Confidence,
+                    SourceRole = item.SourceRole,
                 }).ToArray(),
             Relationships = (response.Relations ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Source) &&

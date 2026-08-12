@@ -74,7 +74,8 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
                 Object = f.Object,
                 Confidence = f.Confidence,
                 ValidFrom = f.ValidFrom,
-                ValidUntil = f.ValidUntil
+                ValidUntil = f.ValidUntil,
+                SourceRole = f.SourceRole
             })
             .ToList();
     }

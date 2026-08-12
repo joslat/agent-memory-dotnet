@@ -51,6 +51,11 @@ internal sealed class LlmFactDto
 
     [JsonPropertyName("valid_until")]
     public DateTimeOffset? ValidUntil { get; set; }
+
+    // Which turn stated this. Null unless AssistantContentMode asked for it, and null is meaningful:
+    // it leaves the request's own trust level applying, exactly as before this field existed.
+    [JsonPropertyName("source_role")]
+    public string? SourceRole { get; set; }
 }
 
 internal sealed class LlmPreferenceDto
@@ -69,6 +74,10 @@ internal sealed class LlmPreferenceDto
 
     [JsonPropertyName("confidence")]
     public double Confidence { get; set; } = 0.85;
+
+    /// <inheritdoc cref="LlmFactDto.SourceRole"/>
+    [JsonPropertyName("source_role")]
+    public string? SourceRole { get; set; }
 }
 
 internal sealed class LlmRelationshipDto

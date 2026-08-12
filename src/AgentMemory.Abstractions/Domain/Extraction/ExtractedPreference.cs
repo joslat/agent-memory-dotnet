@@ -24,4 +24,12 @@ public sealed record ExtractedPreference
     /// Confidence score (0.0 to 1.0).
     /// </summary>
     public double Confidence { get; init; } = 1.0;
+
+    /// <inheritdoc cref="ExtractedFact.SourceRole"/>
+    /// <remarks>
+    /// Preferences carry this for the same reason facts do, and arguably a stronger one: a preference
+    /// the <i>assistant</i> attributed to the user ("you seem to prefer …") becomes a durable statement
+    /// about that user, and is indistinguishable after the fact from one the user actually stated.
+    /// </remarks>
+    public string? SourceRole { get; init; }
 }

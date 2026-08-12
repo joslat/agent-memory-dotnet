@@ -68,7 +68,8 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
                 Category = p.Category,
                 PreferenceText = p.Preference,
                 Context = string.IsNullOrWhiteSpace(p.Context) ? null : p.Context,
-                Confidence = p.Confidence
+                Confidence = p.Confidence,
+                SourceRole = p.SourceRole
             })
             .ToList();
     }

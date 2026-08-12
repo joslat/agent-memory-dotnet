@@ -332,6 +332,14 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     Predicate = item.Predicate,
                     Object = item.Object,
                     Confidence = item.Confidence,
+                    // This rung asks for valid_from/valid_until whenever TemporalValidityMode.Extract is
+                    // set -- the instruction is shared -- but used to drop both on the floor here, so the
+                    // setting was silently a no-op under multi-session extraction. That is precisely the
+                    // "a setting only some extractors respect" defect ExtractionPromptSemantics exists to
+                    // prevent, arriving through the projection instead of the prompt.
+                    ValidFrom = item.ValidFrom,
+                    ValidUntil = item.ValidUntil,
+                    SourceRole = item.SourceRole,
                 });
         }
         foreach (var item in response.Preferences ?? [])
@@ -344,6 +352,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     PreferenceText = item.Preference,
                     Context = item.Context,
                     Confidence = item.Confidence,
+                    SourceRole = item.SourceRole,
                 });
         }
         foreach (var item in response.Relations ?? [])

@@ -257,9 +257,14 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     : await _factRepository.FindByTripleAsync(
                         extracted.Subject, extracted.Predicate, extracted.Object,
                         MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
+                // Per-item refinement before the existing per-batch composition. At defaults SourceRole
+                // is null on every item and this is the identity, so the trust a host sees is byte-for-
+                // byte what it was; it becomes non-trivial only when assistant content is extracted,
+                // which is the exact moment "who claimed this" stops being answerable from the batch.
+                var requestTrustLevel = SourceRoleTrust.Refine(trustLevel, extracted.SourceRole);
                 var effectiveFactTrustLevel = existingFact is null
-                    ? trustLevel
-                    : MaxTrustLevel(existingFact.Metadata.GetTrustLevel(), trustLevel);
+                    ? requestTrustLevel
+                    : MaxTrustLevel(existingFact.Metadata.GetTrustLevel(), requestTrustLevel);
                 var factMetadata = existingFact is null
                     ? MemoryTrustMetadataExtensions.CreateWithTrustLevel(effectiveFactTrustLevel)
                     : existingFact.Metadata.WithTrustLevel(effectiveFactTrustLevel);
@@ -424,7 +429,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 OwnerId = ownerId,
                 SourceMessageIds = sourceMessageIds,
                 CreatedAtUtc = _clock.UtcNow,
-                Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
+                Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(
+                    SourceRoleTrust.Refine(trustLevel, extracted.SourceRole))
             }, SourceKey: extracted.PreferenceText);
         }).ToList();
 
