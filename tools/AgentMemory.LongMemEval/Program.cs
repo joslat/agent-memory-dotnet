@@ -54,6 +54,15 @@ internal static class LongMemEvalProgram
             return await LongMemEvalExtractionCompareProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--list-prepared-corpora", StringComparer.Ordinal))
+        {
+            // Read-only and credential-free: answering "which frozen corpus should I reuse?" must not
+            // need the credentials of a paid run, or it stops being asked.
+            Console.WriteLine(LongMemEvalPreparedCorpusRegistry.Describe(
+                LongMemEvalPreparedCorpusRegistry.Read(), DateTimeOffset.UtcNow));
+            return 0;
+        }
+
         if (args.Contains("--prepared-pair", StringComparer.Ordinal))
         {
             return await LongMemEvalPreparedPairProgram.RunAsync(args)
@@ -369,6 +378,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
+        "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
         "--exclude-synthetic-messages", "--judge-retries", "--max-items-per-session",

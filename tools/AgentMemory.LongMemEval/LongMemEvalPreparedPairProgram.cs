@@ -68,7 +68,12 @@ internal static class LongMemEvalPreparedPairProgram
                 options.Seed,
                 options.JudgeRetryAttempts,
                 options.EvidenceDetail,
-                options.MaxRelevantMessages);
+                options.MaxRelevantMessages,
+                // Typed sampling reaches the PREPARATION, not only the evaluation: an episodic-only
+                // sample selects different questions, whose conversation histories have to be ingested
+                // for the corpus to answer them at all. This is why an episodic arm cannot reuse a
+                // stratified corpus and needs its own cold build.
+                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes));
             var datasetSha256 = Convert.ToHexStringLower(
                 SHA256.HashData(
                     await File.ReadAllBytesAsync(options.DatasetPath).ConfigureAwait(false)));
@@ -138,6 +143,7 @@ internal static class LongMemEvalPreparedPairProgram
                 new ProviderCompatibleExtractionChatClient(
                     azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
             LongMemEvalPreparationManifest manifest;
+            IReadOnlyList<LongMemEvalPreparedCorpusDrift.Difference> reuseDrift = [];
             IReadOnlyList<LongMemEvalQuestionTelemetry> preparationTelemetry;
             LongMemEvalPreparedBatchExecution? batchExecution = null;
             var profileStartup = Stopwatch.StartNew();
@@ -196,9 +202,47 @@ internal static class LongMemEvalPreparedPairProgram
                     // empty rather than zeroed-out real work. Reporting them as empty keeps a reused
                     // run from being mistaken for a cold build that happened to be instant.
                     preparationTelemetry = Array.Empty<LongMemEvalQuestionTelemetry>();
+
+                    // The check that makes reuse safe. VerifyIntegrity only proves the manifest is
+                    // self-consistent; nothing compared it to THIS run. A corpus ingested under other
+                    // settings evaluates perfectly well and reports the wrong configuration over it.
+                    reuseDrift = LongMemEvalPreparedCorpusDrift.Compare(
+                        manifest,
+                        new PreparedCorpusIdentity
+                        {
+                            DatasetSha256 = datasetSha256,
+                            ExtractionModelId = extractionDeployment,
+                            EmbeddingModelId = embeddingDeployment,
+                            EmbeddingDimensions = embeddingDimensions,
+                            AssistantContent = options.AssistantContent.ToString(),
+                            UsePredicateVocabulary = options.UsePredicateVocabulary,
+                            ExtractionVocabularySha256 = MemoryPredicateSeedVocabulary.Fingerprint,
+                            QueryRelationLexiconSha256 = MemoryRelationSeedTable.Fingerprint,
+                            QuestionSeed = options.Seed,
+                            QuestionCount = options.Questions,
+                            MemoryTypes = options.MemoryTypes,
+                        });
+
+                    if (reuseDrift.Count > 0 && !options.AllowStalePrepared)
+                    {
+                        throw new InvalidOperationException(
+                            LongMemEvalPreparedCorpusDrift.Explain(
+                                options.ReusePreparedVolume!, manifest.PreparedAtUtc, reuseDrift));
+                    }
+                    if (reuseDrift.Count > 0)
+                    {
+                        Console.Error.WriteLine(
+                            $"longmemeval: WARNING - reusing a corpus that drifted on {reuseDrift.Count} "
+                            + "ingestion-affecting field(s); --allow-stale-prepared was passed, and the "
+                            + "drift is recorded in the report.");
+                        foreach (var difference in reuseDrift)
+                            Console.Error.WriteLine($"  - {difference}");
+                    }
+
                     Console.WriteLine(
                         $"longmemeval: reusing prepared build {preparationId}; " +
-                        $"fingerprint {manifest.Fingerprint}; no extraction will run.");
+                        $"fingerprint {manifest.Fingerprint}; prepared {manifest.PreparedAtUtc}; " +
+                        "no extraction will run.");
                 }
                 else
                 {
@@ -536,11 +580,26 @@ internal static class LongMemEvalPreparedPairProgram
                     maxSessionsPerBatch: options.MaxSessionsPerBatch,
                     maxInputTokens: options.MaxInputTokens,
                     maxConcurrentBatchesPerExtraction: options.MaxConcurrentBatchesPerExtraction,
-                    maxConcurrentExtractionBatches: options.MaxConcurrentExtractionBatches);
+                    maxConcurrentExtractionBatches: options.MaxConcurrentExtractionBatches,
+                    // Schema 6. The corpus now describes how it was ingested, so a later reuse can be
+                    // refused instead of silently measuring a graph built under other settings.
+                    assistantContent: options.AssistantContent.ToString(),
+                    usePredicateVocabulary: options.UsePredicateVocabulary,
+                    extractionVocabularySha256: MemoryPredicateSeedVocabulary.Fingerprint,
+                    queryRelationLexiconSha256: MemoryRelationSeedTable.Fingerprint,
+                    preparedAtUtc: DateTimeOffset.UtcNow.ToString("O"),
+                    description: options.Description ?? string.Empty,
+                    memoryTypes: options.MemoryTypes,
+                    questionSeed: options.Seed);
 
                 var seal = Stopwatch.StartNew();
                 var store = new Neo4jLongMemEvalPreparationStore(driver);
                 await store.SealAsync(manifest).ConfigureAwait(false);
+                // Catalogued after sealing, never before: an entry for a corpus that failed to seal
+                // would advertise something unusable, and the registry's only job is to be trustworthy
+                // enough to pick from.
+                if (options.RetainPreparedVolumes)
+                    LongMemEvalPreparedCorpusRegistry.Record(baseVolumeName, manifest, Console.Out);
                 var sealedManifest = await store.ReadAsync(preparationId).ConfigureAwait(false);
                 seal.Stop();
                 manifestSealMilliseconds = seal.Elapsed.TotalMilliseconds;
@@ -700,6 +759,12 @@ internal static class LongMemEvalPreparedPairProgram
                     // Without these the artifact would not record which tables produced it.
                     extractionVocabularySha256 = MemoryPredicateSeedVocabulary.Fingerprint,
                     queryRelationLexiconSha256 = MemoryRelationSeedTable.Fingerprint,
+                    // Empty on a cold build and on a matching reuse. Non-empty only when
+                    // --allow-stale-prepared was used, so a result taken over a drifted corpus carries
+                    // that fact with it instead of looking like any other run.
+                    preparedCorpusDrift = reuseDrift.Select(d => d.ToString()).ToArray(),
+                    preparedCorpusPreparedAtUtc = reusing ? manifest.PreparedAtUtc : null,
+                    preparedCorpusDescription = reusing ? manifest.Description : options.Description,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
@@ -1212,6 +1277,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--preflight-only", "--preparation-workers", "--provider-no-progress-timeout-seconds",
         "--questions", "--resolve-query-relations", "--retain-prepared-volumes",
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
+        "--description", "--memory-types", "--allow-stale-prepared",
         "--use-predicate-vocabulary",
     ];
 
@@ -1272,7 +1338,28 @@ internal static class LongMemEvalPreparedPairProgram
                 DefaultProviderNoProgressTimeoutSeconds,
                 "--provider-no-progress-timeout-seconds"),
             Has("--no-orphan-sweep"),
-            ParseNonNegative(Value("--graphrag-items"), 0, "--graphrag-items"));
+            ParseNonNegative(Value("--graphrag-items"), 0, "--graphrag-items"),
+            Value("--description"),
+            ParseMemoryTypes(Value("--memory-types")),
+            Has("--allow-stale-prepared"));
+    }
+
+    /// <summary>
+    /// Parses <c>--memory-types episodic</c> for a preparation, validating it before anything is built.
+    /// </summary>
+    /// <remarks>
+    /// Validated here rather than at sampling time because the cost of being wrong is a 7-9 hour cold
+    /// build of the wrong corpus. An unreachable type -- procedural, which this dataset does not
+    /// contain at any sample size -- must stop the run at the command line.
+    /// </remarks>
+    private static IReadOnlyList<string> ParseMemoryTypes(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return [];
+        var types = value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+        LongMemEvalMemoryTypeSelection.TaskTypesFor(types);
+        return types;
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -1515,8 +1602,16 @@ internal static class LongMemEvalPreparedPairProgram
         int CheckpointTimeoutSeconds,
         int ProviderNoProgressTimeoutSeconds,
         bool NoOrphanSweep,
-        int GraphRagItems)
+        int GraphRagItems,
+        // A frozen corpus is reused for months; these three are what make it findable and safe to
+        // reuse later, when nobody remembers what it was built for.
+        string? Description = null,
+        IReadOnlyList<string>? MemoryTypesRequested = null,
+        bool AllowStalePrepared = false)
     {
+        /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
+        internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];
+
         internal bool IsDiagnostic =>
             DiagnosticQuestionPosition is not null &&
             DiagnosticSourceSessionOrdinal is not null;
