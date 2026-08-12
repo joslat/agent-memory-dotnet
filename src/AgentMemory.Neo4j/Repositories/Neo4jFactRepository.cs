@@ -24,6 +24,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
+    /// <summary>Payload projection: drop the ~3 KB vector nothing on the recall path reads.</summary>
+    private readonly bool _omitEmbeddingsFromRecall;
     private readonly double _reinforceAlpha;
     private readonly ILogger<Neo4jFactRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
@@ -39,6 +41,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IOptions<MemoryOptions>? memoryOptions = null)
     {
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _omitEmbeddingsFromRecall = memoryOptions?.Value.OmitEmbeddingsFromRecall ?? false;
         _reinforceAlpha = memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0;
         _tx = tx;
         _logger = logger;
@@ -386,15 +389,20 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct)
         {
             var cypher = FactQueries.SearchByVector(
-                hasOwner, includeShared, width, recencyRerank, currentValidTime);
+                hasOwner, includeShared, width, recencyRerank, currentValidTime,
+                omitEmbedding: _omitEmbeddingsFromRecall);
             return await _tx.ReadAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
                 return records.Select(r =>
                 {
-                    var node = r["node"].As<INode>();
                     var score = r["score"].As<double>();
+                    // Projected recall returns a MAP, not a Node, and carries no embedding to read.
+                    if (_omitEmbeddingsFromRecall)
+                        return (MapToFact(r["node"].As<IReadOnlyDictionary<string, object>>(), null), score);
+
+                    var node = r["node"].As<INode>();
                     return (MapToFact(node, ReadEmbedding(node)), score);
                 }).ToList();
             }, ct).ConfigureAwait(false) ?? [];
@@ -578,32 +586,41 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         string subject, string predicate, string @object, string ownerKey)
         => (subject, predicate, @object, ownerKey);
 
-    private static Fact MapToFact(INode node, float[]? embedding) =>
+    /// <summary>Maps from properties, so a projected MAP maps identically to a Node.</summary>
+    /// <remarks>
+    /// Recall payload projection returns <c>node {.*, embedding: NULL}</c> — a MAP, not a Node.
+    /// Both paths share this body so the same stored row cannot map differently depending on
+    /// which query fetched it.
+    /// </remarks>
+    private static Fact MapToFact(IReadOnlyDictionary<string, object> properties, float[]? embedding) =>
         new()
         {
-            FactId = node["id"].As<string>(),
-            Subject = node["subject"].As<string>(),
-            Predicate = node["predicate"].As<string>(),
-            Object = node["object"].As<string>(),
-            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Category = node.Properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
-            Confidence = node["confidence"].As<double>(),
-            ValidFrom = node.Properties.TryGetValue("valid_from", out var vf)
+            FactId = properties["id"].As<string>(),
+            Subject = properties["subject"].As<string>(),
+            Predicate = properties["predicate"].As<string>(),
+            Object = properties["object"].As<string>(),
+            OwnerId = properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Category = properties.TryGetValue("category", out var cat) ? cat.As<string>() : null,
+            Confidence = properties["confidence"].As<double>(),
+            ValidFrom = properties.TryGetValue("valid_from", out var vf)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil = node.Properties.TryGetValue("valid_until", out var vu)
+            ValidUntil = properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
-            InvalidatedAtUtc = node.Properties.TryGetValue("invalidated_at", out var iat)
+            InvalidatedAtUtc = properties.TryGetValue("invalidated_at", out var iat)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
                                 : null,
             Embedding = embedding,
-            SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
+            SourceMessageIds = properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["created_at"]),
+            Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
+
+    private static Fact MapToFact(INode node, float[]? embedding) =>
+        MapToFact(node.Properties, embedding);
 
     private static float[]? ReadEmbedding(INode node)
     {

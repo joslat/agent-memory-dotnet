@@ -20,6 +20,8 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
+    /// <summary>Payload projection: drop the ~3 KB vector nothing on the recall path reads.</summary>
+    private readonly bool _omitEmbeddingsFromRecall;
     private readonly ILogger<Neo4jPreferenceRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
@@ -66,6 +68,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         IOptions<MemoryOptions>? memoryOptions = null)
     {
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _omitEmbeddingsFromRecall = memoryOptions?.Value.OmitEmbeddingsFromRecall ?? false;
         _tx = tx;
         _logger = logger;
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
@@ -230,7 +233,8 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         bool recencyRerank = ranking.RecencyRerankEnabled;
         async Task<List<(Preference, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            var cypher = PreferenceQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            var cypher = PreferenceQueries.SearchByVector(
+                hasOwner, includeShared, width, recencyRerank, _omitEmbeddingsFromRecall);
             var parameters = new Dictionary<string, object?>
             {
                 ["embedding"] = queryEmbedding.ToList(),
@@ -246,8 +250,12 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
                 return records.Select(r =>
                 {
-                    var node = r["node"].As<INode>();
                     var score = r["score"].As<double>();
+                    // Projected recall returns a MAP, not a Node, and carries no embedding to read.
+                    if (_omitEmbeddingsFromRecall)
+                        return (MapToPreference(r["node"].As<IReadOnlyDictionary<string, object>>(), null), score);
+
+                    var node = r["node"].As<INode>();
                     return (MapToPreference(node, ReadEmbedding(node)), score);
                 }).ToList();
             }, ct).ConfigureAwait(false) ?? [];
@@ -495,22 +503,31 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Preference MapToPreference(INode node, float[]? embedding) =>
+    /// <summary>Maps from properties, so a projected MAP maps identically to a Node.</summary>
+    /// <remarks>
+    /// Recall payload projection returns <c>node {.*, embedding: NULL}</c> — a MAP, not a Node.
+    /// Both paths share this body so the same stored row cannot map differently depending on
+    /// which query fetched it.
+    /// </remarks>
+    private static Preference MapToPreference(IReadOnlyDictionary<string, object> properties, float[]? embedding) =>
         new()
         {
-            PreferenceId = node["id"].As<string>(),
-            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Category = node["category"].As<string>(),
-            PreferenceText = node["preference"].As<string>(),
-            Context = node.Properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,
-            Confidence = node["confidence"].As<double>(),
+            PreferenceId = properties["id"].As<string>(),
+            OwnerId = properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Category = properties["category"].As<string>(),
+            PreferenceText = properties["preference"].As<string>(),
+            Context = properties.TryGetValue("context", out var ctx) ? ctx.As<string>() : null,
+            Confidence = properties["confidence"].As<double>(),
             Embedding = embedding,
-            SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
+            SourceMessageIds = properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["created_at"]),
+            Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
+
+    private static Preference MapToPreference(INode node, float[]? embedding) =>
+        MapToPreference(node.Properties, embedding);
 
     private static float[]? ReadEmbedding(INode node)
     {

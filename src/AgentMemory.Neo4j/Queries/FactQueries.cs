@@ -303,7 +303,8 @@ internal static class FactQueries
     /// order key (<c>$tmpWeight</c>); when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
     public static string SearchByVector(
-        bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false, bool currentValidTime = false) =>
+        bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false,
+        bool currentValidTime = false, bool omitEmbedding = false) =>
         VectorRerank.Finish(
             new CypherBuilder()
                 .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
@@ -317,7 +318,7 @@ internal static class FactQueries
                 .And("(node.valid_from IS NULL OR node.valid_from <= datetime($now))", when: currentValidTime)
                 .And("(node.valid_until IS NULL OR node.valid_until > datetime($now))", when: currentValidTime)
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
-            recencyRerank);
+            recencyRerank, omitEmbedding);
 
     /// <summary>
     /// Last-resort owner-scoped similarity search that does NOT use the global vector index.

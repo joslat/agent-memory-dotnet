@@ -35,8 +35,18 @@ internal static class VectorRerank
     /// </summary>
     /// <param name="builder">A builder already carrying the CALL+YIELD and any owner WHERE clauses.</param>
     /// <param name="recencyRerank">When true, blend the clamped retention score into the order key.</param>
-    public static string Finish(CypherBuilder builder, bool recencyRerank)
+    public static string Finish(CypherBuilder builder, bool recencyRerank, bool omitEmbedding = false)
     {
+        // The embedding is projected away at the FINAL return only. The recency branch below still
+        // reads node.last_accessed_at and node.created_at in its WITH clauses, so stripping earlier
+        // would silently disable the re-ranker rather than shrink the payload.
+        //
+        // `node {.*, embedding: NULL}` keeps every other property and yields a MAP, not a Node --
+        // which is why the read sites need dictionary mappers. That is the documented trap here, and
+        // the reason this is projected rather than removed with an all-but-one helper that Cypher
+        // does not have.
+        var projection = omitEmbedding ? "node {.*, embedding: NULL} AS node" : "node";
+
         if (recencyRerank)
         {
             builder = builder
@@ -46,11 +56,11 @@ internal static class VectorRerank
                 // Retention score clamped to [0,1] so it is scale-comparable to the cosine score.
                 .With($"node, score, CASE WHEN ({RetentionExpr}) > 1.0 THEN 1.0 ELSE ({RetentionExpr}) END AS sTmp")
                 // Convex blend: (1−w)·semantic + w·recency.
-                .Return("node, ((1.0 - $tmpWeight) * score + $tmpWeight * sTmp) AS score");
+                .Return($"{projection}, ((1.0 - $tmpWeight) * score + $tmpWeight * sTmp) AS score");
         }
         else
         {
-            builder = builder.Return("node, score");
+            builder = builder.Return($"{projection}, score");
         }
 
         return builder

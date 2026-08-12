@@ -95,14 +95,15 @@ internal static class EntityQueries
     /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
     /// order key; when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
-    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false) =>
+    public static string SearchByVector(
+        bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false, bool omitEmbedding = false) =>
         VectorRerank.Finish(
             new CypherBuilder()
                 .WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK)
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
-            recencyRerank);
+            recencyRerank, omitEmbedding);
 
     // ── GetByTypeAsync ─────────────────────────────────────────────────
 

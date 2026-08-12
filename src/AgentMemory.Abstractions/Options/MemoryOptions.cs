@@ -174,6 +174,34 @@ public sealed record MemoryOptions
     /// </remarks>
     public bool ResolveTemporalQueries { get; init; }
 
+    /// <summary>
+    /// Stops vector recall shipping the stored embedding back with every hit (rank 13 / payload).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every entity, fact and preference vector search returns the whole node — including its
+    /// embedding, which at 384 dimensions is roughly <b>3 KB per item and ~130 KB per turn</b> moved
+    /// across the wire, deserialized, and thrown away. Nothing on the recall path reads it: the
+    /// similarity was computed inside the index.
+    /// </para>
+    /// <para>
+    /// A measured prototype showed <b>−91% on the entity transaction and −21% on the whole turn</b>
+    /// with every quality guard flat.
+    /// </para>
+    /// <para>
+    /// <b>Opt-in, and that is a correctness decision rather than caution.</b> Recalled memories come
+    /// back with <c>Embedding = null</c> when this is on. Anything that re-uses a recalled vector —
+    /// notably the TCK conformance bridge, which serialises embeddings on three search endpoints —
+    /// must leave it off. Making it a setting the caller enables means such a consumer is unaffected
+    /// <i>by construction</i>, rather than by remembering to check.
+    /// </para>
+    /// <para>
+    /// Honoured by the entity, fact and preference vector searches, which share one query finisher.
+    /// Message and trace searches keep returning whole nodes.
+    /// </para>
+    /// </remarks>
+    public bool OmitEmbeddingsFromRecall { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read
