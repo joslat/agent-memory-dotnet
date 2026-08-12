@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -23,10 +23,20 @@
     here depends on source access.
   -->
   <ItemGroup>
-    <PackageReference Include="AgentEval" Version="0.18.0-beta" />
+    <PackageReference Include="AgentEval" Version="0.20.0-beta" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <!--
+      A real tokenizer, for the publication path only. The chars/4 heuristic stays for RATIOS between
+      arms, where a consistent approximation is sufficient and cheap. It is not sufficient for a
+      number we publish: a reader will compare a published token count against provider billing.
+      This is a tool, never packaged, so the dependency costs consumers nothing.
+    -->
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <!-- Embedded vocabularies, so counting never needs a network fetch at run time. -->
+    <PackageReference Include="Microsoft.ML.Tokenizers.Data.O200kBase" Version="2.0.0" />
+    <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="2.0.0" />
     <PackageReference Include="Testcontainers.Neo4j" Version="4.11.0" />
   </ItemGroup>
 
@@ -36,6 +46,12 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.LongMemEval" />
+  </ItemGroup>
+
+
+  <!-- The memory-type mapping is embedded so it versions with the code that scores against it. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Taxonomy\memory-type-map.json" />
   </ItemGroup>
 
 </Project>

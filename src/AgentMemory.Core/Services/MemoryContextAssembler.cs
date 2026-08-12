@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -100,6 +100,56 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         return map;
     }
 
+    /// <summary>
+    /// Builds a section's diagnostics from what the retrieval actually did.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="searched"/> is passed in rather than inferred from the item count, because the
+    /// whole point is to separate "searched and found nothing" from "never searched" — and those look
+    /// identical from the results alone.
+    /// </remarks>
+    private static MemoryContextSectionDiagnostics Diagnose<T>(
+        bool searched,
+        int requestedLimit,
+        IReadOnlyList<T> items,
+        IReadOnlyList<MemoryContextRankedItem> ranked,
+        double minimumScore)
+    {
+        // Scores come from the ranked items, which exist only when the provider could supply them.
+        // An unscoreable section reports null rather than a placeholder: zero is a real score.
+        double? top = null, low = null;
+        if (ranked.Count > 0)
+        {
+            top = ranked.Max(item => item.Score);
+            low = ranked.Min(item => item.Score);
+        }
+
+        return new MemoryContextSectionDiagnostics(
+            searched, requestedLimit, items.Count, top, low, minimumScore);
+    }
+
+    /// <summary>
+    /// Whether any retrieval selected by <paramref name="recallOpts"/> actually consumes a query vector.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Exactly the five categories whose searches are gated on <c>hasEmbedding</c>. Recent messages are
+    /// session-scoped and time-ordered, so they need no vector; GraphRAG builds its own retriever and
+    /// starts before this point, so it needs nothing from here either.
+    /// </para>
+    /// <para>
+    /// <b>One definition, deliberately.</b> The live and as-of paths repeat their per-category gates
+    /// independently and have already drifted apart once on a single option, so the decision that spans
+    /// both lives in one place where a new category cannot be added to one and forgotten in the other.
+    /// </para>
+    /// </remarks>
+    private static bool NeedsQueryEmbedding(RecallOptions recallOpts) =>
+        recallOpts.MaxRelevantMessages > 0
+        || recallOpts.MaxEntities > 0
+        || recallOpts.MaxPreferences > 0
+        || recallOpts.MaxFacts > 0
+        || recallOpts.MaxTraces > 0;
+
     /// <inheritdoc/>
     public async Task<MemoryContext> AssembleContextAsync(
         RecallRequest request,
@@ -181,19 +231,35 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? MemoryRelationLexicon.Default.ResolveQuestion(request.Query)
             : Array.Empty<string>();
 
+        // Whether the vector searches were reachable at all this recall, hoisted so the diagnostics built
+        // after budgeting can distinguish "searched and found nothing" from "never searched". False when
+        // memory was excluded by blend mode, or when no embedding was available to search with.
+        bool vectorSearchRan = false;
+
         if (includeMemory)
         {
-            // Generate embedding if not provided (only needed for memory-layer semantic search).
+            // Generate embedding if not provided, and ONLY if some retrieval will actually consume it.
+            // Every vector search below is gated on its own MaxX > 0 (#88); the embedding was not, so a
+            // task-aware policy that narrowed a turn to recent messages alone still paid for a provider
+            // round trip whose result nothing read. Remote-shaped that is the single largest recall
+            // stage (~120 ms), which made category narrowing *relocate* the cost rather than remove it.
+            // Gating it here rather than in the MAF provider also covers the SK adapter, the CLI and the
+            // facade, which all reach this method.
+            bool needsEmbedding = NeedsQueryEmbedding(recallOpts);
+
             var queryEmbedding = request.QueryEmbedding
-                ?? await TimedAsync(
-                        "memory.recall.embedding",
-                        () => _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken))
-                    .ConfigureAwait(false);
+                ?? (needsEmbedding
+                    ? await TimedAsync(
+                            "memory.recall.embedding",
+                            () => _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken))
+                        .ConfigureAwait(false)
+                    : Array.Empty<float>());
 
             // Vector searches require a non-empty embedding. A blank query (e.g. a history-only
             // recall via the chat-history provider) yields an empty embedding — skip the semantic
             // searches rather than issue zero-dimension vector queries (which the index rejects).
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
+            vectorSearchRan = hasEmbedding;
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
             // Every long-term/reasoning search below is ranked by the vector index and the service layer
@@ -296,8 +362,18 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                             // previous call exactly.
                             resolvedQueryRelations,
                             cancellationToken)
-                        : _longTerm.SearchFactsAsync(
-                            queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken))
+                        // Valid time is applied on the non-expansion path only. Expansion fetches by
+                        // predicate rather than by vector and would need its own clause; gating one and
+                        // silently not the other would be worse than gating neither, so expansion keeps
+                        // today's behaviour until it is done deliberately.
+                        // Same rule as the service below it: take the pre-existing overload unless the
+                        // gate is on, so an ungated recall is byte-identical to what it always was.
+                        : recallOpts.ValidTime == ValidTimeMode.Ignore
+                            ? _longTerm.SearchFactsAsync(
+                                queryEmbedding, recallOpts.MaxFacts, minScore, scope, cancellationToken)
+                            : _longTerm.SearchFactsAsync(
+                                queryEmbedding, recallOpts.ValidTime, recallOpts.MaxFacts, minScore,
+                                scope, cancellationToken))
                 : Empty<Fact>();
 
             var tracesTask = searchTraces && scoredReasoning is null
@@ -441,31 +517,59 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
-            RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
+            RecentMessages = new MemoryContextSection<Message>
+            {
+                Items = recentMessages,
+                // No vector involved: session-scoped and time-ordered, so the limit alone decides.
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.MaxRecentMessages > 0, recallOpts.MaxRecentMessages,
+                        recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
+                    : null
+            },
             RelevantMessages = new MemoryContextSection<Message>
             {
                 Items = relevantMessages,
-                RankedItems = relevantRanked
+                RankedItems = relevantRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxRelevantMessages > 0,
+                        recallOpts.MaxRelevantMessages, relevantMessages, relevantRanked, minScore)
+                    : null
             },
             RelevantEntities = new MemoryContextSection<Entity>
             {
                 Items = entities,
-                RankedItems = entityRanked
+                RankedItems = entityRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxEntities > 0,
+                        recallOpts.MaxEntities, entities, entityRanked, minScore)
+                    : null
             },
             RelevantPreferences = new MemoryContextSection<Preference>
             {
                 Items = preferences,
-                RankedItems = preferenceRanked
+                RankedItems = preferenceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxPreferences > 0,
+                        recallOpts.MaxPreferences, preferences, preferenceRanked, minScore)
+                    : null
             },
             RelevantFacts = new MemoryContextSection<Fact>
             {
                 Items = facts,
-                RankedItems = factRanked
+                RankedItems = factRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxFacts > 0,
+                        recallOpts.MaxFacts, facts, factRanked, minScore)
+                    : null
             },
             SimilarTraces = new MemoryContextSection<ReasoningTrace>
             {
                 Items = traces,
-                RankedItems = traceRanked
+                RankedItems = traceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(vectorSearchRan && recallOpts.MaxTraces > 0,
+                        recallOpts.MaxTraces, traces, traceRanked, minScore)
+                    : null
             },
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
@@ -509,8 +613,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var scope = _isolationPolicy.ResolveReadScope(
             recallOpts.Scope, request.UserId, nameof(AssembleContextAsOfAsync), MemoryOperationAccess.Tenant);
 
+        // Same elision as the live path, asserted separately rather than assumed: these two paths have
+        // already diverged once on a single option (SuccessfulTracesOnly is passed live and hardcoded
+        // null here), so "it mirrors the live path" is not a safe thing to take on trust.
         var queryEmbedding = request.QueryEmbedding
-            ?? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false);
+            ?? (NeedsQueryEmbedding(recallOpts)
+                ? await _embeddingOrchestrator.EmbedQueryAsync(request.Query, cancellationToken).ConfigureAwait(false)
+                : Array.Empty<float>());
 
         // Vector searches require a non-empty embedding. A blank query, or a transient embedding-generation
         // failure (degrades to an empty vector), would otherwise issue a zero-dimension vector query which
@@ -676,29 +785,52 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
-            RecentMessages = new MemoryContextSection<Message> { Items = recentMessages },
+            RecentMessages = new MemoryContextSection<Message>
+            {
+                Items = recentMessages,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(recallOpts.MaxRecentMessages > 0, recallOpts.MaxRecentMessages,
+                        recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
+                    : null
+            },
             // Empty, not unscored: the temporal snapshot runs no semantic message search at all, so there
             // is no retrieval here to report a rank for.
             RelevantMessages = MemoryContextSection<Message>.Empty,
             RelevantEntities = new MemoryContextSection<Entity>
             {
                 Items = entities,
-                RankedItems = entityRanked
+                RankedItems = entityRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxEntities > 0,
+                        recallOpts.MaxEntities, entities, entityRanked, minScore)
+                    : null
             },
             RelevantPreferences = new MemoryContextSection<Preference>
             {
                 Items = preferences,
-                RankedItems = preferenceRanked
+                RankedItems = preferenceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxPreferences > 0,
+                        recallOpts.MaxPreferences, preferences, preferenceRanked, minScore)
+                    : null
             },
             RelevantFacts = new MemoryContextSection<Fact>
             {
                 Items = facts,
-                RankedItems = factRanked
+                RankedItems = factRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxFacts > 0,
+                        recallOpts.MaxFacts, facts, factRanked, minScore)
+                    : null
             },
             SimilarTraces = new MemoryContextSection<ReasoningTrace>
             {
                 Items = traces,
-                RankedItems = traceRanked
+                RankedItems = traceRanked,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(hasEmbedding && recallOpts.MaxTraces > 0,
+                        recallOpts.MaxTraces, traces, traceRanked, minScore)
+                    : null
             },
             Truncated = truncated,
             // "asOf" retained as the valid-time alias for backward compatibility; both clocks recorded.

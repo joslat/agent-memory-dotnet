@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
@@ -15,13 +15,77 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     private readonly IMemoryService _inner;
     private readonly MemoryMetrics _metrics;
     private readonly IngestionFailureMode _failureMode;
+    private readonly bool _includeOwnerId;
 
     public InstrumentedMemoryService(
-        IMemoryService inner, MemoryMetrics metrics, IOptions<ExtractionOptions>? extractionOptions = null)
+        IMemoryService inner,
+        MemoryMetrics metrics,
+        IOptions<ExtractionOptions>? extractionOptions = null,
+        IOptions<ObservabilityOptions>? observabilityOptions = null)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         _failureMode = extractionOptions?.Value.FailureMode ?? IngestionFailureMode.BestEffort;
+        _includeOwnerId = observabilityOptions?.Value.IncludeOwnerIdInTelemetry ?? false;
+    }
+
+    /// <summary>
+    /// Emits which recall sections came back empty or short.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The misses are the roadmap, and nothing recorded them.</b> A <c>:MemoryReadAudit</c> row is
+    /// created inside <c>MATCH (n:{label} {id: $id})</c>, so a row exists only for a <b>hit</b> — there
+    /// was no record anywhere that an owner asked for something and memory had nothing.
+    /// </para>
+    /// <para>
+    /// A counter rather than a stored node, deliberately: a node per miss grows without bound on the
+    /// exact workload that produces the most misses, and would need its own retention policy to stop
+    /// being a liability. A counter answers the operational question — how often, for which category —
+    /// without storing anything.
+    /// </para>
+    /// <para>
+    /// <b>Requires <c>RecallOptions.IncludeDiagnostics</c>.</b> Without it the sections carry no
+    /// diagnostics and nothing is emitted, rather than emitting a guess: "empty" and "never searched"
+    /// are different, and only the diagnostics can tell them apart.
+    /// </para>
+    /// </remarks>
+    private void RecordSectionOutcomes(MemoryContext context)
+    {
+        Record("recent", context.RecentMessages.Diagnostics);
+        Record("relevant_messages", context.RelevantMessages.Diagnostics);
+        Record("entities", context.RelevantEntities.Diagnostics);
+        Record("preferences", context.RelevantPreferences.Diagnostics);
+        Record("facts", context.RelevantFacts.Diagnostics);
+        Record("traces", context.SimilarTraces.Diagnostics);
+
+        void Record(string category, MemoryContextSectionDiagnostics? diagnostics)
+        {
+            if (diagnostics is null) return;
+
+            var tag = new KeyValuePair<string, object?>("memory.category", category);
+            if (diagnostics.SearchedAndEmpty) _metrics.RecallSectionEmpty.Add(1, tag);
+            else if (diagnostics.SearchedAndShort) _metrics.RecallSectionShort.Add(1, tag);
+        }
+    }
+
+    /// <summary>
+    /// Tags the owner dimension without exporting tenant data unless the host asked for it.
+    /// </summary>
+    /// <remarks>
+    /// A tenant identifier in a trace is tenant data in a system usually less access-controlled than
+    /// the database it came from. The boolean answers the operational question -- was this operation
+    /// scoped? -- without carrying the value, which is the same choice every owner-scoped vector
+    /// search here already makes with <c>memory.vector.owner_scoped</c>.
+    /// </remarks>
+    private void TagOwner(System.Diagnostics.Activity? activity, string? userId)
+    {
+        if (activity is null) return;
+
+        if (_includeOwnerId && userId is not null)
+            activity.SetTag("memory.user_id", userId);
+        else
+            activity.SetTag("memory.owner_scoped", userId is not null);
     }
 
     public async Task<RecallResult> RecallAsync(
@@ -30,6 +94,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.recall");
         activity?.SetTag("memory.session_id", request.SessionId);
+        TagOwner(activity, request.UserId);
 
         var sw = Stopwatch.StartNew();
         try
@@ -38,6 +103,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
             _metrics.RecallRequests.Add(1);
             activity?.SetTag("memory.recall.entity_count", result.Context.RelevantEntities.Items.Count);
             activity?.SetTag("memory.recall.total_items", result.TotalItemsRetrieved);
+            RecordSectionOutcomes(result.Context);
             return result;
         }
         catch (Exception ex)
@@ -267,7 +333,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_session");
         activity?.SetTag("memory.session_id", sessionId);
-        if (userId is not null) activity?.SetTag("memory.user_id", userId);
+        TagOwner(activity, userId);
 
         var sw = Stopwatch.StartNew();
         try
@@ -293,7 +359,7 @@ internal sealed class InstrumentedMemoryService : IMemoryService
     {
         using var activity = MemoryActivitySource.Instance.StartActivity("memory.extract_from_conversation");
         activity?.SetTag("memory.conversation_id", conversationId);
-        if (userId is not null) activity?.SetTag("memory.user_id", userId);
+        TagOwner(activity, userId);
 
         var sw = Stopwatch.StartNew();
         try

@@ -1,4 +1,4 @@
-using AgentEval.Memory.External.Models;
+﻿using AgentEval.Memory.External.Models;
 
 namespace AgentMemory.LongMemEval;
 
@@ -73,6 +73,26 @@ internal static class LongMemEvalRunValidator
 
         if (questionCount == 0)
             issues.Add("AgentEval returned no LongMemEval questions.");
+
+        // A judged run that measured no answer presence cannot separate an extraction failure from a
+        // retrieval one, and every downstream reading of its failures is a guess. That is not fatal --
+        // the accuracy number is still valid -- so it is recorded as an issue rather than a rejection.
+        //
+        // Grouping 52 recorded runs by date showed answer-presence data appearing only from the day the
+        // gate was built, which is benign; what is NOT benign is a report that looks the same either
+        // way. Absence must be visible in the artifact, not inferred by a reader who happens to check.
+        // Gated on there being FAILURES to attribute. A run that answered everything has nothing to
+        // explain, and flagging it would train readers to ignore the message; a Raw-mode arm has no
+        // extracted memory to probe at all and would trip it forever.
+        var unattributedFailures = questionResults.Count(result => result.Correct == false);
+        if (unattributedFailures > 0 && telemetry.Count > 0 &&
+            telemetry.All(item => item.AnswerPresence is null))
+        {
+            issues.Add(
+                $"{unattributedFailures} question(s) scored incorrect and no answer-presence measurement "
+                + "was recorded, so this run cannot distinguish an extraction failure from a retrieval "
+                + "failure. Wire a graph probe, or read these failures as unattributed.");
+        }
 
         if (questionResults.Count != questionCount)
         {

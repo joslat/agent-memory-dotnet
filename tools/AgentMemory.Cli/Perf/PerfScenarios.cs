@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -87,6 +87,10 @@ public static partial class PerfScenarios
             "PERF-R-01",
             "Greeting-only turn at the shipped default recall policy",
             GreetingRecallAsync),
+        new(
+            "PERF-R-09",
+            "Trivial acknowledgement turn narrowed to recent messages at the shipped default policy",
+            TrivialTurnRecallAsync),
         new("PERF-R-04", "Full multi-category recall at shipped defaults", RecallAsync),
         new(
             "PERF-R-07",
@@ -320,9 +324,24 @@ public static partial class PerfScenarios
     }
 
     /// <summary>
-    /// PERF-R-01 — a greeting/acknowledgement turn with no memory-retrieval intent. The shipped default
-    /// policy still recalls, so this captures the work that matrix rank 1 must eliminate.
+    /// PERF-R-01 — a conversational turn the shipped default policy treats as REAL, and therefore the
+    /// full-recall control.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Historically described as "greeting-only". It is not, under the policy shipped since
+    /// <c>TrivialTurnRecallPolicy</c> became the default: the turn is <c>"thanks, that's great"</c>, and
+    /// <c>that's</c> is not an acknowledgement token, so the turn is correctly classified as real and
+    /// receives full recall. The scenario's own failure message anticipated exactly this — *"rank 1 must
+    /// change product behavior and update this expectation explicitly"*.
+    /// </para>
+    /// <para>
+    /// <b>Its expectations are deliberately unchanged, and the acknowledgement list was deliberately NOT
+    /// widened to match this text.</b> Doing that would tune the mechanism to move a metric, and it would
+    /// break this scenario's own assertion. <see cref="TrivialTurnRecallAsync"/> (PERF-R-09) is the
+    /// measurement of the narrowed path; this one stays the control it has always been.
+    /// </para>
+    /// </remarks>
     private static async Task GreetingRecallAsync(ScenarioContext ctx)
     {
         var identity = ctx.Variant is null
@@ -367,6 +386,65 @@ public static partial class PerfScenarios
                 "current hash-bucket overlap is part of this locked scenario shape. Do not configure " +
                 "a skipping policy inside this fixture: rank 1 must change product behavior and update " +
                 "this expectation explicitly.");
+        }
+    }
+
+    /// <summary>
+    /// PERF-R-09 — a genuinely trivial turn under the shipped default policy: the measurement of what
+    /// task-aware recall actually saves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// PERF-R-01 is the full-recall control; this is its sibling. The turn is a single acknowledgement
+    /// token, so <c>TrivialTurnRecallPolicy</c> narrows the turn to recent messages and every
+    /// vector-consuming category is excluded — which is what lets the assembler and the provider elide
+    /// the query embedding entirely.
+    /// </para>
+    /// <para>
+    /// <b>Recent messages must still arrive.</b> The policy narrows rather than skips precisely so an
+    /// acknowledgement like "ok, go ahead" keeps the conversation it is agreeing to, and a regression
+    /// that turned this into a full skip would look like an even better perf result while silently
+    /// removing context. The self-check below therefore asserts BOTH directions: no semantic work, and
+    /// no loss of recent messages.
+    /// </para>
+    /// </remarks>
+    private static async Task TrivialTurnRecallAsync(ScenarioContext ctx)
+    {
+        var identity = ctx.Variant is null
+            ? PerfFixture.DefaultIdentity
+            : PerfFixture.ForVariant(ctx.Variant);
+        var messages = new[]
+        {
+            new ChatMessage(ChatRole.User, "thanks"),
+        };
+
+        var context = await ctx.Provider.BuildContextAsync(
+            messages,
+            identity.SessionId,
+            identity.ConversationId,
+            ctx.CancellationToken,
+            identity.OwnerId).ConfigureAwait(false);
+
+        RecordContext(ctx.Turn, context);
+
+        var recent = ctx.Turn.Counter("items.recent");
+        var retrieved = ctx.Turn.Counter("items.retrieved");
+        var embeddings = ctx.Turn.Counter("embed.requests");
+        var semantic =
+            ctx.Turn.Counter("items.relevant") +
+            ctx.Turn.Counter("items.entities") +
+            ctx.Turn.Counter("items.facts") +
+            ctx.Turn.Counter("items.preferences") +
+            ctx.Turn.Counter("items.traces");
+
+        if (recent != 10 || retrieved != 10 || semantic != 0 || embeddings != 0)
+        {
+            throw new InvalidOperationException(
+                $"PERF-R-09 did not exercise the narrowed trivial-turn path (items.recent={recent}/10, " +
+                $"items.retrieved={retrieved}/10, semantic items={semantic}/0, " +
+                $"embed.requests={embeddings}/0). embed.requests > 0 means the embedding gate stopped " +
+                "working; items.recent < 10 means the policy started SKIPPING rather than narrowing, " +
+                "which would drop the conversation an acknowledgement turn still needs.");
         }
     }
 

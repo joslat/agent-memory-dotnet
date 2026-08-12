@@ -1,4 +1,4 @@
-namespace AgentMemory.Abstractions.Options;
+﻿namespace AgentMemory.Abstractions.Options;
 
 /// <summary>
 /// Configuration for memory recall operations.
@@ -52,6 +52,16 @@ public sealed record RecallOptions
     /// and allocation profile.
     /// </summary>
     public bool IncludeDiagnostics { get; init; }
+
+    /// <summary>
+    /// Whether live recall honours a fact's valid-time window. Defaults to
+    /// <see cref="ValidTimeMode.Ignore"/> — today's behaviour.
+    /// </summary>
+    /// <remarks>
+    /// <c>MemoryProfile.Parity</c> must resolve to <see cref="ValidTimeMode.Ignore"/>: parity means
+    /// "ranks exactly like upstream Python", and upstream has no valid-time gate on its live path.
+    /// </remarks>
+    public ValidTimeMode ValidTime { get; init; } = ValidTimeMode.Ignore;
 
     /// <summary>Default singleton instance.</summary>
     public static RecallOptions Default { get; } = new();

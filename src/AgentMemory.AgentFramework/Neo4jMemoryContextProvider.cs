@@ -61,7 +61,11 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
         _storeContext = storeContext;
         _ownerContext = ownerContext;
         _toolFactory = toolFactory;
-        _recallPolicy = recallPolicy ?? new ConfiguredAutomaticRecallPolicy();
+        // Must stay the same type AddAgentMemoryFramework registers. A constructor default that differs
+        // from the DI default gives one component two behaviours depending on how it was built, and the
+        // direct-construction path (tools, tests, hosts wiring by hand) is exactly where that divergence
+        // goes unnoticed -- it did here, until a perf run showed the counters had not moved.
+        _recallPolicy = recallPolicy ?? new TrivialTurnRecallPolicy();
         _admissionPolicy = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -135,21 +139,33 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
 
             var effectiveOptions = ResolveEffectiveOptions(decision);
 
+            // Only embed if a retrieval that consumes the vector survived the policy's narrowing.
+            // A policy that excludes every vector category (e.g. "recent messages only" on a trivial
+            // turn) would otherwise still pay the largest single stage of a remote-shaped recall for a
+            // vector nothing reads. The assembler applies the same gate for its other callers; this one
+            // is needed because the provider embeds BEFORE handing the request over, so narrowing alone
+            // would relocate the call rather than remove it.
+            //
+            // Null is already the established "no embedding" value here — the catch below hands the
+            // assembler a null on failure and it degrades to recent messages — so this adds no new state.
             float[]? queryEmbedding = null;
-            try
+            if (RecallNeedsQueryEmbedding(effectiveOptions))
             {
-                using var embeddingSpan = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.embedding");
-                queryEmbedding = await _embeddingOrchestrator
-                    .EmbedQueryAsync(queryText, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to generate query embedding; proceeding without semantic search.");
+                try
+                {
+                    using var embeddingSpan = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.embedding");
+                    queryEmbedding = await _embeddingOrchestrator
+                        .EmbedQueryAsync(queryText, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to generate query embedding; proceeding without semantic search.");
+                }
             }
 
             var recallRequest = new RecallRequest
@@ -219,6 +235,23 @@ public sealed class Neo4jMemoryContextProvider : AIContextProvider
     /// cleared afterwards: scope must always be resolved from this invocation's authenticated userId (via
     /// #100's isolation policy), never from a statically configured or policy-supplied value.
     /// </summary>
+    /// <summary>
+    /// Whether any retrieval selected by <paramref name="options"/> consumes a query vector.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <c>MemoryContextAssembler</c>'s own gate on exactly the five categories whose searches
+    /// require an embedding. Recent messages are session-scoped and time-ordered; GraphRAG builds its
+    /// own retriever. Kept as a separate copy rather than shared because the two live in different
+    /// packages, and <c>MemoryContextAssembler</c>'s is <c>private</c> — the shared thing is the rule,
+    /// which is stated in both places and covered by tests on both sides.
+    /// </remarks>
+    private static bool RecallNeedsQueryEmbedding(RecallOptions options) =>
+        options.MaxRelevantMessages > 0
+        || options.MaxEntities > 0
+        || options.MaxPreferences > 0
+        || options.MaxFacts > 0
+        || options.MaxTraces > 0;
+
     private RecallOptions ResolveEffectiveOptions(AutomaticRecallDecision decision)
     {
         var effective = decision.RecallOptions ?? _recallOptions with

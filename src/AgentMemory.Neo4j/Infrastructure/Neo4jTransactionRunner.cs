@@ -1,5 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
@@ -33,10 +34,28 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
     private readonly ILogger<Neo4jTransactionRunner> _logger;
 
     private readonly AsyncLocal<IAsyncQueryRunner?> _ambientWriteTransaction = new();
-    public Neo4jTransactionRunner(INeo4jSessionFactory sessionFactory, ILogger<Neo4jTransactionRunner> logger)
+
+    /// <summary>
+    /// Applies the configured server-side deadline, or null when none is configured.
+    /// </summary>
+    /// <remarks>
+    /// Built once. Null is passed straight through to the driver's overload that takes no transaction
+    /// config, so an unconfigured deployment emits byte-identical driver calls to before this existed.
+    /// </remarks>
+    private readonly Action<TransactionConfigBuilder>? _transactionConfig;
+
+    public Neo4jTransactionRunner(
+        INeo4jSessionFactory sessionFactory,
+        ILogger<Neo4jTransactionRunner> logger,
+        IOptions<Neo4jOptions>? options = null)
     {
         _sessionFactory = sessionFactory;
         _logger = logger;
+
+        var timeout = options?.Value.TransactionTimeout;
+        _transactionConfig = timeout is { } value && value > TimeSpan.Zero
+            ? builder => builder.WithTimeout(value)
+            : null;
     }
 
     public async Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default)
@@ -54,8 +73,11 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         await using var _ = session.ConfigureAwait(false); // ConfigureAwait the disposal without rebinding session's type
         try
         {
+            // Always the config-taking overload: the driver's single-argument form forwards to this one
+            // with a null config, so passing null here is byte-identical to the call this used to make.
             return await session.ExecuteReadAsync(
-                Instrument(work, "read", activity, payload, transactionEntryStartedAt)).ConfigureAwait(false);
+                Instrument(work, "read", activity, payload, transactionEntryStartedAt),
+                _transactionConfig).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -94,7 +116,8 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         try
         {
             return await session.ExecuteWriteAsync(
-                Instrument(work, "write", activity, payload, transactionEntryStartedAt)).ConfigureAwait(false);
+                Instrument(work, "write", activity, payload, transactionEntryStartedAt),
+                _transactionConfig).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -132,7 +155,11 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         {
             // Explicit rather than managed transaction: the callback mutates in-memory outcome state
             // and must execute exactly once. The caller owns any whole-operation retry after rollback.
-            transaction = await session.BeginTransactionAsync().ConfigureAwait(false);
+            // The same deadline as the managed paths. Covering two of the three transaction entry
+            // points would be worse than covering none: the uncovered one is the FUSED PERSISTENCE
+            // path, which is the longest-running write in the system, and an operator who configured
+            // a timeout would reasonably believe it applied everywhere.
+            transaction = await session.BeginTransactionAsync(_transactionConfig).ConfigureAwait(false);
             activity?.SetTag(
                 "db.transaction_entry_ms_est",
                 Stopwatch.GetElapsedTime(transactionEntryStartedAt).TotalMilliseconds);

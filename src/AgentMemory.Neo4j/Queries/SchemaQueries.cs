@@ -1,4 +1,4 @@
-namespace AgentMemory.Neo4j.Queries;
+﻿namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
 /// Centralized Cypher statements for schema bootstrapping (constraints, indexes)
@@ -374,6 +374,21 @@ internal static class SchemaQueries
         $"CREATE VECTOR INDEX entity_embedding_idx IF NOT EXISTS FOR (n:Entity) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX preference_embedding_idx IF NOT EXISTS FOR (n:Preference) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX fact_embedding_idx IF NOT EXISTS FOR (n:Fact) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
+        // RESERVED, and deliberately kept. Decision recorded 2026-08-12 after auditing it.
+        //
+        // State, precisely: the WRITE path is complete and caller-supplied -- AddStepAsync takes an
+        // optional embedding and Neo4jReasoningStepRepository persists it -- but no first-party caller
+        // supplies one (AgentTraceRecorder, the MCP tool and the evaluation CLI all omit it), and
+        // NOTHING reads this index. It is the only vector index here with no reader.
+        //
+        // Kept rather than dropped because its real cost today is ~zero: a vector index over a property
+        // that is always NULL indexes no nodes. Removing it would cost a migration, an ExpectedQueryCount
+        // bump and a snapshot regeneration for no measurable gain, and reintroducing it later would cost
+        // the same migration again. The honest position is to say what it is rather than to churn schema.
+        //
+        // The reader belongs with its consumer: step-level retrieval is what procedural memory would want
+        // (find the steps that solved a similar sub-problem), so it should arrive in the same change that
+        // uses it -- not as speculative machinery whose absence of a caller nobody notices.
         $"CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningStep) ON (n.embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}",
         $"CREATE VECTOR INDEX task_embedding_idx IF NOT EXISTS FOR (n:ReasoningTrace) ON (n.task_embedding) OPTIONS {{indexConfig: {{`vector.dimensions`: {dimensions}, `vector.similarity_function`: 'cosine'}}}}"
         ]

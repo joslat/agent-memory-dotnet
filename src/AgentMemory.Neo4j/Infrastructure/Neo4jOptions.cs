@@ -1,4 +1,4 @@
-namespace AgentMemory.Neo4j.Infrastructure;
+﻿namespace AgentMemory.Neo4j.Infrastructure;
 
 public class Neo4jOptions
 {
@@ -9,6 +9,30 @@ public class Neo4jOptions
     public int MaxConnectionPoolSize { get; set; } = 100;
     public TimeSpan ConnectionAcquisitionTimeout { get; set; } = TimeSpan.FromSeconds(60);
     public bool EncryptionEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Server-side deadline for every managed read/write transaction. <see langword="null"/> (default)
+    /// means no deadline, which is today's behaviour.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing bounds a query today. The driver's <c>ExecuteReadAsync</c>/<c>ExecuteWriteAsync</c> take
+    /// no <see cref="CancellationToken"/>, so an in-flight query cannot be interrupted from this side —
+    /// cooperative cancellation only checks <em>before</em> work starts. A transaction timeout is the
+    /// only mechanism that actually bounds one, because the <b>server</b> enforces it.
+    /// </para>
+    /// <para>
+    /// This matters more since the owner-starvation rescue: a scoped search that returns nothing falls
+    /// back to a scan bounded by one owner's data, and "one owner's data" is unbounded in principle.
+    /// </para>
+    /// <para>
+    /// <b>Default is null on purpose.</b> A timeout that is too low converts a slow query into a failed
+    /// one, and the right value depends on deployment shape, so this is a deliberate operator decision
+    /// rather than a number chosen here. Values must be strictly positive; zero or negative is rejected
+    /// at startup rather than silently meaning "no timeout".
+    /// </para>
+    /// </remarks>
+    public TimeSpan? TransactionTimeout { get; set; }
 
     /// <summary>
     /// Dimensionality of embedding vectors. Must match the model used to generate embeddings.

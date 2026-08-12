@@ -1,8 +1,112 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+
+- **A greeting no longer costs a full recall.** Measured on the hermetic `PERF-R-01` scenario — a
+  greeting-only turn at shipped defaults — recall issued **13 Cypher queries and 12 read transactions,
+  plus an embedding round trip, to retrieve 11 items**. Ten of those were recent messages, which need
+  no vector at all. The 1.4.0/1.4.1 owner-starvation rescue made it worse rather than better: with no
+  entities, facts or traces to find, each of those three searches returns empty, escalates to a widened
+  index query, then falls back to an owner-bounded scan — **three queries each, all guaranteed to find
+  nothing, because there is nothing to find.**
+
+  The default `IAutomaticRecallPolicy` is now `TrivialTurnRecallPolicy`. On a turn that is nothing but
+  a greeting or acknowledgement it recalls **recent messages only**; on every other turn it is
+  byte-identical to the previous default.
+
+  It **narrows rather than skips** deliberately: dropping recall entirely would also drop recent
+  messages, and *"ok, go ahead"* is exactly the turn where an agent most needs the conversation so far
+  to know what it is agreeing to.
+
+  **What changes for you:** on a greeting-only turn you previously received whatever
+  entities/facts/preferences/traces matched; you now receive recent messages only. To restore the
+  previous behaviour, register the old policy explicitly:
+
+  ```csharp
+  services.AddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
+  ```
+
+- **An empty recall section can now say why it is empty.** `MemoryContextSection<T>.Diagnostics`
+  (null unless `RecallOptions.IncludeDiagnostics` is set) records whether the section was actually
+  searched, the limit it asked for, how many items came back, the top and lowest scores, and the
+  similarity floor in force.
+
+  Three causes needed opposite responses and looked identical from outside: the section was never
+  searched, the store genuinely holds nothing, or candidates existed and were filtered away — by the
+  floor, or by an owner post-filter applied after the vector index picked a global top-K. `Searched`
+  separates the first; `SearchedAndShort` exposes the third, which is otherwise invisible because the
+  starvation escalation fires only on a *total* zero.
+
+  An unscoreable section reports `null` scores rather than zero — zero is a real score.
+
+### Fixed
+
+- **Live recall can now honour a fact's valid-time window** — `RecallOptions.ValidTime`
+  (`Ignore` by default, so nothing changes unless you ask).
+
+  `valid_from`/`valid_until` persist, are writable through the public API, and the point-in-time path
+  already filtered on them. **Live recall did not.** A fact valid from six months hence was returned
+  *today*, and a fact whose `valid_until` had passed was returned **forever**. The gap was harmless
+  until 1.4.0 shipped `TemporalValidityMode.Extract` — the writer it had been waiting for.
+
+  Gated on **both** live fact paths: the indexed vector query and 1.4.1's owner-scoped fallback.
+  Gating only the first would have left valid time bypassed for exactly the starved multi-tenant
+  owners that fallback exists to rescue.
+
+  Honouring it also delivers the first two mechanisms of prospective memory — *expression* and
+  *gating* — i.e. due-on-next-interaction semantics. Acting at a time with no query is a scheduler,
+  a different risk class, and deliberately not in scope.
+
+- **Recall misses are now observable.** `memory.recall.section.empty` and
+  `memory.recall.section.short`, tagged by category. A `:MemoryReadAudit` row is created *inside*
+  `MATCH (n {id: $id})`, so a row existed only for a **hit** — there was no record anywhere that an
+  owner asked and memory had nothing. `…section.short` exposes the owner-starvation shape, which the
+  escalation path cannot see because it fires only on a *total* zero.
+
+  Counters rather than stored nodes: a node per miss grows without bound on exactly the workload that
+  produces the most misses. Requires `RecallOptions.IncludeDiagnostics`; without it nothing is emitted
+  rather than a guess, because "empty" and "never searched" are different questions.
+
+- **A tenant identifier no longer reaches telemetry by default.** `InstrumentedMemoryService` emitted
+  `memory.user_id` unconditionally — while every owner-scoped vector search in the codebase already
+  tags a **boolean** (`memory.vector.owner_scoped`) rather than the value. A trace backend is usually
+  less access-controlled than the database the value came from, retained differently, and often
+  exported to a third party.
+
+  Spans now carry `memory.owner_scoped` (bool), so the operational question — *was this scoped?* — is
+  still answerable. Hosts that correlate traces by user opt back in:
+
+  ```csharp
+  services.AddAgentMemoryObservability(o => o.IncludeOwnerIdInTelemetry = true);
+  ```
+
+  The recall span also gains the owner dimension, which it never had.
+
+- **`memory_start_trace` now accepts a `userId` and scopes the trace to it.** It passed no owner at
+  all, so an MCP-started trace was written to the shared/global bucket — while trace *recall* goes
+  through the ambient owner context. A trace written by one tenant could therefore be invisible to
+  that same tenant and visible to every other one. Additive parameter; omitting it behaves as before.
+
+- **A reasoning trace with no recorded outcome is no longer shown to the model as a failure.**
+  `ReasoningTrace.Success` is `bool?` and null means *unrecorded* — and null was the common case,
+  because `AgentTraceRecorder` had no success parameter at all until recently. `find_similar_tasks`
+  rendered `Success == true ? "✓" : "✗"`, so every MAF-recorded trace appeared as a **failed**
+  precedent. Now renders three states. A wrong precedent is acted on; an absent one is investigated.
+
+- **The query embedding is no longer generated when nothing will read it.** Every vector search is
+  gated on its own `MaxX > 0`; the embedding was not, so a policy that narrowed a turn still paid for a
+  provider round trip whose result nothing consumed. Remote-shaped that is the single largest stage of a
+  recall (~120 ms), which meant category narrowing **relocated** the cost rather than removing it.
+  Gated in `MemoryContextAssembler` (live *and* point-in-time paths, so the Semantic Kernel adapter, the
+  CLI and the facade all benefit) and in `Neo4jMemoryContextProvider`, which embeds before handing the
+  request over. **Byte-identical at every shipped default**, since no default excludes all five vector
+  categories.
 
 ## [1.4.1] - 2026-08-11
 

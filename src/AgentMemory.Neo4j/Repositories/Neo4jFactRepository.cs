@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -262,8 +262,17 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
+        float[] queryEmbedding,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        SearchByVectorAsync(queryEmbedding, ValidTimeMode.Ignore, limit, minScore, scope, cancellationToken);
+
     public async Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,
+        ValidTimeMode validTime,
         int limit = 10,
         double minScore = 0.0,
         MemoryScope? scope = null,
@@ -291,12 +300,17 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["limit"] = limit,
             ["minScore"] = minScore,
         };
+        bool currentValidTime = validTime == ValidTimeMode.Current;
+        // Both gated queries read $now; supplied only when the gate is on, so an ungated query's
+        // parameter set stays byte-identical to what it has always sent.
+        if (currentValidTime) parameters["now"] = DateTimeOffset.UtcNow.ToString("O");
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
         if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay);
 
         async Task<List<(Fact, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            var cypher = FactQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            var cypher = FactQueries.SearchByVector(
+                hasOwner, includeShared, width, recencyRerank, currentValidTime);
             return await _tx.ReadAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
@@ -345,7 +359,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 results = await _tx.ReadAsync(async runner =>
                 {
                     var cursor = await runner.RunAsync(
-                        FactQueries.SearchByVectorOwnerScopedFallback(includeShared),
+                        FactQueries.SearchByVectorOwnerScopedFallback(includeShared, currentValidTime),
                         new Dictionary<string, object?>
                         {
                             ["embedding"] = queryEmbedding.ToList(),

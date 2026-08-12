@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using FluentAssertions;
 using AgentMemory.Abstractions.Domain;
@@ -355,7 +355,12 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
 
         var activity = _capturedActivities.Should().ContainSingle(
             a => a.OperationName == "memory.extract_from_session").Subject;
-        activity.GetTagItem("memory.user_id").Should().Be("alice");
+
+        // Default changed: a tenant identifier is tenant data in a trace backend, so the owner
+        // DIMENSION is emitted as a boolean and the VALUE only when a host opts in. See
+        // TelemetryOwnerPrivacyTests for the opt-in path.
+        activity.GetTagItem("memory.user_id").Should().BeNull();
+        activity.GetTagItem("memory.owner_scoped").Should().Be(true);
     }
 
     [Fact]
@@ -369,6 +374,8 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
         var activity = _capturedActivities.Should().ContainSingle(
             a => a.OperationName == "memory.extract_from_session").Subject;
         activity.GetTagItem("memory.user_id").Should().BeNull("a shared/global turn must not emit an owner tag");
+        activity.GetTagItem("memory.owner_scoped").Should().Be(false,
+            "the dimension is still reported -- false distinguishes an unscoped turn from an unmeasured one");
     }
 
     [Fact]
@@ -381,7 +388,8 @@ public sealed class InstrumentedMemoryServiceTests : IDisposable
 
         var activity = _capturedActivities.Should().ContainSingle(
             a => a.OperationName == "memory.extract_from_conversation").Subject;
-        activity.GetTagItem("memory.user_id").Should().Be("bob");
+        activity.GetTagItem("memory.user_id").Should().BeNull();
+        activity.GetTagItem("memory.owner_scoped").Should().Be(true);
     }
 
     [Fact]

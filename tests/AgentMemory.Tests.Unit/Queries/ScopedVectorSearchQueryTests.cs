@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using AgentMemory.Neo4j.Queries;
 
 namespace AgentMemory.Tests.Unit.Queries;
@@ -15,7 +15,16 @@ public sealed class ScopedVectorSearchQueryTests
 {
     public static IEnumerable<object[]> AllSearchByVector()
     {
-        yield return new object[] { "Fact", (Func<bool, bool, int, bool, string>)FactQueries.SearchByVector, "fact_embedding_idx" };
+        // Fact's SearchByVector gained a valid-time parameter; adapt it to the shared shape so this
+        // scoping contract still covers all three. The gate is off here on purpose -- these tests are
+        // about OWNER scoping, and ValidTimeGateQueryTests covers the new clause.
+        yield return new object[]
+        {
+            "Fact",
+            (Func<bool, bool, int, bool, string>)((owner, shared, topK, rerank) =>
+                FactQueries.SearchByVector(owner, shared, topK, rerank)),
+            "fact_embedding_idx",
+        };
         yield return new object[] { "Entity", (Func<bool, bool, int, bool, string>)EntityQueries.SearchByVector, "entity_embedding_idx" };
         yield return new object[] { "Preference", (Func<bool, bool, int, bool, string>)PreferenceQueries.SearchByVector, "preference_embedding_idx" };
     }

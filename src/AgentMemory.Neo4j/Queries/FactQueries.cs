@@ -1,4 +1,4 @@
-using AgentMemory.Neo4j.Infrastructure;
+﻿using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -212,12 +212,20 @@ internal static class FactQueries
     /// <paramref name="recencyRerank"/> is set (D1) the clamped ACT-R retention score is blended into the
     /// order key (<c>$tmpWeight</c>); when unset the query is byte-for-byte today's semantic-only ranking.
     /// </summary>
-    public static string SearchByVector(bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false) =>
+    public static string SearchByVector(
+        bool hasOwnerFilter, bool includeShared, int topK, bool recencyRerank = false, bool currentValidTime = false) =>
         VectorRerank.Finish(
             new CypherBuilder()
                 .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
+                // Valid time, copied VERBATIM from TemporalQueries so the two clocks cannot drift: the
+                // as-of path has filtered on exactly this for as long as it has existed, while live
+                // recall filtered on similarity, invalidated_at and owner and nothing else. A fact valid
+                // from six months hence was returned TODAY, and one whose valid_until had passed was
+                // returned FOREVER. Off unless asked for, so no deployment silently recalls less.
+                .And("(node.valid_from IS NULL OR node.valid_from <= datetime($now))", when: currentValidTime)
+                .And("(node.valid_until IS NULL OR node.valid_until > datetime($now))", when: currentValidTime)
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
             recencyRerank);
 
@@ -240,16 +248,24 @@ internal static class FactQueries
     /// makes it O(this owner's facts) in the rare case, versus returning nothing at all.
     /// </para>
     /// </remarks>
-    public static string SearchByVectorOwnerScopedFallback(bool includeShared)
+    public static string SearchByVectorOwnerScopedFallback(bool includeShared, bool currentValidTime = false)
     {
         var owner = includeShared
             ? "(f.owner_id = $ownerId OR f.owner_id IS NULL)"
             : "f.owner_id = $ownerId";
+        // The SECOND live fact path, and the one every prior analysis of this gap predates -- it did not
+        // exist before 1.4.1. Gating only the indexed query above would leave valid time silently
+        // bypassed for exactly the starved multi-tenant owners this fallback was added to rescue.
+        var validTime = currentValidTime
+            ? @"
+              AND (f.valid_from  IS NULL OR f.valid_from  <= datetime($now))
+              AND (f.valid_until IS NULL OR f.valid_until >  datetime($now))"
+            : string.Empty;
         return $@"
             MATCH (f:Fact)
             WHERE {owner}
               AND f.embedding IS NOT NULL
-              AND f.invalidated_at IS NULL
+              AND f.invalidated_at IS NULL{validTime}
             WITH f, vector.similarity.cosine(f.embedding, $embedding) AS score
             WHERE score >= $minScore
             RETURN f AS node, score

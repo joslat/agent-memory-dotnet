@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Services;
@@ -17,10 +17,18 @@ internal sealed class ReasoningTools
         IOptions<AgentMemoryMcpOptions> options,
         [Description("Description of the task being solved")] string task,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
+        [Description("User identifier (optional)")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var sid = sessionId ?? options.Value.DefaultSessionId;
-        var trace = await reasoningMemory.StartTraceAsync(sid, task, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Owner scoping, matching every other tenant-facing MCP tool. Without it this tool passed no
+        // owner at all, so an MCP-started trace was written to the shared/global bucket while
+        // MemoryQueryFacade READS traces through the ambient owner context -- an isolation asymmetry in
+        // which a trace could be written by one tenant and be invisible to that same tenant on recall,
+        // while visible to every other one.
+        var trace = await reasoningMemory
+            .StartTraceAsync(sid, task, ownerId: userId, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
         return ToolJsonContext.Serialize(new
         {
             trace.TraceId,

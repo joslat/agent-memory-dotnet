@@ -58,7 +58,14 @@ public static class ServiceCollectionExtensions
 
         // Task-aware automatic recall policy (#88). TryAdd: a host registering its own
         // IAutomaticRecallPolicy either before or after this call always wins over this default.
-        services.TryAddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
+        //
+        // Default changed to TrivialTurnRecallPolicy: identical to ConfiguredAutomaticRecallPolicy on
+        // every real turn, and recent-messages-only on a greeting/acknowledgement-only one. Measured on
+        // PERF-R-01, a greeting turn previously cost 13 Cypher queries, 12 read transactions and an
+        // embedding round trip to retrieve 11 items, 10 of which need no vector at all.
+        // A host wanting the previous behaviour registers it explicitly:
+        //   services.AddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>();
+        services.TryAddScoped<IAutomaticRecallPolicy, TrivialTurnRecallPolicy>();
 
         // Memory-context admission policy (#92 Phase 2). TryAdd: same override semantics as above.
         services.TryAddScoped<IMemoryContextAdmissionPolicy, DefaultMemoryContextAdmissionPolicy>();
