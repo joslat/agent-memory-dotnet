@@ -991,7 +991,7 @@ SHOW CONSTRAINTS YIELD name RETURN name
 SHOW INDEXES YIELD name RETURN name
 
 ## SchemaQueries.ShowIndexStates
-SHOW INDEXES YIELD name, state, type RETURN name AS name, state AS state, type AS type
+SHOW INDEXES YIELD name, state, type, populationPercent RETURN name AS name, state AS state, type AS type, populationPercent AS populationPercent
 
 ## SchemaQueries.ShowVectorIndexDimensions
 SHOW VECTOR INDEXES YIELD name, options RETURN name AS name, options['indexConfig']['vector.dimensions'] AS dimensions

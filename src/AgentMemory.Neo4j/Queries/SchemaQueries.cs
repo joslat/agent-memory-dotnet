@@ -440,8 +440,9 @@ internal static class SchemaQueries
     /// a failure; it is the normal asynchronous build state.
     /// </summary>
     public const string ShowIndexStates =
-        "SHOW INDEXES YIELD name, state, type " +
-        "RETURN name AS name, state AS state, type AS type";
+        "SHOW INDEXES YIELD name, state, type, populationPercent " +
+        "RETURN name AS name, state AS state, type AS type, " +
+        "populationPercent AS populationPercent";
 
     // ── Schema-conformance introspection (CLI `schema-check`) ────
 

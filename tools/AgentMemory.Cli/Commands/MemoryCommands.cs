@@ -88,16 +88,47 @@ public sealed class SchemaCheckCommand(
         // name-only check above reports OK on precisely the condition an operator opens this command
         // to diagnose: a failed index does not stop queries, it drops them to full scans, and the
         // only symptom is unexplained slowness.
-        var failedIndexes = await txRunner.ReadAsync(async runner =>
+        var indexStates = await txRunner.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(SchemaQueries.ShowIndexStates);
             var records = await cursor.ToListAsync();
             return records
-                .Where(record => string.Equals(
-                    record["state"].As<string>(), "FAILED", StringComparison.OrdinalIgnoreCase))
-                .Select(record => $"{record["name"].As<string>()} ({record["type"].As<string>()})")
+                .Select(record => new IndexState(
+                    record["name"].As<string>(),
+                    record["state"].As<string>(),
+                    record["type"].As<string>(),
+                    record["populationPercent"].As<double?>()))
                 .ToArray();
         }, cancellationToken) ?? [];
+
+        var failedIndexes = indexStates
+            .Where(index => string.Equals(index.State, "FAILED", StringComparison.OrdinalIgnoreCase))
+            .Select(index => $"{index.Name} ({index.Type})")
+            .ToArray();
+
+        // P6. A POPULATING index is neither present-and-healthy nor failed, and it is the state this
+        // command was least able to describe. It matters most on the VECTOR indexes: a vector search
+        // against a still-building index succeeds and returns a SUBSET of the corpus, so recall is
+        // quietly partial and the symptom is "memory seems to have forgotten things" rather than any
+        // error. Transient by nature, so it is reported rather than failed - but silence here is how
+        // an operator spends an afternoon debugging retrieval quality on a half-built index.
+        var populating = indexStates
+            .Where(index => string.Equals(index.State, "POPULATING", StringComparison.OrdinalIgnoreCase))
+            .Select(index => index.PopulationPercent is { } percent
+                ? FormattableString.Invariant($"{index.Name} ({index.Type}, {percent:0.0}% built)")
+                : $"{index.Name} ({index.Type})")
+            .ToArray();
+
+        if (populating.Length > 0)
+        {
+            output.WriteLine(
+                $"schema-check: note — {populating.Length} index(es) in database '{database}' are still " +
+                "POPULATING. They are present and not failed, but incomplete: a vector search against a " +
+                "half-built index returns a subset of the corpus with no error, which reads as memory " +
+                "having forgotten things. Re-run once they reach ONLINE before judging recall quality:");
+            foreach (var descriptor in populating)
+                output.WriteLine($"  - {descriptor}");
+        }
 
         // Same helper the bootstrapper uses, so the command and the startup check cannot disagree
         // about which indexes are ours.
@@ -170,6 +201,16 @@ public sealed class SchemaCheckCommand(
         return 1;
     }
 }
+
+/// <summary>
+/// One index as the database reports it: name, lifecycle state, kind, and how far it has populated.
+/// </summary>
+/// <remarks>
+/// A named record rather than a tuple because it crosses the transaction-runner boundary, and the
+/// runner is stubbed by return type in tests — an anonymous shape there is unreadable and matches by
+/// accident.
+/// </remarks>
+public sealed record IndexState(string Name, string State, string Type, double? PopulationPercent);
 
 /// <summary>Runs the consolidation / hygiene pass (dry-run unless <c>apply</c> is set).</summary>
 public sealed class ConsolidateCommand(IConsolidationService service, TextWriter output)
