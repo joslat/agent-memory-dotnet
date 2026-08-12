@@ -25,8 +25,20 @@ public sealed class ScopedVectorSearchQueryTests
                 FactQueries.SearchByVector(owner, shared, topK, rerank)),
             "fact_embedding_idx",
         };
-        yield return new object[] { "Entity", (Func<bool, bool, int, bool, string>)EntityQueries.SearchByVector, "entity_embedding_idx" };
-        yield return new object[] { "Preference", (Func<bool, bool, int, bool, string>)PreferenceQueries.SearchByVector, "preference_embedding_idx" };
+        yield return new object[]
+        {
+            "Entity",
+            (Func<bool, bool, int, bool, string>)((owner, shared, topK, rerank) =>
+                EntityQueries.SearchByVector(owner, shared, topK, rerank)),
+            "entity_embedding_idx",
+        };
+        yield return new object[]
+        {
+            "Preference",
+            (Func<bool, bool, int, bool, string>)((owner, shared, topK, rerank) =>
+                PreferenceQueries.SearchByVector(owner, shared, topK, rerank)),
+            "preference_embedding_idx",
+        };
     }
 
     [Theory]

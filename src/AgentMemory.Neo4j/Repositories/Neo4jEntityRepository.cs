@@ -20,6 +20,8 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
+    /// <summary>Payload projection: drop the ~3 KB vector nothing on the recall path reads.</summary>
+    private readonly bool _omitEmbeddingsFromRecall;
     private readonly ILogger<Neo4jEntityRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
@@ -66,6 +68,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         IOptions<MemoryOptions>? memoryOptions = null)
     {
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _omitEmbeddingsFromRecall = memoryOptions?.Value.OmitEmbeddingsFromRecall ?? false;
         _tx = tx;
         _logger = logger;
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
@@ -213,9 +216,12 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
         var ranking = _rankingContext?.Current ?? _ranking;   // per-request intent (D3) overrides the configured ranking
         bool recencyRerank = ranking.RecencyRerankEnabled;
+        // Payload projection: nothing on the recall path reads the vector back, and it is ~3 KB an item.
+        bool omitEmbedding = _omitEmbeddingsFromRecall;
         async Task<List<(Entity, double)>> QueryAsync(int width, CancellationToken ct)
         {
-            var cypher = EntityQueries.SearchByVector(hasOwner, includeShared, width, recencyRerank);
+            var cypher = EntityQueries.SearchByVector(
+                hasOwner, includeShared, width, recencyRerank, omitEmbedding);
             var parameters = new Dictionary<string, object?>
             {
                 ["embedding"] = queryEmbedding.ToList(),
@@ -231,8 +237,12 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
                 return records.Select(r =>
                 {
-                    var node = r["node"].As<INode>();
                     var score = r["score"].As<double>();
+                    // Projected recall returns a MAP, not a Node, and carries no embedding to read.
+                    if (omitEmbedding)
+                        return (MapToEntity(r["node"].As<IReadOnlyDictionary<string, object>>(), null), score);
+
+                    var node = r["node"].As<INode>();
                     return (MapToEntity(node, ReadEmbedding(node)), score);
                 }).ToList();
             }, ct).ConfigureAwait(false) ?? [];
@@ -592,11 +602,17 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Entity MapToEntity(INode node, float[]? embedding)
+    /// <summary>Maps from a node's properties, so a projected MAP maps identically to a Node.</summary>
+    /// <remarks>
+    /// The recall payload projection returns <c>node {.*, embedding: NULL}</c>, which is a MAP rather
+    /// than a Node. Both paths share this body so the two cannot drift into mapping the same stored
+    /// entity differently depending on which query fetched it.
+    /// </remarks>
+    private static Entity MapToEntity(IReadOnlyDictionary<string, object> properties, float[]? embedding)
     {
         double? latitude = null;
         double? longitude = null;
-        if (node.Properties.TryGetValue("location", out var locValue) && locValue is Point pt)
+        if (properties.TryGetValue("location", out var locValue) && locValue is Point pt)
         {
             // WGS-84: X = longitude, Y = latitude
             latitude = pt.Y;
@@ -605,31 +621,34 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
         return new Entity
         {
-            EntityId = node["id"].As<string>(),
-            OwnerId = node.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
-            Name = node["name"].As<string>(),
-            CanonicalName = node.Properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
-            Type = node["type"].As<string>(),
-            Subtype = node.Properties.TryGetValue("subtype", out var st) ? st.As<string>() : null,
-            Description = node.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
-            Confidence = node["confidence"].As<double>(),
+            EntityId = properties["id"].As<string>(),
+            OwnerId = properties.TryGetValue("owner_id", out var oid) ? oid.As<string>() : null,
+            Name = properties["name"].As<string>(),
+            CanonicalName = properties.TryGetValue("canonical_name", out var cn) ? cn.As<string>() : null,
+            Type = properties["type"].As<string>(),
+            Subtype = properties.TryGetValue("subtype", out var st) ? st.As<string>() : null,
+            Description = properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
+            Confidence = properties["confidence"].As<double>(),
             Embedding = embedding,
             Latitude = latitude,
             Longitude = longitude,
-            Aliases = node.Properties.TryGetValue("aliases", out var al)
+            Aliases = properties.TryGetValue("aliases", out var al)
                                 ? al.As<IList<object>>().Select(a => a.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            Attributes = DeserializeMetadata(node.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
-            SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
+            Attributes = DeserializeMetadata(properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
+            SourceMessageIds = properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(node["created_at"]),
-            UpdatedAtUtc = node.Properties.TryGetValue("updated_at", out var ua) && ua is not null
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["created_at"]),
+            UpdatedAtUtc = properties.TryGetValue("updated_at", out var ua) && ua is not null
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ua)
                                 : null,
-            Metadata = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
     }
+
+    private static Entity MapToEntity(INode node, float[]? embedding) =>
+        MapToEntity(node.Properties, embedding);
 
     public async Task<Entity?> ApplyConfidenceDeltaAsync(
         string entityId, double delta, MemoryScope? scope = null, CancellationToken cancellationToken = default)
