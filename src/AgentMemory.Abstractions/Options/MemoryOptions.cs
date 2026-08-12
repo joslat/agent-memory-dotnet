@@ -141,6 +141,39 @@ public sealed record MemoryOptions
     /// </remarks>
     public double ConfidenceReinforcementAlpha { get; init; }
 
+    /// <summary>
+    /// Routes a turn that names a past time to bitemporal recall at that time (R4).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RecallAsOfAsync</c> has existed since the bitemporal work, and until now nothing in an
+    /// ordinary conversation could reach it: "what did I think back in March?" recalled against now,
+    /// exactly like every other question. Without this, the bitemporal read path is a capability
+    /// nothing can ask for.
+    /// </para>
+    /// <para>
+    /// Detection is deterministic, needs no model call, and errs heavily toward <b>not</b> matching:
+    /// a missed expression costs nothing (the turn recalls against now, today's behaviour), while a
+    /// false positive silently narrows recall to a window the user never asked about and returns an
+    /// answer that looks entirely ordinary. So "in March" resolves and a bare "March" does not;
+    /// "last week" resolves and "the last item" does not.
+    /// </para>
+    /// <para>
+    /// Off by default: it changes which memories a temporal question sees.
+    /// </para>
+    /// <para>
+    /// <b>Scope.</b> Honoured by <c>IMemoryService.RecallAsync</c>, and therefore by everything that
+    /// recalls through it — the MCP memory tools, the Agent Framework and Semantic Kernel adapters.
+    /// The <c>memory://context/{session_id}</c> MCP <i>resource</i> is the one read surface that does
+    /// not: it composes <c>IMemoryContextAssembler</c> directly, and the MCP server references only
+    /// AgentMemory.Abstractions by design. Reaching the resolver from there would mean a project
+    /// reference to AgentMemory.Core purely for a secondary surface, so the divergence is recorded
+    /// here rather than papered over — a temporal question asked through that resource recalls against
+    /// now.
+    /// </para>
+    /// </remarks>
+    public bool ResolveTemporalQueries { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read

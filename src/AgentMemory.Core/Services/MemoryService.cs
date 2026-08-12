@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Memory;
 
 namespace AgentMemory.Core.Services;
 
@@ -85,6 +86,22 @@ internal sealed class MemoryService : IMemoryService
         // emitted by the opt-in InstrumentedMemoryService decorator, which wraps this method from
         // outside; both can be present without colliding.
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.total");
+
+        // R4. A turn that names a past time is asking a bitemporal question, and until now no
+        // conversational turn could reach RecallAsOfAsync at all. Resolution is deterministic and
+        // biased hard toward returning null -- see TemporalQueryParser -- so the ordinary turn takes
+        // exactly the path it always did.
+        if (_options.ResolveTemporalQueries
+            && TemporalQueryParser.Resolve(request.Query, _clock.UtcNow) is { } asOf)
+        {
+            activity?.SetTag("memory.recall.resolved_as_of", asOf.ToString("O"));
+            _logger.LogDebug(
+                "Query names a past time ({AsOf}); recalling bitemporally instead of against now.", asOf);
+            // Both clocks: the question is "what did I think then", which is what was true then AS
+            // known then. Passing only the valid clock would answer with today's corrections applied
+            // to the past -- a different question, and a subtly misleading one.
+            return await RecallAsOfCoreAsync(request, asOf, asOf, cancellationToken).ConfigureAwait(false);
+        }
 
         var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
