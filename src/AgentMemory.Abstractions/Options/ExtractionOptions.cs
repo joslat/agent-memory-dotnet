@@ -95,6 +95,36 @@ public sealed class ExtractionOptions
     /// </para>
     /// </remarks>
     public bool SupersedeReplacedFacts { get; set; }
+
+    /// <summary>
+    /// Skips the extraction call entirely for turns that cannot carry a fact — greetings, thanks,
+    /// bare acknowledgement (E4).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The extraction call is where the money is: the write is one round trip to Neo4j, while
+    /// extraction is a model call over the rendered transcript and on a corpus build it is
+    /// essentially the whole bill. An "ok, thanks!" turn pays it for nothing.
+    /// </para>
+    /// <para>
+    /// <b>Deliberately not a write-side gate.</b> Skipping the persistence of a triple already in the
+    /// store looks like the more obvious saving and would silently disable two features that depend
+    /// on the duplicate write happening: <see cref="MemoryOptions.ConfidenceReinforcementAlpha"/>,
+    /// where a re-asserted fact earns α, and the <c>mention_count</c> the salience reranker reads.
+    /// Corroboration <i>is</i> the repeated write.
+    /// </para>
+    /// <para>
+    /// Detection is a closed vocabulary, deterministic, and biased hard toward extracting: a missed
+    /// skip costs one call, while gating a turn that did carry a fact means the memory is never
+    /// formed and nothing downstream can recover it. "yes", "no" and "sure" are therefore treated as
+    /// contentful — each is a complete answer to a question.
+    /// </para>
+    /// <para>
+    /// Off by default: it changes what gets extracted, and prompt-and-transcript bytes are
+    /// fingerprinted into every measured run.
+    /// </para>
+    /// </remarks>
+    public bool SkipUninformativeTurns { get; set; }
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>
@@ -125,4 +155,5 @@ public sealed class EntityValidationOptions
     public bool RejectPunctuationOnly { get; set; } = true;
     /// <summary>Reject entities whose names are common stop-words.</summary>
     public bool UseStopwordFilter { get; set; } = true;
+
 }

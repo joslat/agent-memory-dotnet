@@ -79,6 +79,22 @@ internal sealed class ExtractionStage : IExtractionStage
         CancellationToken cancellationToken)
     {
         var sourceMessageIds = messages.Select(m => m.MessageId).ToList();
+
+        // E4. Turns that cannot carry a fact -- "ok, thanks!" -- are not worth a completion. Only on
+        // the paying path: when preExtracted is non-null the caller has already spent the call, and
+        // gating there would discard a result that has been paid for rather than avoid the cost.
+        if (_options.SkipUninformativeTurns
+            && preExtracted is null
+            && !ExtractionNoveltyGate.IsWorthExtracting(messages))
+        {
+            // Logged rather than silent: a gate that quietly drops turns is indistinguishable from an
+            // extractor that found nothing, and the saving it claims would be unverifiable.
+            _logger.LogDebug(
+                "Skipping extraction for {Count} turn(s) carrying no extractable content (E4).",
+                messages.Count);
+            return new ExtractionStageResult { SourceMessageIds = sourceMessageIds };
+        }
+
         var strategy = _options.MergeStrategy;
         var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
 
