@@ -7,6 +7,7 @@ What AgentMemory costs you per agent turn, how that cost is measured, and how to
 | **README.md** (this file) | The two phases, what is and isn't measured, how to run it yourself |
 | [`hermetic-S.json`](../../eng/perf/baselines/hermetic-S.json) | Machine-readable counter + quality baseline enforced on pull requests |
 | [baseline-1.3.0.md](baseline-1.3.0.md) | The measured cost model for release 1.3.0 |
+| [bulk-ingestion.md](bulk-ingestion.md) | Loading a backlog without degrading p99 for everyone else in the process |
 
 ---
 

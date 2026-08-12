@@ -86,4 +86,100 @@ public interface IMemoryIngestion
         string conversationId,
         string? userId = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ingests many extraction requests with bounded concurrency (rank 27).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The documented bulk path. Loading a backlog was always <i>possible</i> — call
+    /// <see cref="ExtractAndPersistAsync"/> in a loop, or in a <c>Parallel.ForEachAsync</c> — and both
+    /// obvious ways are wrong in opposite directions: the serial loop wastes hours, and the unbounded
+    /// parallel one saturates the provider quota and the connection pool, degrading p99 for every
+    /// other tenant in the process while median latency looks fine.
+    /// </para>
+    /// <para>
+    /// <b>Composed, not new machinery.</b> This paces calls the host could have made itself; it does
+    /// not add a second ingestion path. That matters because a separate bulk pipeline would be a
+    /// second place for trust stamping, provenance and owner scoping to drift out of agreement with
+    /// the per-request one.
+    /// </para>
+    /// <para>
+    /// A default implementation is supplied so the interface stays SemVer-compatible: an existing
+    /// <see cref="IMemoryIngestion"/> implementation keeps compiling and gets a correct, if
+    /// unoptimised, bulk path for free.
+    /// </para>
+    /// </remarks>
+    async Task<BulkIngestionResult> IngestBulkAsync(
+        IReadOnlyList<ExtractionRequest> requests,
+        BulkIngestionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        options ??= new BulkIngestionOptions();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaxConcurrency);
+
+        var outcomes = new BulkIngestionOutcome?[requests.Count];
+        using var gate = new SemaphoreSlim(options.MaxConcurrency, options.MaxConcurrency);
+        // Cancels the remaining work when ContinueOnError is false. Linked rather than replacing the
+        // caller's token, so a stop-on-error run still honours an outer cancellation.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        var running = new List<Task>(requests.Count);
+        for (var i = 0; i < requests.Count; i++)
+        {
+            if (stop.IsCancellationRequested) break;
+
+            var index = i;
+            running.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await gate.WaitAsync(stop.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Queued behind the gate when the run stopped. Left unattempted -- and caught
+                    // HERE rather than by the block below, whose finally would Release a slot this
+                    // task never acquired.
+                    return;
+                }
+
+                try
+                {
+                    var result = await ExtractAndPersistAsync(requests[index], stop.Token)
+                        .ConfigureAwait(false);
+                    outcomes[index] = new BulkIngestionOutcome(index, result, null);
+                }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested)
+                {
+                    // Left null: never attempted, or abandoned mid-flight. Recorded as
+                    // NotAttemptedCount rather than as a failure, because re-running a cancelled
+                    // request is correct and re-running a failed one may not be.
+                }
+                catch (Exception ex)
+                {
+                    outcomes[index] = new BulkIngestionOutcome(index, null, ex);
+                    if (!options.ContinueOnError) await stop.CancelAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }, CancellationToken.None));
+        }
+
+        await Task.WhenAll(running).ConfigureAwait(false);
+
+        // An outer cancellation is still an error for the caller; a stop-on-first-failure is not,
+        // because the failure it stopped for is already reported in the outcomes.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var completed = outcomes.Where(o => o is not null).Select(o => o!).ToList();
+        return new BulkIngestionResult
+        {
+            Outcomes = completed,
+            NotAttemptedCount = requests.Count - completed.Count,
+        };
+    }
 }

@@ -18,7 +18,7 @@ public sealed class AbstractionsContractGuardTests
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
     private const int DocumentedServiceInterfaces = 44; // +IEntitySummarySynthesizer, +IEntitySummaryService (PLAN 12.7 / S1)
     private const int DocumentedRepositoryInterfaces = 12; // +IEntitySummaryRepository (PLAN 12.7 / S1)
-    private const int DocumentedDomainRecords = 56; // +EntitySummary (PLAN 12.7 / S1; EntitySummarySource is a record STRUCT and the guard counts reference records only); +MemoryBlock, +MemoryBlockLine (PLAN 12.9 / S4)
+    private const int DocumentedDomainRecords = 59; // +EntitySummary (PLAN 12.7 / S1; EntitySummarySource is a record STRUCT and the guard counts reference records only); +MemoryBlock, +MemoryBlockLine (PLAN 12.9 / S4); +BulkIngestionOptions, +BulkIngestionOutcome, +BulkIngestionResult (PLAN 2.9 / rank 27)
     private const int DocumentedEnums = 29; // +TraceKind (7.1), +ExtractionProvenanceMode (9.3)
 
     private static IEnumerable<Type> PublicTypes() =>
