@@ -39,9 +39,26 @@ internal sealed record LongMemEvalPreparationManifest(
     int MaxConcurrentExtractionBatches,
     IReadOnlyList<LongMemEvalPreparedQuestion> Questions,
     long InitialExtractionCalls,
-    string Fingerprint)
+    string Fingerprint,
+    // ── Ingestion identity (schema 6) ────────────────────────────────────
+    // Everything below changes WHAT WAS STORED, and none of it was recorded. A volume built with
+    // AssistantContent=Utterance could be adopted by a run configured for Ignore, and the report's
+    // fingerprint would describe the run's configuration while the graph came from the other one.
+    // Recorded here so a reuse can be refused instead of quietly measuring the wrong corpus.
+    string AssistantContent = "Ignore",
+    bool UsePredicateVocabulary = false,
+    string ExtractionVocabularySha256 = "",
+    string QueryRelationLexiconSha256 = "",
+    string ExtractionProvenance = "Batch",
+    // ── Catalog metadata (schema 6) ──────────────────────────────────────
+    // Not part of the fingerprint: these describe the build for a human, and two corpora that differ
+    // only in their description are the same corpus.
+    string PreparedAtUtc = "",
+    string Description = "",
+    IReadOnlyList<string>? MemoryTypes = null,
+    int QuestionSeed = 0)
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     internal int MessagesPrepared => Questions.Sum(question => question.MessagesPrepared);
 
@@ -70,7 +87,16 @@ internal sealed record LongMemEvalPreparationManifest(
         int maxSessionsPerBatch = 1,
         int maxInputTokens = 100_000,
         int maxConcurrentBatchesPerExtraction = 1,
-        int maxConcurrentExtractionBatches = 0)
+        int maxConcurrentExtractionBatches = 0,
+        string assistantContent = "Ignore",
+        bool usePredicateVocabulary = false,
+        string extractionVocabularySha256 = "",
+        string queryRelationLexiconSha256 = "",
+        string extractionProvenance = "Batch",
+        string preparedAtUtc = "",
+        string description = "",
+        IReadOnlyList<string>? memoryTypes = null,
+        int questionSeed = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preparationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetSha256);
@@ -133,7 +159,16 @@ internal sealed record LongMemEvalPreparationManifest(
             maxConcurrentExtractionBatches,
             materialized,
             initialExtractionCalls,
-            Fingerprint: string.Empty);
+            Fingerprint: string.Empty,
+            AssistantContent: assistantContent,
+            UsePredicateVocabulary: usePredicateVocabulary,
+            ExtractionVocabularySha256: extractionVocabularySha256,
+            QueryRelationLexiconSha256: queryRelationLexiconSha256,
+            ExtractionProvenance: extractionProvenance,
+            PreparedAtUtc: preparedAtUtc,
+            Description: description,
+            MemoryTypes: memoryTypes ?? [],
+            QuestionSeed: questionSeed);
         return manifest with { Fingerprint = ComputeFingerprint(manifest) };
     }
 
@@ -167,6 +202,15 @@ internal sealed record LongMemEvalPreparationManifest(
             manifest.EmbeddingDimensions,
             manifest.MaxRelevantMessages,
             manifest.ExtractionSourceTime,
+            // Schema 6. These five decide what the extractor was asked for and therefore what the
+            // graph contains; leaving them out of the fingerprint is what let two materially different
+            // corpora hash identically.
+            manifest.AssistantContent,
+            manifest.UsePredicateVocabulary,
+            manifest.ExtractionVocabularySha256,
+            manifest.QueryRelationLexiconSha256,
+            manifest.ExtractionProvenance,
+            manifest.QuestionSeed,
             manifest.UseJsonResponseFormat,
             manifest.ExtractionResponseContract,
             manifest.UseUnifiedExtraction,
