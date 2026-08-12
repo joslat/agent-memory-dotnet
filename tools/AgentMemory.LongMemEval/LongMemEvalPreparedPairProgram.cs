@@ -1123,6 +1123,30 @@ internal static class LongMemEvalPreparedPairProgram
             LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
     }
 
+    /// <summary>The meta-memory half of an arm's result, or nulls when no abstention question ran.</summary>
+    private static object ProjectAbstentionAccuracy(PreparedArmExecution arm)
+    {
+        var verdicts = arm.Result.QuestionResults
+            .Where(q => q.QuestionId is not null)
+            .GroupBy(q => q.QuestionId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => (bool?)g.First().Correct, StringComparer.Ordinal);
+
+        var scored = LongMemEvalAbstentionAccuracy.Score(
+            arm.Telemetry,
+            questionId => questionId is not null && verdicts.TryGetValue(questionId, out var v) ? v : null);
+
+        return new
+        {
+            abstentionCorrect = scored.AbstentionCorrect,
+            abstentionTotal = scored.AbstentionTotal,
+            abstentionAccuracy = scored.AbstentionAccuracy,
+            answeredWhenItShouldHaveAbstained = scored.AnsweredWhenItShouldHaveAbstained,
+            ordinaryCorrect = scored.OrdinaryCorrect,
+            ordinaryTotal = scored.OrdinaryTotal,
+            ordinaryAccuracy = scored.OrdinaryAccuracy,
+        };
+    }
+
     private static object ProjectArm(
         PreparedArmExecution arm,
         LongMemEvalEvidenceDetail evidenceDetail) =>
@@ -1171,6 +1195,13 @@ internal static class LongMemEvalPreparedPairProgram
             // holds the two prices, never their difference). Reported as a group so a derived-answer
             // type's absences are not read as extraction failures.
             answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
+            // Meta-memory: how well the agent declines to answer what memory does not hold.
+            // Reported separately from the AUC's "absent" count, which is a ground-truth INPUT
+            // identical across arms -- reading a class balance as a result is the easy mistake,
+            // and only one of these two numbers is an outcome. The dataset's abstention questions
+            // are the only place it scores meta-memory, and until typed sampling shipped none had
+            // ever been drawn.
+            abstentionAccuracy = ProjectAbstentionAccuracy(arm),
             // PLAN 4.2. Emitted here as well as on the plain verb, because THIS is where the
             // 50-question runs happen: the plain verb's cold build costs ~684 extraction calls and
             // 7-9 hours, so every real measurement goes through the prepared pair. An instrument that

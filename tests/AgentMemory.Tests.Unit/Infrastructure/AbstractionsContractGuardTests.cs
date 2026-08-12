@@ -16,7 +16,7 @@ public sealed class AbstractionsContractGuardTests
     private static readonly Assembly Abstractions = typeof(IMemoryService).Assembly;
 
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
-    private const int DocumentedServiceInterfaces = 41; // +IMultiSessionUnifiedMemoryExtractor (M-27-V2 LAB-B1)
+    private const int DocumentedServiceInterfaces = 42; // +IMemoryReranker (PLAN 10.1, seam only)
     private const int DocumentedRepositoryInterfaces = 11;
     private const int DocumentedDomainRecords = 52; // +MemoryContextSectionDiagnostics (PLAN 4.1)
     private const int DocumentedEnums = 29; // +TraceKind (7.1), +ExtractionProvenanceMode (9.3)
