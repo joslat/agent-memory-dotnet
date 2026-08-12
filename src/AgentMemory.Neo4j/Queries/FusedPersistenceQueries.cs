@@ -65,6 +65,7 @@ internal static class FusedPersistenceQueries
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE null END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
+                f.mention_count      = 1,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
                 f.metadata           = item.metadata
@@ -73,6 +74,7 @@ internal static class FusedPersistenceQueries
                 f.confidence         = item.confidence,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
+                f.mention_count      = coalesce(f.mention_count, 1) + 1,
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,

@@ -68,6 +68,27 @@ public sealed record MemoryOptions
     /// </remarks>
     public bool NodeDistanceReranking { get; init; }
 
+    /// <summary>
+    /// Boosts recalled facts the conversation keeps returning to (R7).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A fact the world asserted five times is usually more central than one mentioned once, and
+    /// similarity cannot see that: two facts phrased alike score alike however often either was said.
+    /// </para>
+    /// <para>
+    /// <b>Ingestion-side.</b> It counts how often the WORLD re-asserted a fact, not how often we
+    /// retrieved it. Ranking on our own retrievals -- the <c>:MemoryReadAudit</c> trail -- would be a
+    /// rich-get-richer loop: whatever ranks highly gets retrieved, which raises its count, which
+    /// raises its rank. That looks like learning and is self-reinforcement.
+    /// </para>
+    /// <para>
+    /// Logarithmic, so the gap between one mention and three counts while the gap between thirty and
+    /// thirty-two does not. Off by default; every recorded measurement was taken without it.
+    /// </para>
+    /// </remarks>
+    public bool MentionFrequencyReranking { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read

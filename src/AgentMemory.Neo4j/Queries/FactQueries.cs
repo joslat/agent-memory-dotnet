@@ -109,7 +109,13 @@ internal static class FactQueries
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 f.source_message_ids = $sourceMessageIds,
                 f.created_at         = datetime($createdAtUtc),
-                f.metadata           = $metadata
+                f.metadata           = $metadata,
+                // R7 salience. Counts how often THE WORLD asserted this fact, incremented only here
+                // and in ON MATCH -- i.e. once per ingestion that re-states the same triple.
+                // Deliberately NOT the :MemoryReadAudit trail, which counts how often WE surfaced it:
+                // ranking on our own retrievals is a rich-get-richer loop that reinforces whatever
+                // already ranks highly and calls it learning.
+                f.mention_count      = 1
             ON MATCH SET
                 f.category           = $category,
                 f.confidence         = $confidence,
@@ -118,7 +124,8 @@ internal static class FactQueries
                 f.source_message_ids = $sourceMessageIds,
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata,
-                f.invalidated_at     = null
+                f.invalidated_at     = null,
+                f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f";
 
     // ── UpsertBatchAsync ───────────────────────────────────────────────
@@ -148,7 +155,8 @@ internal static class FactQueries
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
-                f.metadata           = item.metadata
+                f.metadata           = item.metadata,
+                f.mention_count      = 1
             ON MATCH SET
                 f.category           = item.category,
                 f.confidence         = item.confidence,
@@ -157,8 +165,36 @@ internal static class FactQueries
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
-                f.invalidated_at     = null
+                f.invalidated_at     = null,
+                f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f";
+
+    // ── R7 mention frequency ───────────────────────────────────────────
+
+    /// <summary>
+    /// How often the world asserted each of these facts, for the whole candidate set at once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>mention_count</c> is incremented only by the upsert paths, i.e. once per ingestion that
+    /// re-states the same triple. It is a <b>salience</b> signal: a fact the conversation keeps
+    /// returning to matters more than one mentioned in passing.
+    /// </para>
+    /// <para>
+    /// <b>Explicitly not the read audit.</b> <c>:MemoryReadAudit</c> records how often <i>we</i>
+    /// surfaced a fact, and ranking on that is a rich-get-richer loop: whatever ranks highly gets
+    /// retrieved, which raises its count, which raises its rank. It would look like learning and be
+    /// self-reinforcement.
+    /// </para>
+    /// <para>
+    /// Facts written before this property existed report <c>1</c> via <c>coalesce</c> — asserted once,
+    /// which is what a single ingestion means and the only honest reading of an absent counter.
+    /// </para>
+    /// </remarks>
+    public const string MentionCounts = @"
+            MATCH (f:Fact)
+            WHERE f.id IN $candidateIds
+            RETURN f.id AS candidateId, coalesce(f.mention_count, 1) AS mentions";
 
     // ── GetByIdAsync ───────────────────────────────────────────────────
 
