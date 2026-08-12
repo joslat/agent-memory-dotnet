@@ -89,6 +89,31 @@ public sealed record MemoryOptions
     /// </remarks>
     public bool MentionFrequencyReranking { get; init; }
 
+    /// <summary>
+    /// Starts the post-recall access-tracking write without waiting for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Access tracking is bookkeeping — it feeds decay and retention, and nothing in the recall the
+    /// caller is waiting for depends on it. Awaiting it puts a write burst on the pre-model read path:
+    /// at shipped defaults, up to 25 nodes updated before the model is invoked.
+    /// </para>
+    /// <para>
+    /// <b>Off by default, and the reason is a hazard rather than caution.</b> The write runs on scoped
+    /// services — a driver session, a repository — and a host that disposes its DI scope when the
+    /// response is returned will dispose them out from under a deferred write. That surfaces as an
+    /// <c>ObjectDisposedException</c> in a log nobody reads, and access tracking silently stops. Hosts
+    /// whose scope outlives the response (a long-lived agent, a hosted service) can turn it on; a
+    /// short-lived request scope should not.
+    /// </para>
+    /// <para>
+    /// Deferred work is detached from the request's cancellation token deliberately: that token is
+    /// cancelled as soon as the response completes, so passing it through would cancel the very write
+    /// that was deferred — a feature that looks enabled and does nothing.
+    /// </para>
+    /// </remarks>
+    public bool DeferAccessTracking { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read

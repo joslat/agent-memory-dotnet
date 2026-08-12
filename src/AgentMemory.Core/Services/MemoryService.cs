@@ -88,11 +88,37 @@ internal sealed class MemoryService : IMemoryService
 
         var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
-        // Update access timestamps for recalled long-term memories (awaited so failures and
-        // cancellation are observed; the method itself is resilient and logs internally).
+        // Update access timestamps for recalled long-term memories. Awaited by default so failures and
+        // cancellation are observed; the method itself is resilient and logs internally.
         if (_decayService is not null)
         {
-            await UpdateAccessTimestampsAsync(context, cancellationToken).ConfigureAwait(false);
+            if (_options.DeferAccessTracking)
+            {
+                // 2.4. Bookkeeping the caller is not waiting for: it feeds decay and retention, and
+                // nothing in the returned context depends on it.
+                //
+                // CancellationToken.None, NOT the request's token. That token is cancelled as soon as
+                // the response completes, so passing it through would cancel the very write being
+                // deferred -- an option that reads as enabled and does nothing.
+                //
+                // The task is deliberately not awaited and deliberately not discarded silently: the
+                // continuation is what keeps a deferred failure from being an unobserved exception.
+                _ = UpdateAccessTimestampsAsync(context, CancellationToken.None)
+                    .ContinueWith(
+                        task => _logger.LogWarning(
+                            task.Exception,
+                            "Deferred access tracking failed after recall returned. If this is an "
+                            + "ObjectDisposedException, the host's DI scope was disposed before the "
+                            + "write completed -- MemoryOptions.DeferAccessTracking is unsafe for a "
+                            + "request-scoped host."),
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted,
+                        TaskScheduler.Default);
+            }
+            else
+            {
+                await UpdateAccessTimestampsAsync(context, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         int totalItems = context.RecentMessages.Items.Count
