@@ -142,8 +142,19 @@ public sealed class Neo4jTransactionRunnerTests
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
-                ActivitySamplingResult.AllDataAndRecorded,
+            // Scoped to the two db spans, not the whole source. ActivityListener is process-global and
+            // sampling is a UNION across listeners, so sampling everything here forces creation of
+            // every AgentMemory span in every test class running concurrently -- which is exactly what
+            // breaks a neighbour's "nothing is measured when no listener wants the data" assertion.
+            // Measured: that neighbour failed roughly 1 run in 4 until this was scoped.
+            //
+            // BOTH names are needed, not just the one asserted on: the query-span wrapper is only
+            // installed when the enclosing memory.db.tx activity exists, so declining the parent
+            // silently yields zero query spans rather than the two this test is about.
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) =>
+                options.Name is "memory.db.query" or "memory.db.tx"
+                    ? ActivitySamplingResult.AllDataAndRecorded
+                    : ActivitySamplingResult.None,
             ActivityStopped = activity =>
             {
                 if (activity.OperationName == "memory.db.query")
@@ -189,8 +200,15 @@ public sealed class Neo4jTransactionRunnerTests
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
-                ActivitySamplingResult.AllDataAndRecorded,
+            // Scoped to this one span, not the whole source. ActivityListener is process-global and
+            // sampling is a UNION across listeners, so sampling everything here forces creation of
+            // every AgentMemory span in every test class running concurrently -- which is exactly what
+            // breaks a neighbour's "nothing is measured when no listener wants the data" assertion.
+            // Measured: that neighbour failed roughly 1 run in 4 until this was scoped.
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) =>
+                options.Name == "memory.db.tx"
+                    ? ActivitySamplingResult.AllDataAndRecorded
+                    : ActivitySamplingResult.None,
             ActivityStopped = activity =>
             {
                 if (activity.OperationName == "memory.db.tx")

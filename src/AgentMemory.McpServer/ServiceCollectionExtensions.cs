@@ -92,12 +92,25 @@ public static class ServiceCollectionExtensions
     private static bool ReadOnlyRequested(IServiceCollection services)
     {
         var options = new AgentMemoryMcpOptions();
+        using var empty = new ServiceCollection().BuildServiceProvider();
+
         foreach (var descriptor in services.Where(d =>
                      d.ServiceType == typeof(IConfigureOptions<AgentMemoryMcpOptions>)))
         {
-            var configure = descriptor.ImplementationInstance as IConfigureOptions<AgentMemoryMcpOptions>
-                ?? descriptor.ImplementationFactory?.Invoke(null!) as IConfigureOptions<AgentMemoryMcpOptions>;
-            configure?.Configure(options);
+            try
+            {
+                var configure = descriptor.ImplementationInstance as IConfigureOptions<AgentMemoryMcpOptions>
+                    ?? descriptor.ImplementationFactory?.Invoke(empty) as IConfigureOptions<AgentMemoryMcpOptions>;
+                configure?.Configure(options);
+            }
+            catch (Exception)
+            {
+                // A configuration source this method cannot evaluate here -- one bound to services that
+                // only exist in the real provider, say -- must not break registration for every host.
+                // Skipping it means read-only might not be seen from that source; the flag on the tool
+                // and the environment variable both reach this instance directly, and the alternative
+                // is a host that cannot start at all.
+            }
         }
         return options.ReadOnly;
     }
