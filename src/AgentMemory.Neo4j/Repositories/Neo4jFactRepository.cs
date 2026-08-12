@@ -23,6 +23,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     internal const string OwnerKeyShared = "*";
 
     private readonly INeo4jTransactionRunner _tx;
+    private readonly bool _rescueShortOwnerResults;
+    private readonly double _reinforceAlpha;
     private readonly ILogger<Neo4jFactRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
@@ -33,8 +35,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         ILogger<Neo4jFactRepository> logger,
         IOptions<MemoryRankingOptions>? ranking = null,
         IOptions<MemoryDecayOptions>? decay = null,
-        IMemoryRankingContext? rankingContext = null)
+        IMemoryRankingContext? rankingContext = null,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
+        _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _reinforceAlpha = memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0;
         _tx = tx;
         _logger = logger;
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
@@ -78,6 +83,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
                 ["category"] = fact.Category,
                 ["confidence"] = fact.Confidence,
+                ["reinforceAlpha"] = _reinforceAlpha,
                 ["validFrom"] = (object?)(fact.ValidFrom?.ToString("O")),
                 ["validUntil"] = (object?)(fact.ValidUntil?.ToString("O")),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
@@ -174,7 +180,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items }).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(
+                FactQueries.UpsertBatch,
+                new { items, reinforceAlpha = _reinforceAlpha }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
 
             // The MERGE returns the SURVIVING node per triple; for a pre-existing triple that id is the
@@ -293,6 +301,43 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Scores this owner's OWN facts directly, bypassing the global vector index.
+    /// </summary>
+    /// <remarks>
+    /// Extracted because two different conditions now reach it — a totally empty scoped result, and
+    /// (opt-in) a short one — and two copies of a fallback drift. Bounded by one owner's rows rather
+    /// than by the corpus, which is what makes it affordable for the small tenant and effective for
+    /// the crowded one.
+    /// </remarks>
+    private async Task<List<(Fact, double)>> OwnerScopedScanAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope scope,
+        bool includeShared,
+        bool currentValidTime,
+        CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                FactQueries.SearchByVectorOwnerScopedFallback(includeShared, currentValidTime),
+                new Dictionary<string, object?>
+                {
+                    ["embedding"] = queryEmbedding.ToList(),
+                    ["limit"] = limit,
+                    ["minScore"] = minScore,
+                    ["ownerId"] = scope.OwnerId,
+                }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r =>
+            {
+                var node = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToFact(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
     public Task<IReadOnlyList<(Fact Fact, double Score)>> SearchByVectorAsync(
         float[] queryEmbedding,
         int limit = 10,
@@ -387,26 +432,33 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 _logger.LogDebug(
                     "Owner-scoped fact vector search still empty after widening to {Widened}; "
                     + "falling back to a scoped similarity scan.", escalatedTopK ?? topK);
-                results = await _tx.ReadAsync(async runner =>
-                {
-                    var cursor = await runner.RunAsync(
-                        FactQueries.SearchByVectorOwnerScopedFallback(includeShared, currentValidTime),
-                        new Dictionary<string, object?>
-                        {
-                            ["embedding"] = queryEmbedding.ToList(),
-                            ["limit"] = limit,
-                            ["minScore"] = minScore,
-                            ["ownerId"] = scope!.OwnerId,
-                        }).ConfigureAwait(false);
-                    var records = await cursor.ToListAsync().ConfigureAwait(false);
-                    return records.Select(r =>
-                    {
-                        var node = r["node"].As<INode>();
-                        var score = r["score"].As<double>();
-                        return (MapToFact(node, ReadEmbedding(node)), score);
-                    }).ToList();
-                }, cancellationToken).ConfigureAwait(false) ?? [];
+                results = await OwnerScopedScanAsync(
+                    queryEmbedding, limit, minScore, scope!, includeShared, currentValidTime,
+                    cancellationToken).ConfigureAwait(false);
             }
+        }
+        else if (_rescueShortOwnerResults
+                 && OwnerVectorOverFetch.ShouldRescueShortResult(results.Count, limit, hasOwner))
+        {
+            // 2.11. "Short still answers the question" is true for a small tenant and false for a
+            // crowded one, and the returned count cannot tell them apart: question 5d3d2817 returned
+            // 2 facts from a 710-fact graph with the answer present, and was answered wrongly.
+            //
+            // The rescue is the SCAN, not another widening. Widening is a second draw on the same
+            // global index, and a tenant losing to 50 neighbours at top-60 usually loses again at
+            // top-480. The scan is bounded by one owner's rows, so the small tenant this heuristic
+            // was protecting pays less than it would for a wider index query.
+            //
+            // Takes whichever result is larger rather than replacing outright: the scan applies the
+            // same minScore and orders by the same similarity, so a shorter scan result means the
+            // owner genuinely holds no more, and discarding indexed rows for it would be a loss.
+            _logger.LogDebug(
+                "Owner-scoped fact vector search returned {Returned} of {Limit}; rescuing with a "
+                + "scoped similarity scan.", results.Count, limit);
+            var scanned = await OwnerScopedScanAsync(
+                queryEmbedding, limit, minScore, scope!, includeShared, currentValidTime,
+                cancellationToken).ConfigureAwait(false);
+            if (scanned.Count > results.Count) results = scanned;
         }
 
         if (activity is not null)
@@ -542,6 +594,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ValidUntil = node.Properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
+            InvalidatedAtUtc = node.Properties.TryGetValue("invalidated_at", out var iat)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
+                                : null,
             Embedding = embedding,
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
@@ -643,7 +698,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
         return await _tx.WriteAsync(async runner =>
         {
-            var parameters = new Dictionary<string, object?> { ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now };
+            var parameters = new Dictionary<string, object?> { ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now, ["reinforceAlpha"] = _reinforceAlpha };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);

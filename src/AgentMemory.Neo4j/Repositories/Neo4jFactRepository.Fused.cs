@@ -68,7 +68,9 @@ internal sealed partial class Neo4jFactRepository
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FusedPersistenceQueries.FactUpsertBatch, new { items })
+            var cursor = await runner.RunAsync(
+                    FusedPersistenceQueries.FactUpsertBatch,
+                    new { items, reinforceAlpha = _reinforceAlpha })
                 .ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             var embeddingByTriple = deduped.ToDictionary(

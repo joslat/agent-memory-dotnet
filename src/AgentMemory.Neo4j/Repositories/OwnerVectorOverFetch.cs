@@ -27,6 +27,20 @@ namespace AgentMemory.Neo4j.Repositories;
 /// with an extra query on every recall forever, because an owner holding three facts can never fill a
 /// ten-row limit. So: one extra query, only when the first pass found nothing, and bounded.
 /// </para>
+/// <para>
+/// <b>That last argument has a measured counter-example.</b> Question <c>5d3d2817</c> returned
+/// <b>2 facts from a 710-fact graph</b> with the gold answer present at coverage 1.00, and both arms
+/// answered it wrongly. "Short still answers the question" is true for a small tenant and false for a
+/// crowded one, and the returned count alone cannot tell them apart.
+/// </para>
+/// <para>
+/// The rescue is therefore <b>not</b> more widening. Widening is another draw on the same global
+/// index, and a tenant losing to 50 neighbours at top-60 usually loses again at top-480. The
+/// owner-scoped similarity scan already used as the last resort is the right instrument: its cost
+/// scales with <i>one owner's</i> data rather than with the corpus, so the small tenant this argument
+/// was protecting pays almost nothing — scanning three facts is cheaper than a second index query —
+/// while the crowded tenant gets its true top-K instead of whatever survived the neighbours.
+/// </para>
 /// </remarks>
 internal static class OwnerVectorOverFetch
 {
@@ -56,6 +70,30 @@ internal static class OwnerVectorOverFetch
     /// genuinely held nothing above the floor, and a wider query returns the same nothing more slowly.
     /// </remarks>
     internal static bool ShouldEscalate(int returned, bool hasOwner) => hasOwner && returned == 0;
+
+    /// <summary>
+    /// Whether a scoped search that returned <i>something</i>, but less than asked for, should fall
+    /// back to the owner-bounded scan.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Opt-in (<c>MemoryOptions.RescueShortOwnerResults</c>), because it trades latency for recall on
+    /// every short result and every recorded measurement was taken without it.
+    /// </para>
+    /// <para>
+    /// Deliberately <b>not</b> a fraction of the limit. A ratio invites a threshold nobody can
+    /// justify — is 4 of 10 starved? 6 of 10? — and the honest answer is that any shortfall might be
+    /// crowding, since the index gave the owner whatever the neighbours left. The scan is bounded by
+    /// the owner's own rows either way, so the gate is simply "short", and the cost question is
+    /// answered by the scan's shape rather than by guessing a cutoff.
+    /// </para>
+    /// <para>
+    /// Excludes the empty case, which <see cref="ShouldEscalate"/> already owns and which reaches the
+    /// same scan through a path that first tries one widened query.
+    /// </para>
+    /// </remarks>
+    internal static bool ShouldRescueShortResult(int returned, int limit, bool hasOwner) =>
+        hasOwner && returned > 0 && returned < limit;
 
     /// <summary>The widened width, capped.</summary>
     internal static int EscalatedTopK(int currentTopK)

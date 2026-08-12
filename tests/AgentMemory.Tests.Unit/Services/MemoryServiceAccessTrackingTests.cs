@@ -72,13 +72,131 @@ public sealed class MemoryServiceAccessTrackingTests
         return (IReadOnlyCollection<(string NodeId, MemoryNodeKind NodeKind)>)call.GetArguments()[0]!;
     }
 
-    private MemoryService CreateSut(IMemoryDecayService? decay = null) =>
+    private MemoryService CreateSut(IMemoryDecayService? decay = null, bool deferred = false) =>
         new(_shortTerm, _assembler, _extractionPipeline,
             _entityRepository, _factRepository, _preferenceRepository, _embeddingOrchestrator,
-            Options.Create(new MemoryOptions()),
+            Options.Create(new MemoryOptions { DeferAccessTracking = deferred }),
             _clock, _idGenerator,
             NullLogger<MemoryService>.Instance,
             decay);
+
+    // ── 2.4: taking the bookkeeping write off the blocking path ──────────
+
+    /// <summary>A context with one recalled fact, enough to trigger access tracking.</summary>
+    private MemoryContext OneFactContext() => new()
+    {
+        SessionId = "s1",
+        AssembledAtUtc = _fixedTime,
+        RelevantFacts = new MemoryContextSection<Fact>
+        {
+            Items = new[]
+            {
+                new Fact
+                {
+                    FactId = "fact-1", Subject = "s", Predicate = "p", Object = "o",
+                    Confidence = 0.9, CreatedAtUtc = _fixedTime,
+                },
+            },
+        },
+    };
+
+    [Fact]
+    public async Task DeferredAccessTrackingDoesNotBlockTheRecall()
+    {
+        // THE point. Access tracking feeds decay and retention; nothing in the returned context
+        // depends on it, so the caller should not wait for a write burst before the model is invoked.
+        // The substitute never completes, so a recall that returns proves it was not awaited.
+        var pending = new TaskCompletionSource();
+        var decay = Substitute.For<IMemoryDecayService>();
+        decay.UpdateAccessTimestampsAsync(
+                Arg.Any<IReadOnlyCollection<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>())
+            .Returns(pending.Task);
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(OneFactContext());
+
+        var recall = CreateSut(decay, deferred: true)
+            .RecallAsync(new RecallRequest { SessionId = "s1", Query = "q" });
+
+        (await Task.WhenAny(recall, Task.Delay(TimeSpan.FromSeconds(5)))).Should().Be(recall,
+            "the recall must return without waiting for the bookkeeping write");
+        pending.SetResult();
+    }
+
+    [Fact]
+    public async Task TheDefaultStillAwaitsTheWrite()
+    {
+        // The byte-identical guarantee: leaving the option off keeps failures and cancellation
+        // observable on the calling path, which is why it was awaited in the first place.
+        var completed = false;
+        var decay = Substitute.For<IMemoryDecayService>();
+        decay.UpdateAccessTimestampsAsync(
+                Arg.Any<IReadOnlyCollection<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                await Task.Delay(20);
+                completed = true;
+            });
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(OneFactContext());
+
+        await CreateSut(decay).RecallAsync(new RecallRequest { SessionId = "s1", Query = "q" });
+
+        completed.Should().BeTrue("the default path awaits the write");
+    }
+
+    [Fact]
+    public async Task ADeferredWriteIsDetachedFromTheRequestCancellationToken()
+    {
+        // The trap that would make this a no-op wearing a feature's name. The request token is
+        // cancelled as soon as the response completes, so a deferred write that still carried it
+        // would be cancelled by the very act of returning.
+        CancellationToken captured = default;
+        var decay = Substitute.For<IMemoryDecayService>();
+        decay.UpdateAccessTimestampsAsync(
+                Arg.Any<IReadOnlyCollection<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                captured = call.ArgAt<CancellationToken>(1);
+                return Task.CompletedTask;
+            });
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(OneFactContext());
+
+        using var requestCts = new CancellationTokenSource();
+        await CreateSut(decay, deferred: true)
+            .RecallAsync(new RecallRequest { SessionId = "s1", Query = "q" }, requestCts.Token);
+        await Task.Delay(50);
+        requestCts.Cancel();
+
+        captured.Should().Be(CancellationToken.None,
+            "a deferred write must outlive the request that scheduled it");
+    }
+
+    [Fact]
+    public async Task ADeferredFailureDoesNotFaultTheRecall()
+    {
+        // A bookkeeping write that throws must not surface as a failed recall -- and must not become
+        // an unobserved task exception either, which is why the continuation logs it.
+        var decay = Substitute.For<IMemoryDecayService>();
+        decay.UpdateAccessTimestampsAsync(
+                Arg.Any<IReadOnlyCollection<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new InvalidOperationException("driver disposed"));
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(OneFactContext());
+
+        var act = async () => await CreateSut(decay, deferred: true)
+            .RecallAsync(new RecallRequest { SessionId = "s1", Query = "q" });
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public void DeferralIsOffByDefault()
+    {
+        // It is unsafe for a request-scoped host: the write runs on scoped services, and a scope
+        // disposed when the response returns takes the driver session with it.
+        new MemoryOptions().DeferAccessTracking.Should().BeFalse();
+    }
 
     [Fact]
     public async Task RecallAsync_WithDecayService_UpdatesEntityAccess()

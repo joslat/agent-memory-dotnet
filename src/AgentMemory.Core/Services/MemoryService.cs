@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Memory;
 
 namespace AgentMemory.Core.Services;
 
@@ -86,13 +87,55 @@ internal sealed class MemoryService : IMemoryService
         // outside; both can be present without colliding.
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.total");
 
+        // R4. A turn that names a past time is asking a bitemporal question, and until now no
+        // conversational turn could reach RecallAsOfAsync at all. Resolution is deterministic and
+        // biased hard toward returning null -- see TemporalQueryParser -- so the ordinary turn takes
+        // exactly the path it always did.
+        if (_options.ResolveTemporalQueries
+            && TemporalQueryParser.Resolve(request.Query, _clock.UtcNow) is { } asOf)
+        {
+            activity?.SetTag("memory.recall.resolved_as_of", asOf.ToString("O"));
+            _logger.LogDebug(
+                "Query names a past time ({AsOf}); recalling bitemporally instead of against now.", asOf);
+            // Both clocks: the question is "what did I think then", which is what was true then AS
+            // known then. Passing only the valid clock would answer with today's corrections applied
+            // to the past -- a different question, and a subtly misleading one.
+            return await RecallAsOfCoreAsync(request, asOf, asOf, cancellationToken).ConfigureAwait(false);
+        }
+
         var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
-        // Update access timestamps for recalled long-term memories (awaited so failures and
-        // cancellation are observed; the method itself is resilient and logs internally).
+        // Update access timestamps for recalled long-term memories. Awaited by default so failures and
+        // cancellation are observed; the method itself is resilient and logs internally.
         if (_decayService is not null)
         {
-            await UpdateAccessTimestampsAsync(context, cancellationToken).ConfigureAwait(false);
+            if (_options.DeferAccessTracking)
+            {
+                // 2.4. Bookkeeping the caller is not waiting for: it feeds decay and retention, and
+                // nothing in the returned context depends on it.
+                //
+                // CancellationToken.None, NOT the request's token. That token is cancelled as soon as
+                // the response completes, so passing it through would cancel the very write being
+                // deferred -- an option that reads as enabled and does nothing.
+                //
+                // The task is deliberately not awaited and deliberately not discarded silently: the
+                // continuation is what keeps a deferred failure from being an unobserved exception.
+                _ = UpdateAccessTimestampsAsync(context, CancellationToken.None)
+                    .ContinueWith(
+                        task => _logger.LogWarning(
+                            task.Exception,
+                            "Deferred access tracking failed after recall returned. If this is an "
+                            + "ObjectDisposedException, the host's DI scope was disposed before the "
+                            + "write completed -- MemoryOptions.DeferAccessTracking is unsafe for a "
+                            + "request-scoped host."),
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted,
+                        TaskScheduler.Default);
+            }
+            else
+            {
+                await UpdateAccessTimestampsAsync(context, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         int totalItems = context.RecentMessages.Items.Count
@@ -255,13 +298,66 @@ internal sealed class MemoryService : IMemoryService
     }
 
     /// <inheritdoc/>
-    public Task<ExtractionResult> ExtractAndPersistAsync(
+    public async Task<ExtractionResult> ExtractAndPersistAsync(
         ExtractionRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Extracting and persisting memory for session {SessionId}", request.SessionId);
-        return _extraction.ExtractAsync(request, cancellationToken);
+        request = await WithExtractionContextAsync(request, cancellationToken).ConfigureAwait(false);
+        return await _extraction.ExtractAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Attaches the preceding turns an extractor may read to resolve references (E2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Filled in <b>here</b> rather than at each call site because this is the one chokepoint every
+    /// incremental extraction passes through — the Agent Framework provider, the Microsoft memory
+    /// facade and the MCP ingest tool all arrive at this method. Resolving it per caller would make
+    /// the window depend on which host was used, which is the failure this codebase has hit
+    /// repeatedly: a setting only some components respect is worse than no setting.
+    /// </para>
+    /// <para>
+    /// An explicitly supplied context always wins — a caller that knows the conversation better than
+    /// a recency query does should not be second-guessed.
+    /// </para>
+    /// </remarks>
+    private async Task<ExtractionRequest> WithExtractionContextAsync(
+        ExtractionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_options.Extraction.ExtractionContextTurns <= 0
+            || request.ContextMessages.Count > 0
+            || request.Messages.Count == 0)
+        {
+            return request;
+        }
+
+        var targetIds = request.Messages.Select(m => m.MessageId).ToHashSet(StringComparer.Ordinal);
+
+        // Over-fetch by the batch size: the most recent stored messages usually ARE the batch, so
+        // asking for exactly N would return N turns of which most are excluded and leave the window
+        // short without reporting it.
+        var wanted = _options.Extraction.ExtractionContextTurns;
+        var recent = await _shortTerm.GetRecentMessagesAsync(
+            request.SessionId, wanted + request.Messages.Count, cancellationToken).ConfigureAwait(false);
+
+        // The batch itself is never context. Its turns are the targets, and a message appearing in
+        // both would be handed to the model twice -- once as "do not extract from this".
+        var context = recent
+            .Where(m => !targetIds.Contains(m.MessageId))
+            .TakeLast(wanted)
+            .ToList();
+
+        if (context.Count == 0) return request;
+
+        _logger.LogDebug(
+            "Extraction window: {Targets} target turn(s) with {Context} turn(s) of read-only context (E2).",
+            request.Messages.Count, context.Count);
+
+        return request with { ContextMessages = context };
     }
 
     /// <inheritdoc/>

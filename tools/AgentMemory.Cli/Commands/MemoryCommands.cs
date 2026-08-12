@@ -4,6 +4,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Memory;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using AgentMemory.Neo4j.Schema.Parity;
@@ -491,4 +492,58 @@ public sealed class HistoryCommand(IMemoryHistoryService service, TextWriter out
     private static string Format(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
 
     private static string FormatOptional(DateTimeOffset? value) => value is null ? "open" : Format(value.Value);
+}
+
+/// <summary>
+/// Renders a human-readable block of what memory holds for an owner (S4).
+/// </summary>
+/// <remarks>
+/// <para>
+/// The gap this closes was described honestly in the analysis as <i>"capable but opaque"</i>: memory
+/// could be queried but not <b>seen</b>. <c>history</c> answers questions about one memory;
+/// this shows the shape of the whole thing at a glance.
+/// </para>
+/// <para>
+/// <b>There is no write counterpart, deliberately.</b> Block-memory designs elsewhere let the agent
+/// edit its own block, and at that point the block is the store: every provenance edge, trust level
+/// and supersession record in the graph then describes a shadow of what the system actually believes.
+/// Each line therefore prints its memory id, so a correction is made against that exact memory
+/// through <c>invalidate</c> or <c>supersede</c> — audited, attributable, and reversible.
+/// </para>
+/// </remarks>
+public sealed class BlockCommand(IMemoryHistoryService service, TextWriter output)
+{
+    public async Task<int> ExecuteAsync(
+        string? owner,
+        string? limitValue,
+        CancellationToken cancellationToken = default)
+    {
+        var limit = 50;
+        if (!string.IsNullOrWhiteSpace(limitValue)
+            && (!int.TryParse(limitValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out limit)
+                || limit <= 0))
+        {
+            output.WriteLine("error: block --limit must be a positive integer.");
+            return 1;
+        }
+
+        var records = await service.GetHistoryAsync(
+            new MemoryHistoryQuery
+            {
+                OwnerId = string.IsNullOrWhiteSpace(owner) ? null : owner,
+                // The block is what memory believes NOW; retracted claims shown beside live ones,
+                // with no per-item history in view, simply read as true.
+                IncludeInvalidated = false,
+                // Over-fetch so the omitted count is real. Asking for exactly `limit` would make a
+                // full block indistinguishable from an exactly-full one.
+                Limit = limit + 1,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var block = MemoryBlockRenderer.Render(
+            records, DateTimeOffset.UtcNow, owner, limit);
+
+        output.Write(MemoryBlockRenderer.ToText(block));
+        return 0;
+    }
 }

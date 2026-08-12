@@ -113,7 +113,8 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         int requestedLimit,
         IReadOnlyList<T> items,
         IReadOnlyList<MemoryContextRankedItem> ranked,
-        double minimumScore)
+        double minimumScore,
+        bool timedOut = false)
     {
         // Scores come from the ranked items, which exist only when the provider could supply them.
         // An unscoreable section reports null rather than a placeholder: zero is a real score.
@@ -125,7 +126,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         }
 
         return new MemoryContextSectionDiagnostics(
-            searched, requestedLimit, items.Count, top, low, minimumScore);
+            searched, requestedLimit, items.Count, top, low, minimumScore, timedOut);
     }
 
     /// <summary>
@@ -220,6 +221,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<(Preference Preference, double Score)> preferenceScores = Array.Empty<(Preference, double)>();
         IReadOnlyList<(Fact Fact, double Score)> factScores = Array.Empty<(Fact, double)>();
         IReadOnlyList<(ReasoningTrace Trace, double Score)> traceScores = Array.Empty<(ReasoningTrace, double)>();
+
+        // Rank 13 bookkeeping, at METHOD scope: the fan-out lives in a nested block and these are read
+        // by the diagnostics built after it closes. A section that searched and found nothing and one
+        // that never came back produce an identical section; only one means the answer is incomplete.
+        var budgetExceeded = false;
+        bool droppedRecent = false, droppedRelevant = false, droppedEntities = false,
+             droppedPreferences = false, droppedFacts = false, droppedTraces = false;
 
         // J2.2 resolution, computed once at method scope so it can be both used by the fact search
         // and reported on the context. Which relations a question resolved to is the difference
@@ -399,12 +407,42 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
 
             // One handle per section, so a fault in any of them is still observed here rather than
             // surfacing later as an unobserved task exception.
-            await Task.WhenAll(
+            Task[] sections =
+            [
                 recentTask, relevantTask,
                 entitiesScoredTask ?? (Task)entitiesTask,
                 preferencesScoredTask ?? (Task)preferencesTask,
                 factsScoredTask ?? (Task)factsTask,
-                tracesScoredTask ?? (Task)tracesTask).ConfigureAwait(false);
+                tracesScoredTask ?? (Task)tracesTask,
+            ];
+
+            // Rank 13. With no budget this is the original unconditional wait, byte for byte.
+            if (recallOpts.LatencyBudget is { } latencyBudget
+                && await WaitWithinBudgetAsync(sections, latencyBudget, cancellationToken).ConfigureAwait(false))
+            {
+                // Each unfinished section is replaced by an empty result AND recorded, because the two
+                // have to be told apart downstream: "searched and found nothing" and "never came back"
+                // produce an identical section, and only one of them means the answer is incomplete.
+                budgetExceeded = true;
+                if (DropIfUnfinished<IReadOnlyList<Message>>(ref recentTask, [])) droppedRecent = true;
+                if (DropIfUnfinished(ref relevantTask, RelevantMessageSearchResult.Empty)) droppedRelevant = true;
+                if (entitiesScoredTask is not null)
+                    droppedEntities = DropIfUnfinished<IReadOnlyList<(Entity Entity, double Score)>>(ref entitiesScoredTask, []);
+                else droppedEntities = DropIfUnfinished<IReadOnlyList<Entity>>(ref entitiesTask, []);
+                if (preferencesScoredTask is not null)
+                    droppedPreferences = DropIfUnfinished<IReadOnlyList<(Preference Preference, double Score)>>(ref preferencesScoredTask, []);
+                else droppedPreferences = DropIfUnfinished<IReadOnlyList<Preference>>(ref preferencesTask, []);
+                if (factsScoredTask is not null)
+                    droppedFacts = DropIfUnfinished(ref factsScoredTask, new ScoredFactSearchResult([], []));
+                else droppedFacts = DropIfUnfinished<IReadOnlyList<Fact>>(ref factsTask, []);
+                if (tracesScoredTask is not null)
+                    droppedTraces = DropIfUnfinished<IReadOnlyList<(ReasoningTrace Trace, double Score)>>(ref tracesScoredTask, []);
+                else droppedTraces = DropIfUnfinished<IReadOnlyList<ReasoningTrace>>(ref tracesTask, []);
+
+                _logger.LogWarning(
+                    "Recall latency budget of {Budget}ms expired; returning partial context.",
+                    latencyBudget.TotalMilliseconds);
+            }
 
             recentMessages = await recentTask.ConfigureAwait(false);
             var relevantResult = await relevantTask.ConfigureAwait(false);
@@ -523,7 +561,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 // No vector involved: session-scoped and time-ordered, so the limit alone decides.
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(recallOpts.MaxRecentMessages > 0, recallOpts.MaxRecentMessages,
-                        recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore)
+                        recentMessages, Array.Empty<MemoryContextRankedItem>(), minScore, droppedRecent)
                     : null
             },
             RelevantMessages = new MemoryContextSection<Message>
@@ -532,7 +570,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 RankedItems = relevantRanked,
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(vectorSearchRan && recallOpts.MaxRelevantMessages > 0,
-                        recallOpts.MaxRelevantMessages, relevantMessages, relevantRanked, minScore)
+                        recallOpts.MaxRelevantMessages, relevantMessages, relevantRanked, minScore, droppedRelevant)
                     : null
             },
             RelevantEntities = new MemoryContextSection<Entity>
@@ -541,7 +579,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 RankedItems = entityRanked,
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(vectorSearchRan && recallOpts.MaxEntities > 0,
-                        recallOpts.MaxEntities, entities, entityRanked, minScore)
+                        recallOpts.MaxEntities, entities, entityRanked, minScore, droppedEntities)
                     : null
             },
             RelevantPreferences = new MemoryContextSection<Preference>
@@ -550,7 +588,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 RankedItems = preferenceRanked,
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(vectorSearchRan && recallOpts.MaxPreferences > 0,
-                        recallOpts.MaxPreferences, preferences, preferenceRanked, minScore)
+                        recallOpts.MaxPreferences, preferences, preferenceRanked, minScore, droppedPreferences)
                     : null
             },
             RelevantFacts = new MemoryContextSection<Fact>
@@ -559,7 +597,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 RankedItems = factRanked,
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(vectorSearchRan && recallOpts.MaxFacts > 0,
-                        recallOpts.MaxFacts, facts, factRanked, minScore)
+                        recallOpts.MaxFacts, facts, factRanked, minScore, droppedFacts)
                     : null
             },
             SimilarTraces = new MemoryContextSection<ReasoningTrace>
@@ -568,14 +606,15 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 RankedItems = traceRanked,
                 Diagnostics = recallOpts.IncludeDiagnostics
                     ? Diagnose(vectorSearchRan && recallOpts.MaxTraces > 0,
-                        recallOpts.MaxTraces, traces, traceRanked, minScore)
+                        recallOpts.MaxTraces, traces, traceRanked, minScore, droppedTraces)
                     : null
             },
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
             ResolvedQueryRelations = resolvedQueryRelations,
             BlendMode = blendMode,
-            Truncated = truncated
+            Truncated = truncated,
+            LatencyBudgetExceeded = budgetExceeded
         };
 
         _logger.LogDebug(
@@ -1040,4 +1079,54 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         _truncationStrategies.TryGetValue(strategy, out var resolved)
             ? resolved
             : _truncationStrategies[TruncationStrategy.OldestFirst];
+
+    /// <summary>
+    /// Waits for the section tasks, giving up after <paramref name="budget"/> (rank 13).
+    /// </summary>
+    /// <returns><see langword="true"/> when the budget expired with work still running.</returns>
+    /// <remarks>
+    /// <para>
+    /// The still-running queries are <b>not</b> cancelled. They are already in the driver, and tearing
+    /// them down buys nothing the caller is waiting for — it only turns a wasted result into a wasted
+    /// result plus a cancellation storm. Their faults are observed so a slow section that also fails
+    /// does not surface later as an unobserved task exception.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> WaitWithinBudgetAsync(
+        Task[] sections, TimeSpan budget, CancellationToken cancellationToken)
+    {
+        var all = Task.WhenAll(sections);
+        using var expiry = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var timer = Task.Delay(budget, expiry.Token);
+
+        var finished = await Task.WhenAny(all, timer).ConfigureAwait(false);
+        if (finished == all)
+        {
+            await expiry.CancelAsync().ConfigureAwait(false);
+            await all.ConfigureAwait(false); // rethrow section faults exactly as before
+            return false;
+        }
+
+        foreach (var section in sections)
+        {
+            _ = section.ContinueWith(
+                faulted => _ = faulted.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Replaces a section that did not finish in time with an empty result (rank 13).
+    /// </summary>
+    /// <returns><see langword="true"/> when a substitution happened, i.e. this section was dropped.</returns>
+    private static bool DropIfUnfinished<T>(ref Task<T> section, T empty)
+    {
+        if (section.IsCompletedSuccessfully) return false;
+        section = Task.FromResult(empty);
+        return true;
+    }
 }

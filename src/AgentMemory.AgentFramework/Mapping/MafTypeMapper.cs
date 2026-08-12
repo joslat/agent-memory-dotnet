@@ -59,7 +59,8 @@ internal static class MafTypeMapper
         MemoryContext context,
         ContextFormatOptions? formatOptions = null,
         IMemoryContextAdmissionPolicy? admissionPolicy = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IReadOnlyList<ChatMessage>? liveThread = null)
     {
         var options = formatOptions ?? new ContextFormatOptions();
         var admission = admissionPolicy ?? new DefaultMemoryContextAdmissionPolicy();
@@ -199,6 +200,38 @@ internal static class MafTypeMapper
         // newest `chatBudget` items are the FRONT of the list — Take(chatBudget). (R6-D: the previous
         // Skip(count - chatBudget) kept the TAIL, i.e. the OLDEST messages, dropping the newest turns
         // first — the opposite of "most recent".) Order is preserved (lead → chat → memory).
+        // The host already sends the live thread, and recall returns the same recent turns from
+        // storage, so the model sees them twice. Filtered BEFORE the budget on purpose: dropping
+        // duplicates first turns the same `chatBudget` slots into that many genuinely new messages
+        // rather than merely shortening the block -- a quality gain, not only a token saving.
+        //
+        // Fingerprinted on CONTENT ONLY, never role. RecalledMessageRoleGate rewrites a recalled
+        // message's role -- privileged to "user" below the trust threshold -- while leaving its
+        // content untouched, so a role-keyed fingerprint would fail to match precisely for the hosts
+        // that hardened MinimumTrustForSystemRole: the feature would silently no-op for the
+        // security-conscious configuration and work everywhere else.
+        if (liveThread is { Count: > 0 })
+        {
+            var live = liveThread
+                .Select(message => NormalizeForDedup(message.Text))
+                .Where(text => text.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (live.Count > 0)
+            {
+                var deduped = chatMessages
+                    .Where(message => !live.Contains(NormalizeForDedup(message.Text)))
+                    .ToList();
+                if (deduped.Count != chatMessages.Count)
+                {
+                    logger?.LogDebug(
+                        "Dropped {Dropped} recalled message(s) already present in the live thread.",
+                        chatMessages.Count - deduped.Count);
+                }
+                chatMessages = deduped;
+            }
+        }
+
         int chatBudget = Math.Max(0, options.MaxChatHistoryMessages);
         var keptChat = chatMessages.Count > chatBudget
             ? chatMessages.Take(chatBudget).ToList()
@@ -210,6 +243,28 @@ internal static class MafTypeMapper
         result.AddRange(memory);
         return result;
     }
+
+    /// <summary>
+    /// The dedup key for a chat message: its content, normalised for whitespace and case.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Content only.</b> Role is excluded because <c>RecalledMessageRoleGate</c> rewrites a recalled
+    /// message's role while leaving its content identical, so keying on role would miss every match on
+    /// exactly the hosts that raised <c>MinimumTrustForSystemRole</c>.
+    /// </para>
+    /// <para>
+    /// Whitespace-collapsed and case-folded because the live thread and the stored copy travel
+    /// different paths — one through the host's own formatting, one through persistence and back — and
+    /// a trailing newline is not a different message. Ordinal comparison after folding, so this stays
+    /// culture-independent.
+    /// </para>
+    /// </remarks>
+    internal static string NormalizeForDedup(string? text) =>
+        string.IsNullOrWhiteSpace(text)
+            ? string.Empty
+            : string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                .ToUpperInvariant();
 
     // Extracted from ToContextMessages' local Admit closure (stabilization fix) so it can be shared with
     // ToGatedChatMessages below, instead of the two call sites re-deriving the same admission decision and

@@ -868,6 +868,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     unionGraphTotal: relationUnionGraphTotal),
             answerPresence: answerPresence,
             questionType: evidenceQuestion?.QuestionType,
+            isAbstention: evidenceQuestion?.IsAbstention ?? false,
             retrievedGoldCoverage: RetrievedGoldCoverage(
                 recall.Context.RelevantFacts.Items,
                 originsByMessageId
@@ -984,6 +985,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         LongMemEvalRelationCompleteness? relationCompleteness = null,
         LongMemEvalAnswerPresenceResult? answerPresence = null,
         string? questionType = null,
+        bool isAbstention = false,
         string? answerPromptText = null)
     {
         lock (_stateLock)
@@ -1020,6 +1022,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 // work can skip and none of it has ever asked.
                 SufficiencySignal = SufficiencySignalOf(context),
                 QuestionType = questionType,
+                IsAbstention = isAbstention,
                 // Makes "expansion had nothing to expand" visible per question, instead of
                 // requiring the lexicon to be consulted by hand after a run.
                 ResolvedQueryRelations = context?.ResolvedQueryRelations ?? [],
@@ -1724,6 +1727,20 @@ public sealed record LongMemEvalQuestionTelemetry(
     /// it, which is why it is worth measuring before any of them is built.
     /// </remarks>
     public double? SufficiencySignal { get; init; }
+
+    /// <summary>
+    /// Whether the dataset declares this question <b>unanswerable</b> (an <c>_abs</c> question).
+    /// </summary>
+    /// <remarks>
+    /// Ground truth, and the reason it is carried separately from
+    /// <see cref="AnswerPresence"/>. The presence gate asks whether the gold answer's distinctive
+    /// tokens appear anywhere in memory -- a deliberately cheap floor for spotting extraction
+    /// failure. Measured on an abstention-enriched sample, it reported <b>3 of 4</b> abstention
+    /// questions as "present": their topic is discussed in the conversation even though the specific
+    /// fact is not, so the tokens are there. For "was this answerable?" the dataset's own label is
+    /// correct and the heuristic is not.
+    /// </remarks>
+    public bool IsAbstention { get; init; }
 
     /// <summary>
     /// The benchmark's own question type, carried so the gate can be read per type.

@@ -44,12 +44,18 @@ internal sealed class LlmRelationshipExtractor : ExtractorBase<ExtractedRelation
         _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
-    protected override async Task<IReadOnlyList<ExtractedRelationship>> ExtractCoreAsync(
+    protected override Task<IReadOnlyList<ExtractedRelationship>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken cancellationToken)
+        => ExtractCoreWithContextAsync(ExtractionWindow.ForTargets(messages), cancellationToken);
+
+    protected override async Task<IReadOnlyList<ExtractedRelationship>> ExtractCoreWithContextAsync(
+        ExtractionWindow window, CancellationToken cancellationToken)
     {
-        var conversationText = ConversationTextBuilder.Build(messages);
+        var conversationText = ConversationTextBuilder.BuildWindow(window, numbered: false);
         return await _runner.RunAsync(
-            _options.RelationshipExtractionPrompt ?? DefaultSystemPrompt,
+            (_options.RelationshipExtractionPrompt ?? DefaultSystemPrompt)
+                // Only when context is present, so a context-free prompt stays byte-identical (E2).
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract relationships from this conversation:",
             conversationText,
             ProjectRelationships,

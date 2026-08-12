@@ -12,6 +12,33 @@ public sealed class AgentFrameworkOptions
     public ContextFormatOptions ContextFormat { get; set; } = new();
 
     /// <summary>
+    /// Drops recalled chat history the host is already sending in the live thread.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The provider sees the full live thread and, until now, discarded it — so recall's
+    /// <c>RecentMessages</c> re-sent turns the model was already being given, and the host paid for
+    /// both copies.
+    /// </para>
+    /// <para>
+    /// Filtered <b>before</b> <c>MaxChatHistoryMessages</c> applies, so this is a quality change as
+    /// much as a cost one: the same budget then carries that many genuinely new messages instead of
+    /// duplicates of the current turn.
+    /// </para>
+    /// <para>
+    /// Matching is on <b>content only</b>, never role. <c>RecalledMessageRoleGate</c> rewrites a
+    /// recalled message's role — privileged down to user below the trust threshold — while leaving its
+    /// content identical, so a role-keyed comparison would miss every match on exactly the hosts that
+    /// raised <c>MinimumTrustForSystemRole</c>.
+    /// </para>
+    /// <para>
+    /// On by default: sending the model two copies of the same turn has no upside, and the comparison
+    /// is a hash set over the thread the provider already holds.
+    /// </para>
+    /// </remarks>
+    public bool DeduplicateRecalledHistory { get; set; } = true;
+
+    /// <summary>
     /// When <see langword="true"/>, the memory service runs extraction (entity/fact/preference) 
     /// automatically each time a message is persisted. Set to <see langword="false"/> to extract 
     /// on a background schedule instead.

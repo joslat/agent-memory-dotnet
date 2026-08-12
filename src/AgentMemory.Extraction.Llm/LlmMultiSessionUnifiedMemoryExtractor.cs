@@ -247,6 +247,50 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         // count. Removing it does not remove a working recovery; it removes a misleading one. A real
         // transport retry is tracked separately, because it must be reconciled with the harness's
         // exact-call-count invariant rather than quietly breaking it.
+        // A refusal on a MULTI-session batch is split first, exactly like a shape failure -- not to
+        // retry (the policy is deterministic for the same text) but to ISOLATE. Measured: the batch
+        // that killed a 616-call preparation went 4 -> 2 -> 1 and still failed at 1, so one session's
+        // content was responsible and its three batch-mates were innocent. Skipping the whole batch
+        // would have discarded all four.
+        catch (Exception ex) when (batch.Count > 1 && IsContentRejection(ex))
+        {
+            _batchDiagnostics?.RecordSplit(ex, batch.Count);
+            _logger.LogWarning(
+                ex,
+                "Provider refused a batch of {Count} source sessions; splitting to isolate which "
+                + "one(s) it objects to, so the rest are not lost with it.",
+                batch.Count);
+            var midpoint = batch.Count / 2;
+            var isolatedLeft = await ExtractOrSplitAsync(
+                batch.Take(midpoint).ToArray(), maxInputTokens, cancellationToken).ConfigureAwait(false);
+            var isolatedRight = await ExtractOrSplitAsync(
+                batch.Skip(midpoint).ToArray(), maxInputTokens, cancellationToken).ConfigureAwait(false);
+            return isolatedLeft.Concat(isolatedRight)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        }
+
+        // Isolated to one session, and the provider still refuses it: terminal. No retry and no
+        // further split changes the text or the policy. Skipping costs this session's extraction;
+        // propagating costs the ENTIRE preparation -- ~616 calls and over an hour for 50 questions.
+        //
+        // The SESSION ID is recorded, not the content. A refusal that leaves no trace of what caused
+        // it cannot be investigated or reported to the provider, and this will recur: the id is the
+        // handle an operator needs to look the conversation up in the dataset themselves, without the
+        // diagnostics carrying dataset text they are deliberately free of.
+        catch (Exception ex) when (IsContentRejection(ex))
+        {
+            var refused = batch[0].SessionId;
+            _batchDiagnostics?.RecordContentRejection(ex, batch.Count, refused);
+            _logger.LogWarning(
+                ex,
+                "Provider refused source session '{SessionId}' on content grounds; its extraction is "
+                + "skipped and recorded. Whatever that conversation held is absent from this corpus.",
+                refused);
+            return batch.ToDictionary(
+                request => request.SessionId,
+                _ => new UnifiedExtractionResult(),
+                StringComparer.Ordinal);
+        }
         catch (Exception ex) when (batch.Count > 1 && IsBatchShapeFailure(ex))
         {
             _batchDiagnostics?.RecordSplit(ex, batch.Count);
@@ -508,8 +552,42 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         if (exception is FormatException)
             return true;
 
+        // A content-filter rejection is a 4xx, but it is NOT a shape failure: the request is
+        // well-formed and the provider is refusing the content. Splitting re-sends the same text to
+        // the same filter, so it can only fail again, one session at a time, until the batch reaches
+        // size 1 and the exception escapes.
+        if (IsContentRejection(exception)) return false;
+
         var status = Internal.LlmExtractionRunner.TryGetStatus(exception);
         return status is >= 400 and < 500 and not 408 and not 429;
+    }
+
+    /// <summary>
+    /// Whether the provider refused this content outright, rather than failing to process it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Terminal by nature. A retry sends the same text to the same policy, and a split sends smaller
+    /// pieces of the same text; neither can succeed. Measured cost of treating it as retryable: a
+    /// 50-question preparation died after <b>270 of 616</b> calls because two sessions of a public
+    /// research dataset tripped an Azure content policy.
+    /// </para>
+    /// <para>
+    /// Matched on the provider's own vocabulary rather than on status alone, because 400 covers both
+    /// "your request is malformed" (which splitting legitimately diagnoses) and "I will not process
+    /// this" (which it cannot).
+    /// </para>
+    /// </remarks>
+    internal static bool IsContentRejection(Exception exception)
+    {
+        var status = Internal.LlmExtractionRunner.TryGetStatus(exception);
+        if (status != 400) return false;
+
+        var message = exception.Message;
+        return message.Contains("content_filter", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("content filter", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("cyber_policy", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("ResponsibleAIPolicyViolation", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class BatchValidationException(string message) : FormatException(message);

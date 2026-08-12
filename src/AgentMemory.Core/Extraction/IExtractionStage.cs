@@ -24,6 +24,22 @@ internal interface IExtractionStage
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// As <see cref="ExtractAsync(IReadOnlyList{Message}, ExtractionTypes, MemoryScope?, CancellationToken)"/>,
+    /// but supplying earlier turns the extractors may read to resolve references (E2).
+    /// </summary>
+    /// <remarks>
+    /// Provenance is attributed to <see cref="ExtractionWindow.Targets"/> only. A context turn must
+    /// never appear in <c>SourceMessageIds</c>: an <c>EXTRACTED_FROM</c> edge pointing at one would
+    /// claim the memory was stated in a turn the extractor was explicitly told not to extract from.
+    /// </remarks>
+    Task<ExtractionStageResult> ExtractWithContextAsync(
+        ExtractionWindow window,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default)
+        => ExtractAsync(window.Targets, typesToExtract, scope, cancellationToken);
+
+    /// <summary>
     /// Applies the normal validation, owner-scoped resolution, and filtering stages to a unified
     /// result that was already extracted by a validated multi-session batch.
     /// </summary>

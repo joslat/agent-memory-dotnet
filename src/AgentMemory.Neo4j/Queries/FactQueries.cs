@@ -109,16 +109,31 @@ internal static class FactQueries
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE null END,
                 f.source_message_ids = $sourceMessageIds,
                 f.created_at         = datetime($createdAtUtc),
-                f.metadata           = $metadata
+                f.metadata           = $metadata,
+                // R7 salience. Counts how often THE WORLD asserted this fact, incremented only here
+                // and in ON MATCH -- i.e. once per ingestion that re-states the same triple.
+                // Deliberately NOT the :MemoryReadAudit trail, which counts how often WE surfaced it:
+                // ranking on our own retrievals is a rich-get-richer loop that reinforces whatever
+                // already ranks highly and calls it learning.
+                f.mention_count      = 1
             ON MATCH SET
                 f.category           = $category,
-                f.confidence         = $confidence,
+                // S2 corroboration. A re-asserted triple is the world saying it again, so confidence
+                // EARNS rather than being replaced by whatever the latest extraction happened to
+                // report. Gated by the parameter itself -- at alpha 0 this is the original assignment,
+                // byte for byte, so nothing recorded before S2 moves.
+                f.confidence         = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(f.confidence, $confidence) + $reinforceAlpha > 1.0
+                        THEN 1.0
+                        ELSE coalesce(f.confidence, $confidence) + $reinforceAlpha END
+                    ELSE $confidence END,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE f.valid_from END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
                 f.source_message_ids = $sourceMessageIds,
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata,
-                f.invalidated_at     = null
+                f.invalidated_at     = null,
+                f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f";
 
     // ── UpsertBatchAsync ───────────────────────────────────────────────
@@ -148,17 +163,53 @@ internal static class FactQueries
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE null END,
                 f.source_message_ids = item.source_message_ids,
                 f.created_at         = datetime(item.created_at),
-                f.metadata           = item.metadata
+                f.metadata           = item.metadata,
+                f.mention_count      = 1
             ON MATCH SET
                 f.category           = item.category,
-                f.confidence         = item.confidence,
+                // S2 corroboration, identical to the single-item path. A counter that depended on
+                // which write path ran would make reinforcement a property of batching rather than of
+                // the conversation.
+                f.confidence         = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(f.confidence, item.confidence) + $reinforceAlpha > 1.0
+                        THEN 1.0
+                        ELSE coalesce(f.confidence, item.confidence) + $reinforceAlpha END
+                    ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
-                f.invalidated_at     = null
+                f.invalidated_at     = null,
+                f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f";
+
+    // ── R7 mention frequency ───────────────────────────────────────────
+
+    /// <summary>
+    /// How often the world asserted each of these facts, for the whole candidate set at once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>mention_count</c> is incremented only by the upsert paths, i.e. once per ingestion that
+    /// re-states the same triple. It is a <b>salience</b> signal: a fact the conversation keeps
+    /// returning to matters more than one mentioned in passing.
+    /// </para>
+    /// <para>
+    /// <b>Explicitly not the read audit.</b> <c>:MemoryReadAudit</c> records how often <i>we</i>
+    /// surfaced a fact, and ranking on that is a rich-get-richer loop: whatever ranks highly gets
+    /// retrieved, which raises its count, which raises its rank. It would look like learning and be
+    /// self-reinforcement.
+    /// </para>
+    /// <para>
+    /// Facts written before this property existed report <c>1</c> via <c>coalesce</c> — asserted once,
+    /// which is what a single ingestion means and the only honest reading of an absent counter.
+    /// </para>
+    /// </remarks>
+    public const string MentionCounts = @"
+            MATCH (f:Fact)
+            WHERE f.id IN $candidateIds
+            RETURN f.id AS candidateId, coalesce(f.mention_count, 1) AS mentions";
 
     // ── GetByIdAsync ───────────────────────────────────────────────────
 
@@ -406,7 +457,16 @@ internal static class FactQueries
               AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
               AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
-                loser.valid_until    = coalesce(loser.valid_until, datetime($now))
+                loser.valid_until    = coalesce(loser.valid_until, datetime($now)),
+                // S2 contradiction. Twice the corroboration step, and downward: being contradicted is
+                // stronger evidence against a fact than one more restatement is for it. Floored at 0
+                // rather than allowed negative -- confidence is a [0,1] quantity every ranking and
+                // dedup computation reads, and a negative would propagate somewhere it means nothing.
+                loser.confidence     = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) < 0.0
+                        THEN 0.0
+                        ELSE coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) END
+                    ELSE loser.confidence END
             MERGE (loser)-[:SUPERSEDED_BY]->(winner)
             RETURN count(loser) > 0 AS superseded";
     }

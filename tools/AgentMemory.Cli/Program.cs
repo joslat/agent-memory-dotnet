@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf" };
+var known = new[] { "migrate", "bootstrap", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -225,6 +225,13 @@ try
                 liveOnly: cli.HasFlag("live-only"),
                 ownOnly: cli.HasFlag("own-only"),
                 limitValue: cli.Get("limit")),
+        // S4. "ours is capable but opaque" -- memory could be queried but not SEEN. Read-only by
+        // design: there is deliberately no `block --write`, because a block an agent can hand back
+        // becomes the store, and the graph's provenance and supersession records then describe a
+        // shadow of what the system believes.
+        "block" => await new BlockCommand(
+            sp.GetRequiredService<IMemoryHistoryService>(), output)
+            .ExecuteAsync(cli.Get("owner"), cli.Get("limit")),
         "evaluate" => await new EvaluationCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(),
             sp.GetRequiredService<INeo4jTransactionRunner>(),

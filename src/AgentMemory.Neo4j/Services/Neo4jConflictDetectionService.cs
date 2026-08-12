@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
+using AgentMemory.Abstractions.Options;
 namespace AgentMemory.Neo4j.Services;
 
 /// <summary>
@@ -19,12 +21,20 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
     public Neo4jConflictDetectionService(
         INeo4jTransactionRunner tx,
         IClock clock,
-        ILogger<Neo4jConflictDetectionService> logger)
+        ILogger<Neo4jConflictDetectionService> logger,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
         _tx = tx ?? throw new ArgumentNullException(nameof(tx));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        // S2. This is the SECOND caller of the supersede query -- the offline hygiene pass, next to
+        // the write-time one -- and a contradiction resolved here is the same event either way. An
+        // integration test caught the omission; the unit tests could not, because the missing
+        // parameter is only rejected by the server.
+        _reinforceAlpha = memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0;
     }
+
+    private readonly double _reinforceAlpha;
 
     /// <inheritdoc/>
     public async Task<ConflictReport> DetectConflictsAsync(
@@ -96,6 +106,7 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
                         ["loserId"] = loser.FactId,
                         ["winnerId"] = winner.FactId,
                         ["now"] = now,
+                        ["reinforceAlpha"] = _reinforceAlpha,
                     };
                     if (hasOwner) parameters["ownerId"] = conflict.OwnerId;
                     var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);

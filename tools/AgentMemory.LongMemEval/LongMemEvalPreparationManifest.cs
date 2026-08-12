@@ -50,6 +50,10 @@ internal sealed record LongMemEvalPreparationManifest(
     string ExtractionVocabularySha256 = "",
     string QueryRelationLexiconSha256 = "",
     string ExtractionProvenance = "Batch",
+    string AbstentionPolicy = "AsSampled",
+    // Sessions whose content the provider refused, so their material is absent from this corpus.
+    // Part of the fingerprint: a corpus with gaps is not the same corpus as one without.
+    int RefusedSourceSessions = 0,
     // ── Catalog metadata (schema 6) ──────────────────────────────────────
     // Not part of the fingerprint: these describe the build for a human, and two corpora that differ
     // only in their description are the same corpus.
@@ -93,6 +97,8 @@ internal sealed record LongMemEvalPreparationManifest(
         string extractionVocabularySha256 = "",
         string queryRelationLexiconSha256 = "",
         string extractionProvenance = "Batch",
+        string abstentionPolicy = "AsSampled",
+        int refusedSourceSessions = 0,
         string preparedAtUtc = "",
         string description = "",
         IReadOnlyList<string>? memoryTypes = null,
@@ -165,6 +171,8 @@ internal sealed record LongMemEvalPreparationManifest(
             ExtractionVocabularySha256: extractionVocabularySha256,
             QueryRelationLexiconSha256: queryRelationLexiconSha256,
             ExtractionProvenance: extractionProvenance,
+            AbstentionPolicy: abstentionPolicy,
+            RefusedSourceSessions: refusedSourceSessions,
             PreparedAtUtc: preparedAtUtc,
             Description: description,
             MemoryTypes: memoryTypes ?? [],
@@ -172,9 +180,32 @@ internal sealed record LongMemEvalPreparationManifest(
         return manifest with { Fingerprint = ComputeFingerprint(manifest) };
     }
 
+    /// <summary>
+    /// Checks a manifest against itself: that its recorded fingerprint matches its recorded contents.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Older schemas are read, not rejected.</b> Requiring an exact schema match orphaned every
+    /// corpus sealed before the current version -- each one a 7-9 hour build -- which is the precise
+    /// opposite of what recording ingestion identity is for. A manifest written by an older build is
+    /// still a valid description of a real corpus; what it lacks is fields, and the drift comparison
+    /// already treats an unrecorded field as drift rather than as agreement.
+    /// </para>
+    /// <para>
+    /// A <i>newer</i> schema is still refused. It was written by a build that knew things this one
+    /// does not, so its fingerprint cannot be recomputed here and its extra fields would be silently
+    /// dropped.
+    /// </para>
+    /// </remarks>
     internal void VerifyIntegrity()
     {
-        if (SchemaVersion != CurrentSchemaVersion)
+        if (SchemaVersion > CurrentSchemaVersion)
+        {
+            throw new InvalidOperationException(
+                $"LongMemEval preparation manifest schema {SchemaVersion} was written by a newer "
+                + $"build than this one (schema {CurrentSchemaVersion}); it cannot be verified here.");
+        }
+        if (SchemaVersion < 1)
         {
             throw new InvalidOperationException(
                 $"Unsupported LongMemEval preparation manifest schema {SchemaVersion}.");
@@ -185,9 +216,67 @@ internal sealed record LongMemEvalPreparationManifest(
             throw new InvalidOperationException("LongMemEval preparation manifest fingerprint mismatch.");
     }
 
+    /// <summary>
+    /// The fingerprint of a manifest, computed with the field set its own schema wrote.
+    /// </summary>
+    /// <remarks>
+    /// Schema 6 added five ingestion-identity fields to the hash. Hashing a schema-5 manifest with
+    /// them would never reproduce its recorded fingerprint, so every older corpus would read as
+    /// corrupt rather than as older -- and a corpus that took nine hours to build would be discarded
+    /// over a field it was never asked to record.
+    /// </remarks>
     internal static string ComputeFingerprint(LongMemEvalPreparationManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        return manifest.SchemaVersion >= 6
+            ? ComputeCurrentFingerprint(manifest)
+            : ComputeLegacyFingerprint(manifest);
+    }
+
+    /// <summary>The pre-schema-6 field set, preserved verbatim so older manifests still verify.</summary>
+    private static string ComputeLegacyFingerprint(LongMemEvalPreparationManifest manifest)
+    {
+        var canonical = new
+        {
+            manifest.SchemaVersion,
+            manifest.PreparationId,
+            manifest.DatasetSha256,
+            manifest.AgentEvalRevision,
+            manifest.ScopeRunIdSha256,
+            manifest.AnswerModelId,
+            manifest.JudgeModelId,
+            manifest.ExtractionModelId,
+            manifest.EmbeddingModelId,
+            manifest.EmbeddingDimensions,
+            manifest.MaxRelevantMessages,
+            manifest.ExtractionSourceTime,
+            manifest.UseJsonResponseFormat,
+            manifest.ExtractionResponseContract,
+            manifest.UseUnifiedExtraction,
+            manifest.UseMultiSessionBatchExtraction,
+            manifest.PreparationWorkers,
+            manifest.MaxSessionsPerBatch,
+            manifest.MaxInputTokens,
+            manifest.MaxConcurrentBatchesPerExtraction,
+            manifest.MaxConcurrentExtractionBatches,
+            Questions = manifest.Questions.Select(question => new
+            {
+                question.QuestionNumber,
+                question.QuestionId,
+                question.HistorySha256,
+                question.ScopeSha256,
+                question.MessagesPrepared,
+                question.SourceSessions,
+                question.ExtractionUnitsPrepared,
+                question.GraphSnapshot
+            }),
+            manifest.InitialExtractionCalls
+        };
+        return Hash(JsonSerializer.Serialize(canonical, JsonOptions));
+    }
+
+    private static string ComputeCurrentFingerprint(LongMemEvalPreparationManifest manifest)
+    {
         var canonical = new
         {
             manifest.SchemaVersion,
@@ -210,6 +299,8 @@ internal sealed record LongMemEvalPreparationManifest(
             manifest.ExtractionVocabularySha256,
             manifest.QueryRelationLexiconSha256,
             manifest.ExtractionProvenance,
+            manifest.AbstentionPolicy,
+            manifest.RefusedSourceSessions,
             manifest.QuestionSeed,
             manifest.UseJsonResponseFormat,
             manifest.ExtractionResponseContract,
@@ -268,27 +359,51 @@ internal sealed record LongMemEvalPreparationExpectation(
     internal void Validate(LongMemEvalPreparationManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        if (!string.Equals(manifest.DatasetSha256, DatasetSha256, StringComparison.Ordinal) ||
-            !string.Equals(manifest.AgentEvalRevision, AgentEvalRevision, StringComparison.Ordinal) ||
-            !string.Equals(manifest.AnswerModelId, AnswerModelId, StringComparison.Ordinal) ||
-            !string.Equals(manifest.JudgeModelId, JudgeModelId, StringComparison.Ordinal) ||
-            !string.Equals(manifest.ExtractionModelId, ExtractionModelId, StringComparison.Ordinal) ||
-            !string.Equals(manifest.EmbeddingModelId, EmbeddingModelId, StringComparison.Ordinal) ||
-            manifest.EmbeddingDimensions != EmbeddingDimensions ||
-            manifest.MaxRelevantMessages != MaxRelevantMessages ||
-            manifest.UseJsonResponseFormat != UseJsonResponseFormat ||
-            !string.Equals(manifest.ExtractionResponseContract, ExtractionResponseContract, StringComparison.Ordinal) ||
-            !string.Equals(manifest.ExtractionSourceTime, ExtractionSourceTime, StringComparison.Ordinal) ||
-            manifest.UseUnifiedExtraction != UseUnifiedExtraction ||
-            manifest.UseMultiSessionBatchExtraction != UseMultiSessionBatchExtraction ||
-            manifest.PreparationWorkers != PreparationWorkers ||
-            manifest.MaxSessionsPerBatch != MaxSessionsPerBatch ||
-            manifest.MaxInputTokens != MaxInputTokens ||
-            manifest.MaxConcurrentBatchesPerExtraction != MaxConcurrentBatchesPerExtraction ||
-            manifest.MaxConcurrentExtractionBatches != MaxConcurrentExtractionBatches)
+        var mismatches = new List<string>();
+        void Check(string field, object? expected, object? actual)
+        {
+            if (!Equals(expected?.ToString(), actual?.ToString()))
+                mismatches.Add($"{field}: corpus={actual} run={expected}");
+        }
+
+        Check("datasetSha256", DatasetSha256, manifest.DatasetSha256);
+        Check("answerModelId", AnswerModelId, manifest.AnswerModelId);
+        Check("judgeModelId", JudgeModelId, manifest.JudgeModelId);
+        Check("extractionModelId", ExtractionModelId, manifest.ExtractionModelId);
+        Check("embeddingModelId", EmbeddingModelId, manifest.EmbeddingModelId);
+        Check("embeddingDimensions", EmbeddingDimensions, manifest.EmbeddingDimensions);
+        Check("maxRelevantMessages", MaxRelevantMessages, manifest.MaxRelevantMessages);
+        Check("useJsonResponseFormat", UseJsonResponseFormat, manifest.UseJsonResponseFormat);
+        Check("extractionResponseContract", ExtractionResponseContract, manifest.ExtractionResponseContract);
+        Check("extractionSourceTime", ExtractionSourceTime, manifest.ExtractionSourceTime);
+        Check("useUnifiedExtraction", UseUnifiedExtraction, manifest.UseUnifiedExtraction);
+        Check("useMultiSessionBatchExtraction", UseMultiSessionBatchExtraction, manifest.UseMultiSessionBatchExtraction);
+        Check("preparationWorkers", PreparationWorkers, manifest.PreparationWorkers);
+        Check("maxSessionsPerBatch", MaxSessionsPerBatch, manifest.MaxSessionsPerBatch);
+        Check("maxInputTokens", MaxInputTokens, manifest.MaxInputTokens);
+        Check("maxConcurrentBatchesPerExtraction", MaxConcurrentBatchesPerExtraction, manifest.MaxConcurrentBatchesPerExtraction);
+        Check("maxConcurrentExtractionBatches", MaxConcurrentExtractionBatches, manifest.MaxConcurrentExtractionBatches);
+
+        // agentEvalRevision is DELIBERATELY not compared here, though it is still recorded.
+        //
+        // AgentEval's involvement in a corpus is real but bounded: it decides which questions are
+        // sampled and how each conversation history is rendered to text before AgentMemory extracts
+        // from it. Everything else it does -- the judge, the answer prompt, the verdict protocol --
+        // happens at evaluation time and touches no stored fact.
+        //
+        // Both of those bounded effects are already checked EXACTLY, per question, by
+        // LongMemEvalPreparedState: QuestionId proves the same question was ingested, and
+        // HistorySha256 proves the same rendered text was ingested. Comparing a version string on top
+        // of that rejects corpora whose content is provably identical -- a 7-9 hour build discarded
+        // because a package moved 0.16 to 0.20 while producing byte-identical histories. If a future
+        // release DOES change the formatter or the sampler, the per-question hashes catch it and name
+        // the question; a version string only ever said "something, somewhere, might differ".
+        if (mismatches.Count > 0)
         {
             throw new InvalidOperationException(
-                "Prepared LongMemEval configuration does not match the sealed manifest.");
+                "Prepared LongMemEval configuration does not match the sealed manifest. "
+                + $"{mismatches.Count} field(s) differ:" + Environment.NewLine
+                + string.Join(Environment.NewLine, mismatches.Select(m => $"  - {m}")));
         }
     }
 }

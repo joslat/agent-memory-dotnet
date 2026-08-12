@@ -57,6 +57,15 @@ internal static class LongMemEvalPreparedCorpusDrift
 
         var differences = new List<Difference>();
 
+        // Schema 5 and earlier did not carry the ingestion-identity fields at all, so deserialising
+        // one fills them from the record's DEFAULTS -- "Ignore", "Batch", false. Those are plausible
+        // values, and comparing against them would report a corpus built with Utterance as MATCHING a
+        // run configured for Ignore: unknown silently reading as agreement, which is the one thing
+        // this check exists to prevent. Older manifests therefore report every such field as
+        // unrecorded, whatever the default happened to be.
+        var recordsIngestionIdentity = prepared.SchemaVersion >= 6;
+        string Recorded(string value) => recordsIngestionIdentity ? value : string.Empty;
+
         void Check(string field, string preparedValue, string currentValue)
         {
             if (!string.Equals(preparedValue, currentValue, StringComparison.Ordinal))
@@ -69,22 +78,24 @@ internal static class LongMemEvalPreparedCorpusDrift
         Check("embeddingDimensions",
             prepared.EmbeddingDimensions.ToString(CultureInfo.InvariantCulture),
             current.EmbeddingDimensions.ToString(CultureInfo.InvariantCulture));
-        Check("assistantContent", prepared.AssistantContent, current.AssistantContent);
-        Check("extractionProvenance", prepared.ExtractionProvenance, current.ExtractionProvenance);
+        Check("assistantContent", Recorded(prepared.AssistantContent), current.AssistantContent);
+        Check("extractionProvenance", Recorded(prepared.ExtractionProvenance), current.ExtractionProvenance);
         Check("usePredicateVocabulary",
-            prepared.UsePredicateVocabulary.ToString(), current.UsePredicateVocabulary.ToString());
+            Recorded(prepared.UsePredicateVocabulary.ToString()), current.UsePredicateVocabulary.ToString());
         Check("extractionVocabularySha256",
             prepared.ExtractionVocabularySha256, current.ExtractionVocabularySha256);
         Check("queryRelationLexiconSha256",
             prepared.QueryRelationLexiconSha256, current.QueryRelationLexiconSha256);
         Check("questionSeed",
-            prepared.QuestionSeed.ToString(CultureInfo.InvariantCulture),
+            Recorded(prepared.QuestionSeed.ToString(CultureInfo.InvariantCulture)),
             current.QuestionSeed.ToString(CultureInfo.InvariantCulture));
         Check("questionCount",
             prepared.Questions.Count.ToString(CultureInfo.InvariantCulture),
             current.QuestionCount.ToString(CultureInfo.InvariantCulture));
+        Check("abstention",
+            Recorded(prepared.AbstentionPolicy), current.AbstentionPolicy);
         Check("memoryTypes",
-            string.Join(",", (prepared.MemoryTypes ?? []).OrderBy(t => t, StringComparer.Ordinal)),
+            Recorded(string.Join(",", (prepared.MemoryTypes ?? []).OrderBy(t => t, StringComparer.Ordinal))),
             string.Join(",", current.MemoryTypes.OrderBy(t => t, StringComparer.Ordinal)));
 
         return differences;
@@ -138,4 +149,14 @@ internal sealed record PreparedCorpusIdentity
     internal required int QuestionSeed { get; init; }
     internal required int QuestionCount { get; init; }
     internal IReadOnlyList<string> MemoryTypes { get; init; } = [];
+
+    /// <summary>
+    /// The abstention sampling policy, which decides whether unanswerable questions are in the sample.
+    /// </summary>
+    /// <remarks>
+    /// Ingestion-affecting, not merely evaluation-affecting: an abstention question still carries a
+    /// conversation history, so including one changes which histories were ingested. A corpus built
+    /// without them cannot answer a run that expects them.
+    /// </remarks>
+    internal string AbstentionPolicy { get; init; } = "AsSampled";
 }

@@ -400,7 +400,11 @@ internal static class LongMemEvalProgram
         }
 
         return new Options(
-            Value("--dataset") ?? string.Empty,
+            // Explicit --dataset wins; LONGMEMEVAL_DATASET is the standing setting; the known
+            // checkout locations are the last resort. The path used to live only in shell history,
+            // which is how it went missing.
+            LongMemEvalDatasetLocator.Resolve(
+                Value("--dataset"), Environment.GetEnvironmentVariable) ?? string.Empty,
             ParsePositive(Value("--questions"), DefaultQuestions, "--questions"),
             ParsePositive(Value("--seed"), DefaultSeed, "--seed"),
             ParsePositive(Value("--max-relevant"), DefaultMaxRelevant, "--max-relevant"),
@@ -495,7 +499,9 @@ internal static class LongMemEvalProgram
     private static void ValidateInputs(Options options)
     {
         if (string.IsNullOrWhiteSpace(options.DatasetPath))
-            throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required.");
+            throw new ArgumentException(
+                "--dataset <longmemeval_s_cleaned.json> is required, or set "
+                + $"{LongMemEvalDatasetLocator.PathVariable}.");
         if (!File.Exists(options.DatasetPath))
             throw new FileNotFoundException("LongMemEval dataset not found.", options.DatasetPath);
     }

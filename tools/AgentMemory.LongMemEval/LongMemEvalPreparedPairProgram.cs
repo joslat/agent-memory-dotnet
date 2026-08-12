@@ -32,6 +32,16 @@ internal static class LongMemEvalPreparedPairProgram
     private const double ColdBuildSpeedTargetMilliseconds = 900_000d;
 
     private const int FixedTenExpectedSourceSessions = 474;
+
+    /// <summary>
+    /// How much of a corpus may be missing to provider content refusals before it stops being usable.
+    /// </summary>
+    /// <remarks>
+    /// A handful of sessions out of thousands is noise; hundreds is a different corpus wearing the
+    /// same name. 2% is deliberately low — the observed rate on this dataset is a fraction of one
+    /// percent, so a run approaching this limit has something new happening and should stop.
+    /// </remarks>
+    private const double MaximumRefusedSessionShare = 0.02;
     internal static async Task<int> RunAsync(string[] args)
     {
         try
@@ -69,14 +79,29 @@ internal static class LongMemEvalPreparedPairProgram
                 options.JudgeRetryAttempts,
                 options.EvidenceDetail,
                 options.MaxRelevantMessages,
+                options.JudgeProtocol,
                 // Typed sampling reaches the PREPARATION, not only the evaluation: an episodic-only
                 // sample selects different questions, whose conversation histories have to be ingested
                 // for the corpus to answer them at all. This is why an episodic arm cannot reuse a
                 // stratified corpus and needs its own cold build.
-                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes));
+                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes),
+                // The unanswerable class. Without it the sufficiency AUC has nothing to order
+                // against: a stratified 50 gave 32 present and 1 absent, so the metric rested on one
+                // observation and the two arms reported 0.969 and 0.094 from the same corpus.
+                abstentionPolicy: options.AbstentionPolicy,
+                abstentionTargetProportion: options.AbstentionProportion);
             var datasetSha256 = Convert.ToHexStringLower(
                 SHA256.HashData(
                     await File.ReadAllBytesAsync(options.DatasetPath).ConfigureAwait(false)));
+            // Checked here because this is the last cheap moment: a cold build is 7-9 hours, and a
+            // dataset that is not the one every sealed corpus used produces numbers comparable to
+            // nothing. Warns rather than fails -- a different variant is legitimate work, and the
+            // actual sha travels in the fingerprint -- but it must never pass silently.
+            if (LongMemEvalDatasetLocator.DescribeMismatch(options.DatasetPath, datasetSha256)
+                is { } datasetWarning)
+            {
+                Console.Error.WriteLine(datasetWarning);
+            }
             var agentEvalRevision = AgentEvalRevision();
             var expectation = LongMemEvalPreparationFingerprint.Expect(
                 datasetSha256,
@@ -143,6 +168,7 @@ internal static class LongMemEvalPreparedPairProgram
                 new ProviderCompatibleExtractionChatClient(
                     azureClient.GetChatClient(extractionDeployment).AsIChatClient()));
             LongMemEvalPreparationManifest manifest;
+            IReadOnlyList<LongMemEvalRefusedEvidence.RefusedSession> refusedEvidence = [];
             IReadOnlyList<LongMemEvalPreparedCorpusDrift.Difference> reuseDrift = [];
             IReadOnlyList<LongMemEvalQuestionTelemetry> preparationTelemetry;
             LongMemEvalPreparedBatchExecution? batchExecution = null;
@@ -221,6 +247,7 @@ internal static class LongMemEvalPreparedPairProgram
                             QuestionSeed = options.Seed,
                             QuestionCount = options.Questions,
                             MemoryTypes = options.MemoryTypes,
+                            AbstentionPolicy = options.AbstentionPolicy.ToString(),
                         });
 
                     if (reuseDrift.Count > 0 && !options.AllowStalePrepared)
@@ -318,13 +345,42 @@ internal static class LongMemEvalPreparedPairProgram
                     plans.Sum(plan => plan.SourceSessionCount);
                 var plannedInputTokens =
                     plans.Sum(plan => plan.TotalEstimatedInputTokens);
-                if (options.Questions == DefaultQuestions &&
-                    options.Seed == DefaultSeed &&
-                    plannedSourceSessions != FixedTenExpectedSourceSessions)
+                // The canonical guard pins the STRATIFIED ten to a recorded plan, so a change in
+                // sampling or batching cannot pass unnoticed. A typed sample is a different plan by
+                // construction -- --memory-types episodic selects different questions, with a
+                // different number of source sessions -- so the canonical number does not describe
+                // it. Skipped rather than adjusted, and said out loud: silently dropping a guard that
+                // exists to catch sampling drift would be worse than not having it.
+                // Canonical means "the plan every recorded run used": default size and seed, no type
+                // filter, and abstention left as-sampled. Anything that changes WHICH questions are
+                // drawn produces a different plan, so the recorded source-session count cannot
+                // describe it. Enumerated rather than inferred, so adding a third sampling knob later
+                // fails this comparison loudly instead of silently inheriting the canonical count.
+                var canonicalSampling = options.MemoryTypes.Count == 0
+                    && options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled;
+                var canonicalPlan = options.Questions == DefaultQuestions
+                    && options.Seed == DefaultSeed
+                    && canonicalSampling;
+                if (canonicalPlan && plannedSourceSessions != FixedTenExpectedSourceSessions)
                 {
                     throw new InvalidOperationException(
                         $"Canonical fixed-ten preflight produced {plannedSourceSessions} " +
                         $"source sessions; expected exactly {FixedTenExpectedSourceSessions}.");
+                }
+                if (!canonicalSampling)
+                {
+                    var how = options.MemoryTypes.Count > 0
+                        ? $"types={string.Join("+", options.MemoryTypes)}"
+                        : string.Empty;
+                    var abstention = options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled
+                        ? string.Empty
+                        : $"abstention={options.AbstentionPolicy}";
+                    Console.WriteLine(
+                        "longmemeval: non-canonical sample ("
+                        + string.Join(", ", new[] { how, abstention }.Where(s => s.Length > 0))
+                        + $") -- the canonical fixed-ten source-session guard "
+                        + $"({FixedTenExpectedSourceSessions}) does not apply, because this sample "
+                        + "selects different questions by construction.");
                 }
                 Console.WriteLine(
                     $"longmemeval: frozen preparation preflight {plannedCalls} calls for " +
@@ -502,8 +558,55 @@ internal static class LongMemEvalPreparedPairProgram
                 // retries 0. Split sub-calls run under their own Activity, so the activity-based
                 // retry counter cannot see them - a split appears as bare extra calls that neither
                 // counter accounts for. One guard accepted that shape and the other rejected it.
-                var recordedSplits = baseProfile.Services
-                    .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot().Splits;
+                var batchDiagnostics = baseProfile.Services
+                    .GetRequiredService<LlmExtractionBatchDiagnostics>().Snapshot();
+                var recordedSplits = batchDiagnostics.Splits;
+
+                // A corpus with gaps must never look complete. The provider refuses some content
+                // outright -- two sessions of this public research dataset tripped an Azure policy --
+                // and skipping them is far better than losing a 616-call preparation to it. But the
+                // loss is real: those sessions contributed nothing to the graph, so any question
+                // depending on them is unanswerable for a reason that has nothing to do with recall.
+                //
+                // Tolerated up to a small share and REFUSED beyond it, because the failure changes
+                // character with scale: a handful of sessions out of 2,418 is noise, and hundreds is a
+                // different corpus wearing the same name.
+                if (batchDiagnostics.SessionsRefused > 0)
+                {
+                    var refusedShare = (double)batchDiagnostics.SessionsRefused / Math.Max(1, plannedSourceSessions);
+                    Console.Error.WriteLine(
+                        $"longmemeval: WARNING - the provider refused {batchDiagnostics.ContentRejections} "
+                        + $"source session(s) on content grounds, {batchDiagnostics.SessionsRefused} of "
+                        + $"{plannedSourceSessions} ({refusedShare:P1}). Their content is absent from this "
+                        + "corpus, and it is recorded in the manifest so a later reuse cannot mistake it "
+                        + "for complete.");
+                    // The ids, so the refusal is investigable. Content filters recur, and "something
+                    // was refused" is not a report anyone can act on or raise with a provider.
+                    //
+                    // And, more important than the count: did it COST anything? A refused session
+                    // holding a question's gold evidence makes that question unanswerable from memory
+                    // for a reason unrelated to retrieval, so scoring it wrong attributes a
+                    // content-policy decision to recall quality.
+                    refusedEvidence = LongMemEvalRefusedEvidence.Analyse(
+                        batchDiagnostics.RefusedSessionIds ?? [], questions);
+                    foreach (var refused in refusedEvidence)
+                    {
+                        var cost = refused.HeldGoldEvidence
+                            ? $"HELD GOLD EVIDENCE for question {refused.QuestionId}"
+                            : refused.QuestionId is null
+                                ? "unresolved question - treat as unknown, not harmless"
+                                : $"context only for question {refused.QuestionId}";
+                        Console.Error.WriteLine($"  - refused session: {refused.SessionId} ({cost})");
+                    }
+                    if (refusedShare > MaximumRefusedSessionShare)
+                    {
+                        throw new InvalidOperationException(
+                            $"Provider content refusals cost {batchDiagnostics.SessionsRefused} of "
+                            + $"{plannedSourceSessions} source sessions ({refusedShare:P1}), above the "
+                            + $"{MaximumRefusedSessionShare:P0} tolerance. A corpus missing that much is a "
+                            + "different corpus, and measuring against it would attribute the loss to recall.");
+                    }
+                }
                 var successfulCalls = extractionSnapshot.Calls - extractionSnapshot.Failures;
                 var accountingAcceptable =
                     AgentMemoryLongMemEvalAdapter.IsBatchAccountingAcceptable(
@@ -587,6 +690,8 @@ internal static class LongMemEvalPreparedPairProgram
                     usePredicateVocabulary: options.UsePredicateVocabulary,
                     extractionVocabularySha256: MemoryPredicateSeedVocabulary.Fingerprint,
                     queryRelationLexiconSha256: MemoryRelationSeedTable.Fingerprint,
+                    abstentionPolicy: options.AbstentionPolicy.ToString(),
+                    refusedSourceSessions: checked((int)batchDiagnostics.SessionsRefused),
                     preparedAtUtc: DateTimeOffset.UtcNow.ToString("O"),
                     description: options.Description ?? string.Empty,
                     memoryTypes: options.MemoryTypes,
@@ -763,11 +868,26 @@ internal static class LongMemEvalPreparedPairProgram
                     // --allow-stale-prepared was used, so a result taken over a drifted corpus carries
                     // that fact with it instead of looking like any other run.
                     preparedCorpusDrift = reuseDrift.Select(d => d.ToString()).ToArray(),
+                    // Empty on a clean build. Non-empty means questions in THIS sample lost evidence
+                    // to a content policy, which is the difference between a number that is low and a
+                    // number that is measuring the wrong thing.
+                    refusedSessionsHoldingGoldEvidence = refusedEvidence
+                        .Where(r => r.HeldGoldEvidence)
+                        .Select(r => new { r.SessionId, r.QuestionId })
+                        .ToArray(),
                     preparedCorpusPreparedAtUtc = reusing ? manifest.PreparedAtUtc : null,
                     preparedCorpusDescription = reusing ? manifest.Description : options.Description,
                     evidenceDetail = options.EvidenceDetail.ToString().ToLowerInvariant(),
                     oracleMode = options.OracleMode.ToString().ToLowerInvariant(),
                     judgeRetryAttempts = options.JudgeRetryAttempts,
+                    // 3.7. A COMPARABILITY BREAK, recorded like one. StructuredJson fixes a
+                    // systematic free-text mis-scoring -- the parser vetoes a leading "yes" when the
+                    // word "no" appears later, so "there is no discrepancy" scores as a failure -- but
+                    // AgentEval's own docs say results under it are not comparable with a free-text
+                    // base, and every sealed base here is free-text. Emitted unconditionally so a
+                    // StructuredJson score can never be read beside a FreeText one without the
+                    // difference being visible in the artifact itself.
+                    judgeVerdictProtocol = options.JudgeProtocol.ToString(),
                     neo4jImage = "neo4j:5.26",
                     agentEval = agentEvalRevision,
                     agentEvalDependency = "source-project:AgentEval.Memory"
@@ -1012,6 +1132,30 @@ internal static class LongMemEvalPreparedPairProgram
             LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
     }
 
+    /// <summary>The meta-memory half of an arm's result, or nulls when no abstention question ran.</summary>
+    private static object ProjectAbstentionAccuracy(PreparedArmExecution arm)
+    {
+        var verdicts = arm.Result.QuestionResults
+            .Where(q => q.QuestionId is not null)
+            .GroupBy(q => q.QuestionId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => (bool?)g.First().Correct, StringComparer.Ordinal);
+
+        var scored = LongMemEvalAbstentionAccuracy.Score(
+            arm.Telemetry,
+            questionId => questionId is not null && verdicts.TryGetValue(questionId, out var v) ? v : null);
+
+        return new
+        {
+            abstentionCorrect = scored.AbstentionCorrect,
+            abstentionTotal = scored.AbstentionTotal,
+            abstentionAccuracy = scored.AbstentionAccuracy,
+            answeredWhenItShouldHaveAbstained = scored.AnsweredWhenItShouldHaveAbstained,
+            ordinaryCorrect = scored.OrdinaryCorrect,
+            ordinaryTotal = scored.OrdinaryTotal,
+            ordinaryAccuracy = scored.OrdinaryAccuracy,
+        };
+    }
+
     private static object ProjectArm(
         PreparedArmExecution arm,
         LongMemEvalEvidenceDetail evidenceDetail) =>
@@ -1060,6 +1204,13 @@ internal static class LongMemEvalPreparedPairProgram
             // holds the two prices, never their difference). Reported as a group so a derived-answer
             // type's absences are not read as extraction failures.
             answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
+            // Meta-memory: how well the agent declines to answer what memory does not hold.
+            // Reported separately from the AUC's "absent" count, which is a ground-truth INPUT
+            // identical across arms -- reading a class balance as a result is the easy mistake,
+            // and only one of these two numbers is an outcome. The dataset's abstention questions
+            // are the only place it scores meta-memory, and until typed sampling shipped none had
+            // ever been drawn.
+            abstentionAccuracy = ProjectAbstentionAccuracy(arm),
             // PLAN 4.2. Emitted here as well as on the plain verb, because THIS is where the
             // 50-question runs happen: the plain verb's cold build costs ~684 extraction calls and
             // 7-9 hours, so every real measurement goes through the prepared pair. An instrument that
@@ -1278,7 +1429,8 @@ internal static class LongMemEvalPreparedPairProgram
         "--questions", "--resolve-query-relations", "--retain-prepared-volumes",
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
         "--description", "--memory-types", "--allow-stale-prepared",
-        "--use-predicate-vocabulary",
+        "--abstention", "--abstention-proportion",
+        "--use-predicate-vocabulary", "--judge-protocol",
     ];
 
     private static PreparedPairOptions Parse(string[] args)
@@ -1297,7 +1449,11 @@ internal static class LongMemEvalPreparedPairProgram
             Array.IndexOf(args, name) >= 0;
 
         return new PreparedPairOptions(
-            Value("--dataset") ?? string.Empty,
+            // Explicit --dataset wins; LONGMEMEVAL_DATASET is the standing setting; the known
+            // checkout locations are the last resort. The path used to live only in shell history,
+            // which is how it went missing.
+            LongMemEvalDatasetLocator.Resolve(
+                Value("--dataset"), Environment.GetEnvironmentVariable) ?? string.Empty,
             ParsePositive(Value("--questions"), DefaultQuestions, "--questions"),
             ParsePositive(Value("--seed"), DefaultSeed, "--seed"),
             ParsePositive(Value("--max-relevant"), DefaultMaxRelevant, "--max-relevant"),
@@ -1341,7 +1497,10 @@ internal static class LongMemEvalPreparedPairProgram
             ParseNonNegative(Value("--graphrag-items"), 0, "--graphrag-items"),
             Value("--description"),
             ParseMemoryTypes(Value("--memory-types")),
-            Has("--allow-stale-prepared"));
+            Has("--allow-stale-prepared"),
+            ParseAbstention(Value("--abstention")),
+            ParseAbstentionProportion(Value("--abstention-proportion")),
+            ParseJudgeProtocol(Value("--judge-protocol")));
     }
 
     /// <summary>
@@ -1360,6 +1519,77 @@ internal static class LongMemEvalPreparedPairProgram
             .ToArray();
         LongMemEvalMemoryTypeSelection.TaskTypesFor(types);
         return types;
+    }
+
+    /// <summary>
+    /// Parses <c>--abstention exclude|as-sampled|only|target</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Abstention questions are the only <b>unanswerable</b> questions in this dataset, and they are
+    /// what the retrieval-sufficiency AUC has to order against. Measured on a stratified 50: 32 of 33
+    /// checkable questions had their answer present in memory, so the AUC rested on a single
+    /// observation and the two arms landed at 0.969 and 0.094 from the same data. Without an absent
+    /// class the metric is not noisy -- it is undefined.
+    /// </para>
+    /// <para>
+    /// Default <c>as-sampled</c>, which is what every recorded run used: LongMemEval-S contains few
+    /// _abs questions and stratified sampling almost never draws one, so across 52 recorded runs not
+    /// one ever ran. That default is preserved exactly rather than improved, because changing what a
+    /// sample contains changes every number computed from it.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// Parses <c>--judge-protocol</c>. Defaults to <c>FreeText</c> — the protocol every sealed base
+    /// here was scored under.
+    /// </summary>
+    /// <remarks>
+    /// <b>Never flipped silently.</b> StructuredJson is the real fix for a systematic free-text
+    /// mis-scoring, and AgentEval's own documentation says results under it are not comparable with a
+    /// free-text base. Changing the default would not produce a wrong number; it would produce a
+    /// better one that silently invalidates every comparison anybody makes against the existing runs.
+    /// </remarks>
+    private static JudgeVerdictProtocol ParseJudgeProtocol(string? value) => value?.ToLowerInvariant() switch
+    {
+        null or "" or "free-text" or "freetext" => JudgeVerdictProtocol.FreeText,
+        "structured-json" or "structuredjson" or "json" => JudgeVerdictProtocol.StructuredJson,
+        _ => throw new ArgumentException(
+            "--judge-protocol must be one of: free-text, structured-json."),
+    };
+
+    /// <summary>Test seam for the parser above; the method itself stays private.</summary>
+    internal static JudgeVerdictProtocol ParseJudgeProtocolForTests(string? value) =>
+        ParseJudgeProtocol(value);
+
+    private static AbstentionSamplingPolicy ParseAbstention(string? value) =>
+        value?.ToLowerInvariant() switch
+        {
+            null or "" or "as-sampled" => AbstentionSamplingPolicy.AsSampled,
+            "exclude" => AbstentionSamplingPolicy.Exclude,
+            "only" => AbstentionSamplingPolicy.Only,
+            "target" => AbstentionSamplingPolicy.TargetProportion,
+            _ => throw new ArgumentException(
+                "--abstention must be one of: as-sampled, exclude, only, target."),
+        };
+
+    /// <summary>Parses <c>--abstention-proportion</c>, the share of the sample that must abstain.</summary>
+    /// <remarks>
+    /// Only meaningful with <c>--abstention target</c>. Rejected outside (0,1): a proportion of 0
+    /// silently means "exclude" and 1 means "only", and expressing either by accident would produce a
+    /// sample nobody chose.
+    /// </remarks>
+    private static double? ParseAbstentionProportion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!double.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            || parsed is <= 0 or >= 1)
+        {
+            throw new ArgumentException(
+                "--abstention-proportion must be strictly between 0 and 1; use --abstention exclude "
+                + "or --abstention only for the endpoints.");
+        }
+        return parsed;
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -1381,7 +1611,11 @@ internal static class LongMemEvalPreparedPairProgram
         }
 
         if (string.IsNullOrWhiteSpace(options.DatasetPath))
-            throw new ArgumentException("--dataset <longmemeval_s_cleaned.json> is required.");
+            throw new ArgumentException(
+                "--dataset <longmemeval_s_cleaned.json> is required, or set "
+                + $"{LongMemEvalDatasetLocator.PathVariable}. The file is gitignored here AND in "
+                + "AgentEval and is tracked by neither, so it exists on exactly one disk; the sha256 "
+                + $"of the one every recorded result used is {LongMemEvalDatasetLocator.KnownGoodSha256}.");
         if (!File.Exists(options.DatasetPath))
             throw new FileNotFoundException("LongMemEval dataset not found.", options.DatasetPath);
         if ((options.DiagnosticQuestionPosition is null) !=
@@ -1607,7 +1841,10 @@ internal static class LongMemEvalPreparedPairProgram
         // reuse later, when nobody remembers what it was built for.
         string? Description = null,
         IReadOnlyList<string>? MemoryTypesRequested = null,
-        bool AllowStalePrepared = false)
+        bool AllowStalePrepared = false,
+        AbstentionSamplingPolicy AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
+        double? AbstentionProportion = null,
+        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];

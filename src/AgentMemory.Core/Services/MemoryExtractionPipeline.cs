@@ -58,8 +58,17 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         var scope = _isolationPolicy.ResolveReadScope(
             explicitScope: null, request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
 
-        var staged = await _extractionStage.ExtractAsync(
-            request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
+        // E2. Context reaches the extractors as context; the window keeps it out of provenance and
+        // out of the extraction targets, which is what stops it inflating S2 confidence and R7
+        // mention counts on facts that merely stayed inside the window.
+        // Without context, the original call — the off state stays identical at the call itself, not
+        // merely in what the extractors end up seeing.
+        var staged = request.ContextMessages.Count == 0
+            ? await _extractionStage.ExtractAsync(
+                request.Messages, request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false)
+            : await _extractionStage.ExtractWithContextAsync(
+                new ExtractionWindow { Targets = request.Messages, Context = request.ContextMessages },
+                request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
         var ownerId = _isolationPolicy.ResolveWriteOwner(request.UserId, nameof(ExtractAsync), MemoryOperationAccess.Tenant);
         // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.

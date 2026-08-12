@@ -107,6 +107,24 @@ public sealed record MemoryContext
     public bool Truncated { get; init; }
 
     /// <summary>
+    /// At least one section was abandoned because the recall latency budget expired (rank 13).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Separate from <see cref="Truncated"/>, which means something else.</b> Truncation is the
+    /// context budget trimming items that were retrieved; this is a retrieval that never came back.
+    /// A caller told only "truncated" would reasonably conclude the memories exist and were dropped
+    /// to fit — here they may exist and were never looked at.
+    /// </para>
+    /// <para>
+    /// Which sections were lost is on their own diagnostics. This flag exists so a caller can notice
+    /// at all without inspecting every section, because a partial context that looks complete is
+    /// worse than a slow one: the answer is given confidently from memory that was never consulted.
+    /// </para>
+    /// </remarks>
+    public bool LatencyBudgetExceeded { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

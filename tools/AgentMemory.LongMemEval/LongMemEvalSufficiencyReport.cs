@@ -23,13 +23,24 @@ internal static class LongMemEvalSufficiencyReport
     {
         ArgumentNullException.ThrowIfNull(telemetry);
 
+        // An abstention question is unanswerable BY DEFINITION -- the dataset says so -- and needs no
+        // gate to establish it. Everything else is labelled by the presence gate, which requires a
+        // checkable gold answer.
+        //
+        // The order matters and was wrong at first. Deferring to the gate for abstention questions
+        // labelled 3 of 4 of them "answerable", because their topic IS discussed in the conversation
+        // even though the specific fact is not, so the gold answer's tokens are present. A heuristic
+        // floor for extraction failure is not a ground truth for answerability, and using it as one
+        // put most of the unanswerable class on the wrong side of the comparison.
         var usable = telemetry
-            .Where(item => item.SufficiencySignal is not null && item.AnswerPresence is { Checkable: true })
+            .Where(item => item.SufficiencySignal is not null
+                && (item.IsAbstention || item.AnswerPresence is { Checkable: true }))
             .ToArray();
 
         var result = LongMemEvalSufficiencyAuc.Compute(
             [.. usable.Select(item => new LongMemEvalSufficiencyAuc.Observation(
-                item.SufficiencySignal!.Value, item.AnswerPresence!.Present))]);
+                item.SufficiencySignal!.Value,
+                AnswerPresent: !item.IsAbstention && item.AnswerPresence!.Present))]);
 
         return new
         {
@@ -42,9 +53,14 @@ internal static class LongMemEvalSufficiencyReport
             // Every question that could not contribute, and why. Without these the AUC's denominator
             // is unauditable -- and it is the denominator, not the number, that decides whether the
             // result means anything.
+            // How much of the unanswerable class came from the dataset's own label rather than from
+            // an extraction failure. When this is 0 the AUC is resting on accidental misses, which is
+            // how a 50-question run ended up with a single absent observation.
+            abstentionQuestions = usable.Count(item => item.IsAbstention),
             excludedNoSignal = telemetry.Count(item => item.SufficiencySignal is null),
             excludedNotCheckable = telemetry.Count(
                 item => item.SufficiencySignal is not null
+                     && !item.IsAbstention
                      && item.AnswerPresence is null or { Checkable: false }),
             questionsConsidered = telemetry.Count,
         };

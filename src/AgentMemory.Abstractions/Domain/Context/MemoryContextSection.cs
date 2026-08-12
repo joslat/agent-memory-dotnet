@@ -74,14 +74,31 @@ public sealed record MemoryContextRankedItem(
 /// </param>
 /// <param name="LowestScore">Lowest returned score, or <see langword="null"/> under the same rules.</param>
 /// <param name="MinimumScore">The similarity floor in force, so "all below threshold" is checkable.</param>
+/// <param name="TimedOut">
+/// Whether this section was abandoned because the recall latency budget expired (rank 13). Without
+/// it, a section cut short is byte-identical to one that searched and found nothing.
+/// </param>
 public sealed record MemoryContextSectionDiagnostics(
     bool Searched,
     int RequestedLimit,
     int Returned,
     double? TopScore,
     double? LowestScore,
-    double MinimumScore)
+    double MinimumScore,
+    bool TimedOut = false)
 {
+    /// <summary>
+    /// This section was abandoned because the recall latency budget expired (rank 13).
+    /// </summary>
+    /// <remarks>
+    /// <b>The reason a latency budget needs a flag at all.</b> A section cut short reports
+    /// <c>Searched = true</c> and <c>Returned = 0</c>, which is byte-identical to a section that ran
+    /// to completion and genuinely found nothing. Without this, degrading under load would look
+    /// exactly like an owner having no memories — and a partial recall that looks complete is worse
+    /// than a slow one, because the caller answers confidently from a context they believe is whole.
+    /// </remarks>
+    public bool AbandonedToLatencyBudget => TimedOut;
+
     /// <summary>
     /// The retrieval ran and came back with nothing — as opposed to never having run.
     /// </summary>
