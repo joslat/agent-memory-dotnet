@@ -11,6 +11,10 @@ AgentMemory.Enrichment|src/AgentMemory.Enrichment/AgentMemory.Enrichment.csproj
 AgentMemory.Extraction.AzureLanguage|src/AgentMemory.Extraction.AzureLanguage/AgentMemory.Extraction.AzureLanguage.csproj
 AgentMemory.Extraction.Llm|src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj
 AgentMemory.McpServer|src/AgentMemory.McpServer/AgentMemory.McpServer.csproj
+# The one packable project outside src/: a DotnetTool, not a library. It is not referenced by any
+# eng/package-consumers/ project because a tool package cannot be a PackageReference -- it is
+# installed, not consumed -- so the consumer-install verification does not and should not cover it.
+AgentMemory.McpHost|tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj
 AgentMemory.McpServer.Nams|src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj
 AgentMemory.Nams|src/AgentMemory.Nams/AgentMemory.Nams.csproj
 AgentMemory.Neo4j|src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj

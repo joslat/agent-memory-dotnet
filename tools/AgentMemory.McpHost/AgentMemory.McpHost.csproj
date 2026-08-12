@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AgentMemory.McpHost</RootNamespace>
+
+    <!-- A .NET global tool: one TFM, one command name, installable with
+         `dotnet tool install -g AgentMemory.McpHost`. Single-targeted deliberately - a tool package
+         resolves one framework at install time, so multi-targeting it only inflates the package. -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>agent-memory-mcp</ToolCommandName>
+    <PackageId>AgentMemory.McpHost</PackageId>
+    <PackageType>DotnetTool</PackageType>
+    <Description>Turnkey MCP server for AgentMemory for .NET — runs the 25 memory tools over stdio or HTTP against Neo4j, configured entirely by environment variables. Install with `dotnet tool install -g AgentMemory.McpHost`.</Description>
+    <PackageTags>agent-memory;mcp;model-context-protocol;ai;memory;neo4j;dotnet-tool</PackageTags>
+
+    <!-- The 25 tools shipped with no way to run them without writing a .NET host first. This is that
+         host, so it is the one tools/ project that is packable. -->
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Option parsing is the part most likely to be quietly wrong and least likely to be caught by
+         running the server, so it is unit-tested directly rather than through reflection. -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
+  </ItemGroup>
+
+</Project>
