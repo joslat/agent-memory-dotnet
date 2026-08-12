@@ -46,6 +46,28 @@ public sealed record MemoryOptions
     /// </remarks>
     public bool RescueShortOwnerResults { get; init; }
 
+    /// <summary>
+    /// Boosts recalled facts that sit close, in the graph, to the entity the query is about (R6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Vector similarity asks whether a row <b>looks like</b> the query; this asks whether it is
+    /// <b>about</b> what the query is about. A plainly-worded fact hanging directly off the named
+    /// entity is often the answer, while a fact that paraphrases the query beautifully may concern
+    /// someone else entirely.
+    /// </para>
+    /// <para>
+    /// Reuses <c>MemoryRankingOptions.StructuralDecayGamma</c> as its decay constant rather than
+    /// introducing a second one, and does nothing unless that decay is also enabled -- at gamma = 1
+    /// every boost is 1.0, so the two extra queries could not change an ordering.
+    /// </para>
+    /// <para>
+    /// Off by default: it changes recall ordering, costs two bounded queries per fact section, and
+    /// every recorded measurement was taken without it.
+    /// </para>
+    /// </remarks>
+    public bool NodeDistanceReranking { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read
