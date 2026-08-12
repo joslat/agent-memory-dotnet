@@ -89,7 +89,14 @@ public sealed class ReasoningMemoryServiceTests
 
         var result = await sut.StartTraceAsync("session-1", "Test task", metadata: callerMetadata);
 
-        result.Metadata.GetTrustLevel().Should().Be(MemoryTrustLevel.Untrusted);
+        // Asserts the caller's value was discarded, NOT that the result is Untrusted. Those were the
+        // same thing until 6.3, when traces began carrying a configured trust level -- so the old
+        // assertion was checking a proxy that has since stopped tracking the property. What must hold
+        // is that ApplicationTrusted, which the caller asked for and which would bypass the admission
+        // policy, is not what got stored.
+        result.Metadata.GetTrustLevel().Should().NotBe(MemoryTrustLevel.ApplicationTrusted);
+        result.Metadata.GetTrustLevel().Should()
+            .Be(new ReasoningMemoryOptions().DefaultTraceTrustLevel);
     }
 
     [Fact]

@@ -84,7 +84,13 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredT
             // #92 Phase 3: trust_level is a framework-reserved metadata key -- a caller of this public
             // service method must never be able to self-assign a trust level that bypasses the admission
             // policy's instruction-like-content detection for this trace's Task text on recall.
-            Metadata = (metadata ?? new Dictionary<string, object>()).WithoutCallerSuppliedTrustLevel()
+            // Stripped first, then stamped from CONFIGURATION -- never from the caller. The strip is
+            // the security property (#92 Phase 3); the stamp closes 6.3, where every trace read back
+            // as Untrusted because nothing ever assigned one, making "the agent generated this" and
+            // "no signal was recorded" the same value.
+            Metadata = (metadata ?? new Dictionary<string, object>())
+                .WithoutCallerSuppliedTrustLevel()
+                .WithTrustLevel(_options.DefaultTraceTrustLevel)
         };
 
         _logger.LogDebug("Starting trace {TraceId} for session {SessionId}", trace.TraceId, sessionId);
