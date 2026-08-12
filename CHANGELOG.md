@@ -6,6 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Valid-time recall (opt-in).** `RecallOptions.ValidTime = ValidTimeMode.Current` filters facts on
+  their real-world window (`valid_from`/`valid_until`) rather than only on the transaction clock.
+  Default `Ignore`, which is byte-for-byte today's behaviour, and `MemoryProfile.Parity` resolves to
+  `Ignore` — parity means parity. **TCK exposure is zero**: the bridge exposes neither `/search_facts`
+  nor `/get_facts_about`, so no conformance surface can observe this.
+
+  Two things write validity bounds, and only two: temporal extraction, when
+  `TemporalValidityMode.Extract` asks the model for a window, and **supersession**, which stamps
+  `valid_until` as it closes a fact. The second is worth knowing about because it changes nothing
+  here — supersession also stamps `invalidated_at`, and the transaction-clock filter already removes
+  the fact from live recall whatever this option says. **So the gate is redundant for superseded
+  facts and load-bearing only for windows the conversation actually stated.** Reaching for it to hide
+  superseded data solves a problem that is already solved.
+
+- **Reasoning traces carry a trust level.** `ReasoningMemoryOptions.DefaultTraceTrustLevel`, default
+  `ModelGenerated` — a trace is the agent's own record of what it did. Traces were the one recall
+  category with no trust signal: caller-supplied `trust_level` is stripped (a caller must never
+  self-assign a level that bypasses admission checks) and nothing then stamped one, so every trace
+  read back as `Untrusted` — indistinguishable from "no signal recorded". Safe at shipped defaults:
+  `MinimumTrustForAdmissionBypass` is `ApplicationTrusted`, which `ModelGenerated` does not reach.
+
+- **Owner-starvation rescue for short results (opt-in).** `MemoryOptions.RescueShortOwnerResults`.
+  Neo4j's vector index is global, so an owner filter is a post-filter on a top-K drawn from every
+  tenant — measured, a mean of **7 of 60** candidates reached the querying owner. Previously only a
+  *totally empty* result triggered a rescue, on the argument that a short result still answers the
+  question. It does for a small tenant and does not for a crowded one: one measured question returned
+  **2 facts from a 710-fact graph** with the answer present, and was answered wrongly.
+
+  The rescue is the owner-bounded **scan**, not a wider index query — widening is another draw on the
+  same global index, and a tenant losing to 50 neighbours at top-60 usually loses again at top-480.
+  The scan's cost scales with one owner's rows, so the small tenant the original argument protected
+  pays *less* for it than for a wider index query. Off by default, and it takes whichever result is
+  larger, so a genuinely sparse owner never loses indexed rows.
+
 ### Changed
 
 - **A greeting no longer costs a full recall.** Measured on the hermetic `PERF-R-01` scenario — a
