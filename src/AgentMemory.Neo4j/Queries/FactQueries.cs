@@ -118,7 +118,15 @@ internal static class FactQueries
                 f.mention_count      = 1
             ON MATCH SET
                 f.category           = $category,
-                f.confidence         = $confidence,
+                // S2 corroboration. A re-asserted triple is the world saying it again, so confidence
+                // EARNS rather than being replaced by whatever the latest extraction happened to
+                // report. Gated by the parameter itself -- at alpha 0 this is the original assignment,
+                // byte for byte, so nothing recorded before S2 moves.
+                f.confidence         = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(f.confidence, $confidence) + $reinforceAlpha > 1.0
+                        THEN 1.0
+                        ELSE coalesce(f.confidence, $confidence) + $reinforceAlpha END
+                    ELSE $confidence END,
                 f.valid_from         = CASE WHEN $validFrom IS NOT NULL THEN datetime($validFrom) ELSE f.valid_from END,
                 f.valid_until        = CASE WHEN $validUntil IS NOT NULL THEN datetime($validUntil) ELSE f.valid_until END,
                 f.source_message_ids = $sourceMessageIds,
@@ -159,7 +167,14 @@ internal static class FactQueries
                 f.mention_count      = 1
             ON MATCH SET
                 f.category           = item.category,
-                f.confidence         = item.confidence,
+                // S2 corroboration, identical to the single-item path. A counter that depended on
+                // which write path ran would make reinforcement a property of batching rather than of
+                // the conversation.
+                f.confidence         = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(f.confidence, item.confidence) + $reinforceAlpha > 1.0
+                        THEN 1.0
+                        ELSE coalesce(f.confidence, item.confidence) + $reinforceAlpha END
+                    ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.source_message_ids = item.source_message_ids,
@@ -442,7 +457,16 @@ internal static class FactQueries
               AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
               AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
-                loser.valid_until    = coalesce(loser.valid_until, datetime($now))
+                loser.valid_until    = coalesce(loser.valid_until, datetime($now)),
+                // S2 contradiction. Twice the corroboration step, and downward: being contradicted is
+                // stronger evidence against a fact than one more restatement is for it. Floored at 0
+                // rather than allowed negative -- confidence is a [0,1] quantity every ranking and
+                // dedup computation reads, and a negative would propagate somewhere it means nothing.
+                loser.confidence     = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) < 0.0
+                        THEN 0.0
+                        ELSE coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) END
+                    ELSE loser.confidence END
             MERGE (loser)-[:SUPERSEDED_BY]->(winner)
             RETURN count(loser) > 0 AS superseded";
     }

@@ -114,6 +114,33 @@ public sealed record MemoryOptions
     /// </remarks>
     public bool DeferAccessTracking { get; init; }
 
+    /// <summary>
+    /// How much a fact's confidence moves when the world corroborates or contradicts it (S2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Today confidence is set once by extraction and never earns or loses anything: a fact stated
+    /// five times and one stated in passing carry whatever number the extractor happened to report.
+    /// With α &gt; 0 a re-asserted triple gains α, and a fact superseded by a contradiction loses 2α.
+    /// </para>
+    /// <para>
+    /// <b>Asymmetric on purpose.</b> Being contradicted is stronger evidence against a fact than one
+    /// more restatement is for it — a claim that is simply repeated may just be a habit of phrasing,
+    /// while a claim the world has replaced is one the world stopped believing.
+    /// </para>
+    /// <para>
+    /// Clamped to [0,1] at both ends. Confidence is read by ranking, dedup and decay, and a value
+    /// outside that range would propagate into computations where it means nothing.
+    /// </para>
+    /// <para>
+    /// <b>0 (off) by default, and it is the off switch in Cypher too</b>: at α = 0 the upsert's
+    /// confidence assignment is byte-for-byte what it was, so no sealed measurement moves. A sensible
+    /// starting value is 0.02–0.05 — large enough to separate a well-attested fact over a
+    /// conversation, small enough that a single restatement does not overwhelm what extraction judged.
+    /// </para>
+    /// </remarks>
+    public double ConfidenceReinforcementAlpha { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read

@@ -71,7 +71,14 @@ internal static class FusedPersistenceQueries
                 f.metadata           = item.metadata
             ON MATCH SET
                 f.category           = item.category,
-                f.confidence         = item.confidence,
+                // S2 corroboration, identical to the other two write paths. Reinforcement that
+                // depended on which path ran would be a property of batching rather than of the
+                // conversation.
+                f.confidence         = CASE WHEN $reinforceAlpha > 0
+                    THEN CASE WHEN coalesce(f.confidence, item.confidence) + $reinforceAlpha > 1.0
+                        THEN 1.0
+                        ELSE coalesce(f.confidence, item.confidence) + $reinforceAlpha END
+                    ELSE item.confidence END,
                 f.valid_from         = CASE WHEN item.valid_from IS NOT NULL THEN datetime(item.valid_from) ELSE f.valid_from END,
                 f.valid_until        = CASE WHEN item.valid_until IS NOT NULL THEN datetime(item.valid_until) ELSE f.valid_until END,
                 f.mention_count      = coalesce(f.mention_count, 1) + 1,

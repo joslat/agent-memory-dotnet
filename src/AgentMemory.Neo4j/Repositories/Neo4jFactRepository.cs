@@ -24,6 +24,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
+    private readonly double _reinforceAlpha;
     private readonly ILogger<Neo4jFactRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
@@ -38,6 +39,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         IOptions<MemoryOptions>? memoryOptions = null)
     {
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _reinforceAlpha = memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0;
         _tx = tx;
         _logger = logger;
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
@@ -81,6 +83,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
                 ["category"] = fact.Category,
                 ["confidence"] = fact.Confidence,
+                ["reinforceAlpha"] = _reinforceAlpha,
                 ["validFrom"] = (object?)(fact.ValidFrom?.ToString("O")),
                 ["validUntil"] = (object?)(fact.ValidUntil?.ToString("O")),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
@@ -177,7 +180,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(FactQueries.UpsertBatch, new { items }).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(
+                FactQueries.UpsertBatch,
+                new { items, reinforceAlpha = _reinforceAlpha }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
 
             // The MERGE returns the SURVIVING node per triple; for a pre-existing triple that id is the
@@ -690,7 +695,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
         return await _tx.WriteAsync(async runner =>
         {
-            var parameters = new Dictionary<string, object?> { ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now };
+            var parameters = new Dictionary<string, object?> { ["loserId"] = loserFactId, ["winnerId"] = winnerFactId, ["now"] = now, ["reinforceAlpha"] = _reinforceAlpha };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
