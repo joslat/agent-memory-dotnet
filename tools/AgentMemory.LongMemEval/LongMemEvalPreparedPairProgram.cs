@@ -995,6 +995,11 @@ internal static class LongMemEvalPreparedPairProgram
             // holds the two prices, never their difference). Reported as a group so a derived-answer
             // type's absences are not read as extraction failures.
             answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
+            // PLAN 4.2. Emitted here as well as on the plain verb, because THIS is where the
+            // 50-question runs happen: the plain verb's cold build costs ~684 extraction calls and
+            // 7-9 hours, so every real measurement goes through the prepared pair. An instrument that
+            // reports only on the path nobody runs is the same dead-option defect as an unwired flag.
+            sufficiencyAuc = LongMemEvalSufficiencyReport.From(arm.Telemetry),
             // The judge's own record, kept alongside our telemetry. AgentEval has always handed us
             // the agent's answer, the judge's explanation and a TYPED status; the report dropped all
             // three, so "do you agree with the judge?" was unanswerable and a disagreement between
