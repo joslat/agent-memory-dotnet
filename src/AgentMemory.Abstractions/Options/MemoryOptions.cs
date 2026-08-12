@@ -202,6 +202,32 @@ public sealed record MemoryOptions
     /// </remarks>
     public bool OmitEmbeddingsFromRecall { get; init; }
 
+    /// <summary>
+    /// Skips the escalation ladder for an owner that holds no rows of the searched label (2.13).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An empty owner-scoped vector search escalates: a widened probe over the <b>global</b> index,
+    /// then an owner-scoped scan. For an owner holding nothing of that label both are futile by
+    /// construction, and the widened probe is the costly one — it asks the index for up to 2,000
+    /// candidates across the whole corpus to find rows that do not exist.
+    /// </para>
+    /// <para>
+    /// <b>Measured before enabling, because shortening the ladder is a trade rather than a free win.</b>
+    /// A <i>starved</i> owner — many rows, crowded out of the global top-K by noisier neighbours — is
+    /// genuinely recovered by escalation, so a blanket removal loses real answers. The large-owner arm
+    /// showed the two populations are cleanly separable: the empty owner returns nothing at every
+    /// rung, while the starved owner's rows are found. This option skips the ladder only for the first.
+    /// </para>
+    /// <para>
+    /// Off by default. The results are identical either way — an owner with nothing to find finds
+    /// nothing — so this is purely a cost saving; but it is gated because an existence probe that
+    /// disagreed with the search's own scoping would skip a rescue that would have worked, and a
+    /// silent recall loss is not worth one avoided query.
+    /// </para>
+    /// </remarks>
+    public bool SkipEscalationWhenOwnerHasNoRows { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read

@@ -17,6 +17,8 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
+    /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
+    private readonly bool _skipEscalationWhenOwnerHasNoRows;
     /// <summary>Scores this owner's OWN traces directly, bypassing the global vector index.</summary>
     /// <remarks>
     /// Extracted because two conditions reach it -- an empty scoped result, and (opt-in) a short one
@@ -60,6 +62,8 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         IOptions<MemoryOptions>? memoryOptions = null)
     {
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
+        _skipEscalationWhenOwnerHasNoRows =
+            memoryOptions?.Value.SkipEscalationWhenOwnerHasNoRows ?? false;
         _tx = tx;
         _logger = logger;
     }
@@ -251,7 +255,8 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         // one wider query and cannot invent a match, so the retry is issued either way rather than
         // guessing which cause applied.
         int? escalatedTopK = null;
-        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner))
+        if (OwnerVectorOverFetch.ShouldEscalate(results.Count, hasOwner)
+            && await ShouldClimbLadderAsync(scope, includeShared, cancellationToken).ConfigureAwait(false))
         {
             var widened = OwnerVectorOverFetch.EscalatedTopK(topK);
             if (widened > topK)
@@ -545,4 +550,36 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         // existing node at a different meaning.
         ["traceKind"]   = trace.Kind == TraceKind.Procedure ? "procedure" : "episode"
     };
+
+    /// <summary>
+    /// Whether the escalation ladder can possibly help this owner (2.13).
+    /// </summary>
+    /// <remarks>
+    /// Returns <see langword="true"/> unless the option is on AND the owner provably holds no rows of
+    /// this label. Defaulting to "escalate" is the safe direction: a probe that wrongly reported empty
+    /// would skip a rescue that would have worked, and a silent recall loss costs far more than one
+    /// avoided query.
+    /// </remarks>
+    private async Task<bool> ShouldClimbLadderAsync(
+        MemoryScope? scope, bool includeShared, CancellationToken cancellationToken)
+    {
+        if (!_skipEscalationWhenOwnerHasNoRows || scope?.OwnerId is null) return true;
+
+        var present = await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                OwnerRowExistence.Any("ReasoningTrace", includeShared),
+                new { ownerId = scope.OwnerId }).ConfigureAwait(false);
+            return (await cursor.ToListAsync().ConfigureAwait(false)).Count > 0;
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (!present)
+        {
+            _logger.LogDebug(
+                "Owner {Owner} holds no ReasoningTrace rows; skipping the escalation ladder (2.13).",
+                scope.OwnerId);
+        }
+
+        return present;
+    }
 }
