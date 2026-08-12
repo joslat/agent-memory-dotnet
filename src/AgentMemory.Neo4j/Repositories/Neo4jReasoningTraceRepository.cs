@@ -226,7 +226,10 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             // that many more-similar foreign rows no widening reaches the owner's. Bounded by one
             // owner's traces rather than by the corpus, and reached only when both prior passes
             // returned nothing. The success filter is carried through, so a filtered search that
-            // genuinely matches nothing still returns nothing.
+            // genuinely matches nothing still returns nothing -- and so is proceduresOnly, which is
+            // the filter most likely to reach this branch: a corpus with no promoted procedures makes
+            // the indexed pass return zero by construction, so an unfiltered rescue would answer a
+            // procedure lookup with an episode.
             if (results.Count == 0)
             {
                 _logger.LogDebug(
@@ -245,7 +248,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                 {
                     var cursor = await runner.RunAsync(
                         ReasoningQueries.SearchByTaskVectorOwnerScopedFallback(
-                            successFilter.HasValue, includeShared),
+                            successFilter.HasValue, includeShared, proceduresOnly),
                         fallbackParameters).ConfigureAwait(false);
                     var records = await cursor.ToListAsync().ConfigureAwait(false);
                     return records.Select(r =>

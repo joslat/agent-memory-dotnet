@@ -275,8 +275,16 @@ internal static class ReasoningQueries
     /// have both returned nothing, and bounded by ONE owner's traces rather than by the corpus. The
     /// success filter is preserved: a filtered search that legitimately matches nothing must still
     /// return nothing here rather than being rescued into the wrong answer.
+    /// <para>
+    /// <paramref name="proceduresOnly"/> is preserved for exactly the same reason, and it is the case
+    /// that actually bites: a corpus with no promoted procedures makes the indexed pass return zero
+    /// <b>by construction</b>, which is precisely the condition that triggers this rescue. Dropping the
+    /// filter here would answer "find me a procedure for this task" with an ordinary episode — the one
+    /// wrong answer procedural recall must never give, and one no caller could detect.
+    /// </para>
     /// </remarks>
-    public static string SearchByTaskVectorOwnerScopedFallback(bool hasSuccessFilter, bool includeShared)
+    public static string SearchByTaskVectorOwnerScopedFallback(
+        bool hasSuccessFilter, bool includeShared, bool? proceduresOnly = null)
     {
         var owner = includeShared
             ? "(t.owner_id = $ownerId OR t.owner_id IS NULL)"
@@ -284,10 +292,17 @@ internal static class ReasoningQueries
         var success = hasSuccessFilter
             ? Environment.NewLine + "              AND t.success = $successFilter"
             : string.Empty;
+        // Null-safe, as on the indexed path: a trace stored before trace_kind existed has the property
+        // missing, and a NULL-unsafe comparison would drop the whole pre-migration corpus from the
+        // episode side of this filter.
+        var kind = proceduresOnly is { } procedures
+            ? Environment.NewLine + "              AND coalesce(t.trace_kind, 'episode') "
+                + (procedures ? "=" : "<>") + " 'procedure'"
+            : string.Empty;
         return $@"
             MATCH (t:ReasoningTrace)
             WHERE {owner}
-              AND t.task_embedding IS NOT NULL{success}
+              AND t.task_embedding IS NOT NULL{success}{kind}
             WITH t, vector.similarity.cosine(t.task_embedding, $embedding) AS score
             WHERE score >= $minScore
             RETURN t AS node, score
