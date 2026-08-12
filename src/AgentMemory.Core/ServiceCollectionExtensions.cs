@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
+using AgentMemory.Core.Memory;
 using AgentMemory.Core.Resolution;
 using AgentMemory.Core.Services;
 using AgentMemory.Core.Services.Budgeting;
@@ -227,6 +228,13 @@ public static class ServiceCollectionExtensions
         // Entity resolution — CompositeEntityResolver replaces StubEntityResolver.
         // Callers may override by registering their own IEntityResolver before calling this method.
         services.TryAddScoped<IEntityResolver, CompositeEntityResolver>();
+
+        // S1. The deterministic synthesizer is the default because a summary is regenerated every
+        // time any of its sources moves; a completion per entity per change would scale cost with
+        // exactly how much the conversation talks about its subjects. TryAdd, so a host wanting
+        // prose registers an LLM synthesizer before calling this and keeps it.
+        services.TryAddScoped<IEntitySummarySynthesizer, DeterministicEntitySummarySynthesizer>();
+        services.TryAddScoped<IEntitySummaryService, EntitySummaryService>();
 
         // Keep StubEntityResolver available for explicit fallback use.
         services.TryAddScoped<StubEntityResolver>();

@@ -72,6 +72,10 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IEntityRepository, Neo4jEntityRepository>();
         services.TryAddTransient<IFactRepository, Neo4jFactRepository>();
         services.TryAddTransient<IPreferenceRepository, Neo4jPreferenceRepository>();
+        // S1. Registered beside the other repositories rather than behind a feature flag: an
+        // unregistered store would make EntitySummaryService unresolvable, so the option that
+        // enables summaries would fail at host start rather than simply doing nothing.
+        services.TryAddTransient<IEntitySummaryRepository, Neo4jEntitySummaryRepository>();
         services.TryAddTransient<IRelationshipRepository, Neo4jRelationshipRepository>();
 
         // Provenance

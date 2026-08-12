@@ -54,6 +54,24 @@ public sealed record Fact
     public DateTimeOffset? ValidUntil { get; init; }
 
     /// <summary>
+    /// When this fact was superseded or otherwise invalidated; <see langword="null"/> while it is live.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <b>transaction</b> clock, distinct from <see cref="ValidUntil"/>'s real-world one:
+    /// <c>ValidUntil</c> says when a fact stopped being true, this says when the store stopped
+    /// believing it. A contradicted fact is invalidated without its validity period changing at all.
+    /// </para>
+    /// <para>
+    /// The store has always recorded this — supersession is non-destructive precisely so as-of recall
+    /// can still reach it — but it was never projected onto the domain record, so a caller reading
+    /// facts had no way to tell a superseded one from a live one. Anything deriving from a fact set
+    /// (S1's summaries first among them) needs exactly that distinction.
+    /// </para>
+    /// </remarks>
+    public DateTimeOffset? InvalidatedAtUtc { get; init; }
+
+    /// <summary>
     /// Optional embedding vector for semantic search.
     /// </summary>
     public float[]? Embedding { get; init; }

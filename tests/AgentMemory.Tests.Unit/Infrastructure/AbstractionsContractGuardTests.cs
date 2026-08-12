@@ -16,9 +16,9 @@ public sealed class AbstractionsContractGuardTests
     private static readonly Assembly Abstractions = typeof(IMemoryService).Assembly;
 
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
-    private const int DocumentedServiceInterfaces = 42; // +IMemoryReranker (PLAN 10.1, seam only)
-    private const int DocumentedRepositoryInterfaces = 11;
-    private const int DocumentedDomainRecords = 53; // +ExtractionWindow (PLAN 12.6 / E2)
+    private const int DocumentedServiceInterfaces = 44; // +IEntitySummarySynthesizer, +IEntitySummaryService (PLAN 12.7 / S1)
+    private const int DocumentedRepositoryInterfaces = 12; // +IEntitySummaryRepository (PLAN 12.7 / S1)
+    private const int DocumentedDomainRecords = 54; // +EntitySummary (PLAN 12.7 / S1; EntitySummarySource is a record STRUCT and the guard counts reference records only)
     private const int DocumentedEnums = 29; // +TraceKind (7.1), +ExtractionProvenanceMode (9.3)
 
     private static IEnumerable<Type> PublicTypes() =>

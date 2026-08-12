@@ -594,6 +594,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ValidUntil = node.Properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
+            InvalidatedAtUtc = node.Properties.TryGetValue("invalidated_at", out var iat)
+                                ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
+                                : null,
             Embedding = embedding,
             SourceMessageIds = node.Properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
