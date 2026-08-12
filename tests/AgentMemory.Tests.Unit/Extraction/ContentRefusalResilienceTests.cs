@@ -48,6 +48,23 @@ public sealed class ContentRefusalResilienceTests
     }
 
     [Fact]
+    public void AMultiSessionRefusalIsSplitToIsolateTheOffender()
+    {
+        // Not a retry -- the policy is deterministic for the same text -- but isolation. Measured: the
+        // batch that killed a 616-call preparation went 4 -> 2 -> 1 and still failed at 1, so ONE
+        // session was responsible and its three batch-mates were innocent. Skipping the whole batch
+        // would have discarded all four.
+        //
+        // Asserted through the classification the split path keys on: a refusal must not be a shape
+        // failure (or it would split forever and then propagate), while the extractor splits it for
+        // its own reason at batch > 1.
+        var refusal = Refusal("content_filter");
+
+        LlmMultiSessionUnifiedMemoryExtractor.IsContentRejection(refusal).Should().BeTrue();
+        LlmMultiSessionUnifiedMemoryExtractor.IsBatchShapeFailure(refusal).Should().BeFalse();
+    }
+
+    [Fact]
     public void ARefusalIsNotTreatedAsABatchShapeFailure()
     {
         // THE fix. Classifying it as a shape failure is what made the extractor split, re-send the
@@ -89,6 +106,19 @@ public sealed class ContentRefusalResilienceTests
             .Should().BeTrue();
         LlmMultiSessionUnifiedMemoryExtractor.IsContentRejection(new FormatException("bad json"))
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public void TheRefusedSessionIdIsRecordedSoItCanBeInvestigated()
+    {
+        // "Something was refused" is not a report anyone can act on, and content filters recur. The
+        // ID is the handle: an operator looks the conversation up in the dataset themselves, which
+        // keeps the diagnostics free of dataset text while still being actionable.
+        var diagnostics = new LlmExtractionBatchDiagnostics();
+
+        diagnostics.RecordContentRejection(Refusal("content_filter"), 1, sessionId: "session-42");
+
+        diagnostics.Snapshot().RefusedSessionIds.Should().Equal("session-42");
     }
 
     [Fact]

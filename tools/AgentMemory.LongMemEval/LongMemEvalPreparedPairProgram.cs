@@ -574,9 +574,14 @@ internal static class LongMemEvalPreparedPairProgram
                     var refusedShare = (double)batchDiagnostics.SessionsRefused / Math.Max(1, plannedSourceSessions);
                     Console.Error.WriteLine(
                         $"longmemeval: WARNING - the provider refused {batchDiagnostics.ContentRejections} "
-                        + $"batch(es) covering {batchDiagnostics.SessionsRefused} of {plannedSourceSessions} "
-                        + $"source sessions ({refusedShare:P1}). Their content is absent from this corpus, "
-                        + "and it is recorded in the manifest so a later reuse cannot mistake it for complete.");
+                        + $"source session(s) on content grounds, {batchDiagnostics.SessionsRefused} of "
+                        + $"{plannedSourceSessions} ({refusedShare:P1}). Their content is absent from this "
+                        + "corpus, and it is recorded in the manifest so a later reuse cannot mistake it "
+                        + "for complete.");
+                    // The ids, so the refusal is investigable. Content filters recur, and "something
+                    // was refused" is not a report anyone can act on or raise with a provider.
+                    foreach (var refusedId in batchDiagnostics.RefusedSessionIds ?? [])
+                        Console.Error.WriteLine($"  - refused session: {refusedId}");
                     if (refusedShare > MaximumRefusedSessionShare)
                     {
                         throw new InvalidOperationException(

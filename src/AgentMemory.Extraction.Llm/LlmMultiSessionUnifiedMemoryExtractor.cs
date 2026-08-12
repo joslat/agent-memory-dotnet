@@ -247,18 +247,45 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         // count. Removing it does not remove a working recovery; it removes a misleading one. A real
         // transport retry is tracked separately, because it must be reconciled with the harness's
         // exact-call-count invariant rather than quietly breaking it.
-        // The provider refused this content and will refuse it again, at any batch size. Skipping the
-        // affected sessions costs their extraction; propagating costs the ENTIRE preparation, which
-        // for 50 questions is ~616 calls and over an hour. Recorded, never silent: the count reaches
-        // the manifest, so a corpus with gaps says so instead of looking complete.
-        catch (Exception ex) when (IsContentRejection(ex))
+        // A refusal on a MULTI-session batch is split first, exactly like a shape failure -- not to
+        // retry (the policy is deterministic for the same text) but to ISOLATE. Measured: the batch
+        // that killed a 616-call preparation went 4 -> 2 -> 1 and still failed at 1, so one session's
+        // content was responsible and its three batch-mates were innocent. Skipping the whole batch
+        // would have discarded all four.
+        catch (Exception ex) when (batch.Count > 1 && IsContentRejection(ex))
         {
-            _batchDiagnostics?.RecordContentRejection(ex, batch.Count);
+            _batchDiagnostics?.RecordSplit(ex, batch.Count);
             _logger.LogWarning(
                 ex,
-                "Provider refused the content of {Count} source session(s); their extraction is "
-                + "skipped and recorded. The corpus will be missing whatever those sessions held.",
+                "Provider refused a batch of {Count} source sessions; splitting to isolate which "
+                + "one(s) it objects to, so the rest are not lost with it.",
                 batch.Count);
+            var midpoint = batch.Count / 2;
+            var isolatedLeft = await ExtractOrSplitAsync(
+                batch.Take(midpoint).ToArray(), maxInputTokens, cancellationToken).ConfigureAwait(false);
+            var isolatedRight = await ExtractOrSplitAsync(
+                batch.Skip(midpoint).ToArray(), maxInputTokens, cancellationToken).ConfigureAwait(false);
+            return isolatedLeft.Concat(isolatedRight)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        }
+
+        // Isolated to one session, and the provider still refuses it: terminal. No retry and no
+        // further split changes the text or the policy. Skipping costs this session's extraction;
+        // propagating costs the ENTIRE preparation -- ~616 calls and over an hour for 50 questions.
+        //
+        // The SESSION ID is recorded, not the content. A refusal that leaves no trace of what caused
+        // it cannot be investigated or reported to the provider, and this will recur: the id is the
+        // handle an operator needs to look the conversation up in the dataset themselves, without the
+        // diagnostics carrying dataset text they are deliberately free of.
+        catch (Exception ex) when (IsContentRejection(ex))
+        {
+            var refused = batch[0].SessionId;
+            _batchDiagnostics?.RecordContentRejection(ex, batch.Count, refused);
+            _logger.LogWarning(
+                ex,
+                "Provider refused source session '{SessionId}' on content grounds; its extraction is "
+                + "skipped and recorded. Whatever that conversation held is absent from this corpus.",
+                refused);
             return batch.ToDictionary(
                 request => request.SessionId,
                 _ => new UnifiedExtractionResult(),
