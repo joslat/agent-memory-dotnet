@@ -60,11 +60,11 @@ public sealed class ExtractorProjectionConformanceTests
     private const string FactFields =
         "\"subject\":\"user\",\"predicate\":\"works on\",\"object\":\"Zurich project\",\"confidence\":0.9," +
         "\"valid_from\":\"2026-03-01T00:00:00+00:00\",\"valid_until\":\"2026-09-01T00:00:00+00:00\"," +
-        "\"source_role\":\"assistant\"";
+        "\"source_role\":\"assistant\",\"source_turn\":2";
 
     private const string PreferenceFields =
         "\"category\":\"travel\",\"preference\":\"aisle seats\",\"confidence\":0.9," +
-        "\"source_role\":\"assistant\"";
+        "\"source_role\":\"assistant\",\"source_turn\":2";
 
     // ── the unified rung ──────────────────────────────────────────────────
 
@@ -85,7 +85,10 @@ public sealed class ExtractorProjectionConformanceTests
         fact.ValidFrom.Should().Be(ValidFrom);
         fact.ValidUntil.Should().Be(ValidUntil);
         fact.SourceRole.Should().Be("assistant");
-        result.Preferences.Should().ContainSingle().Which.SourceRole.Should().Be("assistant");
+        fact.SourceTurn.Should().Be(2);
+        var preference = result.Preferences.Should().ContainSingle().Subject;
+        preference.SourceRole.Should().Be("assistant");
+        preference.SourceTurn.Should().Be(2);
     }
 
     // ── the multi-session batch rung — where the defect was ───────────────
@@ -124,7 +127,10 @@ public sealed class ExtractorProjectionConformanceTests
             "this rung asks for valid_from whenever Extract is set, so dropping it makes the setting a no-op");
         fact.ValidUntil.Should().Be(ValidUntil);
         fact.SourceRole.Should().Be("assistant");
-        extracted.Preferences.Should().ContainSingle().Which.SourceRole.Should().Be("assistant");
+        fact.SourceTurn.Should().Be(2);
+        var preference = extracted.Preferences.Should().ContainSingle().Subject;
+        preference.SourceRole.Should().Be("assistant");
+        preference.SourceTurn.Should().Be(2);
     }
 
     // ── the per-kind rungs ────────────────────────────────────────────────
@@ -143,6 +149,7 @@ public sealed class ExtractorProjectionConformanceTests
         fact.ValidFrom.Should().Be(ValidFrom);
         fact.ValidUntil.Should().Be(ValidUntil);
         fact.SourceRole.Should().Be("assistant");
+        fact.SourceTurn.Should().Be(2);
     }
 
     [Fact]
@@ -155,7 +162,9 @@ public sealed class ExtractorProjectionConformanceTests
 
         var preferences = await sut.ExtractAsync(OneMessage());
 
-        preferences.Should().ContainSingle().Which.SourceRole.Should().Be("assistant");
+        var preference = preferences.Should().ContainSingle().Subject;
+        preference.SourceRole.Should().Be("assistant");
+        preference.SourceTurn.Should().Be(2);
     }
 
     // ── and the absence direction ─────────────────────────────────────────
@@ -179,5 +188,6 @@ public sealed class ExtractorProjectionConformanceTests
         fact.ValidFrom.Should().BeNull();
         fact.ValidUntil.Should().BeNull();
         fact.SourceRole.Should().BeNull();
+        fact.SourceTurn.Should().BeNull();
     }
 }

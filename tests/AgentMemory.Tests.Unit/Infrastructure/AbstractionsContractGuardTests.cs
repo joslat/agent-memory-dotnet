@@ -19,7 +19,7 @@ public sealed class AbstractionsContractGuardTests
     private const int DocumentedServiceInterfaces = 41; // +IMultiSessionUnifiedMemoryExtractor (M-27-V2 LAB-B1)
     private const int DocumentedRepositoryInterfaces = 11;
     private const int DocumentedDomainRecords = 52; // +MemoryContextSectionDiagnostics (PLAN 4.1)
-    private const int DocumentedEnums = 28; // +TraceKind (PLAN 7.1)
+    private const int DocumentedEnums = 29; // +TraceKind (7.1), +ExtractionProvenanceMode (9.3)
 
     private static IEnumerable<Type> PublicTypes() =>
         Abstractions.GetTypes().Where(t => t.IsPublic);

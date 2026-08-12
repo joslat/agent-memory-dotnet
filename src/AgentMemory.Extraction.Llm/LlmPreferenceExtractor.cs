@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Extraction.Llm.Internal;
@@ -47,7 +48,9 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
     protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
-        var conversationText = ConversationTextBuilder.Build(messages);
+        var conversationText = _options.Provenance == ExtractionProvenanceMode.PerItem
+            ? ConversationTextBuilder.BuildNumbered(messages)
+            : ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
             _options.PreferenceExtractionPrompt ?? DefaultSystemPrompt,
             "Extract preferences from this conversation:",
@@ -69,7 +72,8 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
                 PreferenceText = p.Preference,
                 Context = string.IsNullOrWhiteSpace(p.Context) ? null : p.Context,
                 Confidence = p.Confidence,
-                SourceRole = p.SourceRole
+                SourceRole = p.SourceRole,
+                SourceTurn = p.SourceTurn
             })
             .ToList();
     }

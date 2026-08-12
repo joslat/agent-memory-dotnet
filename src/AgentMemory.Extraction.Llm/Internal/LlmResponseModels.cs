@@ -56,6 +56,10 @@ internal sealed class LlmFactDto
     // it leaves the request's own trust level applying, exactly as before this field existed.
     [JsonPropertyName("source_role")]
     public string? SourceRole { get; set; }
+
+    // Which numbered turn stated it. Null unless ExtractionProvenanceMode.PerItem asked for it.
+    [JsonPropertyName("source_turn")]
+    public int? SourceTurn { get; set; }
 }
 
 internal sealed class LlmPreferenceDto
@@ -78,6 +82,10 @@ internal sealed class LlmPreferenceDto
     /// <inheritdoc cref="LlmFactDto.SourceRole"/>
     [JsonPropertyName("source_role")]
     public string? SourceRole { get; set; }
+
+    /// <inheritdoc cref="LlmFactDto.SourceTurn"/>
+    [JsonPropertyName("source_turn")]
+    public int? SourceTurn { get; set; }
 }
 
 internal sealed class LlmRelationshipDto

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -50,13 +51,15 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
     internal static string BuildSystemPrompt(
         MemoryPredicateVocabulary? vocabulary,
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
-        TemporalValidityMode temporalValidity = TemporalValidityMode.Ignore)
+        TemporalValidityMode temporalValidity = TemporalValidityMode.Ignore,
+        ExtractionProvenanceMode provenance = ExtractionProvenanceMode.Batch)
     {
-        // Both shared instructions, appended in the same order every rung uses. A setting honoured by
+        // Every shared instruction, appended in the same order every rung uses. A setting honoured by
         // only some extractors is worse than no setting - it makes behaviour depend on a performance
         // flag - and this rung was the one my first pass missed.
         var assistant = ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
-            + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
+            + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
+            + ExtractionPromptSemantics.ProvenanceInstruction(provenance);
         var established = vocabulary?.Snapshot() ?? [];
         if (established.Count == 0)
             return SystemPrompt + assistant;
@@ -273,9 +276,10 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         Task<IReadOnlyList<IReadOnlyDictionary<string, UnifiedExtractionResult>>> RunProviderAsync() =>
             runner.RunAsync(
                 BuildSystemPrompt(
-                    ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity),
+                    ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity,
+                    _options.Provenance),
                 UserInstruction,
-                BuildBatchText(batch),
+                BuildBatchText(batch, _options.Provenance),
                 response => new[] { ProjectAndValidate(response, batch) },
                 cancellationToken,
                 failOnParseExhaustion: true,
@@ -340,6 +344,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     ValidFrom = item.ValidFrom,
                     ValidUntil = item.ValidUntil,
                     SourceRole = item.SourceRole,
+                    SourceTurn = item.SourceTurn,
                 });
         }
         foreach (var item in response.Preferences ?? [])
@@ -353,6 +358,7 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                     Context = item.Context,
                     Confidence = item.Confidence,
                     SourceRole = item.SourceRole,
+                    SourceTurn = item.SourceTurn,
                 });
         }
         foreach (var item in response.Relations ?? [])
@@ -418,21 +424,33 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
             // Token accounting must see the SAME prompt the call will send, or the frozen batch plan
             // under-estimates by exactly the instruction it forgot.
             Encoding.UTF8.GetByteCount(BuildSystemPrompt(
-                ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity)) +
+                ActiveVocabulary, _options.AssistantContent, _options.TemporalValidity,
+                _options.Provenance)) +
             Encoding.UTF8.GetByteCount(UserInstruction) +
-            Encoding.UTF8.GetByteCount(BuildBatchText(batch)) +
+            Encoding.UTF8.GetByteCount(BuildBatchText(batch, _options.Provenance)) +
             35);
 
-    private static string BuildBatchText(IReadOnlyList<ExtractionRequest> batch)
+    private static string BuildBatchText(
+        IReadOnlyList<ExtractionRequest> batch,
+        ExtractionProvenanceMode provenance = ExtractionProvenanceMode.Batch)
     {
+        var numbered = provenance == ExtractionProvenanceMode.PerItem;
         var builder = new StringBuilder();
         for (var index = 0; index < batch.Count; index++)
         {
             var request = batch[index];
             builder.Append("<source_session key=\"")
                 .Append(LlmMultiSessionExtractionResponseContract.Alias(index)).AppendLine("\">");
-            foreach (var message in request.Messages)
+            for (var turn = 0; turn < request.Messages.Count; turn++)
             {
+                var message = request.Messages[turn];
+                // Numbered WITHIN each source session, restarting at 1. A batch-global number would be
+                // unresolvable: results are demultiplexed back per session, and each session's own
+                // source-message ids are what a turn has to index into.
+                if (numbered)
+                    builder.Append('[')
+                        .Append((turn + 1).ToString(CultureInfo.InvariantCulture))
+                        .Append("] ");
                 builder.Append('[').Append(message.TimestampUtc.ToString("O")).Append("] ")
                     .Append(message.Role).Append(": ").AppendLine(message.Content);
             }

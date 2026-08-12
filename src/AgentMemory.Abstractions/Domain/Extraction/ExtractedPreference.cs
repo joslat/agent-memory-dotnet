@@ -32,4 +32,7 @@ public sealed record ExtractedPreference
     /// about that user, and is indistinguishable after the fact from one the user actually stated.
     /// </remarks>
     public string? SourceRole { get; init; }
+
+    /// <inheritdoc cref="ExtractedFact.SourceTurn"/>
+    public int? SourceTurn { get; init; }
 }

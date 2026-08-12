@@ -97,6 +97,33 @@ internal static class ExtractionPromptSemantics
     /// do otherwise, rather than leaving the model to infer that omission is allowed.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The instruction asking which numbered turn stated each item, or empty for
+    /// <see cref="ExtractionProvenanceMode.Batch"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only meaningful alongside a numbered transcript — the two ship together, because an instruction
+    /// naming turn numbers against an unnumbered transcript asks for something the model can only
+    /// invent.
+    /// </para>
+    /// <para>
+    /// <b>"Omit when unsure" is the load-bearing clause</b>, for the same reason it is on temporal
+    /// validity. A resolved turn <i>replaces</i> the batch links, so a guessed number does not merely
+    /// add noise — it discards the true source and substitutes a wrong one, and the result is
+    /// indistinguishable afterwards from precise attribution.
+    /// </para>
+    /// </remarks>
+    internal static string ProvenanceInstruction(ExtractionProvenanceMode mode) => mode switch
+    {
+        ExtractionProvenanceMode.PerItem =>
+            "\nEach turn in the conversation is numbered as [N]. On every fact and preference, add " +
+            "\"source_turn\":N naming the single turn that states it. Use the turn where the " +
+            "information is actually given, not one that merely refers to it, and omit the field " +
+            "entirely when no single turn states it or you are unsure - never guess a number.",
+        _ => string.Empty,
+    };
+
     internal static string TemporalValidityInstruction(TemporalValidityMode mode) => mode switch
     {
         TemporalValidityMode.Extract =>

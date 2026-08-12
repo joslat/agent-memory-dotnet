@@ -58,4 +58,23 @@ public sealed record ExtractedFact
     /// </para>
     /// </remarks>
     public string? SourceRole { get; init; }
+
+    /// <summary>
+    /// The 1-based turn number this fact was stated in, or <see langword="null"/> when the extractor
+    /// did not report one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Populated only under <see cref="Options.ExtractionProvenanceMode.PerItem"/>, which numbers the
+    /// turns in the extraction transcript and asks which one stated each item. It resolves to a single
+    /// source message, replacing the batch-level link in which a fact points at a mean of 12 messages
+    /// and as many as 30 — a breadth that makes any attribution metric derived from the edge true by
+    /// construction.
+    /// </para>
+    /// <para>
+    /// Out of range or absent falls back to the batch links. Coarse provenance is recoverable; missing
+    /// provenance is not, and a hallucinated turn number must not be able to erase the real answer.
+    /// </para>
+    /// </remarks>
+    public int? SourceTurn { get; init; }
 }
