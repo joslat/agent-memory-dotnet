@@ -46,16 +46,21 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
         _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
-    protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(
+    protected override Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken cancellationToken)
+        => ExtractCoreWithContextAsync(ExtractionWindow.ForTargets(messages), cancellationToken);
+
+    protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreWithContextAsync(
+        ExtractionWindow window, CancellationToken cancellationToken)
     {
-        var conversationText = _options.Provenance == ExtractionProvenanceMode.PerItem
-            ? ConversationTextBuilder.BuildNumbered(messages)
-            : ConversationTextBuilder.Build(messages);
+        var conversationText = ConversationTextBuilder.BuildWindow(
+            window, numbered: _options.Provenance == ExtractionProvenanceMode.PerItem);
         return await _runner.RunAsync(
-            _options.FactExtractionPrompt
+            (_options.FactExtractionPrompt
                 ?? BuildSystemPrompt(
-                    _options.AssistantContent, _options.TemporalValidity, _options.Provenance),
+                    _options.AssistantContent, _options.TemporalValidity, _options.Provenance))
+                // Only when context is present: a context-free prompt must stay byte-identical (E2).
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,

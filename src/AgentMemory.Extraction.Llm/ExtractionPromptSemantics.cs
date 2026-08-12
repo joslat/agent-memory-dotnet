@@ -134,4 +134,25 @@ internal static class ExtractionPromptSemantics
         _ => string.Empty,
     };
 
+
+    /// <summary>
+    /// Tells the model that the fenced earlier turns are background and not extraction targets (E2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Appended only when a window actually carries context, so a prompt without context is
+    /// <b>byte-for-byte</b> what it was before E2 existed. Prompt bytes are fingerprinted into every
+    /// measured run in this track; an instruction that appeared unconditionally would invalidate every
+    /// sealed base to say something about turns that were not supplied.
+    /// </para>
+    /// <para>
+    /// Authored here rather than per extractor for the usual reason: an instruction only some
+    /// extractors carry makes what a memory is depend on which performance flag is set.
+    /// </para>
+    /// </remarks>
+    internal const string ExtractionContextInstruction =
+        "\nThe transcript begins with earlier turns marked as EARLIER CONVERSATION. Read them only to " +
+        "resolve references — who \"she\" is, where \"there\" is, what \"it\" refers to. Do NOT extract " +
+        "any memory whose statement lives in those turns; extract only from the turns after the end " +
+        "marker, even if an earlier turn states something you would otherwise record.";
 }

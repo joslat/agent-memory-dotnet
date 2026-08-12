@@ -50,4 +50,42 @@ internal static class ConversationTextBuilder
         }
         return builder.ToString();
     }
+
+    /// <summary>
+    /// Renders a window as a fenced, unnumbered context block followed by the turns to extract from
+    /// (E2). Falls back to the plain rendering when the window carries no context.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The context block is deliberately not numbered.</b> Per-item provenance (L3c) numbers turns
+    /// from 1 and resolves turn <c>N</c> positionally to <c>Targets[N-1]</c>. Numbering the context
+    /// into the same sequence would shift every target index by the context length, and the failure
+    /// would not look like a crash — each fact would simply be attributed to a turn a few places
+    /// earlier, which afterwards is indistinguishable from correct attribution.
+    /// </para>
+    /// <para>
+    /// The fence is explicit text rather than a formatting convention because the model has to act on
+    /// it: everything inside is to be read and nothing inside is to be extracted.
+    /// </para>
+    /// </remarks>
+    public static string BuildWindow(ExtractionWindow window, bool numbered)
+    {
+        var targets = numbered ? BuildNumbered(window.Targets) : Build(window.Targets);
+        if (!window.HasContext) return targets;
+
+        var builder = new StringBuilder();
+        builder.Append(ContextOpen).Append('\n')
+               .Append(Build(window.Context)).Append('\n')
+               .Append(ContextClose).Append("\n\n")
+               .Append(targets);
+        return builder.ToString();
+    }
+
+    /// <summary>Opening fence of the read-only context block.</summary>
+    internal const string ContextOpen =
+        "--- EARLIER CONVERSATION (for reference only — do NOT extract anything from these turns) ---";
+
+    /// <summary>Closing fence of the read-only context block.</summary>
+    internal const string ContextClose =
+        "--- END OF EARLIER CONVERSATION. Extract ONLY from the turns below. ---";
 }

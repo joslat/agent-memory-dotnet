@@ -45,14 +45,21 @@ internal sealed class LlmPreferenceExtractor : ExtractorBase<ExtractedPreference
         _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
-    protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
+    protected override Task<IReadOnlyList<ExtractedPreference>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken cancellationToken)
+        => ExtractCoreWithContextAsync(ExtractionWindow.ForTargets(messages), cancellationToken);
+
+    protected override async Task<IReadOnlyList<ExtractedPreference>> ExtractCoreWithContextAsync(
+        ExtractionWindow window, CancellationToken cancellationToken)
     {
+        var messages = window.Targets;
         var conversationText = _options.Provenance == ExtractionProvenanceMode.PerItem
-            ? ConversationTextBuilder.BuildNumbered(messages)
-            : ConversationTextBuilder.Build(messages);
+            ? ConversationTextBuilder.BuildWindow(window, numbered: true)
+            : ConversationTextBuilder.BuildWindow(window, numbered: false);
         return await _runner.RunAsync(
-            _options.PreferenceExtractionPrompt ?? DefaultSystemPrompt,
+            (_options.PreferenceExtractionPrompt ?? DefaultSystemPrompt)
+                // Only when context is present, so a context-free prompt stays byte-identical (E2).
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract preferences from this conversation:",
             conversationText,
             ProjectPreferences,

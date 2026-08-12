@@ -125,6 +125,30 @@ public sealed class ExtractionOptions
     /// </para>
     /// </remarks>
     public bool SkipUninformativeTurns { get; set; }
+
+    /// <summary>
+    /// How many earlier turns to hand the extractors as read-only context (E2). <c>0</c> — the
+    /// default — is the pre-E2 behaviour of extracting from the batch alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One batch is often not enough to understand itself: "I moved there last year" needs the turn
+    /// that named the place, and "she recommended it" needs the turn that named her. Without context
+    /// those either extract nothing or extract an unresolved pronoun as an entity.
+    /// </para>
+    /// <para>
+    /// <b>Context turns are read, never extracted from, and never attributed to.</b> Extracting them
+    /// would re-assert facts already stored — which now earns confidence
+    /// (<see cref="MemoryOptions.ConfidenceReinforcementAlpha"/>) and increments the
+    /// <c>mention_count</c> the salience reranker reads, so a fact would gain both merely by sitting
+    /// inside a sliding window. Corroboration would become recency.
+    /// </para>
+    /// <para>
+    /// Costs input tokens on every extraction, which is why it is off rather than defaulted to a
+    /// nominal value. Zep uses 4.
+    /// </para>
+    /// </remarks>
+    public int ExtractionContextTurns { get; set; }
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

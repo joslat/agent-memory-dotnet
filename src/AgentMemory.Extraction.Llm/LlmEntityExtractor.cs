@@ -48,12 +48,18 @@ internal sealed class LlmEntityExtractor : ExtractorBase<ExtractedEntity>, IEnti
         _runner = new LlmExtractionRunner(chatClient, _options, logger);
     }
 
-    protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
+    protected override Task<IReadOnlyList<ExtractedEntity>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken cancellationToken)
+        => ExtractCoreWithContextAsync(ExtractionWindow.ForTargets(messages), cancellationToken);
+
+    protected override async Task<IReadOnlyList<ExtractedEntity>> ExtractCoreWithContextAsync(
+        ExtractionWindow window, CancellationToken cancellationToken)
     {
-        var conversationText = ConversationTextBuilder.Build(messages);
+        var conversationText = ConversationTextBuilder.BuildWindow(window, numbered: false);
         return await _runner.RunAsync(
-            _options.EntityExtractionPrompt ?? BuildSystemPrompt(_options.EntityTypes),
+            (_options.EntityExtractionPrompt ?? BuildSystemPrompt(_options.EntityTypes))
+                // Only when context is present, so a context-free prompt stays byte-identical (E2).
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract entities from this conversation:",
             conversationText,
             ProjectEntities,

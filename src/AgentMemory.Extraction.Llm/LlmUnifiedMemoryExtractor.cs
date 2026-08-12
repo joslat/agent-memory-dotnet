@@ -44,22 +44,31 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
 
     public bool IsEnabled => _options.UseUnifiedExtraction;
 
-    public async Task<UnifiedExtractionResult> ExtractAsync(
+    public Task<UnifiedExtractionResult> ExtractAsync(
         IReadOnlyList<Message> messages,
         CancellationToken cancellationToken = default)
+        => ExtractWithContextAsync(ExtractionWindow.ForTargets(messages), cancellationToken);
+
+    public async Task<UnifiedExtractionResult> ExtractWithContextAsync(
+        ExtractionWindow window,
+        CancellationToken cancellationToken = default)
     {
-        if (messages.Count == 0)
+        // Judged on the targets: a window carrying only background has nothing to extract from, and
+        // calling out would spend a completion on turns the prompt forbids extracting from.
+        if (window.Targets.Count == 0)
             return new UnifiedExtractionResult();
 
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.unified");
         var results = await _runner.RunAsync(
             BuildSystemPrompt(
                 _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity,
-                _options.Provenance),
+                _options.Provenance)
+                // Appended only when context is actually present, so a context-free prompt stays
+                // byte-for-byte what every sealed measurement was taken under (E2).
+                + (window.HasContext ? ExtractionPromptSemantics.ExtractionContextInstruction : string.Empty),
             "Extract all supported memory from this conversation:",
-            _options.Provenance == ExtractionProvenanceMode.PerItem
-                ? ConversationTextBuilder.BuildNumbered(messages)
-                : ConversationTextBuilder.Build(messages),
+            ConversationTextBuilder.BuildWindow(
+                window, numbered: _options.Provenance == ExtractionProvenanceMode.PerItem),
             response => new[] { Project(response) },
             cancellationToken,
             failOnParseExhaustion: true).ConfigureAwait(false);

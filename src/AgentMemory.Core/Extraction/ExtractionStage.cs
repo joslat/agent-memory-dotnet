@@ -58,7 +58,15 @@ internal sealed class ExtractionStage : IExtractionStage
         ExtractionTypes typesToExtract,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default) =>
-        ExtractCoreAsync(messages, typesToExtract, scope, preExtracted: null, cancellationToken);
+        ExtractCoreAsync(
+            ExtractionWindow.ForTargets(messages), typesToExtract, scope, preExtracted: null, cancellationToken);
+
+    public Task<ExtractionStageResult> ExtractWithContextAsync(
+        ExtractionWindow window,
+        ExtractionTypes typesToExtract,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        ExtractCoreAsync(window, typesToExtract, scope, preExtracted: null, cancellationToken);
 
     public Task<ExtractionStageResult> ProcessUnifiedAsync(
         IReadOnlyList<Message> messages,
@@ -68,16 +76,22 @@ internal sealed class ExtractionStage : IExtractionStage
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(extracted);
-        return ExtractCoreAsync(messages, typesToExtract, scope, extracted, cancellationToken);
+        return ExtractCoreAsync(
+            ExtractionWindow.ForTargets(messages), typesToExtract, scope, extracted, cancellationToken);
     }
 
     private async Task<ExtractionStageResult> ExtractCoreAsync(
-        IReadOnlyList<Message> messages,
+        ExtractionWindow window,
         ExtractionTypes typesToExtract,
         MemoryScope? scope,
         UnifiedExtractionResult? preExtracted,
         CancellationToken cancellationToken)
     {
+        var messages = window.Targets;
+
+        // Targets only, never the context (E2). A context turn in here would become an EXTRACTED_FROM
+        // edge asserting the memory was stated in a turn the extractors were told not to extract from
+        // -- and afterwards that is indistinguishable from correct attribution.
         var sourceMessageIds = messages.Select(m => m.MessageId).ToList();
 
         // E4. Turns that cannot carry a fact -- "ok, thanks!" -- are not worth a completion. Only on
@@ -121,7 +135,7 @@ internal sealed class ExtractionStage : IExtractionStage
         else if (unifiedExtractor is not null)
         {
             var unifiedRun = await ExtractUnifiedSafeAsync(
-                unifiedExtractor, messages, typesToExtract, cancellationToken).ConfigureAwait(false);
+                unifiedExtractor, window, typesToExtract, cancellationToken).ConfigureAwait(false);
             var unified = unifiedRun.Result;
             unifiedOutcomes = unifiedRun.Outcomes;
             entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? unified.Entities : []);
@@ -132,22 +146,30 @@ internal sealed class ExtractionStage : IExtractionStage
         else
         {
             entityRun = typesToExtract.HasFlag(ExtractionTypes.Entities)
-                ? RunExtractorsAsync(_entityExtractors, e => e.ExtractAsync(messages, cancellationToken),
+                ? RunExtractorsAsync(_entityExtractors, e => window.HasContext
+                        ? e.ExtractWithContextAsync(window, cancellationToken)
+                        : e.ExtractAsync(messages, cancellationToken),
                     strategy, MergeStrategyFactory.CreateEntityStrategy, "entity",
                     MemoryItemKind.Entity, MemoryErrorCodes.EntityExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedEntity>();
             factRun = typesToExtract.HasFlag(ExtractionTypes.Facts)
-                ? RunExtractorsAsync(_factExtractors, f => f.ExtractAsync(messages, cancellationToken),
+                ? RunExtractorsAsync(_factExtractors, f => window.HasContext
+                        ? f.ExtractWithContextAsync(window, cancellationToken)
+                        : f.ExtractAsync(messages, cancellationToken),
                     strategy, MergeStrategyFactory.CreateFactStrategy, "fact",
                     MemoryItemKind.Fact, MemoryErrorCodes.FactExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedFact>();
             prefRun = typesToExtract.HasFlag(ExtractionTypes.Preferences)
-                ? RunExtractorsAsync(_preferenceExtractors, p => p.ExtractAsync(messages, cancellationToken),
+                ? RunExtractorsAsync(_preferenceExtractors, p => window.HasContext
+                        ? p.ExtractWithContextAsync(window, cancellationToken)
+                        : p.ExtractAsync(messages, cancellationToken),
                     strategy, MergeStrategyFactory.CreatePreferenceStrategy, "preference",
                     MemoryItemKind.Preference, MemoryErrorCodes.PreferenceExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedPreference>();
             relRun = typesToExtract.HasFlag(ExtractionTypes.Relationships)
-                ? RunExtractorsAsync(_relationshipExtractors, r => r.ExtractAsync(messages, cancellationToken),
+                ? RunExtractorsAsync(_relationshipExtractors, r => window.HasContext
+                        ? r.ExtractWithContextAsync(window, cancellationToken)
+                        : r.ExtractAsync(messages, cancellationToken),
                     strategy, MergeStrategyFactory.CreateRelationshipStrategy, "relationship",
                     MemoryItemKind.Relationship, MemoryErrorCodes.RelationshipExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedRelationship>();
@@ -375,13 +397,19 @@ internal sealed class ExtractionStage : IExtractionStage
 
     private async Task<(UnifiedExtractionResult Result, IReadOnlyList<IngestionItemOutcome> Outcomes)> ExtractUnifiedSafeAsync(
         IUnifiedMemoryExtractor extractor,
-        IReadOnlyList<Message> messages,
+        ExtractionWindow window,
         ExtractionTypes typesToExtract,
         CancellationToken cancellationToken)
     {
         try
         {
-            return (await extractor.ExtractAsync(messages, cancellationToken).ConfigureAwait(false),
+            // Without context, the ORIGINAL call. Not a shortcut: it keeps the off state identical at
+            // the call itself rather than only in the rendered transcript, so an extractor that never
+            // implemented the window overload -- including any third party's -- takes the exact path
+            // it always did.
+            return (await (window.HasContext
+                        ? extractor.ExtractWithContextAsync(window, cancellationToken)
+                        : extractor.ExtractAsync(window.Targets, cancellationToken)).ConfigureAwait(false),
                 Array.Empty<IngestionItemOutcome>());
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

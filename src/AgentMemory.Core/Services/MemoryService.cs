@@ -298,13 +298,66 @@ internal sealed class MemoryService : IMemoryService
     }
 
     /// <inheritdoc/>
-    public Task<ExtractionResult> ExtractAndPersistAsync(
+    public async Task<ExtractionResult> ExtractAndPersistAsync(
         ExtractionRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug("Extracting and persisting memory for session {SessionId}", request.SessionId);
-        return _extraction.ExtractAsync(request, cancellationToken);
+        request = await WithExtractionContextAsync(request, cancellationToken).ConfigureAwait(false);
+        return await _extraction.ExtractAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Attaches the preceding turns an extractor may read to resolve references (E2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Filled in <b>here</b> rather than at each call site because this is the one chokepoint every
+    /// incremental extraction passes through — the Agent Framework provider, the Microsoft memory
+    /// facade and the MCP ingest tool all arrive at this method. Resolving it per caller would make
+    /// the window depend on which host was used, which is the failure this codebase has hit
+    /// repeatedly: a setting only some components respect is worse than no setting.
+    /// </para>
+    /// <para>
+    /// An explicitly supplied context always wins — a caller that knows the conversation better than
+    /// a recency query does should not be second-guessed.
+    /// </para>
+    /// </remarks>
+    private async Task<ExtractionRequest> WithExtractionContextAsync(
+        ExtractionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_options.Extraction.ExtractionContextTurns <= 0
+            || request.ContextMessages.Count > 0
+            || request.Messages.Count == 0)
+        {
+            return request;
+        }
+
+        var targetIds = request.Messages.Select(m => m.MessageId).ToHashSet(StringComparer.Ordinal);
+
+        // Over-fetch by the batch size: the most recent stored messages usually ARE the batch, so
+        // asking for exactly N would return N turns of which most are excluded and leave the window
+        // short without reporting it.
+        var wanted = _options.Extraction.ExtractionContextTurns;
+        var recent = await _shortTerm.GetRecentMessagesAsync(
+            request.SessionId, wanted + request.Messages.Count, cancellationToken).ConfigureAwait(false);
+
+        // The batch itself is never context. Its turns are the targets, and a message appearing in
+        // both would be handed to the model twice -- once as "do not extract from this".
+        var context = recent
+            .Where(m => !targetIds.Contains(m.MessageId))
+            .TakeLast(wanted)
+            .ToList();
+
+        if (context.Count == 0) return request;
+
+        _logger.LogDebug(
+            "Extraction window: {Targets} target turn(s) with {Context} turn(s) of read-only context (E2).",
+            request.Messages.Count, context.Count);
+
+        return request with { ContextMessages = context };
     }
 
     /// <inheritdoc/>
