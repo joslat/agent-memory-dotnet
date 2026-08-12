@@ -318,13 +318,28 @@ internal static class LongMemEvalPreparedPairProgram
                     plans.Sum(plan => plan.SourceSessionCount);
                 var plannedInputTokens =
                     plans.Sum(plan => plan.TotalEstimatedInputTokens);
-                if (options.Questions == DefaultQuestions &&
-                    options.Seed == DefaultSeed &&
-                    plannedSourceSessions != FixedTenExpectedSourceSessions)
+                // The canonical guard pins the STRATIFIED ten to a recorded plan, so a change in
+                // sampling or batching cannot pass unnoticed. A typed sample is a different plan by
+                // construction -- --memory-types episodic selects different questions, with a
+                // different number of source sessions -- so the canonical number does not describe
+                // it. Skipped rather than adjusted, and said out loud: silently dropping a guard that
+                // exists to catch sampling drift would be worse than not having it.
+                var canonicalPlan = options.Questions == DefaultQuestions
+                    && options.Seed == DefaultSeed
+                    && options.MemoryTypes.Count == 0;
+                if (canonicalPlan && plannedSourceSessions != FixedTenExpectedSourceSessions)
                 {
                     throw new InvalidOperationException(
                         $"Canonical fixed-ten preflight produced {plannedSourceSessions} " +
                         $"source sessions; expected exactly {FixedTenExpectedSourceSessions}.");
+                }
+                if (!canonicalPlan && options.MemoryTypes.Count > 0)
+                {
+                    Console.WriteLine(
+                        "longmemeval: typed sample "
+                        + $"({string.Join("+", options.MemoryTypes)}) -- the canonical fixed-ten "
+                        + $"source-session guard ({FixedTenExpectedSourceSessions}) does not apply, "
+                        + "because a typed sample selects different questions by construction.");
                 }
                 Console.WriteLine(
                     $"longmemeval: frozen preparation preflight {plannedCalls} calls for " +
