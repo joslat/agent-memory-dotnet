@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "revision": "2026-08-12",
+  "$comment": [
+    "LongMemEval labels questions by TASK. This maps those labels onto MEMORY TYPES.",
+    "A task taxonomy is not a memory-type taxonomy and must not be silently treated as one:",
+    "the dataset's labels describe what a question asks for, while a memory type describes",
+    "which retrieval key answers it. Keeping the mapping as DATA rather than code means it can",
+    "be revised, versioned and disagreed with without a rebuild -- and it is an opinion, so it",
+    "will be revised.",
+    "",
+    "Every per-type number computed from this file inherits its choices. Cite the revision."
+  ],
+  "memoryTypes": {
+    "semantic": "What is true? Retrieved by the meaning of the claim.",
+    "episodic": "What happened, and when? Retrieved by time, participant, event.",
+    "temporal": "What is true NOW, or was true THEN? Retrieved against a clock.",
+    "procedural": "How do I do this? Retrieved by similarity of the TASK, not the topic.",
+    "metamemory": "Do I even know this? A threshold on a confidence signal."
+  },
+  "taskTypes": {
+    "single-session-user": {
+      "memoryTypes": ["semantic"],
+      "why": "A fact the user stated, recalled by meaning. The core semantic case."
+    },
+    "single-session-preference": {
+      "memoryTypes": ["semantic"],
+      "why": "The preference tier of semantic memory; same retrieval key, different node label."
+    },
+    "multi-session": {
+      "memoryTypes": ["semantic"],
+      "why": "Aggregation over semantic facts spread across sessions. Note the caveat below: completeness, not similarity, is what these need."
+    },
+    "single-session-assistant": {
+      "memoryTypes": ["episodic"],
+      "why": "What the ASSISTANT said or did. Unanswerable from semantic memory alone, because a semantic store keeps the claim and discards the act."
+    },
+    "temporal-reasoning": {
+      "memoryTypes": ["temporal"],
+      "why": "Ordering and duration over events; answered against a clock rather than by similarity."
+    },
+    "knowledge-update": {
+      "memoryTypes": ["temporal"],
+      "why": "Which version of a changed fact holds now. This is supersession plus valid time, i.e. the transaction and valid clocks."
+    }
+  },
+  "abstention": {
+    "memoryTypes": ["metamemory"],
+    "why": "An _abs question is answerable only by knowing that memory does NOT hold the answer. It is the one place this dataset scores metamemory at all."
+  },
+  "unreachable": {
+    "procedural": [
+      "LongMemEval-S is chat QA. It contains no build commands, no tool invocations and no fix",
+      "trajectories, so the workload a procedural tier targets is not in the dataset AT ANY",
+      "SAMPLE SIZE. No amount of extending this harness substitutes for a task-repetition",
+      "benchmark. Publishing a LongMemEval number as evidence for a procedural tier is the exact",
+      "metric substitution this mapping exists to prevent."
+    ]
+  },
+  "caveats": [
+    "multi-session is mapped to semantic, but its failures are usually COMPLETENESS failures",
+    "rather than matching failures -- top-K cannot answer 'how many' regardless of how well it",
+    "ranks. Reading a low multi-session score as a semantic-retrieval problem would be wrong.",
+    "",
+    "temporal-reasoning and knowledge-update are grouped, but they exercise different clocks:",
+    "the first is mostly valid time, the second mostly the transaction clock plus supersession.",
+    "Split them before drawing a conclusion about either one specifically."
+  ]
+}

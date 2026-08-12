@@ -48,4 +48,10 @@
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit.LongMemEval" />
   </ItemGroup>
 
+
+  <!-- The memory-type mapping is embedded so it versions with the code that scores against it. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Taxonomy\memory-type-map.json" />
+  </ItemGroup>
+
 </Project>
