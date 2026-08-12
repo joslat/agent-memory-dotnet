@@ -92,6 +92,8 @@ internal static class LongMemEvalPreparedCorpusDrift
         Check("questionCount",
             prepared.Questions.Count.ToString(CultureInfo.InvariantCulture),
             current.QuestionCount.ToString(CultureInfo.InvariantCulture));
+        Check("abstention",
+            Recorded(prepared.AbstentionPolicy), current.AbstentionPolicy);
         Check("memoryTypes",
             Recorded(string.Join(",", (prepared.MemoryTypes ?? []).OrderBy(t => t, StringComparer.Ordinal))),
             string.Join(",", current.MemoryTypes.OrderBy(t => t, StringComparer.Ordinal)));
@@ -147,4 +149,14 @@ internal sealed record PreparedCorpusIdentity
     internal required int QuestionSeed { get; init; }
     internal required int QuestionCount { get; init; }
     internal IReadOnlyList<string> MemoryTypes { get; init; } = [];
+
+    /// <summary>
+    /// The abstention sampling policy, which decides whether unanswerable questions are in the sample.
+    /// </summary>
+    /// <remarks>
+    /// Ingestion-affecting, not merely evaluation-affecting: an abstention question still carries a
+    /// conversation history, so including one changes which histories were ingested. A corpus built
+    /// without them cannot answer a run that expects them.
+    /// </remarks>
+    internal string AbstentionPolicy { get; init; } = "AsSampled";
 }

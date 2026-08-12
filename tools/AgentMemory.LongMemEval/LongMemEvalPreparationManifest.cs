@@ -50,6 +50,7 @@ internal sealed record LongMemEvalPreparationManifest(
     string ExtractionVocabularySha256 = "",
     string QueryRelationLexiconSha256 = "",
     string ExtractionProvenance = "Batch",
+    string AbstentionPolicy = "AsSampled",
     // ── Catalog metadata (schema 6) ──────────────────────────────────────
     // Not part of the fingerprint: these describe the build for a human, and two corpora that differ
     // only in their description are the same corpus.
@@ -93,6 +94,7 @@ internal sealed record LongMemEvalPreparationManifest(
         string extractionVocabularySha256 = "",
         string queryRelationLexiconSha256 = "",
         string extractionProvenance = "Batch",
+        string abstentionPolicy = "AsSampled",
         string preparedAtUtc = "",
         string description = "",
         IReadOnlyList<string>? memoryTypes = null,
@@ -165,6 +167,7 @@ internal sealed record LongMemEvalPreparationManifest(
             ExtractionVocabularySha256: extractionVocabularySha256,
             QueryRelationLexiconSha256: queryRelationLexiconSha256,
             ExtractionProvenance: extractionProvenance,
+            AbstentionPolicy: abstentionPolicy,
             PreparedAtUtc: preparedAtUtc,
             Description: description,
             MemoryTypes: memoryTypes ?? [],
@@ -291,6 +294,7 @@ internal sealed record LongMemEvalPreparationManifest(
             manifest.ExtractionVocabularySha256,
             manifest.QueryRelationLexiconSha256,
             manifest.ExtractionProvenance,
+            manifest.AbstentionPolicy,
             manifest.QuestionSeed,
             manifest.UseJsonResponseFormat,
             manifest.ExtractionResponseContract,
@@ -349,27 +353,51 @@ internal sealed record LongMemEvalPreparationExpectation(
     internal void Validate(LongMemEvalPreparationManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        if (!string.Equals(manifest.DatasetSha256, DatasetSha256, StringComparison.Ordinal) ||
-            !string.Equals(manifest.AgentEvalRevision, AgentEvalRevision, StringComparison.Ordinal) ||
-            !string.Equals(manifest.AnswerModelId, AnswerModelId, StringComparison.Ordinal) ||
-            !string.Equals(manifest.JudgeModelId, JudgeModelId, StringComparison.Ordinal) ||
-            !string.Equals(manifest.ExtractionModelId, ExtractionModelId, StringComparison.Ordinal) ||
-            !string.Equals(manifest.EmbeddingModelId, EmbeddingModelId, StringComparison.Ordinal) ||
-            manifest.EmbeddingDimensions != EmbeddingDimensions ||
-            manifest.MaxRelevantMessages != MaxRelevantMessages ||
-            manifest.UseJsonResponseFormat != UseJsonResponseFormat ||
-            !string.Equals(manifest.ExtractionResponseContract, ExtractionResponseContract, StringComparison.Ordinal) ||
-            !string.Equals(manifest.ExtractionSourceTime, ExtractionSourceTime, StringComparison.Ordinal) ||
-            manifest.UseUnifiedExtraction != UseUnifiedExtraction ||
-            manifest.UseMultiSessionBatchExtraction != UseMultiSessionBatchExtraction ||
-            manifest.PreparationWorkers != PreparationWorkers ||
-            manifest.MaxSessionsPerBatch != MaxSessionsPerBatch ||
-            manifest.MaxInputTokens != MaxInputTokens ||
-            manifest.MaxConcurrentBatchesPerExtraction != MaxConcurrentBatchesPerExtraction ||
-            manifest.MaxConcurrentExtractionBatches != MaxConcurrentExtractionBatches)
+        var mismatches = new List<string>();
+        void Check(string field, object? expected, object? actual)
+        {
+            if (!Equals(expected?.ToString(), actual?.ToString()))
+                mismatches.Add($"{field}: corpus={actual} run={expected}");
+        }
+
+        Check("datasetSha256", DatasetSha256, manifest.DatasetSha256);
+        Check("answerModelId", AnswerModelId, manifest.AnswerModelId);
+        Check("judgeModelId", JudgeModelId, manifest.JudgeModelId);
+        Check("extractionModelId", ExtractionModelId, manifest.ExtractionModelId);
+        Check("embeddingModelId", EmbeddingModelId, manifest.EmbeddingModelId);
+        Check("embeddingDimensions", EmbeddingDimensions, manifest.EmbeddingDimensions);
+        Check("maxRelevantMessages", MaxRelevantMessages, manifest.MaxRelevantMessages);
+        Check("useJsonResponseFormat", UseJsonResponseFormat, manifest.UseJsonResponseFormat);
+        Check("extractionResponseContract", ExtractionResponseContract, manifest.ExtractionResponseContract);
+        Check("extractionSourceTime", ExtractionSourceTime, manifest.ExtractionSourceTime);
+        Check("useUnifiedExtraction", UseUnifiedExtraction, manifest.UseUnifiedExtraction);
+        Check("useMultiSessionBatchExtraction", UseMultiSessionBatchExtraction, manifest.UseMultiSessionBatchExtraction);
+        Check("preparationWorkers", PreparationWorkers, manifest.PreparationWorkers);
+        Check("maxSessionsPerBatch", MaxSessionsPerBatch, manifest.MaxSessionsPerBatch);
+        Check("maxInputTokens", MaxInputTokens, manifest.MaxInputTokens);
+        Check("maxConcurrentBatchesPerExtraction", MaxConcurrentBatchesPerExtraction, manifest.MaxConcurrentBatchesPerExtraction);
+        Check("maxConcurrentExtractionBatches", MaxConcurrentExtractionBatches, manifest.MaxConcurrentExtractionBatches);
+
+        // agentEvalRevision is DELIBERATELY not compared here, though it is still recorded.
+        //
+        // AgentEval's involvement in a corpus is real but bounded: it decides which questions are
+        // sampled and how each conversation history is rendered to text before AgentMemory extracts
+        // from it. Everything else it does -- the judge, the answer prompt, the verdict protocol --
+        // happens at evaluation time and touches no stored fact.
+        //
+        // Both of those bounded effects are already checked EXACTLY, per question, by
+        // LongMemEvalPreparedState: QuestionId proves the same question was ingested, and
+        // HistorySha256 proves the same rendered text was ingested. Comparing a version string on top
+        // of that rejects corpora whose content is provably identical -- a 7-9 hour build discarded
+        // because a package moved 0.16 to 0.20 while producing byte-identical histories. If a future
+        // release DOES change the formatter or the sampler, the per-question hashes catch it and name
+        // the question; a version string only ever said "something, somewhere, might differ".
+        if (mismatches.Count > 0)
         {
             throw new InvalidOperationException(
-                "Prepared LongMemEval configuration does not match the sealed manifest.");
+                "Prepared LongMemEval configuration does not match the sealed manifest. "
+                + $"{mismatches.Count} field(s) differ:" + Environment.NewLine
+                + string.Join(Environment.NewLine, mismatches.Select(m => $"  - {m}")));
         }
     }
 }

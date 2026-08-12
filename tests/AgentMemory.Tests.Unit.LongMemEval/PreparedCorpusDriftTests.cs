@@ -33,7 +33,8 @@ public sealed class PreparedCorpusDriftTests
         string datasetSha = "dataset-sha",
         int seed = 42,
         int questions = 2,
-        IReadOnlyList<string>? memoryTypes = null) =>
+        IReadOnlyList<string>? memoryTypes = null,
+        string abstention = "AsSampled") =>
         LongMemEvalPreparationManifest.Create(
             preparationId: "prep-1",
             datasetSha256: datasetSha,
@@ -57,6 +58,7 @@ public sealed class PreparedCorpusDriftTests
             preparedAtUtc: "2026-08-10T09:26:14Z",
             description: "the stratified 50",
             memoryTypes: memoryTypes ?? [],
+            abstentionPolicy: abstention,
             questionSeed: seed);
 
     private static PreparedCorpusIdentity Current(
@@ -65,7 +67,8 @@ public sealed class PreparedCorpusDriftTests
         string datasetSha = "dataset-sha",
         int seed = 42,
         int questions = 2,
-        IReadOnlyList<string>? memoryTypes = null) => new()
+        IReadOnlyList<string>? memoryTypes = null,
+        string abstention = "AsSampled") => new()
     {
         DatasetSha256 = datasetSha,
         ExtractionModelId = extractionModel,
@@ -79,6 +82,7 @@ public sealed class PreparedCorpusDriftTests
         QuestionSeed = seed,
         QuestionCount = questions,
         MemoryTypes = memoryTypes ?? [],
+        AbstentionPolicy = abstention,
     };
 
     [Fact]
@@ -294,5 +298,30 @@ public sealed class PreparedCorpusDriftTests
         ((Action)(() => tampered.VerifyIntegrity())).Should().Throw<InvalidOperationException>();
         ((Action)(() => (tampered with { SchemaVersion = 5 }).VerifyIntegrity()))
             .Should().Throw<InvalidOperationException>();
+    }
+
+    // ── abstention: the class the AUC has to order against ────────────────
+
+    [Fact]
+    public void AbstentionPolicyIsIngestionAffectingAndCompared()
+    {
+        // Not merely evaluation-affecting: an abstention question still carries a conversation
+        // history, so including one changes which histories were ingested. A corpus built without
+        // them cannot serve a run that expects them.
+        LongMemEvalPreparedCorpusDrift.Compare(
+                Prepared(abstention: "AsSampled"), Current(abstention: "TargetProportion"))
+            .Select(d => d.Field).Should().Contain("abstention");
+    }
+
+    [Fact]
+    public void ALegacyCorpusReportsAbstentionAsUnrecordedRatherThanAsSampled()
+    {
+        // "AsSampled" is the record default, so a schema-5 manifest would otherwise claim to have
+        // been built with it -- unknown reading as agreement, the failure this whole check exists to
+        // prevent, reappearing through the newest field.
+        var legacy = Prepared() with { SchemaVersion = 5 };
+
+        LongMemEvalPreparedCorpusDrift.Compare(legacy, Current(abstention: "AsSampled"))
+            .Select(d => d.Field).Should().Contain("abstention");
     }
 }

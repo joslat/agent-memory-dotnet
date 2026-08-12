@@ -73,7 +73,12 @@ internal static class LongMemEvalPreparedPairProgram
                 // sample selects different questions, whose conversation histories have to be ingested
                 // for the corpus to answer them at all. This is why an episodic arm cannot reuse a
                 // stratified corpus and needs its own cold build.
-                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes));
+                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes),
+                // The unanswerable class. Without it the sufficiency AUC has nothing to order
+                // against: a stratified 50 gave 32 present and 1 absent, so the metric rested on one
+                // observation and the two arms reported 0.969 and 0.094 from the same corpus.
+                abstentionPolicy: options.AbstentionPolicy,
+                abstentionTargetProportion: options.AbstentionProportion);
             var datasetSha256 = Convert.ToHexStringLower(
                 SHA256.HashData(
                     await File.ReadAllBytesAsync(options.DatasetPath).ConfigureAwait(false)));
@@ -230,6 +235,7 @@ internal static class LongMemEvalPreparedPairProgram
                             QuestionSeed = options.Seed,
                             QuestionCount = options.Questions,
                             MemoryTypes = options.MemoryTypes,
+                            AbstentionPolicy = options.AbstentionPolicy.ToString(),
                         });
 
                     if (reuseDrift.Count > 0 && !options.AllowStalePrepared)
@@ -333,22 +339,36 @@ internal static class LongMemEvalPreparedPairProgram
                 // different number of source sessions -- so the canonical number does not describe
                 // it. Skipped rather than adjusted, and said out loud: silently dropping a guard that
                 // exists to catch sampling drift would be worse than not having it.
+                // Canonical means "the plan every recorded run used": default size and seed, no type
+                // filter, and abstention left as-sampled. Anything that changes WHICH questions are
+                // drawn produces a different plan, so the recorded source-session count cannot
+                // describe it. Enumerated rather than inferred, so adding a third sampling knob later
+                // fails this comparison loudly instead of silently inheriting the canonical count.
+                var canonicalSampling = options.MemoryTypes.Count == 0
+                    && options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled;
                 var canonicalPlan = options.Questions == DefaultQuestions
                     && options.Seed == DefaultSeed
-                    && options.MemoryTypes.Count == 0;
+                    && canonicalSampling;
                 if (canonicalPlan && plannedSourceSessions != FixedTenExpectedSourceSessions)
                 {
                     throw new InvalidOperationException(
                         $"Canonical fixed-ten preflight produced {plannedSourceSessions} " +
                         $"source sessions; expected exactly {FixedTenExpectedSourceSessions}.");
                 }
-                if (!canonicalPlan && options.MemoryTypes.Count > 0)
+                if (!canonicalSampling)
                 {
+                    var how = options.MemoryTypes.Count > 0
+                        ? $"types={string.Join("+", options.MemoryTypes)}"
+                        : string.Empty;
+                    var abstention = options.AbstentionPolicy == AbstentionSamplingPolicy.AsSampled
+                        ? string.Empty
+                        : $"abstention={options.AbstentionPolicy}";
                     Console.WriteLine(
-                        "longmemeval: typed sample "
-                        + $"({string.Join("+", options.MemoryTypes)}) -- the canonical fixed-ten "
-                        + $"source-session guard ({FixedTenExpectedSourceSessions}) does not apply, "
-                        + "because a typed sample selects different questions by construction.");
+                        "longmemeval: non-canonical sample ("
+                        + string.Join(", ", new[] { how, abstention }.Where(s => s.Length > 0))
+                        + $") -- the canonical fixed-ten source-session guard "
+                        + $"({FixedTenExpectedSourceSessions}) does not apply, because this sample "
+                        + "selects different questions by construction.");
                 }
                 Console.WriteLine(
                     $"longmemeval: frozen preparation preflight {plannedCalls} calls for " +
@@ -611,6 +631,7 @@ internal static class LongMemEvalPreparedPairProgram
                     usePredicateVocabulary: options.UsePredicateVocabulary,
                     extractionVocabularySha256: MemoryPredicateSeedVocabulary.Fingerprint,
                     queryRelationLexiconSha256: MemoryRelationSeedTable.Fingerprint,
+                    abstentionPolicy: options.AbstentionPolicy.ToString(),
                     preparedAtUtc: DateTimeOffset.UtcNow.ToString("O"),
                     description: options.Description ?? string.Empty,
                     memoryTypes: options.MemoryTypes,
@@ -1302,6 +1323,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--questions", "--resolve-query-relations", "--retain-prepared-volumes",
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
         "--description", "--memory-types", "--allow-stale-prepared",
+        "--abstention", "--abstention-proportion",
         "--use-predicate-vocabulary",
     ];
 
@@ -1369,7 +1391,9 @@ internal static class LongMemEvalPreparedPairProgram
             ParseNonNegative(Value("--graphrag-items"), 0, "--graphrag-items"),
             Value("--description"),
             ParseMemoryTypes(Value("--memory-types")),
-            Has("--allow-stale-prepared"));
+            Has("--allow-stale-prepared"),
+            ParseAbstention(Value("--abstention")),
+            ParseAbstentionProportion(Value("--abstention-proportion")));
     }
 
     /// <summary>
@@ -1388,6 +1412,55 @@ internal static class LongMemEvalPreparedPairProgram
             .ToArray();
         LongMemEvalMemoryTypeSelection.TaskTypesFor(types);
         return types;
+    }
+
+    /// <summary>
+    /// Parses <c>--abstention exclude|as-sampled|only|target</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Abstention questions are the only <b>unanswerable</b> questions in this dataset, and they are
+    /// what the retrieval-sufficiency AUC has to order against. Measured on a stratified 50: 32 of 33
+    /// checkable questions had their answer present in memory, so the AUC rested on a single
+    /// observation and the two arms landed at 0.969 and 0.094 from the same data. Without an absent
+    /// class the metric is not noisy -- it is undefined.
+    /// </para>
+    /// <para>
+    /// Default <c>as-sampled</c>, which is what every recorded run used: LongMemEval-S contains few
+    /// _abs questions and stratified sampling almost never draws one, so across 52 recorded runs not
+    /// one ever ran. That default is preserved exactly rather than improved, because changing what a
+    /// sample contains changes every number computed from it.
+    /// </para>
+    /// </remarks>
+    private static AbstentionSamplingPolicy ParseAbstention(string? value) =>
+        value?.ToLowerInvariant() switch
+        {
+            null or "" or "as-sampled" => AbstentionSamplingPolicy.AsSampled,
+            "exclude" => AbstentionSamplingPolicy.Exclude,
+            "only" => AbstentionSamplingPolicy.Only,
+            "target" => AbstentionSamplingPolicy.TargetProportion,
+            _ => throw new ArgumentException(
+                "--abstention must be one of: as-sampled, exclude, only, target."),
+        };
+
+    /// <summary>Parses <c>--abstention-proportion</c>, the share of the sample that must abstain.</summary>
+    /// <remarks>
+    /// Only meaningful with <c>--abstention target</c>. Rejected outside (0,1): a proportion of 0
+    /// silently means "exclude" and 1 means "only", and expressing either by accident would produce a
+    /// sample nobody chose.
+    /// </remarks>
+    private static double? ParseAbstentionProportion(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!double.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            || parsed is <= 0 or >= 1)
+        {
+            throw new ArgumentException(
+                "--abstention-proportion must be strictly between 0 and 1; use --abstention exclude "
+                + "or --abstention only for the endpoints.");
+        }
+        return parsed;
     }
 
     private static void Validate(PreparedPairOptions options)
@@ -1639,7 +1712,9 @@ internal static class LongMemEvalPreparedPairProgram
         // reuse later, when nobody remembers what it was built for.
         string? Description = null,
         IReadOnlyList<string>? MemoryTypesRequested = null,
-        bool AllowStalePrepared = false)
+        bool AllowStalePrepared = false,
+        AbstentionSamplingPolicy AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
+        double? AbstentionProportion = null)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];
