@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -75,6 +75,7 @@ internal static class LongMemEvalPreparedCorpusRegistry
                 EmbeddingDimensions = manifest.EmbeddingDimensions,
                 AssistantContent = manifest.AssistantContent,
                 ExtractionProvenance = manifest.ExtractionProvenance,
+                AbstentionPolicy = manifest.AbstentionPolicy,
                 ExtractionVocabularySha256 = manifest.ExtractionVocabularySha256,
                 AgentEvalRevision = manifest.AgentEvalRevision,
             });
@@ -135,12 +136,18 @@ internal static class LongMemEvalPreparedCorpusRegistry
                 ? $"{(now - when).TotalDays:0} day(s) old"
                 : "age unknown";
             var types = entry.MemoryTypes is { Count: > 0 } t ? string.Join("+", t) : "all";
+            // Shown because it is the difference between a corpus the sufficiency AUC can be computed
+            // on and one it cannot: without abstention questions the unanswerable class comes only
+            // from accidental extraction misses, which on a 50-question run meant one observation.
+            var abstention = entry.AbstentionPolicy is { Length: > 0 } policy && policy != "AsSampled"
+                ? $" abstention={policy}"
+                : string.Empty;
             var schema = entry.ManifestSchemaVersion < LongMemEvalPreparationManifest.CurrentSchemaVersion
                 ? $" [manifest schema {entry.ManifestSchemaVersion} < {LongMemEvalPreparationManifest.CurrentSchemaVersion}"
                   + " - some ingestion settings were not recorded, so reuse will report them as drift]"
                 : string.Empty;
             return $"  {entry.Volume}\n"
-                + $"    {entry.Questions}q seed={entry.Seed} types={types} | {age} ({entry.PreparedAtUtc})\n"
+                + $"    {entry.Questions}q seed={entry.Seed} types={types}{abstention} | {age} ({entry.PreparedAtUtc})\n"
                 + $"    extraction={entry.ExtractionModel} embedding={entry.EmbeddingModel}/{entry.EmbeddingDimensions}"
                 + $" assistantContent={entry.AssistantContent} provenance={entry.ExtractionProvenance}\n"
                 + $"    {(string.IsNullOrWhiteSpace(entry.Description) ? "(no description)" : entry.Description)}{schema}";
@@ -172,6 +179,9 @@ internal sealed record PreparedCorpusEntry
     public int EmbeddingDimensions { get; init; }
     public string AssistantContent { get; init; } = "";
     public string ExtractionProvenance { get; init; } = "";
+
+    /// <summary>Whether unanswerable questions were drawn into this corpus, and how.</summary>
+    public string AbstentionPolicy { get; init; } = "";
     public string ExtractionVocabularySha256 { get; init; } = "";
     public string AgentEvalRevision { get; init; } = "";
 }
