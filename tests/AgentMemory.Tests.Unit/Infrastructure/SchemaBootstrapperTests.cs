@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Exceptions;
@@ -80,8 +80,9 @@ public class SchemaBootstrapperTests
 
         // 12 constraints + 3 fulltext + 6 vector + 26 property = 47
         // +1 fact_merge_key_idx (L11); +1 memory_read_audit_memory_id_idx (BUG-A2);
-        // +1 message_session_timestamp_idx; +1 fact_predicate_key_idx (unindexed hot predicates).
-        executedStatements.Should().HaveCount(49);
+        // +1 message_session_timestamp_idx; +1 fact_predicate_key_idx (unindexed hot predicates);
+        // +1 trace_kind_idx (PLAN 7.2, the procedure promotion marker).
+        executedStatements.Should().HaveCount(50);
     }
 
     [Fact]
@@ -216,7 +217,7 @@ public class SchemaBootstrapperTests
         var propertyIndexes = executedStatements
             .Where(s => s.StartsWith("CREATE INDEX") || s.StartsWith("CREATE POINT INDEX"))
             .ToList();
-        propertyIndexes.Should().HaveCount(28);
+        propertyIndexes.Should().HaveCount(29);
         propertyIndexes.Should().Contain(s => s.Contains("conversation_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("conversation_archived_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("message_timestamp"));
@@ -228,6 +229,9 @@ public class SchemaBootstrapperTests
         propertyIndexes.Should().Contain(s => s.Contains("preference_category"));
         propertyIndexes.Should().Contain(s => s.Contains("trace_session_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("trace_success_idx"));
+        // The procedure promotion marker. Asserted by NAME as well as by count, so a future edit
+        // cannot swap one index for another and keep the total looking right.
+        propertyIndexes.Should().Contain(s => s.Contains("trace_kind_idx"));
         propertyIndexes.Should().Contain(s => s.Contains("reasoning_step_timestamp"));
         propertyIndexes.Should().Contain(s => s.Contains("tool_call_status"));
         propertyIndexes.Should().Contain(s => s.Contains("schema_name_idx"));

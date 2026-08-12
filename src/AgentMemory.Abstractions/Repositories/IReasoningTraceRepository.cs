@@ -1,4 +1,4 @@
-using AgentMemory.Abstractions.Domain;
+﻿using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Abstractions.Repositories;
@@ -48,7 +48,26 @@ public interface IReasoningTraceRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Point-in-time variant of <see cref="SearchByTaskVectorAsync"/>: only traces that had started at
+    /// Task-similarity search restricted to (or excluding) promoted procedures.
+    /// </summary>
+    /// <remarks>
+    /// A default interface method, not a new parameter: the surface is locked under SemVer. The default
+    /// ignores <paramref name="proceduresOnly"/> and calls the overload above, which is what every
+    /// implementation does today — a store with no promotion concept keeps working and simply does not
+    /// filter, rather than appearing to.
+    /// </remarks>
+    Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(
+        float[] taskEmbedding,
+        bool? proceduresOnly,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        SearchByTaskVectorAsync(taskEmbedding, successFilter, limit, minScore, scope, cancellationToken);
+
+    /// <summary>
+    /// Point-in-time variant of <c>SearchByTaskVectorAsync</c>: only traces that had started at
     /// or before <paramref name="asOf"/>, optionally scoped to an owner (R1).
     /// </summary>
     Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsOfAsync(
