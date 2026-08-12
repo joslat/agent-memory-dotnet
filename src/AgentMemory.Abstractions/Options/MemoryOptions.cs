@@ -23,6 +23,29 @@ public sealed record MemoryOptions
     /// <summary>Whether to enable GraphRAG integration.</summary>
     public bool EnableGraphRag { get; init; }
 
+    /// <summary>
+    /// Falls back to an owner-bounded similarity scan when an owner-scoped vector search returns
+    /// fewer rows than were asked for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Neo4j's vector index is global, so an owner filter is a POST-filter on a top-K drawn from every
+    /// tenant. Measured on a 50-owner corpus, a mean of <b>7 of 60</b> candidates reached the querying
+    /// owner. Today only a <i>totally empty</i> result triggers a rescue; a search returning 2 rows of
+    /// a requested 10 is accepted as the answer.
+    /// </para>
+    /// <para>
+    /// That is sometimes right and sometimes badly wrong: question <c>5d3d2817</c> returned 2 facts
+    /// from a 710-fact graph with the answer present, and was answered incorrectly in both arms.
+    /// </para>
+    /// <para>
+    /// Off by default. It costs one extra query per short result — bounded by the owner's own rows,
+    /// not the corpus — and every recorded measurement was taken without it, so turning it on is a
+    /// stated decision rather than an inherited one.
+    /// </para>
+    /// </remarks>
+    public bool RescueShortOwnerResults { get; init; }
+
     // NOTE: extraction at the Core layer is explicit (call ExtractAndPersistAsync /
     // ExtractFromSessionAsync). Automatic extraction on message persist is an adapter concern, configured
     // by AgentFrameworkOptions.AutoExtractOnPersist. The former EnableAutoExtraction flag here was read
