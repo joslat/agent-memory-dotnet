@@ -105,7 +105,8 @@ internal static class LongMemEvalProgram
                 options.Seed,
                 options.JudgeRetryAttempts,
                 options.EvidenceDetail,
-                options.MaxRelevantMessages);
+                options.MaxRelevantMessages,
+                includeQuestionTypes: LongMemEvalMemoryTypeSelection.TaskTypesFor(options.MemoryTypes));
             var evidenceIndex = LongMemEvalEvidenceIndex.Load(
                 options.DatasetPath, benchmarkOptions);
 
@@ -209,6 +210,16 @@ internal static class LongMemEvalProgram
                     questions = options.Questions,
                     seed = options.Seed,
                     stratified = true,
+                    // A typed run answers a different question from an all-types run on the same seed
+                    // and count, so it must never read as comparable to one. The mapping revision
+                    // travels with it because the selection is an opinion that will be revised, and a
+                    // per-type figure that cannot name the taxonomy it came from is unauditable.
+                    memoryTypes = options.MemoryTypes.Count == 0
+                        ? "all"
+                        : string.Join(",", options.MemoryTypes.OrderBy(t => t, StringComparer.Ordinal)),
+                    memoryTypeMapRevision = options.MemoryTypes.Count == 0
+                        ? null
+                        : LongMemEvalMemoryTypeMap.Default.Revision,
                     answerModel = deployment,
                     judgeModel = deployment,
                     maxRelevantMessages = options.MaxRelevantMessages,
@@ -260,7 +271,13 @@ internal static class LongMemEvalProgram
                     totalPreferencesRetrieved = adapter.QuestionTelemetry.Sum(item => item.PreferencesRetrieved),
                     graphRagQuestions = adapter.QuestionTelemetry.Count(item => item.GraphRagIncluded),
                     zeroStoreQuestions = adapter.QuestionTelemetry.Count(item => item.MessagesStored == 0),
-                    zeroRecallQuestions = adapter.QuestionTelemetry.Count(item => item.ItemsRetrieved == 0)
+                    zeroRecallQuestions = adapter.QuestionTelemetry.Count(item => item.ItemsRetrieved == 0),
+                    // PLAN 4.2. Does the sufficiency signal ORDER answerable questions above
+                    // unanswerable ones? Emitted on every run because it costs nothing -- no extra
+                    // call, no rebuild, it reads two fields already recorded -- and because a number
+                    // that appears only when someone remembers to ask for it never gets asked for.
+                    // Null auc means one class was empty and the signal was never put to the test.
+                    sufficiencyAuc = LongMemEvalSufficiencyReport.From(adapter.QuestionTelemetry),
                 },
                 callAccounting = new
                 {
@@ -356,7 +373,7 @@ internal static class LongMemEvalProgram
         "--chronological-context", "--dataset", "--evidence-detail",
         "--exclude-synthetic-messages", "--judge-retries", "--max-items-per-session",
         "--max-relevant", "--memory-mode", "--oracle", "--output", "--questions", "--seed",
-        "--units", "--turns", "--repeat", "--extraction-seed",
+        "--units", "--turns", "--repeat", "--extraction-seed", "--memory-types",
     ];
 
     private static Options Parse(string[] args)
@@ -384,7 +401,8 @@ internal static class LongMemEvalProgram
             Value("--output"),
             Array.IndexOf(args, "--exclude-synthetic-messages") >= 0,
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
-            Array.IndexOf(args, "--chronological-context") >= 0);
+            Array.IndexOf(args, "--chronological-context") >= 0,
+            ParseMemoryTypes(Value("--memory-types")));
     }
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
@@ -432,6 +450,30 @@ internal static class LongMemEvalProgram
                 "--memory-mode must be one of: raw, structured, hybrid.")
         };
 
+    /// <summary>
+    /// Parses <c>--memory-types episodic,temporal</c> into the requested memory types.
+    /// </summary>
+    /// <remarks>
+    /// Empty means "every type", which is the sampling this harness has always done and the value
+    /// every sealed base was recorded under. The selection is turned into task labels by
+    /// <see cref="LongMemEvalMemoryTypeSelection"/>, from the same embedded mapping the per-type
+    /// reports use -- a second hardcoded list here would drift, and the run would then sample one set
+    /// of labels while reporting per-type figures computed from another.
+    /// </remarks>
+    private static IReadOnlyList<string> ParseMemoryTypes(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return [];
+        var types = value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+        if (types.Length == 0)
+            throw new ArgumentException("--memory-types requires at least one memory type.");
+        // Validated here, before any container starts or any provider call is made: an unreachable
+        // type must stop the run rather than silently widen it back to the full sample.
+        LongMemEvalMemoryTypeSelection.TaskTypesFor(types);
+        return types;
+    }
+
     private static int ParseNonNegative(string? value, int defaultValue, string option)
     {
         if (value is null) return defaultValue;
@@ -476,7 +518,15 @@ internal static class LongMemEvalProgram
           [--provider-no-progress-timeout-seconds 600] \
           [--evidence-detail none|identifiers|content] \
           [--exclude-synthetic-messages] [--max-items-per-session N] [--chronological-context] \
-          [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
+          [--memory-types episodic,temporal]           [--oracle none|failed|all] [--judge-retries 2] [--output <report.json>]
+
+        --memory-types samples ONLY questions exercising the named memory types, so a per-type claim
+        gets a per-type denominator. A 50-question stratified sample yields ~6 single-session-assistant
+        questions; on 6, one item is 16.7 points, while two runs of an IDENTICAL config have measured
+        25 points apart on 50 -- so a slice that small can only publish noise. Default: every type,
+        which is the sampling every sealed base was recorded under. Types: semantic, episodic,
+        temporal. metamemory arrives via abstention questions rather than a task label, and
+        LongMemEval-S contains no procedural questions at any sample size.
 
         --exclude-synthetic-messages over-fetches 3x the message budget, drops only AgentEval's
         formatter boilerplate (session boundaries and padding), keeps retrieval order, and selects
@@ -520,5 +570,6 @@ internal static class LongMemEvalProgram
         string? OutputPath,
         bool ExcludeSyntheticMessages,
         int MaxItemsPerSourceSession,
-        bool ChronologicalAnswerContext);
+        bool ChronologicalAnswerContext,
+        IReadOnlyList<string> MemoryTypes);
 }

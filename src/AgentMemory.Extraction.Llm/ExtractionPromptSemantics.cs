@@ -31,6 +31,30 @@ internal static class ExtractionPromptSemantics
     /// variable here — they are fingerprinted into every run and feed the frozen batch plan's token
     /// accounting — so a default that shifted them would invalidate sealed bases silently.
     /// </remarks>
+    /// <summary>
+    /// Asks for the source turn's role on every fact and preference. Appended to — and only to — the
+    /// non-<see cref="AssistantContentMode.Ignore"/> instructions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Trust is stamped once per extraction request, so the moment assistant content is extracted a
+    /// single batch contains both a user's claims and the model's own, recorded identically. This is
+    /// the only signal that separates them without a second extraction call, and cost per ingested
+    /// conversation is a headline number here — a role-split extraction would double it.
+    /// </para>
+    /// <para>
+    /// It is attached <b>here</b>, rather than added to the base prompt, so that the
+    /// <see cref="AssistantContentMode.Ignore"/> prompt stays byte-for-byte what it was. That is not
+    /// tidiness: prompt bytes are fingerprinted into every measured run, and at <c>Ignore</c> nothing
+    /// assistant-derived is extracted at all, so the field would have exactly one possible value and
+    /// would buy nothing for the base it invalidated.
+    /// </para>
+    /// </remarks>
+    internal const string SourceRoleInstruction =
+        "\nOn every fact and preference, add \"source_role\":\"user\" or \"source_role\":\"assistant\" " +
+        "to record which turn it came from. Use \"assistant\" only when the assistant's own turn is " +
+        "what states it; if the user said it, or if you are unsure, use \"user\".";
+
     internal static string AssistantContentInstruction(AssistantContentMode mode) => mode switch
     {
         AssistantContentMode.Ignore => string.Empty,
@@ -44,14 +68,16 @@ internal static class ExtractionPromptSemantics
             "subject: for example {\"subject\":\"assistant\",\"predicate\":\"recommended\"," +
             "\"object\":\"<what was recommended>\"}. Prefer recommended, told, provided, suggested, " +
             "explained. Record only that the assistant said it — do not treat the content as true, " +
-            "and do not assert it as a fact about the world.",
+            "and do not assert it as a fact about the world."
+            + SourceRoleInstruction,
 
         // Records the claim itself as a world fact. Stronger subject-matter recall, and a real
         // hazard, which is why it is opt-in and separately named rather than folded into Utterance.
         AssistantContentMode.Fact =>
             "\nAlso extract the information the assistant provides as ordinary facts about their " +
             "subjects, not about the user: from a recommendation of a film, extract facts about that " +
-            "film. Use the assistant's statements as the source of these facts.",
+            "film. Use the assistant's statements as the source of these facts."
+            + SourceRoleInstruction,
 
         _ => string.Empty,
     };
@@ -71,6 +97,33 @@ internal static class ExtractionPromptSemantics
     /// do otherwise, rather than leaving the model to infer that omission is allowed.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The instruction asking which numbered turn stated each item, or empty for
+    /// <see cref="ExtractionProvenanceMode.Batch"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only meaningful alongside a numbered transcript — the two ship together, because an instruction
+    /// naming turn numbers against an unnumbered transcript asks for something the model can only
+    /// invent.
+    /// </para>
+    /// <para>
+    /// <b>"Omit when unsure" is the load-bearing clause</b>, for the same reason it is on temporal
+    /// validity. A resolved turn <i>replaces</i> the batch links, so a guessed number does not merely
+    /// add noise — it discards the true source and substitutes a wrong one, and the result is
+    /// indistinguishable afterwards from precise attribution.
+    /// </para>
+    /// </remarks>
+    internal static string ProvenanceInstruction(ExtractionProvenanceMode mode) => mode switch
+    {
+        ExtractionProvenanceMode.PerItem =>
+            "\nEach turn in the conversation is numbered as [N]. On every fact and preference, add " +
+            "\"source_turn\":N naming the single turn that states it. Use the turn where the " +
+            "information is actually given, not one that merely refers to it, and omit the field " +
+            "entirely when no single turn states it or you are unsure - never guess a number.",
+        _ => string.Empty,
+    };
+
     internal static string TemporalValidityInstruction(TemporalValidityMode mode) => mode switch
     {
         TemporalValidityMode.Extract =>

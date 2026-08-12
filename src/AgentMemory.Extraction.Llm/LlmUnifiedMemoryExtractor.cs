@@ -54,9 +54,12 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
         using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.extract.unified");
         var results = await _runner.RunAsync(
             BuildSystemPrompt(
-                _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity),
+                _options.AssistantContent, _options.EntityTypes, _options.TemporalValidity,
+                _options.Provenance),
             "Extract all supported memory from this conversation:",
-            ConversationTextBuilder.Build(messages),
+            _options.Provenance == ExtractionProvenanceMode.PerItem
+                ? ConversationTextBuilder.BuildNumbered(messages)
+                : ConversationTextBuilder.Build(messages),
             response => new[] { Project(response) },
             cancellationToken,
             failOnParseExhaustion: true).ConfigureAwait(false);
@@ -89,6 +92,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     Confidence = item.Confidence,
                     ValidFrom = item.ValidFrom,
                     ValidUntil = item.ValidUntil,
+                    SourceRole = item.SourceRole,
+                    SourceTurn = item.SourceTurn,
                 }).ToArray(),
             Preferences = (response.Preferences ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Preference))
@@ -98,6 +103,8 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
                     PreferenceText = item.Preference,
                     Context = item.Context,
                     Confidence = item.Confidence,
+                    SourceRole = item.SourceRole,
+                    SourceTurn = item.SourceTurn,
                 }).ToArray(),
             Relationships = (response.Relations ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item.Source) &&
@@ -149,13 +156,23 @@ internal sealed class LlmUnifiedMemoryExtractor : IUnifiedMemoryExtractor
     internal static string BuildSystemPrompt(
         AssistantContentMode assistantContent,
         IReadOnlyList<string> entityTypes,
-        TemporalValidityMode temporalValidity)
+        TemporalValidityMode temporalValidity) =>
+        BuildSystemPrompt(
+            assistantContent, entityTypes, temporalValidity, ExtractionProvenanceMode.Batch);
+
+    /// <inheritdoc cref="BuildSystemPrompt(AssistantContentMode, IReadOnlyList{string})"/>
+    internal static string BuildSystemPrompt(
+        AssistantContentMode assistantContent,
+        IReadOnlyList<string> entityTypes,
+        TemporalValidityMode temporalValidity,
+        ExtractionProvenanceMode provenance)
     {
         var types = entityTypes is { Count: > 0 } ? entityTypes : LlmEntityExtractor.DefaultEntityTypes;
         return SystemPromptPrefix
             + string.Join('|', types)
             + SystemPromptSuffix
             + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
-            + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
+            + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
+            + ExtractionPromptSemantics.ProvenanceInstruction(provenance);
     }
 }

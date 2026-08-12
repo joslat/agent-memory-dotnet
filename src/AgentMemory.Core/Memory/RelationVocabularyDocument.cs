@@ -37,6 +37,29 @@ internal sealed class RelationVocabularyEntry
     /// </remarks>
     [JsonPropertyName("storedOnly")]
     public IReadOnlyList<string> StoredOnly { get; init; } = [];
+
+    /// <summary>
+    /// <c>single</c> when a subject can hold only one live value for this relation; anything else
+    /// (including absence) means many.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read only by write-time supersession, and <b>defaulting to many is the safety property</b>. A
+    /// subject can like several things, own several things, and attend several events; superseding on
+    /// a repeated predicate would silently drop "likes coffee" the moment "likes tea" arrived. Every
+    /// event relation is additive by nature, and most state relations are too, so declaring the
+    /// functional handful is far safer than declaring the multi-valued majority and getting one wrong.
+    /// </para>
+    /// <para>
+    /// Authored here, beside the relation itself, rather than as a list in code: it is a judgement
+    /// about each relation's meaning, it will be argued with, and it belongs where a reviewer reads
+    /// the relation. <c>cardinalityWhy</c> carries the argument. Not part of the vocabulary
+    /// fingerprint — that hashes canonical names against surface forms, which decide what is stored
+    /// and retrieved — so annotating it leaves every sealed base comparable.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("cardinality")]
+    public string? Cardinality { get; init; }
 }
 
 internal sealed class RelationVocabularyDocument

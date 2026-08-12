@@ -184,6 +184,16 @@ internal static class SchemaQueries
     /// <summary>Index on ReasoningTrace.success.</summary>
     public const string TraceSuccessIndex = "CREATE INDEX trace_success_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.success)";
 
+    /// <summary>
+    /// Index on <c>ReasoningTrace.trace_kind</c> — the promotion marker separating an ordinary episode
+    /// from a reusable procedure.
+    /// </summary>
+    /// <remarks>
+    /// Seekable so a procedures-only search is a seek rather than a post-filter over the whole label,
+    /// and mirroring <see cref="TraceSuccessIndex"/>, the sibling single-property index here.
+    /// </remarks>
+    public const string TraceKindIndex = "CREATE INDEX trace_kind_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.trace_kind)";
+
     /// <summary>Index on ReasoningStep.timestamp.</summary>
     public const string ReasoningStepTimestampIndex = "CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)";
 
@@ -343,6 +353,7 @@ internal static class SchemaQueries
         PreferenceCategoryIndex,
         TraceSessionIndex,
         TraceSuccessIndex,
+        TraceKindIndex,
         ReasoningStepTimestampIndex,
         ToolCallStatusIndex,
         SchemaNameIndex,
@@ -429,8 +440,9 @@ internal static class SchemaQueries
     /// a failure; it is the normal asynchronous build state.
     /// </summary>
     public const string ShowIndexStates =
-        "SHOW INDEXES YIELD name, state, type " +
-        "RETURN name AS name, state AS state, type AS type";
+        "SHOW INDEXES YIELD name, state, type, populationPercent " +
+        "RETURN name AS name, state AS state, type AS type, " +
+        "populationPercent AS populationPercent";
 
     // ── Schema-conformance introspection (CLI `schema-check`) ────
 

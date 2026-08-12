@@ -924,6 +924,45 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     internal static bool CanScoreEmptyRetrieval(LongMemEvalGraphSnapshot? graphSnapshot) =>
         graphSnapshot is { TotalLearned: > 0, CompleteProvenance: true };
 
+    /// <summary>
+    /// The strongest similarity any searched section achieved, or null when nothing was searched.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Max across sections rather than facts alone: an answer can arrive through any tier, so a
+    /// fact-only signal would score a question answered from a retrieved message as unsupported.
+    /// </para>
+    /// <para>
+    /// A section that was <b>searched and came back empty</b> contributes its own minimum-score floor,
+    /// not zero and not nothing. It is evidence — "we looked at this threshold and found nothing
+    /// above it" — and dropping it would remove exactly the observations an abstention policy exists
+    /// to act on, leaving the AUC measured only over questions where retrieval already succeeded.
+    /// </para>
+    /// <para>
+    /// Null when <c>IncludeDiagnostics</c> was off, never 0: a signal that was not collected must not
+    /// be indistinguishable from one that scored badly.
+    /// </para>
+    /// </remarks>
+    private static double? SufficiencySignalOf(MemoryContext? context)
+    {
+        if (context is null) return null;
+
+        double? best = null;
+        void Consider(MemoryContextSectionDiagnostics? diagnostics)
+        {
+            if (diagnostics is not { Searched: true }) return;
+            var score = diagnostics.TopScore ?? diagnostics.MinimumScore;
+            if (best is null || score > best) best = score;
+        }
+
+        Consider(context.RelevantMessages.Diagnostics);
+        Consider(context.RelevantEntities.Diagnostics);
+        Consider(context.RelevantPreferences.Diagnostics);
+        Consider(context.RelevantFacts.Diagnostics);
+        Consider(context.SimilarTraces.Diagnostics);
+        return best;
+    }
+
     private void RecordTelemetry(
         int questionNumber,
         int messagesStored,
@@ -975,6 +1014,11 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 RetrievedGoldCoverage = retrievedGoldCoverage,
                 RelationCompleteness = relationCompleteness,
                 AnswerPresence = answerPresence,
+                // 4.2. The scalar the abstention story rests on: how confident retrieval was that it
+                // found anything. Paired against AnswerPresence at report time to ask whether the
+                // signal ORDERS answerable above unanswerable at all -- the question no calibration
+                // work can skip and none of it has ever asked.
+                SufficiencySignal = SufficiencySignalOf(context),
                 QuestionType = questionType,
                 // Makes "expansion had nothing to expand" visible per question, instead of
                 // requiring the lexicon to be consulted by hand after a run.
@@ -1668,6 +1712,18 @@ public sealed record LongMemEvalQuestionTelemetry(
     /// graph probe was not wired — never "absent", and never "fine".
     /// </remarks>
     public LongMemEvalAnswerPresenceResult? AnswerPresence { get; init; }
+
+    /// <summary>
+    /// How confident retrieval was that it found anything: the strongest similarity any searched
+    /// section achieved, with a searched-but-empty section contributing its threshold floor.
+    /// </summary>
+    /// <remarks>
+    /// Null means diagnostics were not collected — never "scored zero". Paired against
+    /// <see cref="AnswerPresence"/> it answers PLAN 4.2: does this signal order answerable questions
+    /// above unanswerable ones? An AUC near 0.5 kills every abstention and calibration story built on
+    /// it, which is why it is worth measuring before any of them is built.
+    /// </remarks>
+    public double? SufficiencySignal { get; init; }
 
     /// <summary>
     /// The benchmark's own question type, carried so the gate can be read per type.

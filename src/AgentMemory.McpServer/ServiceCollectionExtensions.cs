@@ -30,7 +30,7 @@ public static class ServiceCollectionExtensions
                 sdk.ServerInfo = new Implementation { Name = o.ServerName, Version = o.ServerVersion };
             });
 
-        return builder
+        builder
             .WithTools<CoreMemoryTools>()
             .WithTools<ConversationTools>()
             .WithTools<EntityTools>()
@@ -39,6 +39,103 @@ public static class ServiceCollectionExtensions
             .WithTools<AdvancedMemoryTools>()
             .WithTools<MaintenanceTools>()
             .WithTools<ObservationTools>();
+
+        ApplyReadOnlyFilter(builder.Services);
+        return builder;
+    }
+
+    /// <summary>
+    /// Removes every write tool from the registration when <see cref="AgentMemoryMcpOptions.ReadOnly"/>
+    /// is set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Applied to the DI descriptors rather than enforced inside each tool, so a read-only server does
+    /// not <i>advertise</i> what it will refuse. A visible tool is one a model will call, and a runtime
+    /// error teaches it nothing about the server's purpose.
+    /// </para>
+    /// <para>
+    /// Filtering must happen while the collection is still mutable — after the host is built the tool
+    /// list is fixed — so the setting is read here rather than at start.
+    /// </para>
+    /// </remarks>
+    private static void ApplyReadOnlyFilter(IServiceCollection services)
+    {
+        if (!ReadOnlyRequested(services)) return;
+
+        // The SDK registers each tool as a singleton FACTORY, not an instance, so the name can only be
+        // read by invoking it. It builds the McpServerTool from the method's attributes and resolves
+        // the declaring type lazily at call time, so an empty provider is enough here and nothing that
+        // touches a database or a model is constructed.
+        using var empty = new ServiceCollection().BuildServiceProvider();
+
+        var withheld = services
+            .Where(descriptor =>
+                descriptor.ServiceType == typeof(McpServerTool)
+                && !McpToolAccess.IsReadOnly(ToolNameOf(descriptor, empty)))
+            .ToList();
+
+        foreach (var descriptor in withheld) services.Remove(descriptor);
+    }
+
+    /// <summary>
+    /// Whether read-only was configured, without running the options validators.
+    /// </summary>
+    /// <remarks>
+    /// Applies the registered configure callbacks to a fresh instance rather than resolving
+    /// <c>IOptions</c>, deliberately. Resolving would run <c>ValidateOnStart</c>'s validators <b>here</b>,
+    /// during registration, so an out-of-range <c>DefaultConfidence</c> would surface from
+    /// <c>AddAgentMemoryMcpTools</c> instead of from host startup — moving where an unrelated
+    /// misconfiguration is reported, and coupling tool filtering to the validity of a setting it does
+    /// not use.
+    /// </remarks>
+    private static bool ReadOnlyRequested(IServiceCollection services)
+    {
+        var options = new AgentMemoryMcpOptions();
+        using var empty = new ServiceCollection().BuildServiceProvider();
+
+        foreach (var descriptor in services.Where(d =>
+                     d.ServiceType == typeof(IConfigureOptions<AgentMemoryMcpOptions>)))
+        {
+            try
+            {
+                var configure = descriptor.ImplementationInstance as IConfigureOptions<AgentMemoryMcpOptions>
+                    ?? descriptor.ImplementationFactory?.Invoke(empty) as IConfigureOptions<AgentMemoryMcpOptions>;
+                configure?.Configure(options);
+            }
+            catch (Exception)
+            {
+                // A configuration source this method cannot evaluate here -- one bound to services that
+                // only exist in the real provider, say -- must not break registration for every host.
+                // Skipping it means read-only might not be seen from that source; the flag on the tool
+                // and the environment variable both reach this instance directly, and the alternative
+                // is a host that cannot start at all.
+            }
+        }
+        return options.ReadOnly;
+    }
+
+    /// <summary>
+    /// The advertised name of an already-registered tool descriptor.
+    /// </summary>
+    /// <remarks>
+    /// A descriptor whose name cannot be read returns null, which
+    /// <see cref="McpToolAccess.IsReadOnly"/> treats as a write — an unreadable tool is an
+    /// unclassified one, and unclassified must fail closed. That matters here because the name comes
+    /// from invoking a factory: if a future SDK version needed real services to build a tool, this
+    /// would start throwing, and the correct response is to withhold the tool rather than to expose it.
+    /// </remarks>
+    private static string? ToolNameOf(ServiceDescriptor descriptor, IServiceProvider provider)
+    {
+        try
+        {
+            return (descriptor.ImplementationInstance as McpServerTool)?.ProtocolTool.Name
+                ?? (descriptor.ImplementationFactory?.Invoke(provider) as McpServerTool)?.ProtocolTool.Name;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>

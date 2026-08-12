@@ -1,4 +1,4 @@
-namespace AgentMemory.Neo4j.Queries;
+﻿namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
 /// Centralized Cypher queries for ReasoningTrace and ReasoningStep operations.
@@ -16,7 +16,8 @@ internal static class ReasoningQueries
                 task:         $task,
                 outcome:      $outcome,
                 success:      $success,
-                metadata:     $metadata
+                metadata:     $metadata,
+                trace_kind:   $traceKind
             })
             SET t.started_at   = datetime($startedAt),
                 t.completed_at = CASE WHEN $completedAt IS NOT NULL THEN datetime($completedAt) ELSE null END
@@ -114,9 +115,16 @@ internal static class ReasoningQueries
         // A retention prune is a DESTRUCTIVE write keyed by a guessable session_id, so its owner clause must
         // NEVER collapse to "all owners" (the #40 regression). It always confines to a single bucket.
         var owner = ownerIsShared ? " AND t.owner_id IS NULL" : " AND t.owner_id = $ownerId";
+        // PROMOTED PROCEDURES ARE EXEMPT. This prune orders by started_at with age as its ONLY
+        // criterion and fires on every trace creation once a per-session cap is set -- so without this
+        // clause a promoted procedure is deleted by recency and the capability does not exist at all.
+        // Written as "is NOT a procedure" rather than "is an episode" on purpose: a trace stored before
+        // trace_kind existed has the property NULL, and a NULL-unsafe comparison would exempt every
+        // legacy trace from retention, quietly turning a bounded store into an unbounded one.
+        const string exemption = " AND coalesce(t.trace_kind, 'episode') <> 'procedure'";
         return @"
             MATCH (t:ReasoningTrace {session_id: $sessionId})
-            WHERE true" + owner + @"
+            WHERE true" + owner + exemption + @"
             WITH t ORDER BY t.started_at DESC
             SKIP $keep
             OPTIONAL MATCH (t)-[:HAS_STEP]->(s:ReasoningStep)
@@ -135,10 +143,20 @@ internal static class ReasoningQueries
     /// reached the querying owner on a 50-owner corpus). Unlike the fact path, trace search does
     /// <b>not</b> escalate on an empty scoped result.
     /// </summary>
-    public static string SearchByTaskVector(bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK)
+    public static string SearchByTaskVector(
+        bool hasSuccessFilter, bool hasOwnerFilter, bool includeShared, int topK,
+        bool? proceduresOnly = null)
     {
         var conditions = new List<string> { "score >= $minScore" };
         if (hasSuccessFilter) conditions.Add("node.success = $successFilter");
+        // Opt-in and DEFAULT NULL. The TCK bridge's /get_similar_traces takes every default, so a
+        // non-null default here would change the Cypher it emits and break Gold 18/18 immediately --
+        // and it would do so by filtering a corpus that has no promoted traces at all, i.e. to zero.
+        // Null-safe for the same reason as the prune: a pre-trace_kind trace has the property NULL.
+        if (proceduresOnly is { } procedures)
+            conditions.Add(procedures
+                ? "coalesce(node.trace_kind, 'episode') = 'procedure'"
+                : "coalesce(node.trace_kind, 'episode') <> 'procedure'");
         if (hasOwnerFilter)
             conditions.Add(includeShared
                 ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)"
@@ -257,8 +275,16 @@ internal static class ReasoningQueries
     /// have both returned nothing, and bounded by ONE owner's traces rather than by the corpus. The
     /// success filter is preserved: a filtered search that legitimately matches nothing must still
     /// return nothing here rather than being rescued into the wrong answer.
+    /// <para>
+    /// <paramref name="proceduresOnly"/> is preserved for exactly the same reason, and it is the case
+    /// that actually bites: a corpus with no promoted procedures makes the indexed pass return zero
+    /// <b>by construction</b>, which is precisely the condition that triggers this rescue. Dropping the
+    /// filter here would answer "find me a procedure for this task" with an ordinary episode — the one
+    /// wrong answer procedural recall must never give, and one no caller could detect.
+    /// </para>
     /// </remarks>
-    public static string SearchByTaskVectorOwnerScopedFallback(bool hasSuccessFilter, bool includeShared)
+    public static string SearchByTaskVectorOwnerScopedFallback(
+        bool hasSuccessFilter, bool includeShared, bool? proceduresOnly = null)
     {
         var owner = includeShared
             ? "(t.owner_id = $ownerId OR t.owner_id IS NULL)"
@@ -266,10 +292,17 @@ internal static class ReasoningQueries
         var success = hasSuccessFilter
             ? Environment.NewLine + "              AND t.success = $successFilter"
             : string.Empty;
+        // Null-safe, as on the indexed path: a trace stored before trace_kind existed has the property
+        // missing, and a NULL-unsafe comparison would drop the whole pre-migration corpus from the
+        // episode side of this filter.
+        var kind = proceduresOnly is { } procedures
+            ? Environment.NewLine + "              AND coalesce(t.trace_kind, 'episode') "
+                + (procedures ? "=" : "<>") + " 'procedure'"
+            : string.Empty;
         return $@"
             MATCH (t:ReasoningTrace)
             WHERE {owner}
-              AND t.task_embedding IS NOT NULL{success}
+              AND t.task_embedding IS NOT NULL{success}{kind}
             WITH t, vector.similarity.cosine(t.task_embedding, $embedding) AS score
             WHERE score >= $minScore
             RETURN t AS node, score

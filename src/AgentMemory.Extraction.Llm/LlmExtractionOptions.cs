@@ -68,6 +68,18 @@ public sealed class LlmExtractionOptions
 
     public TemporalValidityMode TemporalValidity { get; set; } = TemporalValidityMode.Ignore;
 
+    /// <summary>
+    /// How precisely a stored fact or preference is bound to the turn that stated it.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="ExtractionProvenanceMode.Batch"/>, which appends nothing to any prompt
+    /// and leaves the transcript unnumbered, so every prompt is byte-for-byte what existing
+    /// measurements were taken with. <see cref="ExtractionProvenanceMode.PerItem"/> changes the
+    /// rendered conversation as well as the instruction, so it is a stated per-run decision rather
+    /// than something a package upgrade can turn on.
+    /// </remarks>
+    public ExtractionProvenanceMode Provenance { get; set; } = ExtractionProvenanceMode.Batch;
+
     public bool UseUnifiedExtraction { get; set; }
 
     /// <summary>

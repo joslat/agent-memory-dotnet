@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -136,8 +136,19 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(
+        float[] taskEmbedding,
+        bool? successFilter = null,
+        int limit = 10,
+        double minScore = 0.0,
+        MemoryScope? scope = null,
+        CancellationToken cancellationToken = default) =>
+        SearchByTaskVectorAsync(
+            taskEmbedding, proceduresOnly: null, successFilter, limit, minScore, scope, cancellationToken);
+
     public async Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>> SearchByTaskVectorAsync(
         float[] taskEmbedding,
+        bool? proceduresOnly,
         bool? successFilter = null,
         int limit = 10,
         double minScore = 0.0,
@@ -164,7 +175,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         async Task<List<(ReasoningTrace, double)>> QueryAsync(int width, CancellationToken ct)
         {
             var cypher = ReasoningQueries.SearchByTaskVector(
-                successFilter.HasValue, hasOwner, includeShared, width);
+                successFilter.HasValue, hasOwner, includeShared, width, proceduresOnly);
 
             var parameters = new Dictionary<string, object>
             {
@@ -215,7 +226,10 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             // that many more-similar foreign rows no widening reaches the owner's. Bounded by one
             // owner's traces rather than by the corpus, and reached only when both prior passes
             // returned nothing. The success filter is carried through, so a filtered search that
-            // genuinely matches nothing still returns nothing.
+            // genuinely matches nothing still returns nothing -- and so is proceduresOnly, which is
+            // the filter most likely to reach this branch: a corpus with no promoted procedures makes
+            // the indexed pass return zero by construction, so an unfiltered rescue would answer a
+            // procedure lookup with an episode.
             if (results.Count == 0)
             {
                 _logger.LogDebug(
@@ -234,7 +248,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                 {
                     var cursor = await runner.RunAsync(
                         ReasoningQueries.SearchByTaskVectorOwnerScopedFallback(
-                            successFilter.HasValue, includeShared),
+                            successFilter.HasValue, includeShared, proceduresOnly),
                         fallbackParameters).ConfigureAwait(false);
                     var records = await cursor.ToListAsync().ConfigureAwait(false);
                     return records.Select(r =>
@@ -457,6 +471,12 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             CompletedAtUtc = node.Properties.TryGetValue("completed_at", out var ca)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(ca)
                                 : null,
+            // Absent property == Episode. Every trace written before trace_kind existed reads back as
+            // an episode, which is what it is -- never as an unknown that a caller has to handle.
+            Kind           = node.Properties.TryGetValue("trace_kind", out var tk)
+                                && string.Equals(tk?.As<string?>(), "procedure", StringComparison.Ordinal)
+                                    ? TraceKind.Procedure
+                                    : TraceKind.Episode,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 
@@ -476,6 +496,10 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         ["success"]     = (object?)trace.Success,
         ["startedAt"]   = trace.StartedAtUtc.ToString("O"),
         ["completedAt"] = (object?)(trace.CompletedAtUtc?.ToString("O")),
-        ["metadata"]    = SerializeMetadata(trace.Metadata)
+        ["metadata"]    = SerializeMetadata(trace.Metadata),
+        // Written as a lowercase string rather than an int so the stored value is readable in a Cypher
+        // console and stable if the enum is ever reordered -- an ordinal would silently re-point every
+        // existing node at a different meaning.
+        ["traceKind"]   = trace.Kind == TraceKind.Procedure ? "procedure" : "episode"
     };
 }

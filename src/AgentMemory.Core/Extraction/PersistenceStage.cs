@@ -257,9 +257,18 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     : await _factRepository.FindByTripleAsync(
                         extracted.Subject, extracted.Predicate, extracted.Object,
                         MemoryScope.For(ownerId, includeShared: false), cancellationToken).ConfigureAwait(false);
+                // Per-item refinement before the existing per-batch composition. At defaults SourceRole
+                // is null on every item and this is the identity, so the trust a host sees is byte-for-
+                // byte what it was; it becomes non-trivial only when assistant content is extracted,
+                // which is the exact moment "who claimed this" stops being answerable from the batch.
+                var requestTrustLevel = SourceRoleTrust.Refine(trustLevel, extracted.SourceRole);
+                // Per-item provenance (L3c). Identity at defaults -- SourceTurn is null unless
+                // ExtractionProvenanceMode.PerItem asked for it -- and a reported turn that does not
+                // resolve keeps the batch links rather than inventing a narrower wrong one.
+                var factMessageIds = SourceTurnProvenance.Resolve(extracted.SourceTurn, sourceMessageIds);
                 var effectiveFactTrustLevel = existingFact is null
-                    ? trustLevel
-                    : MaxTrustLevel(existingFact.Metadata.GetTrustLevel(), trustLevel);
+                    ? requestTrustLevel
+                    : MaxTrustLevel(existingFact.Metadata.GetTrustLevel(), requestTrustLevel);
                 var factMetadata = existingFact is null
                     ? MemoryTrustMetadataExtensions.CreateWithTrustLevel(effectiveFactTrustLevel)
                     : existingFact.Metadata.WithTrustLevel(effectiveFactTrustLevel);
@@ -275,7 +284,7 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                     ValidUntil = extracted.ValidUntil,
                     Embedding = preparedFact.Embedding,
                     OwnerId = ownerId,
-                    SourceMessageIds = sourceMessageIds,
+                    SourceMessageIds = factMessageIds,
                     CreatedAtUtc = _clock.UtcNow,
                     Metadata = factMetadata
                 }, factSourceKey);
@@ -291,13 +300,18 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             }
         }
 
-        async Task RecordPersistedFactAsync(string sourceKey, Fact persisted)
+        async Task RecordPersistedFactAsync(
+            string sourceKey, Fact persisted, IReadOnlyList<string> provenanceMessageIds)
         {
             // Fact upsert MERGEs on the natural triple and may return an older stable id. Always use
             // the repository result for outcomes and provenance rather than the fresh caller id.
             RecordSuccess(outcomes, MemoryItemKind.Fact, sourceKey, persisted.FactId);
 
-            foreach (var msgId in ExplicitProvenanceMessageIds(_factRepository, sourceMessageIds))
+            // The INPUT item's resolved ids, not the persisted result's: a MERGE returns the stored
+            // node, whose source ids may be the union accumulated over earlier ingestions. Writing
+            // edges from that would re-link this fact to messages it was not extracted from now --
+            // which is exactly the batch-level breadth per-item provenance exists to remove.
+            foreach (var msgId in ExplicitProvenanceMessageIds(_factRepository, provenanceMessageIds))
             {
                 try
                 {
@@ -316,9 +330,45 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 }
             }
 
+            await SupersedeReplacedFactsAsync(persisted).ConfigureAwait(false);
+
             persistedFactCount++;
             _logger.LogDebug("Persisted fact '{S} {P} {O}'.",
                 persisted.Subject, persisted.Predicate, persisted.Object);
+        }
+
+        // M1 write-time UPDATE. Runs after the write, so the incoming fact is already the winner and a
+        // failure here leaves the graph in the append-only state it was in before -- strictly the old
+        // behaviour, never a half-resolved one. Best-effort by design: losing a supersession costs
+        // precision in live recall, while failing the ingestion over it would lose the memory itself.
+        async Task SupersedeReplacedFactsAsync(Fact winner)
+        {
+            if (!_options.SupersedeReplacedFacts || !WriteTimeFactResolution.CanSupersede(winner))
+                return;
+
+            var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
+            try
+            {
+                var losers = await _factRepository.FindSupersededCandidatesAsync(
+                    winner.FactId, winner.Subject, winner.Predicate, winner.Object, scope,
+                    cancellationToken).ConfigureAwait(false);
+
+                foreach (var loser in losers)
+                {
+                    await _factRepository.SupersedeAsync(
+                        loser.FactId, winner.FactId, scope, cancellationToken).ConfigureAwait(false);
+                    _logger.LogDebug(
+                        "Superseded fact '{Loser}' with '{Winner}' ({S} {P}).",
+                        loser.FactId, winner.FactId, winner.Subject, winner.Predicate);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Write-time supersession failed for fact '{Id}'; it remains stored alongside the "
+                    + "assertion it replaces.", winner.FactId);
+            }
         }
 
         async Task PersistFactIndividuallyAsync(Fact item, string sourceKey)
@@ -326,7 +376,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             try
             {
                 var persisted = await _factRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
-                await RecordPersistedFactAsync(sourceKey, persisted).ConfigureAwait(false);
+                await RecordPersistedFactAsync(
+                    sourceKey, persisted, item.SourceMessageIds).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (MemoryIngestionException) { throw; }
@@ -390,7 +441,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             {
                 foreach (var input in factInputs)
                     await RecordPersistedFactAsync(
-                        input.SourceKey, batchedFactsByKey[FactKey(input.Item)]).ConfigureAwait(false);
+                        input.SourceKey, batchedFactsByKey[FactKey(input.Item)],
+                        input.Item.SourceMessageIds).ConfigureAwait(false);
             }
             else
             {
@@ -422,19 +474,22 @@ internal sealed partial class PersistenceStage : IPersistenceStage
                 Confidence = extracted.Confidence,
                 Embedding = preparedPreference.Embedding,
                 OwnerId = ownerId,
-                SourceMessageIds = sourceMessageIds,
+                SourceMessageIds = SourceTurnProvenance.Resolve(extracted.SourceTurn, sourceMessageIds),
                 CreatedAtUtc = _clock.UtcNow,
-                Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(trustLevel)
+                Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(
+                    SourceRoleTrust.Refine(trustLevel, extracted.SourceRole))
             }, SourceKey: extracted.PreferenceText);
         }).ToList();
 
         var persistedPrefCount = 0;
 
-        async Task RecordPersistedPreferenceAsync(string sourceKey, Preference persisted)
+        async Task RecordPersistedPreferenceAsync(
+            string sourceKey, Preference persisted, IReadOnlyList<string> provenanceMessageIds)
         {
             RecordSuccess(outcomes, MemoryItemKind.Preference, sourceKey, persisted.PreferenceId);
 
-            foreach (var msgId in ExplicitProvenanceMessageIds(_preferenceRepository, sourceMessageIds))
+            // The input item's resolved ids, for the same reason the fact path uses them.
+            foreach (var msgId in ExplicitProvenanceMessageIds(_preferenceRepository, provenanceMessageIds))
             {
                 try
                 {
@@ -462,7 +517,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
             try
             {
                 var persisted = await _preferenceRepository.UpsertAsync(item, cancellationToken).ConfigureAwait(false);
-                await RecordPersistedPreferenceAsync(sourceKey, persisted).ConfigureAwait(false);
+                await RecordPersistedPreferenceAsync(
+                    sourceKey, persisted, item.SourceMessageIds).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (MemoryIngestionException) { throw; }
@@ -511,7 +567,8 @@ internal sealed partial class PersistenceStage : IPersistenceStage
         {
             foreach (var input in preferenceInputs)
                 await RecordPersistedPreferenceAsync(
-                    input.SourceKey, batchedPreferencesById[input.Item.PreferenceId]).ConfigureAwait(false);
+                    input.SourceKey, batchedPreferencesById[input.Item.PreferenceId],
+                    input.Item.SourceMessageIds).ConfigureAwait(false);
         }
         else
         {

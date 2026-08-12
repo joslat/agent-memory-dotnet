@@ -49,10 +49,13 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     protected override async Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(
         IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
-        var conversationText = ConversationTextBuilder.Build(messages);
+        var conversationText = _options.Provenance == ExtractionProvenanceMode.PerItem
+            ? ConversationTextBuilder.BuildNumbered(messages)
+            : ConversationTextBuilder.Build(messages);
         return await _runner.RunAsync(
             _options.FactExtractionPrompt
-                ?? BuildSystemPrompt(_options.AssistantContent, _options.TemporalValidity),
+                ?? BuildSystemPrompt(
+                    _options.AssistantContent, _options.TemporalValidity, _options.Provenance),
             "Extract facts from this conversation:",
             conversationText,
             ProjectFacts,
@@ -74,7 +77,9 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
                 Object = f.Object,
                 Confidence = f.Confidence,
                 ValidFrom = f.ValidFrom,
-                ValidUntil = f.ValidUntil
+                ValidUntil = f.ValidUntil,
+                SourceRole = f.SourceRole,
+                SourceTurn = f.SourceTurn
             })
             .ToList();
     }
@@ -90,7 +95,15 @@ internal sealed class LlmFactExtractor : ExtractorBase<ExtractedFact>, IFactExtr
     /// <inheritdoc cref="BuildSystemPrompt(AssistantContentMode)"/>
     internal static string BuildSystemPrompt(
         AssistantContentMode assistantContent, TemporalValidityMode temporalValidity) =>
+        BuildSystemPrompt(assistantContent, temporalValidity, ExtractionProvenanceMode.Batch);
+
+    /// <inheritdoc cref="BuildSystemPrompt(AssistantContentMode)"/>
+    internal static string BuildSystemPrompt(
+        AssistantContentMode assistantContent,
+        TemporalValidityMode temporalValidity,
+        ExtractionProvenanceMode provenance) =>
         DefaultSystemPrompt
         + ExtractionPromptSemantics.AssistantContentInstruction(assistantContent)
-        + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity);
+        + ExtractionPromptSemantics.TemporalValidityInstruction(temporalValidity)
+        + ExtractionPromptSemantics.ProvenanceInstruction(provenance);
 }

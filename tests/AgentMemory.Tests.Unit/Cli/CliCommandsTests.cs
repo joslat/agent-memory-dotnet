@@ -90,8 +90,8 @@ public sealed class CliCommandsTests
         var runner = Substitute.For<INeo4jTransactionRunner>();
         runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
               .Returns(present);
-        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string[]>>>(), Arg.Any<CancellationToken>())
-              .Returns([$"{broken} (RANGE)"]);
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<IndexState[]>>>(), Arg.Any<CancellationToken>())
+              .Returns([new IndexState(broken, "FAILED", "RANGE", null)]);
 
         var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
 
@@ -112,13 +112,44 @@ public sealed class CliCommandsTests
         var runner = Substitute.For<INeo4jTransactionRunner>();
         runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
               .Returns(present);
-        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string[]>>>(), Arg.Any<CancellationToken>())
-              .Returns(["someone_elses_idx (RANGE)"]);
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<IndexState[]>>>(), Arg.Any<CancellationToken>())
+              .Returns([new IndexState("someone_elses_idx", "FAILED", "RANGE", null)]);
 
         var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
 
         exit.Should().Be(0);
         _output.ToString().Should().Contain("someone_elses_idx").And.Contain("not created by AgentMemory");
+    }
+
+    /// <summary>
+    /// P6. A POPULATING index is neither healthy nor failed, and it was the state this command could
+    /// not describe at all.
+    /// </summary>
+    /// <remarks>
+    /// It matters most on the vector indexes: a search against a half-built one succeeds and returns a
+    /// <b>subset</b> of the corpus, so recall is quietly partial and the symptom is "memory seems to
+    /// have forgotten things" rather than any error. Transient, so it must not fail the check -- but
+    /// silence is how an operator spends an afternoon debugging retrieval quality on a half-built
+    /// index.
+    /// </remarks>
+    [Fact]
+    public async Task SchemaCheckCommand_PopulatingIndex_ReturnsZero_ButSaysWhatItMeans()
+    {
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var building = SchemaConformance.ExpectedObjectNames(1536)[0];
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<IndexState[]>>>(), Arg.Any<CancellationToken>())
+              .Returns([new IndexState(building, "POPULATING", "VECTOR", 42.5)]);
+
+        var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
+
+        exit.Should().Be(0, "populating is transient and legitimate right after bootstrap");
+        _output.ToString().Should().Contain("POPULATING").And.Contain(building)
+            .And.Contain("42.5", "the percentage is the difference between 'wait' and 'something is wrong'")
+            .And.Contain("subset", "an operator must be told WHY a half-built index matters");
     }
 
     [Fact]

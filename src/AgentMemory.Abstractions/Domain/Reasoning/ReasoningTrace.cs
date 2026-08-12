@@ -1,4 +1,4 @@
-namespace AgentMemory.Abstractions.Domain;
+﻿namespace AgentMemory.Abstractions.Domain;
 
 /// <summary>
 /// Represents a reasoning trace for a task or agent run.
@@ -50,6 +50,15 @@ public sealed record ReasoningTrace
     /// <c>MemoryScope</c> and docs/archive/Memory_Review_and_Implementation_Plan.md (R1/R2).
     /// </summary>
     public string? OwnerId { get; init; }
+
+    /// <summary>
+    /// Whether this trace is an ordinary episode or a promoted, reusable procedure.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="TraceKind.Episode"/>, which is what every existing trace is, so nothing
+    /// changes for a store written before this existed.
+    /// </remarks>
+    public TraceKind Kind { get; init; } = TraceKind.Episode;
 
     /// <summary>
     /// Additional metadata.

@@ -47,6 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Procedural memory: a reasoning trace can be promoted to a reusable procedure.** `TraceKind`
+  (`Episode` by default) marks a trace as a procedure; `trace_kind_idx` makes it seekable; and
+  task-similarity search takes an opt-in `proceduresOnly` filter, **null by default** so existing
+  Cypher is byte-identical.
+
+  A trace and a procedure are the same record read two ways: an episode says what happened *once*,
+  a procedure says what to do *next time* — they differ by retrieval key.
+
+  **The load-bearing part is the retention exemption.** `PruneSessionTraces` orders by `started_at`
+  with age as its *only* criterion and fires on every trace creation once `MaxTracesPerSession` is
+  set — so without it a promoted procedure is deleted by recency and the capability does not exist.
+  The exemption is NULL-safe in both directions: a trace written before `trace_kind` existed is still
+  prunable (or a retention cap silently stops capping) and still visible to an episode filter.
+
+  New migration `0011_trace_kind.cypher` brings existing databases to parity.
+
 - **Live recall can now honour a fact's valid-time window** — `RecallOptions.ValidTime`
   (`Ignore` by default, so nothing changes unless you ask).
 

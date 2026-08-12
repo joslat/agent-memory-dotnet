@@ -35,6 +35,9 @@
     <ProjectReference Include="..\..\src\AgentMemory.Extraction.AzureLanguage\AgentMemory.Extraction.AzureLanguage.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Enrichment\AgentMemory.Enrichment.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.McpServer\AgentMemory.McpServer.csproj" />
+    <!-- The turnkey host, for its option parsing: defaults and precedence are the part most
+         likely to be quietly wrong and least likely to be caught by running the server. -->
+    <ProjectReference Include="..\..\tools\AgentMemory.McpHost\AgentMemory.McpHost.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.McpServer.Nams\AgentMemory.McpServer.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Nams\AgentMemory.Nams.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />

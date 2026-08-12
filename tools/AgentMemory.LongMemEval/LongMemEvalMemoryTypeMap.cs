@@ -35,14 +35,29 @@ internal sealed class LongMemEvalMemoryTypeMap
     /// <summary>The mapping revision, so a per-type figure can name the opinion it came from.</summary>
     internal string Revision { get; }
 
+    /// <summary>
+    /// The task label → memory types mapping, exposed so a <b>selection</b> can be derived from the
+    /// same data the <b>reports</b> use rather than from a second copy of the taxonomy that drifts.
+    /// </summary>
+    internal IReadOnlyDictionary<string, IReadOnlyList<string>> TaskTypes => _byTaskType;
+
+    /// <summary>
+    /// Every memory type the mapping names, including ones no task label reaches (metamemory arrives
+    /// through abstention; procedural is not in this dataset at all). Used to explain a rejected
+    /// selection, so an unreachable type reads as "not here" rather than "misspelled".
+    /// </summary>
+    internal IReadOnlyList<string> KnownMemoryTypes { get; }
+
     private LongMemEvalMemoryTypeMap(
         string revision,
         IReadOnlyDictionary<string, IReadOnlyList<string>> byTaskType,
-        IReadOnlyList<string> abstentionTypes)
+        IReadOnlyList<string> abstentionTypes,
+        IReadOnlyList<string> knownMemoryTypes)
     {
         Revision = revision;
         _byTaskType = byTaskType;
         _abstentionTypes = abstentionTypes;
+        KnownMemoryTypes = knownMemoryTypes;
     }
 
     /// <summary>The embedded mapping.</summary>
@@ -63,10 +78,20 @@ internal sealed class LongMemEvalMemoryTypeMap
             pair => (IReadOnlyList<string>)pair.Value.MemoryTypes,
             StringComparer.OrdinalIgnoreCase);
 
+        // Declared names first, so a type the document names but no task label reaches -- procedural,
+        // metamemory -- is still reportable as known-but-unreachable rather than as a typo.
+        var known = document.MemoryTypes.Keys
+            .Concat(byTask.Values.SelectMany(types => types))
+            .Concat(document.Abstention?.MemoryTypes ?? [MetaMemory])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(type => type, StringComparer.Ordinal)
+            .ToArray();
+
         return new LongMemEvalMemoryTypeMap(
             document.Revision,
             byTask,
-            document.Abstention?.MemoryTypes ?? [MetaMemory]);
+            document.Abstention?.MemoryTypes ?? [MetaMemory],
+            known);
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -93,6 +118,7 @@ internal sealed class LongMemEvalMemoryTypeMap
     private sealed class MapDocument
     {
         [JsonPropertyName("revision")] public string Revision { get; set; } = "unknown";
+        [JsonPropertyName("memoryTypes")] public Dictionary<string, string> MemoryTypes { get; set; } = [];
         [JsonPropertyName("taskTypes")] public Dictionary<string, TaskTypeEntry> TaskTypes { get; set; } = [];
         [JsonPropertyName("abstention")] public TaskTypeEntry? Abstention { get; set; }
     }

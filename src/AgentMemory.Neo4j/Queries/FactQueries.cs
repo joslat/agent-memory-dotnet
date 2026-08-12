@@ -176,6 +176,45 @@ internal static class FactQueries
         return $"MATCH (f:Fact) WHERE f.subject = $subject{owner} RETURN f";
     }
 
+    // ── Write-time supersession (M1) ───────────────────────────────────
+
+    /// <summary>
+    /// The <b>live</b> facts that assert a different object for the same subject and predicate, which a
+    /// newly written fact about a functional relation replaces.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Liveness is filtered here rather than in memory for the reason every other liveness filter is:
+    /// <c>invalidated_at</c> is not carried on the domain record, so a caller holding a
+    /// <c>Fact</c> cannot tell a closed one from a live one. Fetching every fact for a subject and
+    /// filtering afterwards would re-supersede already-closed facts — harmless to their timestamps,
+    /// which <c>coalesce</c> protects, but it would accumulate a second <c>:SUPERSEDED_BY</c> edge per
+    /// arrival and turn a chain into a fan.
+    /// </para>
+    /// <para>
+    /// Excludes the winner by id: a fact cannot supersede itself, and the MERGE-on-triple write path
+    /// means the incoming fact is already stored when this runs.
+    /// </para>
+    /// <para>
+    /// (A method, not a const, so it is excluded from the Cypher snapshot inventory.)
+    /// </para>
+    /// </remarks>
+    public static string FindSupersededCandidates(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (f.owner_id = $ownerId OR f.owner_id IS NULL)"
+                            : " AND f.owner_id = $ownerId";
+        return @"
+            MATCH (f:Fact)
+            WHERE f.subject_key = $subjectKey
+              AND f.predicate_key = $predicateKey
+              AND f.object_key <> $objectKey
+              AND f.id <> $winnerId
+              AND f.invalidated_at IS NULL" + owner + @"
+            RETURN f
+            ORDER BY f.created_at DESC";
+    }
+
     // ── Dedup-on-create ────────────────────────────────────────────────
 
     /// <summary>
