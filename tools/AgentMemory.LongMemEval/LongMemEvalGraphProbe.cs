@@ -141,6 +141,11 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
           RETURN count(p) AS preferences
         }
         CALL {
+          MATCH (t:ReasoningTrace {owner_id: $ownerId})
+          RETURN count(t) AS reasoningTraces,
+                 count(CASE WHEN t.trace_kind = 'Procedure' THEN 1 END) AS procedures
+        }
+        CALL {
           MATCH ()-[r:RELATED_TO]->()
           WHERE r.owner_id = $ownerId
           RETURN count(r) AS relationships,
@@ -158,7 +163,7 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
         }
         RETURN entities, facts, preferences, relationships,
                relationshipsWithProvenance, learnedItems, learnedItemsWithProvenance,
-               provenanceEdges, sourceMessages
+               provenanceEdges, sourceMessages, reasoningTraces, procedures
         """;
 
     private const string GoldCoverageQuery =
@@ -252,7 +257,9 @@ internal sealed class Neo4jLongMemEvalGraphProbe(IDriver driver) : ILongMemEvalG
                 record["learnedItems"].As<int>(),
                 record["learnedItemsWithProvenance"].As<int>(),
                 record["provenanceEdges"].As<int>(),
-                record["sourceMessages"].As<int>());
+                record["sourceMessages"].As<int>(),
+                record["reasoningTraces"].As<int>(),
+                record["procedures"].As<int>());
         }).ConfigureAwait(false);
     }
 }
@@ -286,9 +293,45 @@ public sealed record LongMemEvalGraphSnapshot(
     int LearnedItems,
     int LearnedItemsWithProvenance,
     int ProvenanceEdges,
-    int SourceMessages)
+    int SourceMessages,
+    int? ReasoningTraces = null,
+    int? Procedures = null)
 {
+    /// <summary>
+    /// Entity + Fact + Preference + relationship count, <b>deliberately excluding traces</b>.
+    /// </summary>
+    /// <remarks>
+    /// Traces are counted separately rather than folded in here. This number appears in every sealed
+    /// measurement taken before the probe could see <c>:ReasoningTrace</c> at all, and quietly
+    /// widening its definition would move recorded totals for a reason that has nothing to do with
+    /// what was extracted — every prior build would appear to have grown.
+    /// </remarks>
     public int TotalLearned => Entities + Facts + Preferences + Relationships;
+
+    /// <summary>Everything the probe can see, traces included.</summary>
+    public int TotalIncludingTraces => TotalLearned + (ReasoningTraces ?? 0);
+
+    /// <summary>
+    /// <see langword="true"/> when this snapshot actually looked for traces.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nullable rather than defaulted to 0, deliberately.</b> A manifest written before the probe
+    /// could see <c>:ReasoningTrace</c> has no such field, and a non-nullable <c>int</c> would
+    /// deserialize it to zero — reproducing, in the recorded data, the exact ambiguity 6.5 exists to
+    /// remove: "measured, and there are none" would be indistinguishable from "never looked".
+    /// </remarks>
+    public bool TracesMeasured => ReasoningTraces.HasValue;
+
+    /// <summary>
+    /// <see langword="true"/> when the corpus holds no procedural/episodic memory at all.
+    /// </summary>
+    /// <remarks>
+    /// The finding 6.5 exists to make visible. The probe was label-blind to <c>:ReasoningTrace</c>, so
+    /// "the corpus contains no traces" and "the probe cannot see traces" produced identical output —
+    /// and Phase 7's procedural work would have been measured against a graph nobody had confirmed
+    /// contained anything to measure.
+    /// </remarks>
+    public bool HasNoTraces => ReasoningTraces == 0;
 
     public bool CompleteProvenance =>
         LearnedItemsWithProvenance == LearnedItems &&
