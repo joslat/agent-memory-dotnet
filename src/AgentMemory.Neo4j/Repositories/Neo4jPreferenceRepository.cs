@@ -19,9 +19,42 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
 {
 
     private readonly INeo4jTransactionRunner _tx;
+    private readonly bool _rescueShortOwnerResults;
     private readonly ILogger<Neo4jPreferenceRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
+    /// <summary>Scores this owner's OWN preferences directly, bypassing the global vector index.</summary>
+    /// <remarks>
+    /// Extracted because two conditions reach it -- an empty scoped result, and (opt-in) a short one
+    /// -- and two copies of a fallback drift.
+    /// </remarks>
+    private async Task<List<(Preference, double)>> OwnerScopedScanAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope scope,
+        bool includeShared,
+        CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                PreferenceQueries.SearchByVectorOwnerScopedFallback(includeShared),
+                new Dictionary<string, object?>
+                {
+                    ["embedding"] = queryEmbedding.ToList(),
+                    ["limit"] = limit,
+                    ["minScore"] = minScore,
+                    ["ownerId"] = scope.OwnerId,
+                }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r =>
+            {
+                var node = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToPreference(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
     private readonly IMemoryRankingContext? _rankingContext;
 
     public Neo4jPreferenceRepository(
@@ -29,8 +62,10 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         ILogger<Neo4jPreferenceRepository> logger,
         IOptions<MemoryRankingOptions>? ranking = null,
         IOptions<MemoryDecayOptions>? decay = null,
-        IMemoryRankingContext? rankingContext = null)
+        IMemoryRankingContext? rankingContext = null,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
+        _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _tx = tx;
         _logger = logger;
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
@@ -248,26 +283,24 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
                 _logger.LogDebug(
                     "Owner-scoped preference vector search still empty after widening; falling back to a "
                     + "scoped similarity scan.");
-                results = await _tx.ReadAsync(async runner =>
-                {
-                    var cursor = await runner.RunAsync(
-                        PreferenceQueries.SearchByVectorOwnerScopedFallback(includeShared),
-                        new Dictionary<string, object?>
-                        {
-                            ["embedding"] = queryEmbedding.ToList(),
-                            ["limit"] = limit,
-                            ["minScore"] = minScore,
-                            ["ownerId"] = scope!.OwnerId,
-                        }).ConfigureAwait(false);
-                    var records = await cursor.ToListAsync().ConfigureAwait(false);
-                    return records.Select(r =>
-                    {
-                        var node = r["node"].As<INode>();
-                        var score = r["score"].As<double>();
-                        return (MapToPreference(node, ReadEmbedding(node)), score);
-                    }).ToList();
-                }, cancellationToken).ConfigureAwait(false) ?? [];
+                results = await OwnerScopedScanAsync(
+                    queryEmbedding, limit, minScore, scope!, includeShared, cancellationToken)
+                    .ConfigureAwait(false);
             }
+        }
+        else if (_rescueShortOwnerResults
+                 && OwnerVectorOverFetch.ShouldRescueShortResult(results.Count, limit, hasOwner))
+        {
+            // 2.12, the same rescue the fact path carries. A host enabling RescueShortOwnerResults
+            // would otherwise get it on facts and silently not on preferences -- the "setting only some
+            // components respect" shape this project has found twice.
+            _logger.LogDebug(
+                "Owner-scoped preference vector search returned {Returned} of {Limit}; rescuing with "
+                + "a scoped similarity scan.", results.Count, limit);
+            var scanned = await OwnerScopedScanAsync(
+                queryEmbedding, limit, minScore, scope!, includeShared, cancellationToken)
+                .ConfigureAwait(false);
+            if (scanned.Count > results.Count) results = scanned;
         }
 
         // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks: the

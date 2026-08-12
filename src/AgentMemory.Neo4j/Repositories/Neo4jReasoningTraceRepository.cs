@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -15,10 +16,50 @@ namespace AgentMemory.Neo4j.Repositories;
 internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
 {
     private readonly INeo4jTransactionRunner _tx;
+    private readonly bool _rescueShortOwnerResults;
+    /// <summary>Scores this owner's OWN traces directly, bypassing the global vector index.</summary>
+    /// <remarks>
+    /// Extracted because two conditions reach it -- an empty scoped result, and (opt-in) a short one
+    /// -- and two copies of a fallback drift.
+    /// </remarks>
+    private async Task<List<(ReasoningTrace, double)>> OwnerScopedScanAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope scope,
+        bool includeShared,
+        bool? successFilter,
+        bool? proceduresOnly,
+        CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                ReasoningQueries.SearchByTaskVectorOwnerScopedFallback(
+                    successFilter.HasValue, includeShared, proceduresOnly),
+                new Dictionary<string, object?>
+                {
+                    ["embedding"] = queryEmbedding.ToList(),
+                    ["limit"] = limit,
+                    ["minScore"] = minScore,
+                    ["ownerId"] = scope.OwnerId,
+                }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r =>
+            {
+                var node = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToTrace(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
     private readonly ILogger<Neo4jReasoningTraceRepository> _logger;
 
-    public Neo4jReasoningTraceRepository(INeo4jTransactionRunner tx, ILogger<Neo4jReasoningTraceRepository> logger)
+    public Neo4jReasoningTraceRepository(
+        INeo4jTransactionRunner tx,
+        ILogger<Neo4jReasoningTraceRepository> logger,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
+        _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _tx = tx;
         _logger = logger;
     }
@@ -243,22 +284,24 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                     ["ownerId"] = scope!.OwnerId!,
                 };
                 if (successFilter.HasValue) fallbackParameters["successFilter"] = successFilter.Value;
-
-                results = await _tx.ReadAsync(async runner =>
-                {
-                    var cursor = await runner.RunAsync(
-                        ReasoningQueries.SearchByTaskVectorOwnerScopedFallback(
-                            successFilter.HasValue, includeShared, proceduresOnly),
-                        fallbackParameters).ConfigureAwait(false);
-                    var records = await cursor.ToListAsync().ConfigureAwait(false);
-                    return records.Select(r =>
-                    {
-                        var node  = r["node"].As<INode>();
-                        var score = r["score"].As<double>();
-                        return (MapToTrace(node, ReadEmbedding(node)), score);
-                    }).ToList();
-                }, cancellationToken).ConfigureAwait(false) ?? [];
+                results = await OwnerScopedScanAsync(
+                    taskEmbedding, limit, minScore, scope!, includeShared, successFilter,
+                    proceduresOnly, cancellationToken).ConfigureAwait(false);
             }
+        }
+        else if (_rescueShortOwnerResults
+                 && OwnerVectorOverFetch.ShouldRescueShortResult(results.Count, limit, hasOwner))
+        {
+            // 2.12, the same rescue the fact path carries. A host enabling RescueShortOwnerResults
+            // would otherwise get it on facts and silently not on traces -- the "setting only some
+            // components respect" shape this project has found twice.
+            _logger.LogDebug(
+                "Owner-scoped trace vector search returned {Returned} of {Limit}; rescuing with "
+                + "a scoped similarity scan.", results.Count, limit);
+            var scanned = await OwnerScopedScanAsync(
+                taskEmbedding, limit, minScore, scope!, includeShared, successFilter,
+                proceduresOnly, cancellationToken).ConfigureAwait(false);
+            if (scanned.Count > results.Count) results = scanned;
         }
 
         // Explicit null check rather than `activity?.SetTag(...)` per AgentMemoryDiagnostics' remarks: the

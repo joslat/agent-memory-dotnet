@@ -19,9 +19,42 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 {
 
     private readonly INeo4jTransactionRunner _tx;
+    private readonly bool _rescueShortOwnerResults;
     private readonly ILogger<Neo4jEntityRepository> _logger;
     private readonly MemoryRankingOptions _ranking;
     private readonly MemoryDecayOptions _decay;
+    /// <summary>Scores this owner's OWN entitys directly, bypassing the global vector index.</summary>
+    /// <remarks>
+    /// Extracted because two conditions reach it -- an empty scoped result, and (opt-in) a short one
+    /// -- and two copies of a fallback drift.
+    /// </remarks>
+    private async Task<List<(Entity, double)>> OwnerScopedScanAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope scope,
+        bool includeShared,
+        CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                EntityQueries.SearchByVectorOwnerScopedFallback(includeShared),
+                new Dictionary<string, object?>
+                {
+                    ["embedding"] = queryEmbedding.ToList(),
+                    ["limit"] = limit,
+                    ["minScore"] = minScore,
+                    ["ownerId"] = scope.OwnerId,
+                }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Select(r =>
+            {
+                var node = r["node"].As<INode>();
+                var score = r["score"].As<double>();
+                return (MapToEntity(node, ReadEmbedding(node)), score);
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+
     private readonly IMemoryRankingContext? _rankingContext;
 
     public Neo4jEntityRepository(
@@ -29,8 +62,10 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         ILogger<Neo4jEntityRepository> logger,
         IOptions<MemoryRankingOptions>? ranking = null,
         IOptions<MemoryDecayOptions>? decay = null,
-        IMemoryRankingContext? rankingContext = null)
+        IMemoryRankingContext? rankingContext = null,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
+        _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
         _tx = tx;
         _logger = logger;
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
@@ -234,26 +269,24 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 _logger.LogDebug(
                     "Owner-scoped entity vector search still empty after widening; falling back to a "
                     + "scoped similarity scan.");
-                results = await _tx.ReadAsync(async runner =>
-                {
-                    var cursor = await runner.RunAsync(
-                        EntityQueries.SearchByVectorOwnerScopedFallback(includeShared),
-                        new Dictionary<string, object?>
-                        {
-                            ["embedding"] = queryEmbedding.ToList(),
-                            ["limit"] = limit,
-                            ["minScore"] = minScore,
-                            ["ownerId"] = scope!.OwnerId,
-                        }).ConfigureAwait(false);
-                    var records = await cursor.ToListAsync().ConfigureAwait(false);
-                    return records.Select(r =>
-                    {
-                        var node = r["node"].As<INode>();
-                        var score = r["score"].As<double>();
-                        return (MapToEntity(node, ReadEmbedding(node)), score);
-                    }).ToList();
-                }, cancellationToken).ConfigureAwait(false) ?? [];
+                results = await OwnerScopedScanAsync(
+                    queryEmbedding, limit, minScore, scope!, includeShared, cancellationToken)
+                    .ConfigureAwait(false);
             }
+        }
+        else if (_rescueShortOwnerResults
+                 && OwnerVectorOverFetch.ShouldRescueShortResult(results.Count, limit, hasOwner))
+        {
+            // 2.12, the same rescue the fact path carries. Extended here because "a setting only some
+            // components respect" is the defect shape this project has found twice -- a host enabling
+            // RescueShortOwnerResults would otherwise get it on facts and silently not on entitys.
+            _logger.LogDebug(
+                "Owner-scoped entity vector search returned {Returned} of {Limit}; rescuing with a "
+                + "scoped similarity scan.", results.Count, limit);
+            var scanned = await OwnerScopedScanAsync(
+                queryEmbedding, limit, minScore, scope!, includeShared, cancellationToken)
+                .ConfigureAwait(false);
+            if (scanned.Count > results.Count) results = scanned;
         }
 
         EmitVectorYield(
