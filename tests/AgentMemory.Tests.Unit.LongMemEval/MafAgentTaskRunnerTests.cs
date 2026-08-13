@@ -1,5 +1,9 @@
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
+using NSubstitute;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -102,5 +106,116 @@ public sealed class MafAgentTaskRunnerTests
 
         strict("I have completed the task successfully!").Should().BeFalse();
         strict("BOOKING-CONFIRMED ref 91821").Should().BeTrue();
+    }
+}
+
+/// <summary>
+/// Promoting a successful attempt to a reusable procedure (7.6).
+/// </summary>
+/// <remarks>
+/// <para>
+/// Without this the benchmark measures nothing. The Agent Framework provider recalls reasoning traces
+/// and <b>never writes one</b> — <c>AgentTraceRecorder</c> is gated off by default and is not called
+/// on a normal run — so the procedural arm would recall procedures while nothing stored any. Both arms
+/// would behave identically and the harness would report "no benefit" while describing a wiring gap.
+/// </para>
+/// <para>
+/// Asserted against the promotion <i>decision</i> rather than through a stub agent: the decision is
+/// what can be quietly wrong, and routing through an agent would test the plumbing around it instead.
+/// </para>
+/// </remarks>
+public sealed class ProcedurePromotionTests
+{
+    /// <summary>Substituted rather than hand-written: only AddAsync is under test.</summary>
+    private static (IReasoningTraceRepository Repo, List<ReasoningTrace> Added) Traces()
+    {
+        var added = new List<ReasoningTrace>();
+        var repo = Substitute.For<IReasoningTraceRepository>();
+        repo.AddAsync(Arg.Any<ReasoningTrace>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var trace = call.Arg<ReasoningTrace>();
+                added.Add(trace);
+                return Task.FromResult(trace);
+            });
+        return (repo, added);
+    }
+
+    private static readonly string[] Chain = ["LookUpTraveller", "PlaceHold", "Book"];
+
+    private static MafAgentTaskRunner Runner(IReasoningTraceRepository? traces) =>
+        new(_ => null!, "book it", _ => true, traces);
+
+    private static Task PromoteAsync(
+        IReasoningTraceRepository traces, bool completed, bool enabled) =>
+        Runner(traces).PromoteIfWorthKeepingAsync(
+            new AgentTaskRun(completed, Steps: 3, ToolCalls: 3), enabled, Chain);
+
+    [Fact]
+    public async Task ASuccessfulProceduralAttemptIsPromoted()
+    {
+        // THE gap this closes. Nothing else in the MAF path writes a trace, so without this the
+        // procedural arm has nothing to recall on attempt two.
+        var (repo, added) = Traces();
+
+        await PromoteAsync(repo, completed: true, enabled: true);
+
+        added.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ThePromotedTraceIsAProcedureNotAnEpisode()
+    {
+        // Owner-scoped procedural recall filters on procedures, so an episode-kinded trace is stored,
+        // recalled by nothing, and presents as exactly the false negative this prevents.
+        var (repo, added) = Traces();
+
+        await PromoteAsync(repo, completed: true, enabled: true);
+
+        added.Single().Kind.Should().Be(TraceKind.Procedure);
+    }
+
+    [Fact]
+    public async Task AFailedAttemptIsNotPromoted()
+    {
+        // Promoting a failure teaches the wrong chain. 7.7's wrong-procedure rate would then correctly
+        // punish it, and the benchmark would be measuring a bug introduced here rather than the feature.
+        var (repo, added) = Traces();
+
+        await PromoteAsync(repo, completed: false, enabled: true);
+
+        added.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TheControlArmNeverPromotes()
+    {
+        // The arm switch. If the control arm promoted too, both arms would share a procedure store and
+        // the comparison would measure nothing at all.
+        var (repo, added) = Traces();
+
+        await PromoteAsync(repo, completed: true, enabled: false);
+
+        added.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TheProcedureRecordsTheToolChain()
+    {
+        // What makes it reusable rather than a note that something worked once.
+        var (repo, added) = Traces();
+
+        await PromoteAsync(repo, completed: true, enabled: true);
+
+        added.Single().Outcome.Should().Be("LookUpTraveller -> PlaceHold -> Book");
+    }
+
+    [Fact]
+    public async Task NoRepositoryMeansNoPromotionAndNoCrash()
+    {
+        var act = async () => await Runner(null).PromoteIfWorthKeepingAsync(
+            new AgentTaskRun(true, 3, 3), procedureMemoryEnabled: true, Chain);
+
+        await act.Should().NotThrowAsync();
     }
 }
