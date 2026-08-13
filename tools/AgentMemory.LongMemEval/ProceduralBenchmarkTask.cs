@@ -42,6 +42,18 @@ internal sealed class ProceduralBenchmarkTask
     private const string RequiredTier = "gold";
     private const string HoldReference = "HOLD-4417";
 
+    /// <summary>
+    /// The arbitrary dependency, and the reason this task can be measured at all.
+    /// </summary>
+    /// <remarks>
+    /// Booking needs a clearance code, and the only tool that yields one is a <i>service bulletin</i>
+    /// lookup — a name that does not suggest it. Two earlier runs failed to discriminate because
+    /// every dependency was inferable from tool and parameter names, so a competent model ordered
+    /// the calls cold and no procedure could save anything. A semantic cue the model can follow is
+    /// not a procedure worth remembering; an arbitrary one is.
+    /// </remarks>
+    private const string ClearanceCode = "CLR-7731";
+
     /// <summary>Records what was called, so a test can assert the chain without a model.</summary>
     internal List<string> Calls { get; } = [];
 
@@ -68,8 +80,19 @@ internal sealed class ProceduralBenchmarkTask
     [
         AIFunctionFactory.Create(LookUpTraveller),
         AIFunctionFactory.Create(PlaceHold),
+        AIFunctionFactory.Create(CheckServiceBulletin),
         AIFunctionFactory.Create(Book),
     ];
+
+    [Description("Returns the service bulletin for a connection.")]
+    private string CheckServiceBulletin(
+        [Description("The connection time.")] string connection)
+    {
+        Calls.Add(nameof(CheckServiceBulletin));
+        // The clearance code is buried in an otherwise unremarkable bulletin. Nothing in the tool's
+        // name or signature says it is the source, so it has to be found rather than deduced.
+        return $"bulletin for {connection}: on time; catering normal; clearance={ClearanceCode}";
+    }
 
     // Descriptions state PURPOSE only. Naming a prerequisite here hands the model the chain, and
     // the first run proved it: zero refusals, minimal tool count, both arms identical. The ordering
@@ -100,11 +123,17 @@ internal sealed class ProceduralBenchmarkTask
 
     [Description("Confirms a booking.")]
     private string Book(
-        [Description("The hold reference.")] string holdReference)
+        [Description("The hold reference.")] string holdReference,
+        [Description("The clearance code.")] string clearanceCode)
     {
         Calls.Add(nameof(Book));
-        return string.Equals(holdReference, HoldReference, StringComparison.OrdinalIgnoreCase)
+        if (!string.Equals(holdReference, HoldReference, StringComparison.OrdinalIgnoreCase))
+            return "refused: booking needs a valid hold reference";
+
+        // Names what is missing, never where to get it. Saying "check the service bulletin" would
+        // hand over the arbitrary step and put us back where the first two runs were.
+        return string.Equals(clearanceCode, ClearanceCode, StringComparison.OrdinalIgnoreCase)
             ? string.Create(CultureInfo.InvariantCulture, $"{ConfirmationMarker} ref {HoldReference}")
-            : "refused: booking needs a valid hold reference; place a hold first";
+            : "refused: booking needs a valid clearance code";
     }
 }

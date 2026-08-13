@@ -42,7 +42,10 @@ public sealed class ProceduralBenchmarkTaskTests
         var hold = await InvokeAsync(task, "PlaceHold", new { connection = "14:05", tier = "gold" });
         hold.Should().Contain("HOLD-4417");
 
-        var booking = await InvokeAsync(task, "Book", new { holdReference = "HOLD-4417" });
+        var bulletin = await InvokeAsync(task, "CheckServiceBulletin", new { connection = "14:05" });
+        bulletin.Should().Contain("CLR-7731");
+
+        var booking = await InvokeAsync(task, "Book", new { holdReference = "HOLD-4417", clearanceCode = "CLR-7731" });
         booking.Should().Contain(ProceduralBenchmarkTask.ConfirmationMarker);
         task.IsComplete(booking).Should().BeTrue();
     }
@@ -55,7 +58,7 @@ public sealed class ProceduralBenchmarkTaskTests
         // memory does not help" for a reason that is entirely about the task.
         var task = new ProceduralBenchmarkTask();
 
-        var booking = await InvokeAsync(task, "Book", new { holdReference = "whatever" });
+        var booking = await InvokeAsync(task, "Book", new { holdReference = "whatever", clearanceCode = "whatever" });
 
         booking.Should().Contain("refused", Exactly.Once());
         task.IsComplete(booking).Should().BeFalse();
@@ -151,9 +154,38 @@ public sealed class ProceduralBenchmarkTaskTests
         }
     }
 
+
+    [Fact]
+    public async Task AValidHoldWithoutTheClearanceCodeIsRefused()
+    {
+        // THE arbitrary dependency. Two earlier runs failed to discriminate because every prerequisite
+        // was inferable from names; this one is not. Nothing about "book" suggests a service bulletin,
+        // so the step has to be found rather than deduced -- which is what makes it worth remembering.
+        var task = new ProceduralBenchmarkTask();
+
+        var booking = await InvokeAsync(
+            task, "Book", new { holdReference = "HOLD-4417", clearanceCode = "guessed" });
+
+        booking.Should().Contain("clearance code");
+        task.IsComplete(booking).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TheRefusalDoesNotNameWhereTheCodeComesFrom()
+    {
+        // Saying "check the service bulletin" would hand over the arbitrary step and put the benchmark
+        // straight back to being guessable.
+        var task = new ProceduralBenchmarkTask();
+
+        var booking = await InvokeAsync(
+            task, "Book", new { holdReference = "HOLD-4417", clearanceCode = "guessed" });
+
+        booking.Should().NotContain("bulletin");
+    }
+
     [Fact]
     public void ToolsAreExposedInProcedureOrder()
     {
-        new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(3);
+        new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(4);
     }
 }
