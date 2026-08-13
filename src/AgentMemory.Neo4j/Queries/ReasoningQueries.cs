@@ -38,6 +38,26 @@ internal static class ReasoningQueries
                 t.metadata     = $metadata
             RETURN t";
 
+    /// <summary>Set a ReasoningTrace's <c>trace_kind</c> — the promotion marker (7.1).</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Deliberately its own statement rather than a widened <see cref="UpdateTrace"/>.</b>
+    /// <c>UpdateTrace</c> is driven by whole-object writes, so carrying <c>trace_kind</c> there would
+    /// let a completion call written from a stale in-memory copy silently <i>demote</i> a promoted
+    /// procedure back to an episode — a data loss with no error and no way to notice.
+    /// </para>
+    /// <para>
+    /// <b>Fixes a silent success.</b> <c>UpdateTrace</c> never set <c>trace_kind</c> although the
+    /// parameter was supplied, and Neo4j ignores unused parameters — so read-modify-update promotion
+    /// completed, returned the re-read node, and reported <c>Kind = Episode</c>. Every one of the
+    /// eight promotion integration tests promotes at CREATE time, so none of them covered it.
+    /// </para>
+    /// </remarks>
+    public const string PromoteTrace = @"
+            MATCH (t:ReasoningTrace {id: $id})
+            SET t.trace_kind = $traceKind
+            RETURN t";
+
     /// <summary>Get a ReasoningTrace by id.</summary>
     public const string GetTraceById = "MATCH (t:ReasoningTrace {id: $id}) RETURN t";
 

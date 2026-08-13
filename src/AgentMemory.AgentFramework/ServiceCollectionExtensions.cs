@@ -34,6 +34,11 @@ public static class ServiceCollectionExtensions
                 ctx.IncludeFacts = src.IncludeFacts;
                 ctx.IncludePreferences = src.IncludePreferences;
                 ctx.IncludeReasoningTraces = src.IncludeReasoningTraces;
+                // Omitted until 2026-08-13, which made the documented procedural-memory recipe inert:
+                // a host that set IncludeTraceOutcomes got a recalled procedure rendering its task and
+                // dropping its outcome -- "you have done this before" and nothing about how. The
+                // property existed, the option bound, and the bridge silently discarded it.
+                ctx.IncludeTraceOutcomes = src.IncludeTraceOutcomes;
                 ctx.ContextPrefix = src.ContextPrefix;
                 ctx.MaxChatHistoryMessages = src.MaxChatHistoryMessages;
                 ctx.SecurityMode = src.SecurityMode;

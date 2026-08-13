@@ -118,6 +118,25 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    public async Task<ReasoningTrace?> PromoteAsync(
+        string traceId, TraceKind kind, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(traceId);
+        _logger.LogDebug("Setting trace_kind={Kind} on reasoning trace {Id}", kind, traceId);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                ReasoningQueries.PromoteTrace,
+                new { id = traceId, traceKind = kind.ToString() }).ConfigureAwait(false);
+            // Same concurrent-delete contract as UpdateAsync: a prune between the caller's read and
+            // this write returns no rows, and null says "gone" rather than throwing something opaque.
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count == 0 ? null : MapToTrace(records[0]["t"].As<INode>(), null);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ReasoningTrace?> GetByIdAsync(string traceId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting reasoning trace {Id}", traceId);
