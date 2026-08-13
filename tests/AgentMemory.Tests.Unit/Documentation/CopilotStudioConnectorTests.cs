@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Xml.Linq;
 using System.Text.Json;
 using System.ComponentModel;
 using FluentAssertions;
@@ -120,6 +121,65 @@ public sealed class CopilotStudioConnectorTests
 
         definition.RootElement.GetProperty("host").GetString()
             .Should().Contain("REPLACE", "the definition must not carry a real deployment's hostname");
+    }
+
+    [Fact]
+    public void TheReadmeInvokesTheToolNameThatIsActuallyShipped()
+    {
+        // 0.10. The README said `agentmemory-mcp`; the shipped ToolCommandName is `agent-memory-mcp`.
+        // Step 1 of the only documented path hard-failed at the shell, before anything this connector
+        // does could be reached -- and the connector's own README warns that a doc which looks right
+        // and has never been run is exactly what gets announced and fails on first contact.
+        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "connectors", "copilot-studio", "README.md"));
+        var toolName = ShippedToolCommandName();
+
+        readme.Should().Contain(toolName);
+        readme.Should().NotContain("agentmemory-mcp", "that binary has never existed");
+    }
+
+    [Fact]
+    public void TheReadmeOnlyUsesFlagsTheHostAccepts()
+    {
+        // McpHostOptions treats an unknown flag as FATAL rather than ignoring it -- deliberately, so a
+        // typo in --read-only cannot start a writable server. That makes every flag in the README a
+        // hard dependency: `--http-url` and `--neo4j-uri` did not exist, so the documented command
+        // aborted on startup.
+        var readme = File.ReadAllText(Path.Combine(RepoRoot(), "connectors", "copilot-studio", "README.md"));
+        var known = KnownHostFlags();
+
+        // Only lines that INVOKE the host. `dotnet tool install --global` is a dotnet flag and has
+        // nothing to do with McpHostOptions; checking it would make the guard fail on correct docs,
+        // which is the fastest way to get a guard deleted.
+        var used = readme
+            .Split('\n')
+            .Where(line => line.Contains(ShippedToolCommandName(), StringComparison.Ordinal))
+            .SelectMany(line => System.Text.RegularExpressions.Regex
+                .Matches(line, @"(?<![\w-])--[a-z][a-z0-9-]*")
+                .Select(match => match.Value))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        used.Should().NotBeEmpty();
+        used.Should().BeSubsetOf(known,
+            "every flag the README tells an operator to type must be one the host accepts");
+    }
+
+    /// <summary>The tool command name from the host's own csproj, never a duplicated literal.</summary>
+    private static string ShippedToolCommandName()
+    {
+        var csproj = XDocument.Load(Path.Combine(
+            RepoRoot(), "tools", "AgentMemory.McpHost", "AgentMemory.McpHost.csproj"));
+        return csproj.Descendants("ToolCommandName").Single().Value;
+    }
+
+    /// <summary>The host's accepted flags, reflected off its own parser.</summary>
+    private static IReadOnlyList<string> KnownHostFlags()
+    {
+        var type = typeof(AgentMemory.McpHost.McpHostOptions);
+        var field = type.GetField("Known", BindingFlags.NonPublic | BindingFlags.Static)!;
+        return ((string[])field.GetValue(null)!)
+            .Where(flag => flag.StartsWith("--", StringComparison.Ordinal))
+            .ToList();
     }
 
     private static string RepoRoot()
