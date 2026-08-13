@@ -81,7 +81,9 @@ public sealed class GraphRagWiringTests
     }
 
     private static ServiceProvider Resolve(
-        string? graphRagIndexName, bool resolveTemporalQueries = false) =>
+        string? graphRagIndexName,
+        bool resolveTemporalQueries = false,
+        bool rescueShortOwnerResults = false) =>
         LongMemEvalMemoryProfile.ConfigureServices(
                 "bolt://localhost:7687",
                 Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>(),
@@ -96,6 +98,7 @@ public sealed class GraphRagWiringTests
                 // Named, so a future parameter inserted here cannot silently rebind this argument.
                 assistantContent: AssistantContentMode.Ignore,
                 resolveTemporalQueries: resolveTemporalQueries,
+                rescueShortOwnerResults: rescueShortOwnerResults,
                 graphRagIndexName: graphRagIndexName)
             .BuildServiceProvider();
 
@@ -112,5 +115,20 @@ public sealed class GraphRagWiringTests
 
         provider.GetRequiredService<IOptions<MemoryOptions>>().Value
             .ResolveTemporalQueries.Should().Be(enabled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheRescueShortOwnerResultsFlagReachesMemoryOptions(bool enabled)
+    {
+        // 22.4. This lever had ZERO harness references: the one option aimed squarely at "a short
+        // scoped result falls back to a bounded scan" could not be set from the benchmark at all --
+        // so the mechanism most directly matching the measured failure mode (coverage, worth 80
+        // points) was the single thing no run could exercise.
+        using var provider = Resolve(graphRagIndexName: null, rescueShortOwnerResults: enabled);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>().Value
+            .RescueShortOwnerResults.Should().Be(enabled);
     }
 }

@@ -219,3 +219,52 @@ nothing at all. There is slack, and it runs out abruptly.
 - The treated group is not randomly assigned — it is the questions with more gold sessions, which may
   be harder in other ways. The untouched group controls for run conditions, not for question
   difficulty. What it cannot be is an artifact of *noise*, because the control moved by zero.
+
+---
+
+# Addendum 3: the curve is a step, not a slope
+
+**Run:** `artifacts/evaluation/gold-completeness-fine-n30.json`, 2026-08-13. Same 30 questions, seed
+42, 5 nominal levels, 242 calls.
+
+Pooled by **realised per-question coverage** rather than by nominal level — `keepCount` is a ceiling
+over a per-question session count, so one nominal fraction produces many different actual coverages,
+and pooling gives a far finer curve than the levels cost.
+
+| Realised gold coverage | Correct | Accuracy |
+|---|---|---:|
+| 1.00 | 118/118 | **100.0%** |
+| 0.75 – 0.99 | 7/7 | **100.0%** |
+| 0.50 – 0.74 | 5/22 | **22.7%** |
+
+**It is a step function.** Complete or near-complete evidence answers essentially every question;
+below about three-quarters it collapses to roughly a fifth. There is no gentle degradation to trade
+against cost.
+
+## The witness earned itself again
+
+The run reports **VOID** for one level: `goldFraction=0.85 dropped no gold from any question`. The
+ceiling on `keepCount` made 0.85 identical to 1.00 for every question in the sample, and the guard
+refused to let a duplicate of the control be reported as a distinct measured point.
+
+The pooled analysis above survives that void because it keys on **realised** coverage, which is
+exactly why realised coverage is recorded per question. The nominal level sweep is void; the curve is
+not.
+
+## Limits, precisely
+
+- **118 observations, not 118 questions.** Four of the five levels left most questions at coverage
+  1.00, so the top row is the same ~29 questions measured repeatedly. It establishes that full
+  coverage answers reliably; it is not 118 independent trials.
+- **The 0.75–0.99 band holds 7 observations.** That is the weakest row and the most interesting one,
+  because it is where the step must sit.
+- **The resolution is bounded by the data, not the sweep.** A question with 2 gold sessions can only
+  have coverage 1.00 or 0.50 — there is no 0.75 for it. Probing 0.6–0.9 properly needs questions with
+  many gold sessions, which is a sampling change rather than a finer fraction.
+
+## What it changes
+
+Nothing about the direction, everything about the target. If the relationship were linear, partial
+coverage improvements would pay off proportionally and any retrieval gain would be worth having.
+A step means **the only coverage improvement that pays is the one that crosses the threshold** — and
+that a system sitting at 0.6 is not "60% of the way there", it is on the wrong side of a cliff.

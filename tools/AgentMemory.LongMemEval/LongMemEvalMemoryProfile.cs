@@ -42,6 +42,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool usePredicateVocabulary = false,
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
         bool resolveTemporalQueries = false,
+        bool rescueShortOwnerResults = false,
         string? graphRagIndexName = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
@@ -73,6 +74,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     usePredicateVocabulary,
                     assistantContent,
                     resolveTemporalQueries,
+                    rescueShortOwnerResults,
                     graphRagIndexName,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -100,6 +102,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
         bool resolveTemporalQueries,
+        bool rescueShortOwnerResults,
         string? graphRagIndexName,
         CancellationToken cancellationToken)
     {
@@ -125,6 +128,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             usePredicateVocabulary,
             assistantContent,
             resolveTemporalQueries,
+            rescueShortOwnerResults,
             graphRagIndexName,
             multiSessionBatch);
 
@@ -161,6 +165,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
         bool resolveTemporalQueries,
+        bool rescueShortOwnerResults,
         string? graphRagIndexName,
         bool multiSessionBatch = true)
     {
@@ -197,6 +202,11 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 // 13.3. Off by default so every sealed measurement keeps taking the path it was taken
                 // under; the ablation turns it on explicitly and re-runs the SAME frozen corpus.
                 ResolveTemporalQueries = resolveTemporalQueries,
+                // 22.4. A coverage lever with ZERO harness references until now: the one option aimed
+                // squarely at "a short scoped result falls back to a bounded scan" could not be set
+                // from the benchmark, so the mechanism most directly matching the measured failure
+                // mode was the one thing no run could exercise.
+                RescueShortOwnerResults = rescueShortOwnerResults,
             },
             neo4j =>
             {

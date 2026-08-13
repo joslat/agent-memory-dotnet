@@ -195,7 +195,8 @@ internal static class LongMemEvalPreparedPairProgram
                         maxConcurrentExtractionBatches:
                             options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
                         usePredicateVocabulary: options.UsePredicateVocabulary,
-                        assistantContent: options.AssistantContent)
+                        assistantContent: options.AssistantContent,
+                        rescueShortOwnerResults: options.RescueShortOwnerResults)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -849,6 +850,7 @@ internal static class LongMemEvalPreparedPairProgram
                     // without them two runs over the same frozen graph are indistinguishable in the
                     // artifact - which is precisely the comparison reuse exists to make.
                     expandFactsByPredicate = options.ExpandFactsByPredicate,
+                    rescueShortOwnerResults = options.RescueShortOwnerResults,
                     resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
                     // Fingerprinted for the same reason the vocabulary is: it changes what
@@ -1447,7 +1449,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
         "--description", "--memory-types", "--allow-stale-prepared",
         "--abstention", "--abstention-proportion",
-        "--use-predicate-vocabulary", "--judge-protocol",
+        "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
     ];
 
     private static PreparedPairOptions Parse(string[] args)
@@ -1494,6 +1496,7 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--retain-prepared-volumes"),
             Has("--use-predicate-vocabulary"),
             ParseAssistantContent(Value("--assistant-content")),
+            Has("--rescue-short-owner-results"),
             // Default true reproduces every run recorded so far. Passing --single-session-unified
             // measures LlmUnifiedMemoryExtractor, the extractor an ordinary consumer gets from
             // UseUnifiedExtraction and which no measurement had ever exercised.
@@ -1844,6 +1847,7 @@ internal static class LongMemEvalPreparedPairProgram
         bool RetainPreparedVolumes,
         bool UsePredicateVocabulary,
         AssistantContentMode AssistantContent,
+        bool RescueShortOwnerResults,
         bool MultiSessionBatch,
         bool ExpandFactsByPredicate,
         bool ResolveQueryRelations,

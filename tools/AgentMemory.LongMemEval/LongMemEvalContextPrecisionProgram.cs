@@ -73,9 +73,16 @@ internal static class LongMemEvalContextPrecisionProgram
 
                 foreach (var question in questions)
                 {
+                    var goldKept = 0;
+                    var goldTotal = 0;
                     var context = BuildContext(
                         question, k, options.Seed, out var distractorsAdded, goldFraction,
-                        (kept, total) => { if (kept < total) goldDropped++; });
+                        (kept, total) =>
+                        {
+                            goldKept = kept;
+                            goldTotal = total;
+                            if (kept < total) goldDropped++;
+                        });
                     if (distractorsAdded > 0) addedAny++;
                     totalChars += context.Sum(entry => entry.Content.Length);
 
@@ -119,6 +126,15 @@ internal static class LongMemEvalContextPrecisionProgram
                         status = "completed",
                         correct = judgment.Correct,
                         distractorSessions = distractorsAdded,
+                        // REALISED coverage, not the nominal fraction. keepCount is a ceiling over a
+                        // per-question session count, so one nominal level produces many different
+                        // actual coverages -- a question with 2 gold sessions is untouched at 0.75 and
+                        // halved at 0.5, while one with 8 steps through 6, 5, 4. Recording the real
+                        // ratio lets every level pool into one curve, which is a far finer measurement
+                        // than the four nominal points cost.
+                        goldSessionsKept = goldKept,
+                        goldSessionsTotal = goldTotal,
+                        goldCoverage = goldTotal == 0 ? (double?)null : (double)goldKept / goldTotal,
                         contextChars = context.Sum(entry => entry.Content.Length),
                     });
                 }
