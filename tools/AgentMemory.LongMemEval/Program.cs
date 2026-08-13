@@ -63,6 +63,13 @@ internal static class LongMemEvalProgram
             return 0;
         }
 
+        if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
+        {
+            // 7.6. The arms differ in exactly two things -- trace recall and promotion -- so that any
+            // measured gap is attributable to memory rather than to a differently-equipped agent.
+            return await ProceduralBenefitProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--prepared-pair", StringComparer.Ordinal))
         {
             return await LongMemEvalPreparedPairProgram.RunAsync(args)
@@ -378,6 +385,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
+        "--procedural-benefit", "--attempts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
