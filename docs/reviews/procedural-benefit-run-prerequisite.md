@@ -125,3 +125,42 @@ and not a wording problem.
 The harness, runner, promotion path and arm switch are all built, tested, and demonstrated working
 end to end across two runs. **What is missing is a task hard enough to measure them with.** The
 figures from both runs should not be cited as evidence about procedural memory in either direction.
+
+
+---
+
+## Third run: arbitrary dependency added, still no discrimination — and now the reason is structural
+
+Added the dependency the second run's write-up called for: booking requires a `clearanceCode`, and
+the only source is a **service bulletin** lookup — a tool whose name gives no hint. The refusal names
+the missing code and never says where to find it. Unit tests pin both.
+
+Result: **4 tool calls, both arms, zero refusals.** The model simply called *all four tools* before
+booking.
+
+**That is the structural finding, and it survives any amount of dependency-hiding:** with a small
+tool set, exhaustive calling is a cheap and correct strategy. The agent never has to *discover* the
+ordering because it never has to *choose* — it can afford to call everything. A stored procedure
+saves nothing when the unguided policy is already near-optimal.
+
+So the requirement is not "hide the dependency" but **make exploration expensive**:
+
+- **A large action space** — dozens of tools, so calling them all costs more than the task is worth;
+  or
+- **irreversible or penalised wrong steps** — a wrong call that consumes a booking slot, charges a
+  fee, or must be undone, so that exploring has a price the harness can see; or
+- **a long chain**, where the number of orderings grows fast enough that guessing stops working.
+
+All three make the benchmark meaningfully bigger. That is the honest scope of what is left.
+
+### Three designs, one conclusion
+
+| Attempt | Change | Result |
+|---|---|---|
+| 1 | Enforced chain, prerequisites in descriptions | 3 calls, 0 refusals — chain read off the prose |
+| 2 | Prerequisites removed from all descriptions | 3 calls, 0 refusals — chain read off parameter names |
+| 3 | Arbitrary dependency behind an unhinted tool | 4 calls, 0 refusals — agent called every tool |
+
+The harness, runner, promotion path and arm switch are built, tested, and demonstrated working end to
+end across all three. **None of these figures is evidence about procedural memory.** What is missing
+is a task whose action space is large enough that exploration costs something.
