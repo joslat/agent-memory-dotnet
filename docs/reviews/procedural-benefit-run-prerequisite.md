@@ -89,3 +89,39 @@ Withhold the prerequisites from the descriptions — name each tool's purpose an
 message teach the ordering. Then the control arm must discover the chain by being refused on every
 attempt, while the procedural arm pays that cost once. Re-run after that change; the current numbers
 should not be cited.
+
+
+---
+
+## Second run: descriptions cleaned, still no discrimination
+
+Removed every prerequisite from the tool and parameter descriptions, and added two guards asserting
+they stay out. Re-ran. **Identical result — zero refusals, 3 tool calls, both arms the same.**
+
+So the leak was never only in the prose. `PlaceHold(connection, tier)` and `Book(holdReference)`
+telegraph the chain through their **parameter names**: a model that sees a `tier` argument it cannot
+fill goes looking for the tool that yields one. The information is in the signature, and a signature
+cannot be obfuscated without making the task artificial in a different way.
+
+**The honest conclusion: a three-step chain over semantically-named tools is not a procedural-memory
+benchmark for a competent model.** There is nothing to discover. This is a property of the task
+class, not of wording, and no amount of description-editing fixes it.
+
+### What a discriminating task actually needs
+
+An ordering the model cannot infer from names or types — the dependency has to be **arbitrary**:
+
+- An opaque token obtainable only from a tool whose name does not suggest it (e.g. `book` requires a
+  `clearanceCode` that only `check_weather` returns), so the chain is learnable but not guessable; or
+- a longer chain where the *branch* taken depends on a value discovered mid-run, so a single stored
+  procedure encodes a decision rather than a sequence.
+
+Both are real design work, and both risk the opposite failure — a task so artificial that succeeding
+at it says nothing about agents doing real work. That tension is why this is a task-design problem
+and not a wording problem.
+
+### Status
+
+The harness, runner, promotion path and arm switch are all built, tested, and demonstrated working
+end to end across two runs. **What is missing is a task hard enough to measure them with.** The
+figures from both runs should not be cited as evidence about procedural memory in either direction.
