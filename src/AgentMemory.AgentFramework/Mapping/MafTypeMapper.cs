@@ -119,6 +119,18 @@ internal static class MafTypeMapper
             return messages;
         }
 
+        // One admitted trace's rendered text. The outcome is appended rather than replacing the task:
+        // "what was attempted" is what makes a recalled outcome interpretable, and a procedure without
+        // its task reads as a bare instruction -- exactly the shape the admission policy is watching for.
+        //
+        // Joined with ": " and not an arrow, because every admitted block is HTML-escaped (#92 Phase 1):
+        // a "->" separator renders to the model as "-&gt;". Matching the format MemoryQueryFacade already
+        // uses for a trace ("task: outcome") keeps one shape across both surfaces.
+        string DescribeTrace(ReasoningTrace trace) =>
+            options.IncludeTraceOutcomes && !string.IsNullOrWhiteSpace(trace.Outcome)
+                ? $"{trace.Task}: {trace.Outcome}"
+                : trace.Task;
+
         // Build chat messages and memory-derived system messages into SEPARATE buckets and budget them
         // independently. The whole point of this provider is to inject long-term memory; appending memory
         // AFTER chat and then Take()-ing a shared budget put memory at the tail, so once a conversation had
@@ -186,8 +198,13 @@ internal static class MafTypeMapper
             memory.AddRange(CategoryMessages("preferences", context.RelevantPreferences.Items, p => p.PreferenceText,
                 p => p.Metadata.GetTrustLevel(), "User preferences: ", "; "));
 
+        // A trace's Task is what was attempted; its Outcome is what happened -- and on a REPEATED task
+        // the Task text is something the agent already has, so rendering it alone tells the model it has
+        // been here before and nothing about how it got through. That is the whole content of a promoted
+        // procedure, so trace recall was structurally unable to convey one (opt-in: see
+        // ContextFormatOptions.IncludeTraceOutcomes).
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
-            memory.AddRange(CategoryMessages("traces", context.SimilarTraces.Items, t => t.Task,
+            memory.AddRange(CategoryMessages("traces", context.SimilarTraces.Items, DescribeTrace,
                 t => t.Metadata.GetTrustLevel(), "Similar past tasks: ", "; "));
 
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))

@@ -31,6 +31,32 @@ public sealed class ContextFormatOptions
     public bool IncludeReasoningTraces { get; set; } = false;
 
     /// <summary>
+    /// When <see langword="true"/>, a recalled reasoning trace also renders its recorded
+    /// <c>Outcome</c>, not only its <c>Task</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Without this, trace recall cannot convey a procedure.</b> A trace's <c>Task</c> is a
+    /// description of what was attempted, and on a repeated task it is text the agent is already
+    /// holding — so the injected block says "you have done something like this before" and nothing
+    /// about <i>how</i>. Whatever the trace learned lives in <c>Outcome</c>, which was rendered
+    /// nowhere. Procedural memory (<see cref="AgentMemory.Abstractions.Domain.TraceKind.Procedure"/>)
+    /// is retrievable, owner-scoped, prune-exempt and completely mute on this path until this is on.
+    /// </para>
+    /// <para>
+    /// Off by default, and not because the payload is large: an outcome is model-written text, so
+    /// turning it on changes both the prompt bytes and what the recalled block can influence. It is
+    /// admitted and delimited exactly like every other recalled item (#92 Phase 1/2), which is what
+    /// makes it safe to enable — not trusted, quoted.
+    /// </para>
+    /// <para>
+    /// <see cref="IncludeReasoningTraces"/> still gates the block entirely; this only widens what each
+    /// admitted trace contributes. Blank outcomes render as before.
+    /// </para>
+    /// </remarks>
+    public bool IncludeTraceOutcomes { get; set; } = false;
+
+    /// <summary>
     /// System-message text prepended to the context block. Set to <see cref="string.Empty"/> to omit the
     /// prefix -- entities/facts/preferences/traces/GraphRAG blocks are always included when their
     /// corresponding <c>Include*</c> flag is set regardless of <see cref="MaxChatHistoryMessages"/> (#91),

@@ -42,6 +42,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory\AgentMemory.csproj" />
+    <!--
+      The MAF adapter is NOT part of the AgentMemory meta-package, so it has to be referenced
+      explicitly. 7.6's procedural arm is a real agent reading real recalled memory, which means the
+      shipped Neo4jMemoryContextProvider rather than a stand-in: a benchmark wired to a substitute
+      would measure the substitute, and the gap this reference closed (no provider on either arm)
+      voided five runs before it was noticed.
+    -->
+    <ProjectReference Include="..\..\src\AgentMemory.AgentFramework\AgentMemory.AgentFramework.csproj" />
   </ItemGroup>
 
   <ItemGroup>

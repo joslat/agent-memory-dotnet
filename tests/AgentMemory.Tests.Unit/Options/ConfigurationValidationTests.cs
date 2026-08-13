@@ -554,6 +554,14 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void ContextFormatOptions_Default_IncludeTraceOutcomesIsFalse()
+    {
+        // A trace's outcome is model-written text. Enabling it changes both the prompt bytes and what a
+        // recalled block can influence, so it must stay a host's explicit decision.
+        new ContextFormatOptions().IncludeTraceOutcomes.Should().BeFalse();
+    }
+
+    [Fact]
     public void ContextFormatOptions_Default_ContextPrefixIsNotEmpty()
     {
         new ContextFormatOptions().ContextPrefix.Should().NotBeNullOrWhiteSpace();

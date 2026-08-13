@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Recalled reasoning traces can carry their outcome (opt-in).**
+  `ContextFormatOptions.IncludeTraceOutcomes`, default `false`. A recalled trace rendered its `Task`
+  and dropped its `Outcome`, so on a repeated task the injected block told the agent it had done this
+  before and nothing about *how* — the `Task` text is what the agent is already holding. Everything a
+  promoted procedure (`TraceKind.Procedure`) knows lives in `Outcome`, which means procedural memory
+  was retrievable, owner-scoped, prune-exempt and **mute** on the Agent Framework surface. Found while
+  wiring PLAN 7.6's benefit measurement, where it was one of three shut gates that each produce an
+  identical "no benefit" result.
+
+  Off by default because an outcome is model-written text: enabling it changes both the prompt bytes
+  and what a recalled block can influence. It is admitted and delimited like every other recalled item
+  (#92 Phase 1/2) — quoted, not trusted. `IncludeReasoningTraces` still gates the block entirely.
+  Renders as `"task: outcome"`; note that a procedure written with `->` arrives at the model as
+  `-&gt;` because admitted blocks are HTML-escaped, so write chains in words.
+
 - **Valid-time recall (opt-in).** `RecallOptions.ValidTime = ValidTimeMode.Current` filters facts on
   their real-world window (`valid_from`/`valid_until`) rather than only on the transaction clock.
   Default `Ignore`, which is byte-for-byte today's behaviour, and `MemoryProfile.Parity` resolves to

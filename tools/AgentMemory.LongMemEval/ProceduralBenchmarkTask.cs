@@ -81,6 +81,28 @@ internal sealed class ProceduralBenchmarkTask
     internal bool IsComplete(string response) =>
         response.Contains(ConfirmationMarker, StringComparison.Ordinal);
 
+    /// <summary>Marker every refusal in this environment starts with.</summary>
+    /// <remarks>
+    /// Every tool that declines does so with this prefix, so "was this call refused" is an exact string
+    /// test rather than a guess about the shape of a sentence. The agent gains nothing from it — the
+    /// word appears in the refusal text either way — and the harness gains the ability to tell a call
+    /// that worked from a call that was turned away.
+    /// </remarks>
+    internal const string RefusalPrefix = "refused:";
+
+    /// <summary>
+    /// Whether a tool result is a refusal, i.e. whether that call did any work.
+    /// </summary>
+    /// <remarks>
+    /// Supplied to the runner so a promoted procedure records the calls that <b>worked</b>. Without it,
+    /// promotion stores the transcript of how the agent stumbled into success — including the call it was
+    /// refused on — and replaying that reproduces the mistake. The seventh run measured exactly that: the
+    /// promoted chain read "PlaceHold then RefreshSession then PlaceHold", so the arm holding the
+    /// procedure still paid for the wasted call, and the two arms tied at six tool calls.
+    /// </remarks>
+    internal static bool IsRefusal(string result) =>
+        result.StartsWith(RefusalPrefix, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Words that would give the chain away if they appeared in a tool description.
     /// </summary>

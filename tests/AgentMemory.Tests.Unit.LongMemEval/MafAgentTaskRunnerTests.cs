@@ -1,6 +1,7 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
+using AgentMemory.Abstractions.Services;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
 using NSubstitute;
@@ -97,6 +98,74 @@ public sealed class MafAgentTaskRunnerTests
     }
 
     [Fact]
+    public void TheProcedureChainExcludesRefusedCalls()
+    {
+        // A transcript is not a procedure. The raw sequence is how the agent DISCOVERED the route, and
+        // replaying it repeats the wasted call -- which is what tied the arms at six tool calls on the
+        // seventh run.
+        var messages = new[]
+        {
+            Assistant(Call("c1", "PlaceHold")),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "refused: session is stale")]),
+            Assistant(Call("c2", "RefreshSession")),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c2", "session refreshed")]),
+            Assistant(Call("c3", "PlaceHold")),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c3", "hold placed; reference=H1")]),
+        };
+
+        MafAgentTaskRunner.ProcedureChain(messages, ProceduralBenchmarkTask.IsRefusal)
+            .Should().Equal("RefreshSession", "PlaceHold");
+    }
+
+    [Fact]
+    public void RefusedCallsAreStillCountedAsToolCalls()
+    {
+        // Filtering changes what is LEARNED, never what was CHARGED. The agent really did spend the
+        // refused call, and discounting it would make the instrument flatter the feature.
+        var messages = new[]
+        {
+            Assistant(Call("c1", "PlaceHold")),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "refused: session is stale")]),
+            Assistant(Call("c2", "RefreshSession")),
+        };
+
+        MafAgentTaskRunner.CountToolCalls(messages).Should().Be(2);
+    }
+
+    [Fact]
+    public void WithoutARefusalPredicateEveryCallIsRecorded()
+    {
+        // No silent filtering for a caller that never opted in: a task whose refusals are worded
+        // differently must not have its procedures quietly trimmed by a guess made here.
+        var messages = new[]
+        {
+            Assistant(Call("c1", "PlaceHold")),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "refused: session is stale")]),
+            Assistant(Call("c2", "RefreshSession")),
+        };
+
+        MafAgentTaskRunner.ProcedureChain(messages, isRefusal: null)
+            .Should().Equal("PlaceHold", "RefreshSession");
+    }
+
+    [Fact]
+    public void RefusalsArePairedByCallIdNotByPosition()
+    {
+        // A batched assistant turn issues several calls whose results arrive separately. Matching by
+        // order would attribute one call's refusal to another and store a procedure missing a step that
+        // worked.
+        var messages = new[]
+        {
+            Assistant(Call("c1", "Alpha"), Call("c2", "Beta")),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c2", "refused: not yet")]),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "alpha done")]),
+        };
+
+        MafAgentTaskRunner.ProcedureChain(messages, ProceduralBenchmarkTask.IsRefusal)
+            .Should().Equal("Alpha");
+    }
+
+    [Fact]
     public void CompletionIsDecidedByTheCallerNotTheAgent()
     {
         // An agent that learned a WRONG procedure reports success fluently. Completion has to be
@@ -143,12 +212,25 @@ public sealed class ProcedurePromotionTests
 
     private static readonly string[] Chain = ["LookUpTraveller", "PlaceHold", "Book"];
 
-    private static MafAgentTaskRunner Runner(IReasoningTraceRepository? traces) =>
-        new(_ => null!, "book it", _ => true, traces);
+    private static readonly float[] Vector = [0.1f, 0.2f, 0.3f];
+
+    /// <summary>An orchestrator that embeds successfully, which is the ordinary case.</summary>
+    private static IEmbeddingOrchestrator Embeddings(float[]? vector = null)
+    {
+        var embeddings = Substitute.For<IEmbeddingOrchestrator>();
+        embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(vector ?? Vector));
+        return embeddings;
+    }
+
+    private static MafAgentTaskRunner Runner(
+        IReasoningTraceRepository? traces, IEmbeddingOrchestrator? embeddings = null) =>
+        new(_ => null!, "book it", _ => true, traces, embeddings ?? Embeddings());
 
     private static Task PromoteAsync(
-        IReasoningTraceRepository traces, bool completed, bool enabled) =>
-        Runner(traces).PromoteIfWorthKeepingAsync(
+        IReasoningTraceRepository traces, bool completed, bool enabled,
+        IEmbeddingOrchestrator? embeddings = null) =>
+        Runner(traces, embeddings).PromoteIfWorthKeepingAsync(
             new AgentTaskRun(completed, Steps: 3, ToolCalls: 3), enabled, Chain);
 
     [Fact]
@@ -166,13 +248,57 @@ public sealed class ProcedurePromotionTests
     [Fact]
     public async Task ThePromotedTraceIsAProcedureNotAnEpisode()
     {
-        // Owner-scoped procedural recall filters on procedures, so an episode-kinded trace is stored,
-        // recalled by nothing, and presents as exactly the false negative this prevents.
+        // The kind is what proceduresOnly recall and the retention exemption key on. (It is NOT what the
+        // MAF provider's automatic recall filters on -- that path passes no kind filter at all. An
+        // earlier version of this comment claimed it did, which was wrong and would have sent anyone
+        // debugging an empty procedural arm to the wrong place.)
         var (repo, added) = Traces();
 
         await PromoteAsync(repo, completed: true, enabled: true);
 
         added.Single().Kind.Should().Be(TraceKind.Procedure);
+    }
+
+    [Fact]
+    public async Task ThePromotedTraceCarriesATaskEmbedding()
+    {
+        // THE gap that would have voided the seventh run. Trace recall is a vector search -- the indexed
+        // path and the owner-scoped fallback both require task_embedding IS NOT NULL -- so a procedure
+        // stored without one is persisted, counted as promoted, and returned by nothing.
+        var (repo, added) = Traces();
+
+        await PromoteAsync(repo, completed: true, enabled: true);
+
+        added.Single().TaskEmbedding.Should().BeEquivalentTo(Vector);
+    }
+
+    [Fact]
+    public async Task PromotionWithoutAnEmbedderThrowsRatherThanStoringAnUnreachableProcedure()
+    {
+        // Failing loudly is the whole point: a silently unreachable procedure reads as an honest
+        // negative result, which is how five earlier runs came to measure nothing.
+        var (repo, added) = Traces();
+        var runner = new MafAgentTaskRunner(_ => null!, "book it", _ => true, repo, embeddings: null);
+
+        var act = async () => await runner.PromoteIfWorthKeepingAsync(
+            new AgentTaskRun(true, 3, 3), procedureMemoryEnabled: true, Chain);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        added.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AnEmptyEmbeddingVectorThrowsRatherThanStoringAnUnreachableProcedure()
+    {
+        // EmbedAsync returns an EMPTY array on failure rather than throwing, so this is the quiet
+        // version of the same defect: promotion appears to succeed and the arm recalls nothing.
+        var (repo, added) = Traces();
+
+        var act = async () => await PromoteAsync(
+            repo, completed: true, enabled: true, embeddings: Embeddings([]));
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        added.Should().BeEmpty();
     }
 
     [Fact]
@@ -202,12 +328,14 @@ public sealed class ProcedurePromotionTests
     [Fact]
     public async Task TheProcedureRecordsTheToolChain()
     {
-        // What makes it reusable rather than a note that something worked once.
+        // What makes it reusable rather than a note that something worked once. Worded to survive the
+        // HTML escaping every recalled block goes through (#92 Phase 1) -- an arrow-joined chain reaches
+        // the model as "a -&gt; b", which is the procedure arriving damaged rather than not arriving.
         var (repo, added) = Traces();
 
         await PromoteAsync(repo, completed: true, enabled: true);
 
-        added.Single().Outcome.Should().Be("LookUpTraveller -> PlaceHold -> Book");
+        added.Single().Outcome.Should().Be("LookUpTraveller then PlaceHold then Book");
     }
 
     [Fact]
