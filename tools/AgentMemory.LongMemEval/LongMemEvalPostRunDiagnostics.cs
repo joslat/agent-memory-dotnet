@@ -90,7 +90,8 @@ internal static class LongMemEvalPostRunDiagnostics
         LongMemEvalOracleMode oracleMode,
         int judgeRetryAttempts,
         bool retainContent,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText)
     {
         ArgumentNullException.ThrowIfNull(chatClient);
         ArgumentNullException.ThrowIfNull(evidenceIndex);
@@ -106,7 +107,12 @@ internal static class LongMemEvalPostRunDiagnostics
         var oracleResults = new List<LongMemEvalOracleResult>();
         var diagnosticCalls = 0;
 
-        foreach (var question in questionResults.Where(NeedsJudgeRetry))
+        // 3.7. NeedsJudgeRetry is a free-text parse check, so under StructuredJson it reports every
+        // question as needing repair and the retry fires N times -- which is what zeroed the base
+        // judge-call count and tripped the bound. Only the RETRY is suppressed; the oracle pass below
+        // is a separate loop and still runs, so no diagnostic coverage is lost.
+        foreach (var question in questionResults.Where(q =>
+                     verdictProtocol != JudgeVerdictProtocol.StructuredJson && NeedsJudgeRetry(q)))
         {
             var indexed = evidenceIndex.GetByQuestionId(question.QuestionId);
             var retry = await RetryJudgeAsync(
@@ -167,13 +173,21 @@ internal static class LongMemEvalPostRunDiagnostics
         LongMemEvalEvidenceIndex evidenceIndex,
         IReadOnlyList<QuestionResult> questionResults,
         int judgeRetryAttempts,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText)
     {
         ArgumentNullException.ThrowIfNull(chatClient);
         ArgumentNullException.ThrowIfNull(evidenceIndex);
         ArgumentNullException.ThrowIfNull(questionResults);
         if (judgeRetryAttempts < 0)
             throw new ArgumentOutOfRangeException(nameof(judgeRetryAttempts));
+
+        // 3.7. The retry repairs an UNPARSEABLE FREE-TEXT verdict. Under StructuredJson there is no
+        // prose to re-parse, so it would fire on every question -- which is precisely what drove base
+        // judge calls to zero and tripped the call-accounting bound on the first StructuredJson run.
+        // Suppressing it here is what lets that bound pass untouched rather than being widened.
+        if (verdictProtocol == JudgeVerdictProtocol.StructuredJson)
+            return Array.Empty<LongMemEvalJudgeRetryResult>();
 
         var judge = new LongMemEvalJudge(chatClient, NullLogger<LongMemEvalJudge>.Instance);
         var retries = new List<LongMemEvalJudgeRetryResult>();

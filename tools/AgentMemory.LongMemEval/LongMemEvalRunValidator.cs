@@ -65,7 +65,8 @@ internal static class LongMemEvalRunValidator
         long expectedInitialExtractionCalls = 0,
         int diagnosticJudgeCalls = 0,
         int agentEvalJudgeRetryAllowance = 0,
-        IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries = null)
+        IReadOnlyList<LongMemEvalJudgeRetryResult>? judgeRetries = null,
+        JudgeVerdictProtocol verdictProtocol = JudgeVerdictProtocol.FreeText)
     {
         ArgumentNullException.ThrowIfNull(telemetry);
         ArgumentNullException.ThrowIfNull(questionResults);
@@ -273,6 +274,18 @@ internal static class LongMemEvalRunValidator
             // judge response report a clean "No", which is exactly the silent miscount
             // Validate_RejectsEmptyJudgeVerdictInsteadOfCountingItIncorrect exists to prevent. That
             // test caught this change and was right to.
+            // 3.7. Under StructuredJson the judge does not answer in prose, so re-parsing the
+            // explanation checks a thing the protocol removed -- and gets it wrong, which is what
+            // rejected the first StructuredJson run on every question in both arms.
+            //
+            // This cross-check exists to catch AgentEval's FREE-TEXT parser mis-scoring ("yes -- there
+            // is no discrepancy" read as a no). StructuredJson eliminates that failure at the source,
+            // so skipping the check there removes a guard whose subject no longer exists rather than
+            // relaxing one that still applies. AgentEval's own Correct is then the verdict; there is
+            // no structured verdict property on QuestionResult to read instead.
+            if (verdictProtocol == JudgeVerdictProtocol.StructuredJson)
+                continue;
+
             if (!TryParseJudgeVerdict(explanation, out var judgedCorrect) &&
                 !HasRecoveredVerdict(question.QuestionId, judgeRetries))
             {
