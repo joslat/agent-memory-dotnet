@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -29,6 +29,27 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
     private long _failureDetailSlots;
     private long _droppedFailureDetails;
     private long _droppedCallDetails;
+
+    /// <summary>
+    /// Backend build ids observed on responses, and how many calls each one served.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A model pinned by name is not pinned by build.</b> This deployment rejects
+    /// <c>temperature: 0</c>, which is why extraction here is nondeterministic and why three cold builds
+    /// of an identical configuration shared 7.5% of their triples. The provider only offers determinism
+    /// while its backend build is unchanged — so the build id is the one datum that can tell a reader
+    /// that two runs were never comparable in the first place, rather than leaving every difference
+    /// attributable to the change under test.
+    /// </para>
+    /// <para>
+    /// More than one distinct value in a <i>single</i> run is the sharper finding: the run itself
+    /// straddled a backend change, so even its internal arm-to-arm comparison is suspect.
+    /// </para>
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, long> _providerBuilds = new(StringComparer.Ordinal);
+
+    private long _callsWithoutProviderBuild;
     internal IDisposable BeginScope(string scope)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
@@ -62,8 +83,32 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
             FailureDetails = _failureDetails.ToArray(),
             DroppedFailureDetails = Interlocked.Read(ref _droppedFailureDetails),
             CallDetails = _callDetails.OrderBy(detail => detail.CallOrdinal).ToArray(),
-            DroppedCallDetails = Interlocked.Read(ref _droppedCallDetails)
+            DroppedCallDetails = Interlocked.Read(ref _droppedCallDetails),
+            ProviderBuilds = _providerBuilds
+                .OrderByDescending(pair => pair.Value)
+                .ThenBy(pair => pair.Key, StringComparer.Ordinal)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+            CallsWithoutProviderBuild = Interlocked.Read(ref _callsWithoutProviderBuild)
         };
+    }
+
+    /// <summary>
+    /// Records the backend build a response came from, when the provider reported one.
+    /// </summary>
+    /// <remarks>
+    /// Absence is counted, never substituted. "The provider did not report a build" and "the build was X"
+    /// are different facts, and a sentinel would let a report claim a comparability it cannot support.
+    /// </remarks>
+    private void RecordProviderBuild(ChatResponse response)
+    {
+        var build = ProviderBuildId.FromChatResponse(response);
+        if (string.IsNullOrEmpty(build))
+        {
+            Interlocked.Increment(ref _callsWithoutProviderBuild);
+            return;
+        }
+
+        _providerBuilds.AddOrUpdate(build, 1, static (_, count) => count + 1);
     }
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -89,9 +134,11 @@ internal sealed class LongMemEvalChatCallMeter(IChatClient inner) : IChatClient
         Exception? failure = null;
         try
         {
-            return await inner.GetResponseAsync(
+            var response = await inner.GetResponseAsync(
                     materializedMessages, options, cancellationToken)
                 .ConfigureAwait(false);
+            RecordProviderBuild(response);
+            return response;
         }
         catch (Exception exception)
         {
@@ -387,6 +434,19 @@ public sealed record LongMemEvalChatCallSnapshot(
         Array.Empty<LongMemEvalChatCallDetail>();
 
     public long DroppedCallDetails { get; init; }
+
+    /// <summary>Backend build ids the provider reported, and the calls each served.</summary>
+    public IReadOnlyDictionary<string, long> ProviderBuilds { get; init; } =
+        new Dictionary<string, long>(StringComparer.Ordinal);
+
+    /// <summary>Calls whose response carried no build id. Counted, never substituted.</summary>
+    public long CallsWithoutProviderBuild { get; init; }
+
+    /// <summary>
+    /// Whether this run straddled a backend build change, which makes even its own internal
+    /// comparisons suspect.
+    /// </summary>
+    public bool ProviderBuildChangedDuringRun => ProviderBuilds.Count > 1;
 
     public static LongMemEvalChatCallSnapshot Zero { get; } =
         new(0, 0, TimeSpan.Zero);

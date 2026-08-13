@@ -695,7 +695,12 @@ internal static class LongMemEvalPreparedPairProgram
                     preparedAtUtc: DateTimeOffset.UtcNow.ToString("O"),
                     description: options.Description ?? string.Empty,
                     memoryTypes: options.MemoryTypes,
-                    questionSeed: options.Seed);
+                    questionSeed: options.Seed,
+                    // S-4. Observed, not configured: what backend build actually served this corpus's
+                    // extraction calls. More than one value means the build changed mid-preparation, so
+                    // the corpus is not even internally uniform -- worth knowing before it is adopted as
+                    // a sealed base and compared against another.
+                    extractionProviderBuilds: [.. extractionCalls.Snapshot().ProviderBuilds.Keys]);
 
                 var seal = Stopwatch.StartNew();
                 var store = new Neo4jLongMemEvalPreparationStore(driver);

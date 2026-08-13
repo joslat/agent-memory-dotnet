@@ -60,7 +60,15 @@ internal sealed record LongMemEvalPreparationManifest(
     string PreparedAtUtc = "",
     string Description = "",
     IReadOnlyList<string>? MemoryTypes = null,
-    int QuestionSeed = 0)
+    int QuestionSeed = 0,
+    // The provider's backend build ids, as OBSERVED during extraction (S-4). Deliberately NOT part of
+    // the fingerprint, and the reason is worth stating: a build id is not something this project
+    // configures, so hashing it would make every corpus non-reusable the moment the provider updated
+    // its backend -- discarding a nine-hour build over a change nobody here made. What it does buy is
+    // the ability to say that two corpora were built on different backends, which is the difference
+    // between "your change moved the number" and "these two runs were never comparable". Empty when the
+    // provider reported none; a placeholder would let a report deny incomparability it cannot rule out.
+    IReadOnlyList<string>? ExtractionProviderBuilds = null)
 {
     public const int CurrentSchemaVersion = 6;
 
@@ -102,7 +110,8 @@ internal sealed record LongMemEvalPreparationManifest(
         string preparedAtUtc = "",
         string description = "",
         IReadOnlyList<string>? memoryTypes = null,
-        int questionSeed = 0)
+        int questionSeed = 0,
+        IReadOnlyList<string>? extractionProviderBuilds = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preparationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetSha256);
@@ -176,7 +185,8 @@ internal sealed record LongMemEvalPreparationManifest(
             PreparedAtUtc: preparedAtUtc,
             Description: description,
             MemoryTypes: memoryTypes ?? [],
-            QuestionSeed: questionSeed);
+            QuestionSeed: questionSeed,
+            ExtractionProviderBuilds: extractionProviderBuilds ?? []);
         return manifest with { Fingerprint = ComputeFingerprint(manifest) };
     }
 
