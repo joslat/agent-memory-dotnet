@@ -70,6 +70,19 @@ internal sealed class ContextResource
                 preference = p.PreferenceText,
                 category = p.Category
             }),
+            // 0.7. Every sibling category projected its content and this one projected only a count,
+            // so procedural memory was invisible through the resource while still costing a vector
+            // search on every recall. Outcome travels with task deliberately: a trace that renders
+            // what was attempted and drops how it went says "you have done this before" and nothing
+            // useful -- the product gap 7.6 spent five runs finding.
+            traces = context.SimilarTraces.Items.Select(t => new
+            {
+                id = t.TraceId,
+                task = t.Task,
+                outcome = t.Outcome,
+                success = t.Success,
+                kind = t.Kind
+            }),
             graphRagContext = context.GraphRagContext,
             assembledAtUtc = context.AssembledAtUtc
         });

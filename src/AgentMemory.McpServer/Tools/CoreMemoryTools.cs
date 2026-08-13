@@ -38,18 +38,10 @@ internal sealed class CoreMemoryTools
             result.TotalItemsRetrieved,
             result.Truncated,
             result.EstimatedTokenCount,
-            context = new
-            {
-                result.Context.SessionId,
-                result.Context.AssembledAtUtc,
-                recentMessages = result.Context.RecentMessages.Items,
-                relevantMessages = result.Context.RelevantMessages.Items,
-                relevantEntities = result.Context.RelevantEntities.Items,
-                relevantPreferences = result.Context.RelevantPreferences.Items,
-                relevantFacts = result.Context.RelevantFacts.Items,
-                similarTraces = result.Context.SimilarTraces.Items,
-                result.Context.GraphRagContext
-            }
+            // 0.7. Projected, never the domain objects: Entity, Fact, Preference and ReasoningTrace
+            // each carry an embedding, so serializing them raw put 384 or 1536 floats per item on the
+            // wire on every single recall.
+            context = McpMemoryProjection.Context(result.Context)
         });
     }
 
@@ -70,7 +62,14 @@ internal sealed class CoreMemoryTools
         };
 
         var result = await memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
-        return ToolJsonContext.Serialize(result);
+        return ToolJsonContext.Serialize(new
+        {
+            result.TotalItemsRetrieved,
+            result.EstimatedTokenCount,
+            result.Truncated,
+            result.Metadata,
+            context = McpMemoryProjection.Context(result.Context),
+        });
     }
 
     [McpServerTool(Name = "memory_store_message"), Description("Store a message in short-term conversation memory.")]

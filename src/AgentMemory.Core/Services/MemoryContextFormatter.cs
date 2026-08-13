@@ -37,6 +37,12 @@ internal static class MemoryContextFormatter
         var ctx = result.Context;
         var sb = new StringBuilder();
         sb.AppendLine("## Memory Context");
+        // 0.6. TotalItemsRetrieved counts SimilarTraces (MemoryService), and no section below renders
+        // them, so at stock settings -- RecallOptions.MaxTraces defaults to 3 -- a traces-only recall
+        // produced the bare string "## Memory Context": a heading with no body, which reads to the
+        // model as "memory was consulted and is empty" rather than "this formatter has no trace
+        // section". Measured from here so the guard cannot drift as sections are added.
+        var headerLength = sb.Length;
 
         // Blend policy (plan §12.5): GraphRagOnly / GraphRagThenMemory render the graph block first;
         // all other modes keep it after the memory-derived sections.
@@ -55,7 +61,10 @@ internal static class MemoryContextFormatter
             p => $"- [{p.Category}] {p.PreferenceText}",
             p => p.Metadata.GetTrustLevel(), opts, logger);
         if (!graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
-        return sb.ToString().TrimEnd();
+        // Nothing rendered under the heading: say nothing rather than announce an empty section. An
+        // empty string is what a caller already handles (the zero-items early return above returns
+        // it), so this collapses two indistinguishable states into the one that is honest.
+        return sb.Length == headerLength ? string.Empty : sb.ToString().TrimEnd();
     }
 
     // Evaluates one candidate block's content against instruction-like-content admission (#92 Phase 2),
