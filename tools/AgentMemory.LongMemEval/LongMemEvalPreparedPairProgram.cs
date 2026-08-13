@@ -1115,6 +1115,10 @@ internal static class LongMemEvalPreparedPairProgram
             // reported as missing on the strength of AgentEval's original explanation.
             judgeRetries: diagnostics.JudgeRetries,
             agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts,
+            // 0.15. Shipped upstream in 0.20.0-beta as the third of four asks, and consumed by
+            // nothing until now -- so the guard kept guessing with a tolerance band while the exact
+            // figure sat in the result object we already had.
+            reportedJudgeRetryCalls: result.TotalJudgeRetryLlmCalls,
             // 3.7: the validator must know which judge protocol ran, or it reconciles a structured
             // verdict against a free-text re-parse and rejects every question.
             verdictProtocol: options.JudgeProtocol);
@@ -1239,6 +1243,9 @@ internal static class LongMemEvalPreparedPairProgram
                     q.Correct,
                     q.RawScore,
                     q.JudgeLlmCallCount,
+                    // Separated at the question level too: JudgeLlmCallCount mixes primary and retry
+                    // calls, which is what made a run's accounting unauditable after the fact.
+                    q.JudgeRetryLlmCallCount,
                     q.JudgeTokensUsed,
                     agentResponse = q.AgentResponse,
                     judgeExplanation = q.JudgeExplanation,
@@ -1255,6 +1262,7 @@ internal static class LongMemEvalPreparedPairProgram
             callAccounting = new
             {
                 benchmarkLlmCalls = arm.Result.TotalLlmCalls,
+                judgeRetryLlmCalls = arm.Result.TotalJudgeRetryLlmCalls,
                 diagnosticLlmCalls = arm.Diagnostics.DiagnosticLlmCalls,
                 observed = new
                 {

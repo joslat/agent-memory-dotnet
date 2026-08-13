@@ -150,3 +150,72 @@ gold sessions instead of the raw text, with recall still pinned at 100%. If accu
 toward ~88%, the loss is in **extraction**, not retrieval and not answering — and the schema-gap work
 becomes the highest-value item in the plan rather than a per-type detail. It needs extraction calls
 over gold sessions only, not a corpus build.
+
+---
+
+# Addendum 2: completeness is the lever, and it is not close
+
+**Run:** `artifacts/evaluation/gold-completeness-n30.json`, 2026-08-13. Same 30 questions, seed 42,
+242 calls. Zero distractors at every level, so the only variable is how much of the labelled evidence
+survives.
+
+| Gold fraction | Questions degraded | Correct | Accuracy | Mean context chars |
+|---:|---:|---|---:|---:|
+| 1.00 | 0/30 | 29/30 | **96.7%** | 30,668 |
+| 0.75 | 5/30 | 30/30 | **100.0%** | 28,163 |
+| 0.50 | 20/30 | 13/30 | **43.3%** | 17,890 |
+| 0.34 | 20/30 | 12/30 | **40.0%** | 16,689 |
+
+## The result carries its own control
+
+The sweep degrades a question only when its gold-session count is large enough for the fraction to
+remove one, so each level splits the sample into a treated and an untreated group — a negative
+control that costs nothing and was not designed in.
+
+At gold = 0.50:
+
+| Group | n | Full gold | Half gold |
+|---|---:|---|---|
+| **Lost evidence** | 20 | 19/20 (95%) | **3/20 (15%)** |
+| **Untouched** | 10 | 10/10 | **10/10** |
+
+**An 80-point collapse in the treated group and no movement whatsoever in the control.** Run-to-run
+nondeterminism, judge drift and sample composition are all ruled out by the untouched arm: the same
+questions, the same run, the same judge, unchanged.
+
+## Set against everything else measured this week
+
+| Manipulation | Recall held at | Effect |
+|---|---|---|
+| Add 25 distractor sessions (context ×9.2) | 100% | **0 points** |
+| Decompose the question, compose sub-answers | 100% | **0 wins, 2 losses**, 2.2× cost |
+| Structured triples instead of raw messages | 100% | **~1 question**, inside noise |
+| Memory-type routing (from the archive) | — | ceiling **1 question of 50** |
+| **Remove half the gold evidence** | **50%** | **95% → 15%** |
+
+Everything that is not completeness is worth approximately nothing. Completeness is worth eighty
+points.
+
+## What this settles
+
+The reconciliation that took four experiments: **"gold present" was never the right predicate.**
+`RetrievedGoldCoverage` is a fraction, recorded failures sit at 0.43–0.88, and this sweep shows that
+the region between 0.5 and 1.0 is where accuracy is decided. A question whose retrieval returns most
+of its evidence is not nearly-answered — at 0.5 it is answered 15% of the time.
+
+**Retrieval work should target coverage of the evidence set, not rank, not precision, not payload,
+and not the answering strategy.** Concretely, the metric to optimise is the fraction of a question's
+gold sessions represented in the assembled context, and the failure to attack is the one where
+retrieval returns 4 of 8 required items and reports success.
+
+Note the shallow redundancy at the top: dropping evidence from 5 of 30 questions (gold = 0.75) cost
+nothing at all. There is slack, and it runs out abruptly.
+
+## Honest limits
+
+- **n = 30, one seed, one model.** The direction is unmistakable at this magnitude; the exact shape
+  of the curve between 0.5 and 1.0 is not measured, and that is precisely the region real retrieval
+  occupies. A finer sweep there is the obvious next run.
+- The treated group is not randomly assigned — it is the questions with more gold sessions, which may
+  be harder in other ways. The untouched group controls for run conditions, not for question
+  difficulty. What it cannot be is an artifact of *noise*, because the control moved by zero.
