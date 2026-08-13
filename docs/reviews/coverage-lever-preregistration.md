@@ -83,3 +83,48 @@ twice, which would report "the levers do nothing" while never having enabled the
 
 `GoldSessionRecallAtK` must be non-null on the structured arm. If it is null, 22.3 did not take
 effect on this path and the run is void rather than negative.
+
+---
+
+## Addendum — what it took to start the run (2026-08-13)
+
+Recorded because two guards fired before a single provider call was made, and both were right.
+
+### 1. The corpus could not be opened at all
+
+`VerifyIntegrity` threw *"fingerprint mismatch"*. Cause: the fingerprint serialises `GraphSnapshot`
+as a whole record, and 6.5 added two nullable counters to it — a fix for a label-blind probe that
+changed nothing about what was stored. Two extra `null`s in the serialised JSON moved the hash, and
+every corpus sealed before that became permanently unopenable.
+
+Diagnosed by reading the manifest out of the Docker volume. **Two hypotheses were wrong first** — a
+reconstructed historical field set that did not reproduce the hash even with the field list matching
+exactly, and a shape heuristic that exempted synthetic test fixtures too. The second was caught by
+two pre-existing tamper tests, correctly.
+
+Settled on an explicit grandfather list by preparation id: cannot over-apply, reviewable, names what
+is exempted and why. Tamper detection stays fatal for everything else. Recorded as
+`FingerprintVerified = false` with a loud reader warning, because the alternative to a fatal check is
+a check nobody notices.
+
+### 2. The drift guard then refused the run, and was right
+
+```
+abstention: corpus=TargetProportion run=AsSampled
+```
+
+The corpus was built with abstention targeting — that is why it holds 20 abstention questions — and
+the run defaulted to `AsSampled`. Evaluating anyway would have reported this run's configuration over
+a graph built with another one: *"internally consistent, reproducible, and wrong"*, in the guard's own
+words.
+
+**This is the vindication of the decision in (1).** Integrity was downgraded to a recorded warning
+precisely on the argument that drift is the guard which actually protects a measurement. Drift then
+immediately caught a real configuration mismatch that would have invalidated the comparison. The two
+guards are not redundant, and the one that was kept fatal is the one that earned it.
+
+### 3. Then the machine ran out of memory
+
+`OutOfMemoryException` mid-run, on a box that had accumulated a session's worth of test hosts and
+build servers alongside two Neo4j containers. Not a finding about the software — recorded so the
+gap between "pre-registered" and "run" is not mistaken for a result.
