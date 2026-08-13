@@ -212,3 +212,42 @@ and a runbook is what a procedure is.
 demonstrated working across four runs. The instrument is sound; what it keeps reporting is that this
 task class has nothing for procedural memory to do. That is worth knowing before building a larger
 benchmark, and it is the finding to carry forward rather than the numbers.
+
+
+---
+
+## Fifth run: INVALID — the environment leaked state between arms
+
+Attempt five added the thing the fourth run's finding called for: a convention discoverable only by
+failing. `PlaceHold` refuses on a stale session, and the refusal deliberately never names
+`refresh_session`, so the step is not inferable from any interface.
+
+```
+procedures  completion=100%  meanSteps=5.3  meanToolCalls=5.0
+control     completion=100%  meanSteps=4.3  meanToolCalls=4.0
+```
+
+**These numbers are not usable, and the arithmetic is what gives it away.** The required chain is now
+five calls — refresh, look up, hold, bulletin, book — yet the control arm averaged **4.0 calls at 100%
+completion**. That is impossible for a chain of five. The only way to complete in four is to skip the
+refresh, and the only way to skip it is for the session to already be refreshed.
+
+**Cause:** `ProceduralBenefitProgram` constructs a single `ProceduralBenchmarkTask` and shares it
+across all six attempts. `_sessionRefreshed` set by the first procedural attempt persisted into every
+later attempt *and into the control arm*. The control did not discover the convention; it inherited it.
+
+**This is my own error, of the same shape as the rest of this sequence.** The task's own test
+`TheEnvironmentAnswersIdenticallyEveryTime` constructs a fresh instance per call and therefore passed,
+while the program that actually runs the benchmark shared one. I verified the property I was thinking
+about and not the object lifetime beside it — which is exactly the failure this whole track exists to
+catch.
+
+### The fix
+
+Construct the task **inside** the agent factory, once per attempt, so the environment starts stale
+every time. Then the control arm must discover the refresh on every attempt while the procedural arm
+pays for it once — which is the difference the harness is trying to measure, and the first design in
+five that could actually produce one.
+
+Until that lands, **attempt five's figures should be treated as void**, not as another null result.
+The four before it are genuine nulls; this one is a bug.
