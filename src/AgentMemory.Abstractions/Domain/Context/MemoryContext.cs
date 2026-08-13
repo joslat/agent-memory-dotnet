@@ -125,6 +125,28 @@ public sealed record MemoryContext
     public bool LatencyBudgetExceeded { get; init; }
 
     /// <summary>
+    /// Set when the query named a past time and recall was routed bitemporally as a result (R4).
+    /// Null on an ordinary recall, and null when the caller asked for an as-of recall explicitly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is a witness, not decoration.</b> Query-time temporal resolution is opt-in and biased
+    /// hard toward returning null, so the overwhelmingly common outcome of enabling it is that
+    /// nothing changes — which is indistinguishable from the option not being wired, the parser never
+    /// being reached, or the reference time being wrong. Every one of those reports as "temporal
+    /// resolution did not help", and this project has voided six measurement runs to exactly that
+    /// shape. A caller measuring the feature can require this to be non-null somewhere before
+    /// believing a null result.
+    /// </para>
+    /// <para>
+    /// Deliberately null for an explicit <c>RecallAsOfAsync</c> call: that caller already knows which
+    /// instant it asked for, and reporting it here would make "the parser fired" and "someone passed
+    /// a date" the same observation.
+    /// </para>
+    /// </remarks>
+    public DateTimeOffset? ResolvedTemporalAsOf { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

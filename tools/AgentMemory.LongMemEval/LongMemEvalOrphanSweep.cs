@@ -153,7 +153,7 @@ internal static class LongMemEvalOrphanSweep
                 protectedVolumeName,
                 DateTimeOffset.UtcNow,
                 minimumAge: null,
-                pinned: ReadPins());
+                pinned: ReadPins(log));
             if (decision.Removable.Count == 0)
             {
                 log.WriteLine(
@@ -196,13 +196,53 @@ internal static class LongMemEvalOrphanSweep
     /// An explicit, inspectable pin exists because a document-level note that a volume was "kept
     /// deliberately" is invisible to a sweep, and one was destroyed for exactly that reason.
     /// </remarks>
-    internal static string PinFilePath { get; } =
+    private static readonly string RelativePinPath =
         Path.Combine("artifacts", "evaluation", "pinned-volumes.txt");
 
-    private static IReadOnlyCollection<string> ReadPins()
+    /// <summary>
+    /// The pin file, resolved against the repository root rather than the working directory.
+    /// </summary>
+    /// <remarks>
+    /// <b>This was a fail-open path, and the failure it opens onto is deletion.</b> Resolved against
+    /// the CWD, a launch from anywhere but the repository root simply does not find the file — and
+    /// because a missing file yielded an empty pin list, every pinned corpus became removable with no
+    /// message. The file itself records a base already lost to this sweep. A build costs hundreds of
+    /// provider calls and hours; finding the pins is not something to leave to which directory
+    /// somebody happened to be standing in.
+    /// </remarks>
+    internal static string PinFilePath { get; } = ResolvePinFilePath();
+
+    private static string ResolvePinFilePath()
+    {
+        // Walk out from the binary, not the CWD: the assembly's location is a fact about the
+        // repository, whereas the working directory is a fact about the invocation.
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "AgentMemory.slnx")))
+                return Path.Combine(directory.FullName, RelativePinPath);
+        }
+
+        // No marker found (a published tool, say). Keep the old behaviour rather than inventing a
+        // path, and let ReadPins say so out loud.
+        return RelativePinPath;
+    }
+
+    private static IReadOnlyCollection<string> ReadPins(TextWriter log)
     {
         if (!File.Exists(PinFilePath))
+        {
+            // Loud, because the consequence is silent data loss. The sweep still runs -- refusing
+            // would strand every environment that legitimately has no pin file -- but nobody gets to
+            // discover afterwards that their corpus was unprotected.
+            log.WriteLine(
+                $"longmemeval: WARNING -- no pin file at '{PinFilePath}'. The orphan sweep will treat "
+                + "EVERY prepared volume as unpinned and may remove corpora that cost hours of "
+                + "provider spend. Pass --no-orphan-sweep if that is not what you want.");
             return [];
+        }
+
         return File.ReadAllLines(PinFilePath)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0 && !line.StartsWith('#'))

@@ -91,16 +91,29 @@ internal sealed class MemoryService : IMemoryService
         // conversational turn could reach RecallAsOfAsync at all. Resolution is deterministic and
         // biased hard toward returning null -- see TemporalQueryParser -- so the ordinary turn takes
         // exactly the path it always did.
+        // The reference instant is the CALLER'S now when it supplies one. "Ten days ago" is measured
+        // from when the turn was spoken, and for a replayed or backfilled transcript that is not
+        // wall-clock -- resolving against the wrong now binds the query to a window the corpus cannot
+        // contain, which returns nothing and reads as the feature not working.
+        var temporalReference = request.TemporalReferenceTime ?? _clock.UtcNow;
         if (_options.ResolveTemporalQueries
-            && TemporalQueryParser.Resolve(request.Query, _clock.UtcNow) is { } asOf)
+            && TemporalQueryParser.Resolve(request.Query, temporalReference) is { } asOf)
         {
             activity?.SetTag("memory.recall.resolved_as_of", asOf.ToString("O"));
             _logger.LogDebug(
                 "Query names a past time ({AsOf}); recalling bitemporally instead of against now.", asOf);
-            // Both clocks: the question is "what did I think then", which is what was true then AS
-            // known then. Passing only the valid clock would answer with today's corrections applied
-            // to the past -- a different question, and a subtly misleading one.
-            return await RecallAsOfCoreAsync(request, asOf, asOf, cancellationToken).ConfigureAwait(false);
+            // WHICH clocks is a real choice and the two mistakes are not symmetric. "What did I buy ten
+            // days ago" asks about the world then using everything known now; "what did I think back in
+            // March" asks about belief then. The parser cannot separate them, so the default is the
+            // survivable error: applying today's corrections to a past question is usually wanted,
+            // whereas binding the transaction clock excludes every row created after the instant -- and
+            // created_at is INGESTION time on any host that imported its history, so that host recalls
+            // an empty context, silently, for every past question. Belief reconstruction is opt-in.
+            var systemAsOf = _options.TemporalQueryClocks == TemporalQueryClocks.ValidAndTransactionTime
+                ? asOf
+                : temporalReference;
+            return await RecallAsOfCoreAsync(request, asOf, systemAsOf, cancellationToken, resolvedFromQuery: asOf)
+                .ConfigureAwait(false);
         }
 
         var context = await _assembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
@@ -198,13 +211,20 @@ internal sealed class MemoryService : IMemoryService
         RecallRequest request,
         DateTimeOffset validAsOf,
         DateTimeOffset systemAsOf,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? resolvedFromQuery = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         _logger.LogDebug(
             "Recalling memory for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
             request.SessionId, validAsOf, systemAsOf);
         var context = await _assembler.AssembleContextAsOfAsync(request, validAsOf, systemAsOf, cancellationToken).ConfigureAwait(false);
+
+        // Stamped only on the auto-routed path, so a caller can tell "the parser fired" from "I asked
+        // for a date". Without that distinction, enabling query-time resolution and observing nothing
+        // is indistinguishable from it never having been reached.
+        if (resolvedFromQuery is { } resolved)
+            context = context with { ResolvedTemporalAsOf = resolved };
 
         // Count every populated section so TotalItemsRetrieved matches the documented "across all sections"
         // contract and the live RecallAsync path. SimilarTraces is populated on the as-of path too, so it

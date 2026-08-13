@@ -41,6 +41,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches = 0,
         bool usePredicateVocabulary = false,
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
+        bool resolveTemporalQueries = false,
         string? graphRagIndexName = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
@@ -71,6 +72,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     maxConcurrentExtractionBatches,
                     usePredicateVocabulary,
                     assistantContent,
+                    resolveTemporalQueries,
                     graphRagIndexName,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -97,6 +99,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
+        bool resolveTemporalQueries,
         string? graphRagIndexName,
         CancellationToken cancellationToken)
     {
@@ -121,6 +124,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             maxConcurrentExtractionBatches,
             usePredicateVocabulary,
             assistantContent,
+            resolveTemporalQueries,
             graphRagIndexName,
             multiSessionBatch);
 
@@ -156,6 +160,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         int maxConcurrentExtractionBatches,
         bool usePredicateVocabulary,
         AssistantContentMode assistantContent,
+        bool resolveTemporalQueries,
         string? graphRagIndexName,
         bool multiSessionBatch = true)
     {
@@ -186,7 +191,13 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             // K9.1: the instance overload. The Action<MemoryOptions> one cannot set anything -
             // MemoryOptions is an init-only record, so a configure lambda can neither assign its
             // properties nor keep a `with` expression's result.
-            new MemoryOptions { EnableGraphRag = graphRagIndexName is not null },
+            new MemoryOptions
+            {
+                EnableGraphRag = graphRagIndexName is not null,
+                // 13.3. Off by default so every sealed measurement keeps taking the path it was taken
+                // under; the ablation turns it on explicitly and re-runs the SAME frozen corpus.
+                ResolveTemporalQueries = resolveTemporalQueries,
+            },
             neo4j =>
             {
                 neo4j.Uri = neo4jUri;

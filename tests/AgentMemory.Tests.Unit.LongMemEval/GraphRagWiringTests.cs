@@ -80,7 +80,8 @@ public sealed class GraphRagWiringTests
         AgentMemoryLongMemEvalAdapter.BlendModeFor(graphRagBudget).Should().Be(expected);
     }
 
-    private static ServiceProvider Resolve(string? graphRagIndexName) =>
+    private static ServiceProvider Resolve(
+        string? graphRagIndexName, bool resolveTemporalQueries = false) =>
         LongMemEvalMemoryProfile.ConfigureServices(
                 "bolt://localhost:7687",
                 Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>(),
@@ -94,6 +95,22 @@ public sealed class GraphRagWiringTests
                 usePredicateVocabulary: true,
                 // Named, so a future parameter inserted here cannot silently rebind this argument.
                 assistantContent: AssistantContentMode.Ignore,
+                resolveTemporalQueries: resolveTemporalQueries,
                 graphRagIndexName: graphRagIndexName)
             .BuildServiceProvider();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheTemporalResolutionFlagReachesMemoryOptions(bool enabled)
+    {
+        // 13.3's harness half, guarded here rather than by paying for a run. A flag parsed, threaded
+        // through four signatures and then dropped before MemoryOptions is the exact shape that made
+        // IncludeQuestionTypes and AbstentionPolicy dead options -- both shipped, both wired to
+        // nothing, both discovered only when a measurement failed to move.
+        using var provider = Resolve(graphRagIndexName: null, resolveTemporalQueries: enabled);
+
+        provider.GetRequiredService<IOptions<MemoryOptions>>().Value
+            .ResolveTemporalQueries.Should().Be(enabled);
+    }
 }

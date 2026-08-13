@@ -175,6 +175,20 @@ public sealed record MemoryOptions
     public bool ResolveTemporalQueries { get; init; }
 
     /// <summary>
+    /// Which clocks a resolved temporal query binds. Defaults to
+    /// <see cref="TemporalQueryClocks.ValidTimeOnly"/>; only consulted when
+    /// <see cref="ResolveTemporalQueries"/> is enabled.
+    /// </summary>
+    /// <remarks>
+    /// <b>Binding the transaction clock by default was a silent-empty-recall bug on a whole class of
+    /// host.</b> <c>created_at</c> is ingestion time wherever history was imported, migrated or
+    /// backfilled, so an as-of recall at any past instant excludes the entire store and returns an
+    /// empty context with no error. See <see cref="TemporalQueryClocks"/> for why the two failure modes
+    /// are not symmetric.
+    /// </remarks>
+    public TemporalQueryClocks TemporalQueryClocks { get; init; } = TemporalQueryClocks.ValidTimeOnly;
+
+    /// <summary>
     /// Stops vector recall shipping the stored embedding back with every hit (rank 13 / payload).
     /// </summary>
     /// <remarks>
