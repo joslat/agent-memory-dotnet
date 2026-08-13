@@ -207,6 +207,39 @@ internal sealed record LongMemEvalPreparationManifest(
     /// dropped.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// False when this manifest's recorded fingerprint does not reproduce under the current field
+    /// set — an older seal, not a corrupted one. Set by <see cref="VerifyIntegrity"/>.
+    /// </summary>
+    internal bool FingerprintVerified { get; private set; } = true;
+
+    /// <summary>
+    /// Corpora sealed before the fingerprint's field set changed under them, exempted from
+    /// self-verification by <b>id</b> rather than by a rule.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a list and not a version check.</b> Task 6.5 added two nullable counters to
+    /// <c>LongMemEvalGraphSnapshot</c> — a fix for a label-blind probe that changed nothing about what
+    /// was stored — and the fingerprint serialises that record whole, so the hash moved. The schema
+    /// version did not, so nothing in the manifest distinguishes "sealed earlier" from "edited since".
+    /// A heuristic on the snapshot's shape exempts synthetic fixtures too, which is exactly the
+    /// over-application that would turn a tamper check into decoration.
+    /// </para>
+    /// <para>
+    /// <b>The lesson, recorded where the next person will hit it:</b> a fingerprint must never
+    /// serialise a record whose shape it does not control, and any change to the hashed field set must
+    /// bump <see cref="CurrentSchemaVersion"/>. Neither happened, and the cost was a 616-call corpus
+    /// that could not be opened.
+    /// </para>
+    /// </remarks>
+    private static readonly HashSet<string> GrandfatheredPreparationIds = new(StringComparer.Ordinal)
+    {
+        // The pinned 50-question abstention-enriched base: 616 extraction calls, ~52 minutes, and the
+        // only corpus that has ever run abstention questions.
+        "longmemeval-prepared-20260812T140253Z",
+    };
+
     internal void VerifyIntegrity()
     {
         if (SchemaVersion > CurrentSchemaVersion)
@@ -221,25 +254,39 @@ internal sealed record LongMemEvalPreparationManifest(
                 $"Unsupported LongMemEval preparation manifest schema {SchemaVersion}.");
         }
 
-        // Schema 6 was allowed to mean TWO THINGS, so verification must accept both. The schema-6
-        // field set gained AbstentionPolicy and RefusedSourceSessions on 2026-08-12 at 23:37 WITHOUT
-        // a version bump, nine hours after a 616-call corpus had been sealed under the earlier set.
-        // The result: that corpus -- and every other one sealed between the schema-6 introduction and
-        // that change -- could never verify again, because its stored hash covers fewer fields than
-        // the recompute. It presented as "fingerprint mismatch", which reads as tampering rather than
-        // as a versioning mistake here.
+        // WHAT THIS CHECK IS FOR, and what it is not.
         //
-        // Accepting either is the honest repair: the two field sets are not distinguishable by
-        // version, because the version did not change. New seals always write the current set, so
-        // this widening does not propagate.
-        if (string.Equals(Fingerprint, ComputeFingerprint(this), StringComparison.Ordinal)) return;
-        if (SchemaVersion >= 6 &&
-            string.Equals(Fingerprint, ComputeSchema6PreAbstentionFingerprint(this), StringComparison.Ordinal))
-        {
-            return;
-        }
+        // It compares a manifest against ITSELF -- a tamper check on JSON this harness wrote into a
+        // private Docker volume. It is NOT the guard that protects a measurement; that is the DRIFT
+        // comparison, which checks the manifest's recorded ingestion settings against the current
+        // run's configuration and still fails closed.
+        //
+        // Treating a non-reproducing hash as fatal destroyed the thing it existed to protect. The
+        // fingerprint serialised whole records whose shape it does not control, so 6.5's two nullable
+        // graph-snapshot counters -- added to fix a label-blind probe, changing nothing about what was
+        // stored -- silently orphaned every frozen corpus, including the 616-call base every cheap
+        // experiment in this phase reuses. It presented as "fingerprint mismatch", which reads as
+        // tampering rather than as a versioning mistake here.
+        //
+        // Recomputation cannot be made reliable retroactively: the historical field sets are not
+        // recoverable from the manifest, because the schema version did not change when they did. So
+        // an older manifest whose hash does not reproduce is recorded as UNVERIFIABLE rather than
+        // rejected, callers surface that, and drift still refuses a genuinely mismatched config.
+        FingerprintVerified = string.Equals(
+            Fingerprint, ComputeFingerprint(this), StringComparison.Ordinal);
+        if (FingerprintVerified) return;
 
-        throw new InvalidOperationException("LongMemEval preparation manifest fingerprint mismatch.");
+        // A non-reproducing hash is EITHER an older seal or a tampered manifest, and conflating them
+        // would remove the guard. They cannot be told apart from the manifest's contents -- a
+        // heuristic on the snapshot shape looked promising and exempts synthetic fixtures too, which
+        // is precisely the over-application that makes a heuristic the wrong tool here.
+        //
+        // So the exemption is an explicit LIST of the artifacts known to predate the change, by id.
+        // It cannot over-apply, it is reviewable, and it names what is being grandfathered and why.
+        // Everything else that fails to reproduce is a manifest whose contents no longer match its
+        // seal, and stays fatal.
+        if (!GrandfatheredPreparationIds.Contains(PreparationId))
+            throw new InvalidOperationException("LongMemEval preparation manifest fingerprint mismatch.");
     }
 
     /// <summary>
@@ -350,7 +397,25 @@ internal sealed record LongMemEvalPreparationManifest(
                 question.MessagesPrepared,
                 question.SourceSessions,
                 question.ExtractionUnitsPrepared,
-                question.GraphSnapshot
+                // Projected to the ELEVEN counters that existed when these corpora were sealed. The
+                // whole-object form is exactly what broke them: 6.5 added nullable ReasoningTraces
+                // and Procedures to fix a label-blind probe -- changing nothing about what was
+                // stored -- and two extra nulls in the serialised JSON invalidated every frozen
+                // corpus. A fingerprint must never serialise a record it does not control the shape of.
+                GraphSnapshot = new
+                {
+                    question.GraphSnapshot.Entities,
+                    question.GraphSnapshot.Facts,
+                    question.GraphSnapshot.Preferences,
+                    question.GraphSnapshot.Relationships,
+                    question.GraphSnapshot.RelationshipsWithProvenance,
+                    question.GraphSnapshot.LearnedItems,
+                    question.GraphSnapshot.LearnedItemsWithProvenance,
+                    question.GraphSnapshot.ProvenanceEdges,
+                    question.GraphSnapshot.SourceMessages,
+                    question.GraphSnapshot.TotalLearned,
+                    question.GraphSnapshot.CompleteProvenance,
+                }
             }),
             manifest.InitialExtractionCalls
         };
@@ -754,6 +819,19 @@ internal sealed class Neo4jLongMemEvalPreparationStore(IDriver driver)
         }
 
         manifest.VerifyIntegrity();
+        if (!manifest.FingerprintVerified)
+        {
+            // Loud, because the alternative to a fatal check is a check nobody notices. The corpus is
+            // still usable and drift still guards the configuration; what cannot be re-derived is the
+            // seal itself, and any result taken over it should say so.
+            Console.Error.WriteLine(
+                $"longmemeval: WARNING - prepared corpus '{manifest.PreparationId}' has an "
+                + "UNVERIFIABLE fingerprint. It was sealed by a build whose fingerprint field set "
+                + "differed from this one (the schema version did not change when the field set did), "
+                + "so the hash cannot be recomputed. The corpus is readable and drift checking is "
+                + "unaffected; its seal is not independently confirmable.");
+        }
+
         return manifest;
     }
 }

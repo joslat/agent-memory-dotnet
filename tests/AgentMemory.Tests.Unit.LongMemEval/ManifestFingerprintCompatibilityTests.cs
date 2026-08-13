@@ -109,31 +109,11 @@ public sealed class ManifestFingerprintCompatibilityTests
     }
 
     [Fact]
-    public void AManifestSealedBeforeAbstentionJoinedTheFingerprintStillVerifies()
+    public void ATamperedManifestIsStillRejected()
     {
-        // THE regression. Reproduces a corpus sealed under the earlier schema-6 field set by hashing
-        // it with that set and asserting the current build still accepts it. Red before the fix: the
-        // pinned 616-call corpus threw "fingerprint mismatch" and could not be reused at all.
-        var type = typeof(LongMemEvalOracleComparison).Assembly
-            .GetType("AgentMemory.LongMemEval.LongMemEvalPreparationManifest")!;
-        var legacy = type.GetMethod(
-            "ComputeSchema6PreAbstentionFingerprint", BindingFlags.NonPublic | BindingFlags.Static)!;
-
-        var manifest = Manifest();
-        var sealedUnderOldRules = WithFingerprint(manifest, (string)legacy.Invoke(null, [manifest])!);
-
-        var act = () => Verify(sealedUnderOldRules);
-
-        act.Should().NotThrow(
-            "a corpus this codebase sealed must stay verifiable by the codebase that sealed it");
-    }
-
-    [Fact]
-    public void AGenuinelyWrongFingerprintIsStillRejected()
-    {
-        // Accepting two field sets must not become accepting anything. The guard's whole purpose is
-        // to refuse a manifest whose contents do not match its seal, and widening it for a versioning
-        // mistake must not blunt that.
+        // The exemption is by ID, so it cannot over-apply. A manifest that is not on the list and does
+        // not reproduce is a manifest whose contents no longer match its seal, and that stays fatal --
+        // otherwise this change would have removed the guard rather than scoped it.
         var act = () => Verify(WithFingerprint(Manifest(), "0000000000000000"));
 
         act.Should().Throw<TargetInvocationException>()
@@ -142,20 +122,32 @@ public sealed class ManifestFingerprintCompatibilityTests
     }
 
     [Fact]
-    public void TheTwoFieldSetsDisagreeWhenAbstentionIsSet()
+    public void TheRealSealedCorpusVerifies()
     {
-        // Proves the compatibility path is doing real work rather than passing trivially: with a
-        // non-default AbstentionPolicy the two hashes MUST differ, or the fix would be indistinguish-
-        // able from having changed nothing.
+        // Not a synthetic reproduction -- the ACTUAL manifest read out of the pinned 616-call corpus
+        // volume. Synthetic fixtures reproduce the bug you already understand; this one reproduces
+        // the bug you have. It is the artifact every cheap experiment in this phase reuses, and it
+        // could not be opened at all.
+        var path = Path.Combine(AppContext.BaseDirectory, "manifest-sealed-20260812T140253Z.json");
+        File.Exists(path).Should().BeTrue("the sealed-corpus fixture must ship with the tests");
+
         var type = typeof(LongMemEvalOracleComparison).Assembly
             .GetType("AgentMemory.LongMemEval.LongMemEvalPreparationManifest")!;
-        var current = type.GetMethod("ComputeFingerprint", BindingFlags.NonPublic | BindingFlags.Static)!;
-        var legacy = type.GetMethod(
-            "ComputeSchema6PreAbstentionFingerprint", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var options = (System.Text.Json.JsonSerializerOptions)type
+            .GetField("JsonOptions", BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetValue(null)!;
+        var manifest = System.Text.Json.JsonSerializer.Deserialize(
+            File.ReadAllText(path), type, options)!;
 
-        var manifest = Manifest(abstentionPolicy: "TargetProportion");
+        var act = () => Verify(manifest);
 
-        ((string)legacy.Invoke(null, [manifest])!)
-            .Should().NotBe((string)current.Invoke(null, [manifest])!);
+        act.Should().NotThrow("a 616-call corpus must remain OPENABLE by a later build");
+
+        // Openable, and honest about it: the hash does not reproduce, because the field set changed
+        // under it. That is recorded, never silently treated as verified.
+        type.GetProperty("FingerprintVerified", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(manifest).Should().Be(false,
+                "this corpus was sealed before 6.5 changed the graph-snapshot shape");
     }
+
 }
