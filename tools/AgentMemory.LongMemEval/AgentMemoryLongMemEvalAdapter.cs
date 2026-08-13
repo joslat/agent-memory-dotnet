@@ -758,7 +758,12 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     originsByMessageId,
                     _options.EvidenceDetail,
                     answerPrompt.Length,
-                    budget.Messages);
+                    budget.Messages,
+                    // 22.3. The structured arm's provenance, which is what makes gold-session
+                    // coverage observable without a message budget. Passing it is the difference
+                    // between a metric and a null: before this, GoldSessionRecallAtK was null on
+                    // 1,476 of 1,476 structured question-records.
+                    StructuredSourceMessageIds(recall.Context));
                 if (_options.EvidenceDetail != LongMemEvalEvidenceDetail.None)
                 {
                     normalizedEvidence = LongMemEvalAgentEvalEvidence.Build(
@@ -1339,6 +1344,28 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                source?.ToString() is { Length: > 0 } text
             ? text
             : message.TimestampUtc.ToString("O");
+    }
+
+    /// <summary>
+    /// Every source message id reachable through the retrieved structured items (22.3).
+    /// </summary>
+    /// <remarks>
+    /// Entities, facts and preferences all carry <c>SourceMessageIds</c>, so a structured recall can
+    /// be attributed back to the sessions it actually drew on even though it retrieved no raw
+    /// messages. Without this the harness could not see coverage on the arm the project ships, which
+    /// is the one metric the completeness sweep showed to be worth eighty points.
+    /// </remarks>
+    internal static IReadOnlyCollection<string> StructuredSourceMessageIds(MemoryContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entity in context.RelevantEntities.Items)
+            foreach (var id in entity.SourceMessageIds) ids.Add(id);
+        foreach (var fact in context.RelevantFacts.Items)
+            foreach (var id in fact.SourceMessageIds) ids.Add(id);
+        foreach (var preference in context.RelevantPreferences.Items)
+            foreach (var id in preference.SourceMessageIds) ids.Add(id);
+        return ids;
     }
 
     internal static string BuildAnswerPrompt(

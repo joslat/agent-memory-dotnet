@@ -363,7 +363,8 @@ public sealed record LongMemEvalRetrievalEvidence(
         IReadOnlyDictionary<string, LongMemEvalMessageOrigin> originsByMessageId,
         LongMemEvalEvidenceDetail detail,
         int answerPromptCharacters,
-        int configuredMessageBudget)
+        int configuredMessageBudget,
+        IReadOnlyCollection<string>? structuredSourceMessageIds = null)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(recalled);
@@ -428,9 +429,43 @@ public sealed record LongMemEvalRetrievalEvidence(
             .Select(item => (int?)item.ContextRank)
             .FirstOrDefault();
 
-        // Gold attribution rides entirely on recalled raw messages. Without a message budget there is
-        // nothing it could ever have matched, so every gold metric is unobservable, not zero.
-        var observable = configuredMessageBudget > 0;
+        // 22.3. Gold attribution USED to ride entirely on recalled raw messages, so a structured run
+        // -- which has no message budget -- reported every gold metric as unobservable. That was
+        // honest but blinding: it left GoldSessionRecallAtK null on 1,476 of 1,476 structured
+        // question-records, and gold-session recall is exactly COVERAGE, which the completeness sweep
+        // then measured to be worth eighty points while nothing in the harness could see it.
+        //
+        // Structured items carry SourceMessageIds of their own, so the attribution is resolvable
+        // without raw messages: map each retrieved entity/fact/preference back through its provenance
+        // to a source session. The union with the message-derived sessions below is what makes
+        // coverage observable on BOTH arms and therefore comparable between them.
+        var structuredGoldSessions = new HashSet<string>(StringComparer.Ordinal);
+        var structuredSessionsSeen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var messageId in structuredSourceMessageIds ?? [])
+        {
+            if (!originsByMessageId.TryGetValue(messageId, out var origin)) continue;
+            structuredSessionsSeen.Add(origin.SourceSessionId);
+            if (question.AnswerSessionIds.Contains(origin.SourceSessionId) &&
+                !origin.IsSyntheticBoundary &&
+                !origin.IsSyntheticFormatterPadding)
+            {
+                structuredGoldSessions.Add(origin.SourceSessionId);
+            }
+        }
+
+        // Union, not sum: a session reached through both a recalled message and a retrieved fact is
+        // one session covered, and adding it twice would report recall above 1.0 on the hybrid arm.
+        var goldSessionsCovered = evidence
+            .Where(item => item.GoldSessionHit)
+            .Select(item => item.SourceSessionId)
+            .Concat(structuredGoldSessions)
+            .ToHashSet(StringComparer.Ordinal)
+            .Count;
+
+        // Observable when EITHER channel could have hit: a message budget, or structured items whose
+        // provenance resolves. A structured run with no resolvable provenance is still unobservable
+        // rather than zero -- the distinction the original guard existed to protect.
+        var observable = configuredMessageBudget > 0 || structuredSessionsSeen.Count > 0;
 
         return new LongMemEvalRetrievalEvidence(
             K: recalled.Count,
@@ -439,10 +474,10 @@ public sealed record LongMemEvalRetrievalEvidence(
             DistinctSourceSessions: sourceSessionCounts.Length,
             MaxItemsFromSingleSession: sourceSessionCounts.DefaultIfEmpty(0).Max(),
             GoldSessionsRequired: question.AnswerSessionIds.Count,
-            GoldSessionsHit: goldSessionsHit,
+            GoldSessionsHit: goldSessionsCovered,
             GoldSessionRecallAtK: !observable || question.AnswerSessionIds.Count == 0
                 ? null
-                : (double)goldSessionsHit / question.AnswerSessionIds.Count,
+                : (double)goldSessionsCovered / question.AnswerSessionIds.Count,
             AnnotatedGoldTurns: annotatedGoldTurns,
             GoldTurnsHit: goldTurnsHit,
             GoldTurnHitAtK: !observable || annotatedGoldTurns == 0 ? null : goldTurnsHit > 0,
