@@ -100,3 +100,53 @@ two-question smoke run where nothing decomposed and refused to report "no differ
 accounting matched behaviour on 30 of 30 questions including retries. The `--oracle-decomposition`
 verb needs no infrastructure, so any future answering-stage hypothesis can be tested against perfect
 context for ~200 calls before anything is built.
+
+---
+
+# Addendum: context precision is not the lever either
+
+**Run:** `artifacts/evaluation/context-precision-n30.json`, 2026-08-13. Same 30 questions, seed 42,
+242 calls. Recall pinned at **100%** — every gold message present at every level — with distractor
+sessions drawn from the question's own haystack.
+
+| K (distractor sessions) | Correct | Accuracy | Mean context chars | Questions with distractors |
+|---:|---|---:|---:|---|
+| 0 | 28/29 | **96.6%** | 30,668 | 0/30 |
+| 3 | 29/30 | **96.7%** | 59,080 | 30/30 |
+| 10 | 28/29 | **96.6%** | 128,900 | 30/30 |
+| 25 | 29/30 | **96.7%** | 281,399 | 30/30 |
+
+**The context grew 9.2× and accuracy did not move.** The lead proposed one turn earlier — that the
+gap between clean-context (~96%) and real-run (~88%) accuracy is caused by wrong material sitting
+beside the right answer — is wrong.
+
+**What this can and cannot say.** With one error at K=0 the ceiling effect is severe: this rules out
+a *large* degradation, not a 1–2 point one. A drop to 90% (3 errors) would have been visible; a drop
+to 95% would not. So: noise is not the 8-point explanation, and might still be a small term.
+
+## Where that leaves the gap
+
+Clean-context oracle ~96%; real hybrid runs ~88%. Three candidate explanations are now eliminated or
+bounded:
+
+| Candidate | Status |
+|---|---|
+| Answering strategy (decomposition) | **Eliminated** — 0 wins of 29 at perfect context |
+| Context noise / precision | **Eliminated as a large term** — 9.2× context, no movement |
+| Retrieval recall in the "gold present" sense | Already bounded — 65 of 67 failures had gold present |
+
+What remains, and is untested:
+
+1. **"Gold present" is over-counted.** `RetrievedGoldCoverage` is a *fraction*, and several failures
+   sit at 0.43–0.58 — half the gold. The answer-presence gate is token overlap, which is weak, and on
+   abstention questions it matches the refusal sentence's own words. "Present" may mean "some of it".
+2. **Representation loss.** The oracle reads raw messages with timestamps and speakers. Structured
+   memory reads triples. The three named episodic gaps — speaker-acts, ordinal position, event
+   participants — are all things raw text carries and a triple has no slot for. This is the candidate
+   the evidence most supports and nothing has measured.
+
+**The decisive next experiment** is to give the oracle the *structured* representation of the same
+gold sessions instead of the raw text, with recall still pinned at 100%. If accuracy falls from ~96%
+toward ~88%, the loss is in **extraction**, not retrieval and not answering — and the schema-gap work
+becomes the highest-value item in the plan rather than a per-type detail. It needs extraction calls
+over gold sessions only, not a corpus build.

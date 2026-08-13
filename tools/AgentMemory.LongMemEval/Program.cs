@@ -71,6 +71,13 @@ internal static class LongMemEvalProgram
             return LongMemEvalCaptureHeadroomProgram.Run(args);
         }
 
+        if (args.Contains("--oracle-precision", StringComparer.Ordinal))
+        {
+            // P1. Adds distractor sessions to a context that already holds all the gold, so recall is
+            // pinned at 100% and the only variable is how much wrong material sits beside the answer.
+            return await LongMemEvalContextPrecisionProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--oracle-decomposition", StringComparer.Ordinal))
         {
             // B4. Needs answer + judge credentials but NO Neo4j, Docker or prepared corpus: the oracle
@@ -403,6 +410,7 @@ internal static class LongMemEvalProgram
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
         "--procedural-benefit", "--attempts",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
+        "--oracle-precision", "--distractor-sessions",
         "--capture-headroom", "--artifacts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
