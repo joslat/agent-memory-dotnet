@@ -128,3 +128,70 @@ guards are not redundant, and the one that was kept fatal is the one that earned
 `OutOfMemoryException` mid-run, on a box that had accumulated a session's worth of test hosts and
 build servers alongside two Neo4j containers. Not a finding about the software — recorded so the
 gap between "pre-registered" and "run" is not mistaken for a result.
+
+---
+
+## RESULT — decided by the control alone (2026-08-14)
+
+**Run:** `artifacts/evaluation/longmemeval-prepared-20260812T140253Z-reuse-20260813T221547Z`.
+Control only, ~200 calls. **The treatment arm was not run, and the pre-registered rule is why.**
+
+### The control, and the witness
+
+| Arm | Accepted | Correct | Mean `GoldSessionRecallAtK` | n non-null |
+|---|---|---|---:|---:|
+| structured | yes | 45/50 (90.0%) | **0.9650** | 50/50 |
+| hybrid | yes | 42/50 (84.0%) | **0.9800** | 50/50 |
+
+The witness is satisfied: coverage is non-null on the structured arm for the first time — 50 of 50,
+where every previous run recorded 0 of 50. Task 22.3 works end to end.
+
+### Why the treatment arm was not bought
+
+Coverage against the cliff measured in the completeness sweep (below ~0.75, accuracy collapses to
+~23%):
+
+| Coverage | structured | hybrid |
+|---|---|---|
+| 1.00 | 43/47 correct | 42/49 correct |
+| 0.75–0.99 | 1/1 | — |
+| 0.50–0.74 | 1/1 | — |
+| **< 0.50** | **0/1** | **0/1** |
+
+**Real retrieval on this corpus is already at coverage 1.00 for 47 of 50 structured and 49 of 50
+hybrid questions.** Exactly one question per arm sits below the cliff, and it fails — consistent with
+the sweep, and the only question a coverage lever could possibly rescue.
+
+So the levers have **at most one question of fifty** available to them. McNemar on a single discordant
+pair is p = 1.0. Spending another ~200 calls could not produce a result the decision rule can read,
+and a null returned from that run would describe the corpus, not the levers.
+
+**This is the pre-registered `RescueShortOwnerResults` caveat applying to all three: untestable here
+rather than ineffective.** It must not be recorded as a null result. The levers remain unmeasured.
+
+### What this closes, and what it opens
+
+The completeness sweep proved coverage is worth ~80 accuracy points **when it drops**. This control
+shows real retrieval on this corpus **does not drop** — it sits at 0.97–0.98.
+
+Both are true, and together they say something sharper than either alone: **the remaining ~10–16% of
+failures on this corpus are not coverage failures.** They are the oracle-impossible questions (four
+in the archive, 0/36 with perfect context), judge disagreements, and answer-model nondeterminism —
+none of which any retrieval change reaches.
+
+That is the same ceiling every retrieval-side candidate has hit this week: routing at 1 of 50,
+decomposition at 0 wins of 29, precision flat across 9.2× context, representation ~1 question, and
+now coverage at 1 of 50. **On this corpus, retrieval is not the bottleneck; it is already close to
+its own ceiling.**
+
+To measure a coverage lever at all would need a corpus where retrieval genuinely under-covers — a
+larger haystack, a tighter top-K, or many owners. That is a corpus-design task, not a lever question,
+and it should be costed before it is built.
+
+### Prediction scoring
+
+- *"`ExpandFactsByPredicate` will move coverage on multi-session questions"* — **unresolved**, not
+  wrong. There was no headroom to move.
+- *"`RescueShortOwnerResults` will move little because this corpus is single-owner"* — **consistent
+  with the outcome**, and generalised: no lever had room, for a reason that subsumes the one predicted.
+- *"Accuracy will move less than coverage"* — **unresolved**; neither moved.
