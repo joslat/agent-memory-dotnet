@@ -251,3 +251,52 @@ five that could actually produce one.
 
 Until that lands, **attempt five's figures should be treated as void**, not as another null result.
 The four before it are genuine nulls; this one is a bug.
+
+
+---
+
+## Sixth run — and it invalidates the earlier conclusion, not just attempt five
+
+Fixed the shared-state bug: the task is now constructed inside the agent factory, once per attempt.
+The arithmetic is consistent again — six calls for both arms, which is the five-step chain plus one
+stale refusal. Both arms hit the refusal, discovered the refresh, and finished.
+
+```
+procedures  completion=100%  meanSteps=6.3  meanToolCalls=6.0
+control     completion=100%  meanSteps=6.0  meanToolCalls=6.0
+```
+
+**Both arms paid the discovery cost on every attempt.** The procedural arm did not skip it — and the
+reason is not the task.
+
+### The agent never had a memory provider
+
+`ProceduralBenefitProgram.BuildAgent` composes `chatClient.AsAIAgent(...)` with the benchmark tools
+and **no `AIContextProviders`**. There is no `Neo4jMemoryContextProvider` on either arm.
+
+So the procedural arm **stored** procedures — promotion works, it is unit-tested — and then had no
+way whatsoever to **read** them back. It was a plain agent writing traces nobody consulted.
+
+### This retracts the "task class" conclusion
+
+The write-up after attempt four concluded:
+
+> *"A competent model does not explore on this class of task at all… procedural memory has no
+> exploration cost to remove."*
+
+**That conclusion is not supported by any run performed here.** Attempts 1–4 could not have shown a
+benefit under any task design, because the procedural arm had no procedural memory. The nulls were
+real observations of a system in which recall was never wired — which is a statement about this
+harness, not about the feature or the task class.
+
+The doc comment on `ProceduralBenefitProgram` claims the arms "differ in exactly two things": trace
+recall and promotion. Only promotion was implemented. I wrote the claim and did not check it, which
+is the sixth instance of the same failure in this sequence and by far the most consequential, because
+it silently converted five runs into measurements of nothing.
+
+### What is actually needed
+
+Attach `Neo4jMemoryContextProvider` to the procedural arm's agent, with
+`AutomaticRecallCategories.ReasoningTraces` enabled and `MaxTraces > 0`, and leave the control arm
+without it. Then — and only then — the arms differ in the feature. Every figure recorded in this
+document up to that point should be treated as void.

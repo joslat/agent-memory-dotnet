@@ -55,18 +55,24 @@ internal static class ProceduralBenefitProgram
             log,
             cancellationToken).ConfigureAwait(false);
 
-        var task = new ProceduralBenchmarkTask();
+        // Prompt and completion only -- both are pure, and this instance is never given to an agent.
+        var template = new ProceduralBenchmarkTask();
         var traces = profile.Services.GetRequiredService<IReasoningTraceRepository>();
 
         // The arm switch, and the only difference between the two agents. The control arm is handed
         // no trace repository, so it neither reads nor writes procedures.
         var runner = new MafAgentTaskRunner(
-            proceduralMemoryEnabled => BuildAgent(chatClient, task, proceduralMemoryEnabled),
-            task.Prompt,
-            task.IsComplete,
+            // A FRESH task per attempt. Sharing one leaked the stale-session flag from the procedural
+            // arm into the control, which completed a five-call chain in four calls -- a void run whose
+            // only tell was that the arithmetic was impossible. The environment must start stale every
+            // time or the control arm inherits the discovery instead of paying for it.
+            proceduralMemoryEnabled =>
+                BuildAgent(chatClient, new ProceduralBenchmarkTask(), proceduralMemoryEnabled),
+            template.Prompt,
+            template.IsComplete,
             traces);
 
-        log.WriteLine($"procedural-benefit: {attempts} attempts per arm, task='{task.Prompt}'");
+        log.WriteLine($"procedural-benefit: {attempts} attempts per arm, task='{template.Prompt}'");
         var result = await ProceduralBenefitResult
             .MeasureAsync(runner, "procedural-benchmark", attempts, cancellationToken)
             .ConfigureAwait(false);
