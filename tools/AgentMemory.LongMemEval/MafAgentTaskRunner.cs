@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Repositories;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
@@ -32,6 +34,8 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
     private readonly Func<bool, AIAgent> _agentFactory;
     private readonly string _taskPrompt;
     private readonly Func<string, bool> _isComplete;
+    private readonly IReasoningTraceRepository? _traces;
+    private readonly string _ownerId;
 
     /// <param name="agentFactory">
     /// Builds an agent with procedural memory on or off. A factory rather than two instances because
@@ -40,14 +44,23 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
     /// </param>
     /// <param name="taskPrompt">The task, issued identically on every attempt.</param>
     /// <param name="isComplete">Decides completion from the final transcript.</param>
+    /// <param name="traces">
+    /// Where a successful attempt is promoted to a procedure. <see langword="null"/> disables
+    /// promotion, which is what the control arm uses.
+    /// </param>
+    /// <param name="ownerId">Owner the procedure is stored under; recall is owner-scoped.</param>
     public MafAgentTaskRunner(
         Func<bool, AIAgent> agentFactory,
         string taskPrompt,
-        Func<string, bool> isComplete)
+        Func<string, bool> isComplete,
+        IReasoningTraceRepository? traces = null,
+        string ownerId = "procedural-benchmark")
     {
         _agentFactory = agentFactory;
         _taskPrompt = taskPrompt;
         _isComplete = isComplete;
+        _traces = traces;
+        _ownerId = ownerId;
     }
 
     /// <inheritdoc/>
@@ -68,10 +81,18 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
             .ConfigureAwait(false);
 
         var messages = response.Messages ?? [];
-        return new AgentTaskRun(
+        var run = new AgentTaskRun(
             Completed: _isComplete(response.Text ?? string.Empty),
             Steps: CountSteps(messages),
             ToolCalls: CountToolCalls(messages));
+
+        await PromoteIfWorthKeepingAsync(
+                run,
+                procedureMemoryEnabled,
+                messages.SelectMany(m => m.Contents.OfType<FunctionCallContent>()).Select(c => c.Name),
+                cancellationToken)
+            .ConfigureAwait(false);
+        return run;
     }
 
     /// <summary>Assistant turns taken — the agent's own reasoning steps.</summary>
@@ -86,4 +107,54 @@ internal sealed class MafAgentTaskRunner : IAgentTaskRunner
     /// <summary>Tool invocations across the whole run.</summary>
     internal static int CountToolCalls(IEnumerable<ChatMessage> messages) =>
         messages.Sum(m => m.Contents.OfType<FunctionCallContent>().Count());
+
+    /// <summary>
+    /// Stores a successful attempt as a reusable procedure (7.6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Without this the benchmark measures nothing.</b> The Agent Framework provider recalls
+    /// reasoning traces and never writes one — <c>AgentTraceRecorder</c> is gated off by default and
+    /// is not called on a normal run — so the procedural arm would recall procedures while nothing
+    /// stored any, both arms would behave identically, and the harness would report "no benefit"
+    /// while actually describing a wiring gap.
+    /// </para>
+    /// <para>
+    /// <b>Successful attempts only.</b> Promoting a failed one teaches the wrong chain; 7.7's
+    /// wrong-procedure rate would then correctly punish it, and the benchmark would be measuring a
+    /// bug introduced here rather than the feature.
+    /// </para>
+    /// <para>
+    /// <b>Written as <see cref="TraceKind.Procedure"/>, never Episode.</b> Owner-scoped procedural
+    /// recall filters on procedures, so an episode-kinded trace is stored, recalled by nothing, and
+    /// presents as exactly the same false negative this method exists to prevent.
+    /// </para>
+    /// </remarks>
+    internal async Task PromoteIfWorthKeepingAsync(
+        AgentTaskRun run,
+        bool procedureMemoryEnabled,
+        IEnumerable<string> toolNames,
+        CancellationToken cancellationToken = default)
+    {
+        // The arm switch. The control arm passes no repository and therefore never promotes, which is
+        // what makes the two arms differ in the feature rather than in their prompts.
+        if (_traces is null || !procedureMemoryEnabled || !run.Completed) return;
+
+        var chain = string.Join(" -> ", toolNames);
+
+        await _traces.AddAsync(
+            new ReasoningTrace
+            {
+                TraceId = $"proc-{Guid.NewGuid():N}",
+                SessionId = "procedural-benchmark",
+                Task = _taskPrompt,
+                Outcome = chain,
+                Success = true,
+                Kind = TraceKind.Procedure,
+                OwnerId = _ownerId,
+                StartedAtUtc = DateTimeOffset.UtcNow,
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
 }
