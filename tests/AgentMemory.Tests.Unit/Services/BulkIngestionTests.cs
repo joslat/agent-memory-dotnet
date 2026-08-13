@@ -26,12 +26,21 @@ public sealed class BulkIngestionTests
     private sealed class RecordingIngestion : IMemoryIngestion
     {
         private int _inFlight;
+        private int _invocations;
         private readonly Func<int, bool>? _failOn;
+        private readonly bool _failFirstInvocation;
         private readonly TimeSpan _delay;
 
-        public RecordingIngestion(Func<int, bool>? failOn = null, TimeSpan? delay = null)
+        /// <param name="failFirstInvocation">
+        /// Fails whichever request is dispatched FIRST, rather than a fixed index. Task.Run does not
+        /// guarantee submission order, so keying a stop-on-error test to index 0 asserts something the
+        /// implementation never promised -- and it passes on a small box and fails on a wide one.
+        /// </param>
+        public RecordingIngestion(
+            Func<int, bool>? failOn = null, TimeSpan? delay = null, bool failFirstInvocation = false)
         {
             _failOn = failOn;
+            _failFirstInvocation = failFirstInvocation;
             _delay = delay ?? TimeSpan.FromMilliseconds(20);
         }
 
@@ -44,12 +53,15 @@ public sealed class BulkIngestionTests
         {
             var now = Interlocked.Increment(ref _inFlight);
             InterlockedMax(ref PeakConcurrency, now);
+            var invocation = Interlocked.Increment(ref _invocations);
             try
             {
                 await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
                 lock (_sync) Seen.Add(request.SessionId);
 
                 var index = int.Parse(request.SessionId.Split('-')[1], System.Globalization.CultureInfo.InvariantCulture);
+                if (_failFirstInvocation && invocation == 1)
+                    throw new InvalidOperationException($"boom on first dispatch (index {index})");
                 if (_failOn?.Invoke(index) == true) throw new InvalidOperationException($"boom {index}");
                 return new ExtractionResult();
             }
@@ -154,7 +166,11 @@ public sealed class BulkIngestionTests
         // "Tried and failed" and "never tried" call for different actions: re-running a request that
         // was never attempted is always correct, re-running a failed one may not be. Collapsing them
         // makes a stopped run look like a partially broken corpus.
-        var ingestion = new RecordingIngestion(failOn: i => i == 0, delay: TimeSpan.FromMilliseconds(50));
+        // Keyed to the FIRST DISPATCH, not to index 0. Task.Run does not guarantee submission order,
+        // so on a wide CI runner a later index can win the gate and every request completes before the
+        // failure fires -- which is exactly how this test failed in CI while passing locally.
+        var ingestion = new RecordingIngestion(
+            failFirstInvocation: true, delay: TimeSpan.FromMilliseconds(50));
 
         var result = await ((IMemoryIngestion)ingestion).IngestBulkAsync(
             Requests(20), new BulkIngestionOptions { MaxConcurrency = 1, ContinueOnError = false });
