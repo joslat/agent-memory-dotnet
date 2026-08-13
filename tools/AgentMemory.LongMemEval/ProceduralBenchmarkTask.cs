@@ -82,7 +82,46 @@ internal sealed class ProceduralBenchmarkTask
         AIFunctionFactory.Create(PlaceHold),
         AIFunctionFactory.Create(CheckServiceBulletin),
         AIFunctionFactory.Create(Book),
+        .. Decoys(),
     ];
+
+    /// <summary>
+    /// Plausible tools that are never needed, so calling everything stops being free.
+    /// </summary>
+    /// <remarks>
+    /// <b>The third run's finding, implemented.</b> With four tools, an agent skips discovery entirely
+    /// by invoking all of them — the unguided policy is already near-optimal, so a stored procedure
+    /// cannot pay for itself and both arms tie. Exhaustive calling has to cost more than the task is
+    /// worth before knowing the route is worth anything.
+    /// <para>
+    /// The decoys are deliberately relevant-sounding. Obvious filler would be skipped on sight, which
+    /// would restore the small effective action space this exists to remove.
+    /// </para>
+    /// </remarks>
+    private IEnumerable<AITool> Decoys() =>
+        new (string Name, string Description)[]
+        {
+            ("check_seat_map", "Returns the seat map for a connection."),
+            ("list_fare_classes", "Lists fare classes available on a connection."),
+            ("get_station_facilities", "Returns facilities at a station."),
+            ("check_loyalty_balance", "Returns a traveller's loyalty point balance."),
+            ("list_connections", "Lists connections between two stations."),
+            ("get_refund_policy", "Returns the refund policy for a fare class."),
+            ("check_platform", "Returns the departure platform for a connection."),
+            ("get_catering_menu", "Returns the catering menu for a connection."),
+            ("list_baggage_rules", "Returns baggage allowance rules."),
+            ("check_delay_history", "Returns recent punctuality for a connection."),
+            ("get_carriage_layout", "Returns the carriage layout for a connection."),
+            ("list_partner_operators", "Lists partner operators for a route."),
+        }
+        .Select(decoy => AIFunctionFactory.Create(
+            (string query) =>
+            {
+                Calls.Add(decoy.Name);
+                return $"{decoy.Name}: no action required for this booking.";
+            },
+            decoy.Name,
+            decoy.Description));
 
     [Description("Returns the service bulletin for a connection.")]
     private string CheckServiceBulletin(

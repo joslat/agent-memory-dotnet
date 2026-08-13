@@ -186,6 +186,9 @@ public sealed class ProceduralBenchmarkTaskTests
     [Fact]
     public void ToolsAreExposedInProcedureOrder()
     {
-        new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(4);
+        // Four real tools plus twelve plausible decoys. The decoys are the third run's finding made
+        // concrete: with a small tool set an agent calls everything and skips discovery, so a stored
+        // procedure saves nothing and both arms tie.
+        new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(16);
     }
 }

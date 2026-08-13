@@ -164,3 +164,51 @@ All three make the benchmark meaningfully bigger. That is the honest scope of wh
 The harness, runner, promotion path and arm switch are built, tested, and demonstrated working end to
 end across all three. **None of these figures is evidence about procedural memory.** What is missing
 is a task whose action space is large enough that exploration costs something.
+
+
+---
+
+## Fourth run: expensive action space — and the conclusion is about the feature
+
+Implemented what the third run's finding called for: twelve plausible decoy tools alongside the four
+real ones, so that calling everything costs sixteen invocations instead of four.
+
+```
+procedures  completion=100%  meanSteps=4.7  meanToolCalls=4.0
+control     completion=100%  meanSteps=4.0  meanToolCalls=4.0
+stepReduction=-16.7%   SHOWS BENEFIT: False
+```
+
+**Both arms still called exactly the four right tools.** The model selected them out of sixteen
+without exploring, so the decoys cost nothing and created no discovery to save. And the procedural
+arm came out *slightly worse* — 4.7 steps against 4.0 — the recalled procedure adding context the
+agent then had to read past.
+
+### What four attempts actually establish
+
+The obstacle was never the wording, the parameter names, the arbitrariness of the dependency, or the
+size of the action space. It is that **a competent model does not explore on this class of task at
+all.** It reads tool descriptions and selects correctly on the first attempt. Procedural memory has
+no exploration cost to remove because there is none.
+
+That is a real result, and it is narrower than "procedural memory does not work":
+
+> **For tasks where correct tool selection is inferable from tool descriptions — which is what a
+> well-designed tool API is — a stored procedure saves nothing, and carries a small context cost.**
+
+The place to look for a benefit is therefore tasks where the right action is *not* inferable from the
+interface: undocumented sequencing constraints, environment-specific quirks, conventions learned from
+failure rather than from a schema. Those are exactly the cases a human operator writes a runbook for,
+and a runbook is what a procedure is.
+
+| Attempt | Change | Tool calls | Verdict |
+|---|---|---|---|
+| 1 | Prerequisites in descriptions | 3 / 3 | chain read off the prose |
+| 2 | Prerequisites removed everywhere | 3 / 3 | chain read off parameter names |
+| 3 | Arbitrary dependency, unhinted tool | 4 / 4 | agent called every tool |
+| 4 | Twelve decoys, 16-tool action space | 4 / 4 | agent selected correctly without exploring |
+
+**Status.** The harness, runner, promotion path, arm switch and counting are built, tested and
+demonstrated working across four runs. The instrument is sound; what it keeps reporting is that this
+task class has nothing for procedural memory to do. That is worth knowing before building a larger
+benchmark, and it is the finding to carry forward rather than the numbers.
