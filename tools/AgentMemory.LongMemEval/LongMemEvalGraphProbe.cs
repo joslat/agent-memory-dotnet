@@ -298,6 +298,51 @@ public sealed record LongMemEvalGraphSnapshot(
     int? Procedures = null)
 {
     /// <summary>
+    /// Whether this snapshot matches one sealed in a manifest, comparing only what the SEALED side
+    /// actually recorded.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Record equality is the wrong comparison here, and it silently voided a whole corpus.</b>
+    /// 6.5 added <see cref="ReasoningTraces"/> and <see cref="Procedures"/> as nullable precisely so a
+    /// legacy manifest reads as <i>not measured</i> rather than as measured-and-zero. The per-question
+    /// verification then compared with <c>Equals</c>, which compares every field — so a sealed
+    /// snapshot with nulls could never equal a freshly probed one with counts, and every question in
+    /// every pre-6.5 corpus failed as <c>prepared-graph-mismatch</c>. The graph was fine; the
+    /// comparison was asking about a field the manifest was never able to record.
+    /// </para>
+    /// <para>
+    /// So a null on the SEALED side means "not recorded, not compared". A null on the probed side is
+    /// different and is not special-cased: that would mean the probe failed to count something it
+    /// should have, which is a real mismatch.
+    /// </para>
+    /// </remarks>
+    internal bool MatchesSealed(LongMemEvalGraphSnapshot sealedSnapshot)
+    {
+        ArgumentNullException.ThrowIfNull(sealedSnapshot);
+
+        if (Entities != sealedSnapshot.Entities ||
+            Facts != sealedSnapshot.Facts ||
+            Preferences != sealedSnapshot.Preferences ||
+            Relationships != sealedSnapshot.Relationships ||
+            RelationshipsWithProvenance != sealedSnapshot.RelationshipsWithProvenance ||
+            LearnedItems != sealedSnapshot.LearnedItems ||
+            LearnedItemsWithProvenance != sealedSnapshot.LearnedItemsWithProvenance ||
+            ProvenanceEdges != sealedSnapshot.ProvenanceEdges ||
+            SourceMessages != sealedSnapshot.SourceMessages)
+        {
+            return false;
+        }
+
+        // Compared only when the seal recorded them. Added after several corpora were sealed, so an
+        // absent value is a fact about the manifest's age, never about the graph.
+        if (sealedSnapshot.ReasoningTraces is { } traces && ReasoningTraces != traces) return false;
+        if (sealedSnapshot.Procedures is { } procedures && Procedures != procedures) return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// Entity + Fact + Preference + relationship count, <b>deliberately excluding traces</b>.
     /// </summary>
     /// <remarks>

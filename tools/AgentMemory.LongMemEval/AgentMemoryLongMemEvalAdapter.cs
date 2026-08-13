@@ -535,8 +535,10 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     .ReadGoldCoverageAsync(ownerId, goldSourceMessageIds, cancellationToken)
                     .ConfigureAwait(false);
 
+                // MatchesSealed, not Equals: the sealed snapshot cannot carry counters that were
+                // added after it was written, and comparing them makes every pre-6.5 corpus fail.
                 if (preparedQuestion is not null &&
-                    !Equals(graphSnapshot, preparedQuestion.GraphSnapshot))
+                    !graphSnapshot.MatchesSealed(preparedQuestion.GraphSnapshot))
                 {
                     RecordTelemetry(
                         questionNumber,
