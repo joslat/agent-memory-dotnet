@@ -46,3 +46,46 @@ Then the two arms differ in something real, and the harness measures the feature
 - `ProcedureRetrievalPrecision` — wrong-procedure rate (7.7)
 - `ProceduralBenchmarkTask` — the enforced-chain task
 - `MafAgentTaskRunner` — step and tool-call counting off the transcript
+
+
+---
+
+## First run executed — and the result is about the task, not the feature
+
+**Run:** `--procedural-benefit --attempts 3`, 2026-08-13. Promotion wiring in place.
+
+```
+procedures  completion=100%  meanSteps=4.0  meanToolCalls=3.0
+control     completion=100%  meanSteps=4.0  meanToolCalls=3.0
+stepReduction=0.0%  toolCallReduction=0.0%  completionDelta=0%
+SHOWS BENEFIT: False
+```
+
+**This is not evidence that procedural memory does not help.** Three tool calls is the *minimum
+possible* chain, and the log contains **zero refusals** — the agent walked
+`LookUpTraveller → PlaceHold → Book` correctly on its first cold attempt, in both arms. There was
+nothing to discover, so there was nothing a stored procedure could save.
+
+The cause is my own task design, and it is the exact property the benchmark's tests declare as the
+hard requirement: *the shortest correct path must be discoverable but not guessable.* I enforced that
+in the tool **bodies** — booking without a hold is refused — but gave it away in the tool
+**descriptions**, which state the prerequisites outright:
+
+- *"Requires the traveller's loyalty tier."*
+- *"Requires a hold reference."*
+
+A competent model reads the descriptions and orders the calls correctly without ever being refused.
+The enforcement is real and never fires.
+
+### What the run does establish
+
+The assembly works end to end, which was the open question: the arms are genuinely distinct, the
+promotion path stores a procedure, and the counting produces figures off the transcript. A harness
+that could not run at all would have failed here instead of returning a clean, uninformative zero.
+
+### The fix
+
+Withhold the prerequisites from the descriptions — name each tool's purpose and let the refusal
+message teach the ordering. Then the control arm must discover the chain by being refused on every
+attempt, while the procedural arm pays that cost once. Re-run after that change; the current numbers
+should not be cited.
