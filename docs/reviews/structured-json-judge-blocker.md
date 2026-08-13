@@ -47,12 +47,43 @@ The obvious way to get a green run is to widen the call-count bounds and relax t
 provoked it passes produces a number that looks measured because the thing that would have objected
 was tuned away — which is the failure this evaluation track exists to prevent.
 
+## Root cause (traced 2026-08-13)
+
+Both symptoms are one bug. `LongMemEvalRunValidator` reconciles with:
+
+```csharp
+TryParseJudgeVerdict(question.JudgeExplanation, out var judgedCorrect)
+...
+if (question.Correct != judgedCorrect) // disagreement
+```
+
+`question.Correct` is **AgentEval's own verdict**. `judgedCorrect` is **our re-parse of the
+free-text explanation**. Under StructuredJson the explanation is no longer yes/no prose, so our
+re-parse yields the wrong boolean — and the same failed parse is what triggers the post-run
+diagnostic judge retry, one per question, which is what drove base judge calls to zero.
+
+Confirmed against the package: `AgentEval.Memory.External.Models.QuestionResult` exposes
+`Correct`, `JudgeExplanation`, `JudgeRawResponse`, `JudgeReasoning`, `JudgeStatus`, `RawScore` — and
+**no structured verdict property**. So there is nothing to read a verdict *from* except `Correct`
+itself.
+
+**Which makes the fix principled rather than a loosened bound.** The reconciliation exists to catch
+AgentEval's *free-text parser* mis-scoring — precisely the bug StructuredJson eliminates. Under that
+protocol the cross-check is not applicable: re-parsing prose to second-guess a structured verdict is
+checking the thing the protocol removed. Skipping it there does not weaken the guard, because the
+guard's subject no longer exists; keeping it there is what produces a false rejection.
+
+The same reasoning disposes of the call accounting: the diagnostic retry repairs unparseable
+free-text verdicts, so under StructuredJson it should never fire, and once it does not,
+`baseJudgeCalls == questionCount` and the bound is satisfied without being touched.
+
 ## What is actually needed
 
-1. Teach the run validator the StructuredJson judge's call shape, rather than widening the bounds
-   until both shapes fit — bounds loose enough to admit both admit real anomalies too.
-2. Read recorded correctness from the **structured verdict** when that protocol is in force, instead
-   of from the free-text parse.
+1. Plumb the active `JudgeVerdictProtocol` into `LongMemEvalRunValidator` and
+   `LongMemEvalPostRunDiagnostics` — neither currently knows which protocol ran.
+2. Under StructuredJson: take `question.Correct` as the verdict and skip both the free-text re-parse
+   and the diagnostic retry. **Do not widen the call bounds** — with the retry suppressed they are
+   already satisfied, and bounds loose enough to admit both shapes admit real anomalies too.
 3. Only then re-run, and report it as a protocol change on a fresh base — never by flipping the
    default, because every sealed base here is free-text.
 
