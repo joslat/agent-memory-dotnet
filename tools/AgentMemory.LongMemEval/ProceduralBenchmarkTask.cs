@@ -52,6 +52,17 @@ internal sealed class ProceduralBenchmarkTask
     internal bool IsComplete(string response) =>
         response.Contains(ConfirmationMarker, StringComparison.Ordinal);
 
+    /// <summary>
+    /// Words that would give the chain away if they appeared in a tool description.
+    /// </summary>
+    /// <remarks>
+    /// The first run failed on exactly this: the bodies enforced the ordering and the descriptions
+    /// announced it, so the model ordered the calls correctly cold and the enforcement never fired.
+    /// A benchmark whose difficulty lives only in code the model never reads is not a benchmark.
+    /// </remarks>
+    internal static readonly string[] ChainRevealingWords =
+        ["require", "first", "before", "returned by", "from the"];
+
     /// <summary>The tools, in the order a correct procedure uses them.</summary>
     internal IReadOnlyList<AITool> CreateTools() =>
     [
@@ -60,7 +71,10 @@ internal sealed class ProceduralBenchmarkTask
         AIFunctionFactory.Create(Book),
     ];
 
-    [Description("Looks up a traveller's loyalty tier. Required before a hold can be placed.")]
+    // Descriptions state PURPOSE only. Naming a prerequisite here hands the model the chain, and
+    // the first run proved it: zero refusals, minimal tool count, both arms identical. The ordering
+    // has to be learned from the refusals, or there is nothing for a procedure to remember.
+    [Description("Looks up a traveller.")]
     private string LookUpTraveller(
         [Description("The traveller's name.")] string traveller)
     {
@@ -70,10 +84,10 @@ internal sealed class ProceduralBenchmarkTask
             : $"no traveller named '{traveller}'";
     }
 
-    [Description("Places a hold on a connection. Requires the traveller's loyalty tier.")]
+    [Description("Places a hold on a connection.")]
     private string PlaceHold(
         [Description("The connection time, e.g. 14:05.")] string connection,
-        [Description("The traveller's loyalty tier, from the traveller lookup.")] string tier)
+        [Description("The traveller's loyalty tier.")] string tier)
     {
         Calls.Add(nameof(PlaceHold));
         // Refused, not thrown. A hard failure ends the run; a refusal that names what is missing is
@@ -84,9 +98,9 @@ internal sealed class ProceduralBenchmarkTask
             : $"refused: a hold needs the traveller's loyalty tier; look up the traveller first";
     }
 
-    [Description("Confirms a booking. Requires a hold reference.")]
+    [Description("Confirms a booking.")]
     private string Book(
-        [Description("The hold reference returned by the hold tool.")] string holdReference)
+        [Description("The hold reference.")] string holdReference)
     {
         Calls.Add(nameof(Book));
         return string.Equals(holdReference, HoldReference, StringComparison.OrdinalIgnoreCase)

@@ -112,6 +112,46 @@ public sealed class ProceduralBenchmarkTaskTests
     }
 
     [Fact]
+    public void ToolDescriptionsDoNotGiveAwayTheChain()
+    {
+        // THE guard the first run needed and did not have. Enforcing the ordering in the tool BODIES
+        // while announcing it in the DESCRIPTIONS makes the difficulty invisible to the only thing
+        // that matters -- the model reads descriptions, not code. The first run proved it: zero
+        // refusals, minimal tool count, both arms identical, and a "no benefit" result that was
+        // entirely about the task.
+        var descriptions = new ProceduralBenchmarkTask().CreateTools()
+            .Select(t => ((AIFunction)t).Description ?? string.Empty)
+            .ToList();
+
+        foreach (var description in descriptions)
+        {
+            foreach (var giveaway in ProceduralBenchmarkTask.ChainRevealingWords)
+            {
+                description.Should().NotContain(
+                    giveaway,
+                    "a description naming a prerequisite lets the model skip discovery: '{0}'",
+                    description);
+            }
+        }
+    }
+
+    [Fact]
+    public void ParameterDescriptionsDoNotGiveAwayTheChainEither()
+    {
+        // The same leak one level down. "The hold reference returned by the hold tool" is the chain,
+        // written out, in a place it is just as readable.
+        var schema = new ProceduralBenchmarkTask().CreateTools()
+            .Select(t => ((AIFunction)t).JsonSchema.ToString())
+            .ToList();
+
+        foreach (var json in schema)
+        {
+            json.Should().NotContain("returned by");
+            json.Should().NotContain("from the traveller");
+        }
+    }
+
+    [Fact]
     public void ToolsAreExposedInProcedureOrder()
     {
         new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(3);
