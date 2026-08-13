@@ -71,6 +71,14 @@ internal static class LongMemEvalProgram
             return LongMemEvalCaptureHeadroomProgram.Run(args);
         }
 
+        if (args.Contains("--oracle-decomposition", StringComparer.Ordinal))
+        {
+            // B4. Needs answer + judge credentials but NO Neo4j, Docker or prepared corpus: the oracle
+            // reads gold sessions from the dataset, so the question "does decomposing help?" is
+            // answerable without paying for a build.
+            return await LongMemEvalOracleDecompositionProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
         {
             // 7.6. The arms differ in exactly two things -- trace recall and promotion -- so that any
@@ -394,6 +402,7 @@ internal static class LongMemEvalProgram
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
         "--procedural-benefit", "--attempts",
+        "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
         "--capture-headroom", "--artifacts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",

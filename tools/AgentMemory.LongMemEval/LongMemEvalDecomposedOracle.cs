@@ -17,7 +17,17 @@ public sealed record LongMemEvalDecomposedOracleResult(
     bool ValidVerdict,
     bool? Correct,
     double? RawScore,
-    int LlmCalls);
+    int LlmCalls,
+    /// <summary>
+    /// Calls spent on retried attempts, separate from the productive ones.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart so <see cref="LongMemEvalDecomposedOracle.ExpectedCalls"/> stays checkable: a run
+    /// whose accounting cannot absorb a retry gets rejected by the validator for being flaky rather
+    /// than for being wrong. Measured on the first probe: 1 of 2 questions hit a transient provider
+    /// fault, and the same question succeeded immediately on re-run.
+    /// </remarks>
+    int RetriedCalls = 0);
 
 /// <summary>
 /// The decomposed arm of the oracle comparison.
@@ -71,20 +81,74 @@ internal static class LongMemEvalDecomposedOracle
         + "the original question requires — and give the final answer directly.\n"
         + "If they are insufficient or contradict each other, say so plainly rather than choosing one.";
 
+    /// <summary>
+    /// One completion with bounded retry on a transient provider fault.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured need, not caution.</b> The first two-question probe lost one question to a
+    /// <c>ClientResultException</c> on its very first call, and the identical question succeeded on
+    /// re-run — so without this a 30-question run bleeds rows to provider flakiness, inflating
+    /// "inconclusive" and shrinking the comparable denominator that the whole comparison rests on.
+    /// Every attempt is counted; retried ones are reported separately so the accounting still checks.
+    /// </remarks>
+    private static async Task<string> CompleteAsync(
+        IChatClient chatClient,
+        string systemPrompt,
+        string userPrompt,
+        int attempts,
+        Counters counters,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var response = await chatClient.GetResponseAsync(
+                [
+                    new ChatMessage(ChatRole.System, systemPrompt),
+                    new ChatMessage(ChatRole.User, userPrompt),
+                ], cancellationToken: cancellationToken).ConfigureAwait(false);
+                counters.Calls++;
+                if (attempt > 1) counters.Retried += attempt - 1;
+                return response.Text ?? string.Empty;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch when (attempt < attempts)
+            {
+                // The failing call still cost the provider something even though it returned nothing,
+                // so it is counted. Reporting only successful calls would understate the run's price.
+                counters.Calls++;
+                await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    private sealed class Counters
+    {
+        public int Calls;
+        public int Retried;
+    }
+
     internal static async Task<LongMemEvalDecomposedOracleResult> RunAsync(
         IChatClient chatClient,
         LongMemEvalJudge judge,
         LongMemEvalEvidenceQuestion indexed,
         int maxSubQuestions,
         bool retainContent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int attemptsPerCall = 3)
     {
         ArgumentNullException.ThrowIfNull(chatClient);
         ArgumentNullException.ThrowIfNull(judge);
         ArgumentNullException.ThrowIfNull(indexed);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxSubQuestions, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(attemptsPerCall, 1);
 
-        var calls = 0;
+        var counters = new Counters();
         var subQuestions = Array.Empty<string>();
         var subAnswers = new List<string>();
 
@@ -97,39 +161,28 @@ internal static class LongMemEvalDecomposedOracle
                 .Select(message => (message.Role, message.SourceTimestamp, message.FormattedContent))
                 .ToList();
 
-            var decomposition = await chatClient.GetResponseAsync(
-            [
-                new ChatMessage(ChatRole.System, DecomposePrompt),
-                new ChatMessage(ChatRole.User, indexed.Question),
-            ], cancellationToken: cancellationToken).ConfigureAwait(false);
-            calls++;
+            var decomposition = await CompleteAsync(
+                chatClient, DecomposePrompt, indexed.Question, attemptsPerCall, counters,
+                cancellationToken).ConfigureAwait(false);
 
-            subQuestions = ParseSubQuestions(decomposition.Text, indexed.Question, maxSubQuestions);
+            subQuestions = ParseSubQuestions(decomposition, indexed.Question, maxSubQuestions);
 
             foreach (var subQuestion in subQuestions)
             {
                 var answerPrompt = AgentMemoryLongMemEvalAdapter.BuildAnswerPrompt(
                     goldContext, subQuestion, indexed.QuestionDate);
-                var subResponse = await chatClient.GetResponseAsync(
-                [
-                    new ChatMessage(ChatRole.System, AgentMemoryLongMemEvalAdapter.SystemPrompt),
-                    new ChatMessage(ChatRole.User, answerPrompt),
-                ], cancellationToken: cancellationToken).ConfigureAwait(false);
-                calls++;
-                subAnswers.Add(subResponse.Text ?? string.Empty);
+                subAnswers.Add(await CompleteAsync(
+                    chatClient, AgentMemoryLongMemEvalAdapter.SystemPrompt, answerPrompt,
+                    attemptsPerCall, counters, cancellationToken).ConfigureAwait(false));
             }
 
-            var composed = await chatClient.GetResponseAsync(
-            [
-                new ChatMessage(ChatRole.System, ComposePrompt),
-                new ChatMessage(ChatRole.User, BuildComposePrompt(indexed, subQuestions, subAnswers)),
-            ], cancellationToken: cancellationToken).ConfigureAwait(false);
-            calls++;
-            var answer = composed.Text ?? string.Empty;
+            var answer = await CompleteAsync(
+                chatClient, ComposePrompt, BuildComposePrompt(indexed, subQuestions, subAnswers),
+                attemptsPerCall, counters, cancellationToken).ConfigureAwait(false);
 
             var judgment = await judge.JudgeAsync(
                 answer, ToBenchmarkQuestion(indexed), cancellationToken).ConfigureAwait(false);
-            calls++;
+            counters.Calls++;
 
             // Same validity rule as the monolithic arm. A verdict the parser and the judge disagree
             // about is unusable on BOTH arms or on neither -- applying a looser rule here would let
@@ -146,7 +199,8 @@ internal static class LongMemEvalDecomposedOracle
                 valid,
                 valid ? judgment.Correct : null,
                 valid ? judgment.RawScore : null,
-                calls);
+                counters.Calls,
+                counters.Retried);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -166,7 +220,8 @@ internal static class LongMemEvalDecomposedOracle
                 false,
                 null,
                 null,
-                calls);
+                counters.Calls,
+                counters.Retried);
         }
     }
 
