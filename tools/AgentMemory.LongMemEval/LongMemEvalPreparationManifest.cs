@@ -221,9 +221,25 @@ internal sealed record LongMemEvalPreparationManifest(
                 $"Unsupported LongMemEval preparation manifest schema {SchemaVersion}.");
         }
 
-        var expected = ComputeFingerprint(this);
-        if (!string.Equals(Fingerprint, expected, StringComparison.Ordinal))
-            throw new InvalidOperationException("LongMemEval preparation manifest fingerprint mismatch.");
+        // Schema 6 was allowed to mean TWO THINGS, so verification must accept both. The schema-6
+        // field set gained AbstentionPolicy and RefusedSourceSessions on 2026-08-12 at 23:37 WITHOUT
+        // a version bump, nine hours after a 616-call corpus had been sealed under the earlier set.
+        // The result: that corpus -- and every other one sealed between the schema-6 introduction and
+        // that change -- could never verify again, because its stored hash covers fewer fields than
+        // the recompute. It presented as "fingerprint mismatch", which reads as tampering rather than
+        // as a versioning mistake here.
+        //
+        // Accepting either is the honest repair: the two field sets are not distinguishable by
+        // version, because the version did not change. New seals always write the current set, so
+        // this widening does not propagate.
+        if (string.Equals(Fingerprint, ComputeFingerprint(this), StringComparison.Ordinal)) return;
+        if (SchemaVersion >= 6 &&
+            string.Equals(Fingerprint, ComputeSchema6PreAbstentionFingerprint(this), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("LongMemEval preparation manifest fingerprint mismatch.");
     }
 
     /// <summary>
@@ -241,6 +257,62 @@ internal sealed record LongMemEvalPreparationManifest(
         return manifest.SchemaVersion >= 6
             ? ComputeCurrentFingerprint(manifest)
             : ComputeLegacyFingerprint(manifest);
+    }
+
+    /// <summary>
+    /// The schema-6 field set as it stood <b>before</b> AbstentionPolicy and RefusedSourceSessions
+    /// were added to it, preserved verbatim so corpora sealed in that window still verify.
+    /// </summary>
+    /// <remarks>
+    /// Identical to <see cref="ComputeCurrentFingerprint"/> minus those two fields, in the original
+    /// order. Order matters: the hash is over serialized JSON, so moving a field changes the result
+    /// even when the values do not.
+    /// </remarks>
+    private static string ComputeSchema6PreAbstentionFingerprint(LongMemEvalPreparationManifest manifest)
+    {
+        var canonical = new
+        {
+            manifest.SchemaVersion,
+            manifest.PreparationId,
+            manifest.DatasetSha256,
+            manifest.AgentEvalRevision,
+            manifest.ScopeRunIdSha256,
+            manifest.AnswerModelId,
+            manifest.JudgeModelId,
+            manifest.ExtractionModelId,
+            manifest.EmbeddingModelId,
+            manifest.EmbeddingDimensions,
+            manifest.MaxRelevantMessages,
+            manifest.ExtractionSourceTime,
+            manifest.AssistantContent,
+            manifest.UsePredicateVocabulary,
+            manifest.ExtractionVocabularySha256,
+            manifest.QueryRelationLexiconSha256,
+            manifest.ExtractionProvenance,
+            manifest.QuestionSeed,
+            manifest.UseJsonResponseFormat,
+            manifest.ExtractionResponseContract,
+            manifest.UseUnifiedExtraction,
+            manifest.UseMultiSessionBatchExtraction,
+            manifest.PreparationWorkers,
+            manifest.MaxSessionsPerBatch,
+            manifest.MaxInputTokens,
+            manifest.MaxConcurrentBatchesPerExtraction,
+            manifest.MaxConcurrentExtractionBatches,
+            Questions = manifest.Questions.Select(question => new
+            {
+                question.QuestionNumber,
+                question.QuestionId,
+                question.HistorySha256,
+                question.ScopeSha256,
+                question.MessagesPrepared,
+                question.SourceSessions,
+                question.ExtractionUnitsPrepared,
+                question.GraphSnapshot
+            }),
+            manifest.InitialExtractionCalls
+        };
+        return Hash(JsonSerializer.Serialize(canonical, JsonOptions));
     }
 
     /// <summary>The pre-schema-6 field set, preserved verbatim so older manifests still verify.</summary>
