@@ -29,7 +29,24 @@ internal sealed class CoreMemoryTools
         {
             SessionId = sessionId ?? options.Value.DefaultSessionId,
             UserId = userId,
-            Query = query
+            Query = query,
+            // 0.8. `maxResults` was declared, described to the model as "maximum number of results per
+            // memory section", and then never referenced -- so a client that set it got the defaults
+            // and no indication otherwise. A tool parameter a model can see is a promise it will act
+            // on; leaving it inert is worse than not offering it.
+            //
+            // MaxTraces is deliberately left at its default. This tool's own description advertises
+            // "recent messages, entities, facts, and preferences" and does not mention traces, so
+            // widening trace retrieval here would add a vector search per call that no caller asked
+            // for -- a cost change smuggled in behind a bug fix.
+            Options = RecallOptions.Default with
+            {
+                MaxRecentMessages = maxResults,
+                MaxRelevantMessages = maxResults,
+                MaxEntities = maxResults,
+                MaxPreferences = maxResults,
+                MaxFacts = maxResults,
+            },
         };
 
         var result = await memoryService.RecallAsync(request, cancellationToken).ConfigureAwait(false);
