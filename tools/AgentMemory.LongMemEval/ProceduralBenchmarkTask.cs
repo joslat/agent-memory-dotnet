@@ -54,6 +54,23 @@ internal sealed class ProceduralBenchmarkTask
     /// </remarks>
     private const string ClearanceCode = "CLR-7731";
 
+    /// <summary>
+    /// An undocumented environment convention: the session must be refreshed before a hold.
+    /// </summary>
+    /// <remarks>
+    /// <b>The fourth run's finding, implemented.</b> Attempts 1-4 all failed to discriminate for one
+    /// reason: a competent model reads tool descriptions and selects correctly first time, so there
+    /// is no exploration to save. Hiding a dependency did not help, because the dependency was still
+    /// <i>inferable</i> from the interface.
+    /// <para>
+    /// This one is not inferable from anything. Nothing in <c>refresh_session</c>'s name or
+    /// description connects it to holds; the requirement exists only in the environment's behaviour
+    /// and is discoverable only by being refused. That is what a human writes a runbook for, and a
+    /// runbook is what a procedure is.
+    /// </para>
+    /// </remarks>
+    private bool _sessionRefreshed;
+
     /// <summary>Records what was called, so a test can assert the chain without a model.</summary>
     internal List<string> Calls { get; } = [];
 
@@ -81,6 +98,7 @@ internal sealed class ProceduralBenchmarkTask
         AIFunctionFactory.Create(LookUpTraveller),
         AIFunctionFactory.Create(PlaceHold),
         AIFunctionFactory.Create(CheckServiceBulletin),
+        AIFunctionFactory.Create(RefreshSession),
         AIFunctionFactory.Create(Book),
         .. Decoys(),
     ];
@@ -146,12 +164,25 @@ internal sealed class ProceduralBenchmarkTask
             : $"no traveller named '{traveller}'";
     }
 
+    [Description("Refreshes the booking session.")]
+    private string RefreshSession()
+    {
+        Calls.Add(nameof(RefreshSession));
+        _sessionRefreshed = true;
+        return "session refreshed";
+    }
+
     [Description("Places a hold on a connection.")]
     private string PlaceHold(
         [Description("The connection time, e.g. 14:05.")] string connection,
         [Description("The traveller's loyalty tier.")] string tier)
     {
         Calls.Add(nameof(PlaceHold));
+
+        // The convention that can only be learned by failing. The refusal deliberately does NOT name
+        // refresh_session -- naming it would make this inferable again, which is what defeated the
+        // previous four attempts.
+        if (!_sessionRefreshed) return "refused: booking session is stale";
         // Refused, not thrown. A hard failure ends the run; a refusal that names what is missing is
         // what an agent without the procedure can actually learn from -- and learning it cold, once,
         // is precisely the cost the stored procedure is supposed to remove.

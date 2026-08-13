@@ -39,6 +39,7 @@ public sealed class ProceduralBenchmarkTaskTests
         var lookup = await InvokeAsync(task, "LookUpTraveller", new { traveller = "ruaidhri" });
         lookup.Should().Contain("gold");
 
+        await InvokeAsync(task, "RefreshSession", new { });
         var hold = await InvokeAsync(task, "PlaceHold", new { connection = "14:05", tier = "gold" });
         hold.Should().Contain("HOLD-4417");
 
@@ -72,6 +73,9 @@ public sealed class ProceduralBenchmarkTaskTests
         // stored procedure removes on later attempts.
         var task = new ProceduralBenchmarkTask();
 
+        // Refresh first: the stale-session convention now guards PlaceHold, and this test is about
+        // the TIER check behind it.
+        await InvokeAsync(task, "RefreshSession", new { });
         var hold = await InvokeAsync(task, "PlaceHold", new { connection = "14:05", tier = "unknown" });
 
         hold.Should().Contain("refused");
@@ -85,6 +89,7 @@ public sealed class ProceduralBenchmarkTaskTests
         // cannot learn the chain cold makes the control arm measure the harness rather than the agent.
         var task = new ProceduralBenchmarkTask();
 
+        await InvokeAsync(task, "RefreshSession", new { });
         var hold = await InvokeAsync(task, "PlaceHold", new { connection = "14:05", tier = "bronze" });
 
         hold.Should().NotBeNullOrWhiteSpace();
@@ -183,12 +188,40 @@ public sealed class ProceduralBenchmarkTaskTests
         booking.Should().NotContain("bulletin");
     }
 
+
+    [Fact]
+    public async Task AHoldOnAStaleSessionIsRefused()
+    {
+        // Attempt five, and the one thing the previous four never had: a requirement that is not
+        // inferable from ANY interface. Nothing connects refresh_session to holds -- the convention
+        // lives only in the environment's behaviour and is discoverable only by being refused.
+        var task = new ProceduralBenchmarkTask();
+
+        var hold = await InvokeAsync(task, "PlaceHold", new { connection = "14:05", tier = "gold" });
+
+        hold.Should().Contain("stale");
+        hold.Should().NotContain("refresh");
+    }
+
+    [Fact]
+    public async Task TheStaleRefusalDoesNotNameTheRemedy()
+    {
+        // Naming refresh_session would make the step inferable again -- exactly what defeated attempts
+        // one through four. The agent has to find it, which is the cost a stored procedure removes.
+        var task = new ProceduralBenchmarkTask();
+
+        var hold = await InvokeAsync(task, "PlaceHold", new { connection = "14:05", tier = "gold" });
+
+        hold.Should().NotContain("session refresh");
+        hold.Should().NotContain("RefreshSession");
+    }
+
     [Fact]
     public void ToolsAreExposedInProcedureOrder()
     {
         // Four real tools plus twelve plausible decoys. The decoys are the third run's finding made
         // concrete: with a small tool set an agent calls everything and skips discovery, so a stored
         // procedure saves nothing and both arms tie.
-        new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(16);
+        new ProceduralBenchmarkTask().CreateTools().Should().HaveCount(17);
     }
 }
