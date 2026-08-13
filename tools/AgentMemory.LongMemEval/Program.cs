@@ -71,6 +71,13 @@ internal static class LongMemEvalProgram
             return LongMemEvalCaptureHeadroomProgram.Run(args);
         }
 
+        if (args.Contains("--oracle-representation", StringComparer.Ordinal))
+        {
+            // P2. Extracts from the gold sessions only and answers from the structured rendering, so
+            // recall stays at 100% and the only variable is the representation.
+            return await LongMemEvalRepresentationProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--oracle-precision", StringComparer.Ordinal))
         {
             // P1. Adds distractor sessions to a context that already holds all the gold, so recall is
@@ -410,7 +417,7 @@ internal static class LongMemEvalProgram
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
         "--procedural-benefit", "--attempts",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
-        "--oracle-precision", "--distractor-sessions",
+        "--oracle-precision", "--distractor-sessions", "--oracle-representation",
         "--capture-headroom", "--artifacts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
