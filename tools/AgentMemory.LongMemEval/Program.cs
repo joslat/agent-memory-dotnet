@@ -417,7 +417,7 @@ internal static class LongMemEvalProgram
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
         "--procedural-benefit", "--attempts",
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
-        "--oracle-precision", "--distractor-sessions", "--oracle-representation",
+        "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",

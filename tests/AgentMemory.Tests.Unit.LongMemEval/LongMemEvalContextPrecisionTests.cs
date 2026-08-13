@@ -120,6 +120,52 @@ public sealed class LongMemEvalContextPrecisionTests
     }
 
     [Fact]
+    public void DroppingGoldRemovesWholeSessionsAndReportsIt()
+    {
+        // P3. The mirror of the distractor sweep: this one asks whether a PARTIAL answer is as good
+        // as a whole one. Recorded failures sit at RetrievedGoldCoverage 0.43-0.88, so real retrieval
+        // lives here rather than at the 1.0 the other sweeps hold.
+        var question = Question(goldSessions: 4, otherSessions: 2);
+        var kept = 0;
+        var total = 0;
+
+        var context = LongMemEvalContextPrecisionProgram.BuildContext(
+            question, 0, 42, out _, goldFraction: 0.5, (k, t) => { kept = k; total = t; });
+
+        kept.Should().Be(2);
+        total.Should().Be(4);
+        context.Count(entry => entry.Content.StartsWith("gold", StringComparison.Ordinal))
+            .Should().Be(4, "two gold sessions of two messages each survive");
+    }
+
+    [Fact]
+    public void ASingleGoldSessionIsNeverRoundedAwayEntirely()
+    {
+        // Ceiling, never floor. A fraction that rounded a one-gold-session question to zero would make
+        // it unanswerable by construction, and the arm would be scored for a defect of the sampler.
+        var question = Question(goldSessions: 1, otherSessions: 5);
+
+        var context = LongMemEvalContextPrecisionProgram.BuildContext(
+            question, 0, 42, out _, goldFraction: 0.1);
+
+        context.Should().HaveCount(2, "the single gold session survives any fraction");
+    }
+
+    [Fact]
+    public void AFullGoldFractionIsIdenticalToNotAskingForOne()
+    {
+        // The control level must be byte-identical to the pre-P3 behaviour, or every earlier sweep
+        // becomes incomparable with the new one.
+        var question = Question(goldSessions: 3, otherSessions: 4);
+
+        var withDefault = LongMemEvalContextPrecisionProgram.BuildContext(question, 2, 42, out _);
+        var withExplicit = LongMemEvalContextPrecisionProgram.BuildContext(
+            question, 2, 42, out _, goldFraction: 1.0);
+
+        withExplicit.Select(entry => entry.Content).Should().Equal(withDefault.Select(entry => entry.Content));
+    }
+
+    [Fact]
     public void AQuestionWithNoDistractorsAvailableReportsZero()
     {
         // The case the void witness watches for: if every question is like this, K>0 is the gold-only

@@ -57,22 +57,25 @@ internal static class LongMemEvalContextPrecisionProgram
 
             Console.WriteLine(
                 $"longmemeval: context-precision sweep over {questions.Count} questions, "
-                + $"K = {string.Join(", ", options.DistractorCounts)}");
+                + $"levels = {string.Join(", ", options.Levels.Select(l => $"(K={l.Distractors},gold={l.GoldFraction:0.##})"))}");
 
             var levels = new List<object>();
             var perQuestion = new List<object>();
             var voidReasons = new List<string>();
 
-            foreach (var k in options.DistractorCounts)
+            foreach (var (k, goldFraction) in options.Levels)
             {
                 var correct = 0;
                 var comparable = 0;
                 long totalChars = 0;
                 var addedAny = 0;
+                var goldDropped = 0;
 
                 foreach (var question in questions)
                 {
-                    var context = BuildContext(question, k, options.Seed, out var distractorsAdded);
+                    var context = BuildContext(
+                        question, k, options.Seed, out var distractorsAdded, goldFraction,
+                        (kept, total) => { if (kept < total) goldDropped++; });
                     if (distractorsAdded > 0) addedAny++;
                     totalChars += context.Sum(entry => entry.Content.Length);
 
@@ -110,6 +113,7 @@ internal static class LongMemEvalContextPrecisionProgram
                     perQuestion.Add(new
                     {
                         k,
+                        goldFraction,
                         question.QuestionId,
                         question.QuestionType,
                         status = "completed",
@@ -124,11 +128,17 @@ internal static class LongMemEvalContextPrecisionProgram
                 // different label.
                 if (k > 0 && addedAny == 0)
                     voidReasons.Add($"K={k} added no distractors to any question");
+                // The completeness witness. A fraction below 1 that dropped nothing is the full-gold
+                // level wearing a different label, and would report "completeness does not matter".
+                if (goldFraction < 1.0 && goldDropped == 0)
+                    voidReasons.Add($"goldFraction={goldFraction} dropped no gold from any question");
 
                 var accuracy = comparable == 0 ? (double?)null : (double)correct / comparable;
                 levels.Add(new
                 {
                     k,
+                    goldFraction,
+                    goldDropped,
                     comparable,
                     correct,
                     accuracy,
@@ -137,7 +147,7 @@ internal static class LongMemEvalContextPrecisionProgram
                 });
 
                 Console.WriteLine(
-                    $"  K={k,-3} correct {correct}/{comparable}"
+                    $"  K={k,-3} gold={goldFraction,-5:0.##} correct {correct}/{comparable}"
                     + (accuracy is { } a ? $" ({a:P1})" : " (n/a)")
                     + $"  meanContextChars={(questions.Count == 0 ? 0 : totalChars / questions.Count)}"
                     + $"  withDistractors={addedAny}/{questions.Count}");
@@ -146,7 +156,7 @@ internal static class LongMemEvalContextPrecisionProgram
             // A sweep whose context never grows measured one condition several times.
             var sizes = levels.Select(level => (long)level.GetType().GetProperty("meanContextChars")!
                 .GetValue(level)!).Distinct().Count();
-            if (options.DistractorCounts.Count > 1 && sizes == 1)
+            if (options.Levels.Count > 1 && sizes == 1)
                 voidReasons.Add("mean context size identical at every K");
 
             var runId = $"context-precision-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}";
@@ -158,7 +168,7 @@ internal static class LongMemEvalContextPrecisionProgram
                 options.Questions,
                 options.Seed,
                 answerDeployment = deployment,
-                distractorCounts = options.DistractorCounts,
+                levelSpec = options.Levels.Select(level => new { k = level.Distractors, gold = level.GoldFraction }),
                 isVoid = voidReasons.Count > 0,
                 voidReasons,
                 levels,
@@ -198,9 +208,12 @@ internal static class LongMemEvalContextPrecisionProgram
     /// then measure how well it reads an ordered list.
     /// </remarks>
     internal static List<(string Role, string Timestamp, string Content)> BuildContext(
-        LongMemEvalEvidenceQuestion question, int distractorCount, int seed, out int distractorsAdded)
+        LongMemEvalEvidenceQuestion question, int distractorCount, int seed, out int distractorsAdded,
+        double goldFraction = 1.0, Action<int, int>? reportGold = null)
     {
         ArgumentNullException.ThrowIfNull(question);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(goldFraction);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(goldFraction, 1.0);
 
         var nonGold = question.Messages
             .Select(message => message.SourceSessionId)
@@ -216,9 +229,22 @@ internal static class LongMemEvalContextPrecisionProgram
             .ToHashSet(StringComparer.Ordinal);
         distractorsAdded = chosen.Count;
 
+        // P3. Gold COMPLETENESS, the mirror of the distractor sweep. Adding noise measured whether
+        // wrong material hurts; dropping gold sessions measures whether a PARTIAL answer is as good
+        // as a whole one. Recorded failures sit at RetrievedGoldCoverage 0.43-0.88, so real retrieval
+        // lives in this regime rather than at the 1.0 both other sweeps held.
+        var goldSessions = question.AnswerSessionIds
+            .OrderBy(sessionId => sessionId, StringComparer.Ordinal)
+            .ToList();
+        // Ceiling, never floor: a fraction that rounds a single-gold-session question to zero would
+        // make it unanswerable by construction and score the arm for a defect of the sampler.
+        var keepCount = Math.Max(1, (int)Math.Ceiling(goldSessions.Count * goldFraction));
+        var keptGold = goldSessions.Take(keepCount).ToHashSet(StringComparer.Ordinal);
+        reportGold?.Invoke(keptGold.Count, goldSessions.Count);
+
         return question.Messages
             .Where(message =>
-                question.AnswerSessionIds.Contains(message.SourceSessionId) ||
+                keptGold.Contains(message.SourceSessionId) ||
                 chosen.Contains(message.SourceSessionId))
             .Select(message => (message.Role, message.SourceTimestamp, message.FormattedContent))
             .ToList();
@@ -250,20 +276,35 @@ internal static class LongMemEvalContextPrecisionProgram
         if (!File.Exists(datasetPath))
             throw new FileNotFoundException("LongMemEval dataset not found.", datasetPath);
 
-        var counts = (Value("--distractor-sessions") ?? "0,2,5,10")
+        var counts = (Value("--distractor-sessions") ?? "0")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(value => int.TryParse(value, out var parsed) && parsed >= 0
                 ? parsed
                 : throw new ArgumentException("--distractor-sessions must be non-negative integers."))
-            .Distinct()
-            .OrderBy(value => value)
+            .Distinct().OrderBy(value => value).ToList();
+
+        var fractions = (Value("--gold-fraction") ?? "1.0")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value =>
+                double.TryParse(value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                && parsed > 0 && parsed <= 1
+                    ? parsed
+                    : throw new ArgumentException("--gold-fraction must be in (0, 1]."))
+            .Distinct().OrderByDescending(value => value).ToList();
+
+        // The cross product, so noise and completeness can be swept independently or together. The
+        // two are different questions -- one asks whether wrong material hurts, the other whether a
+        // partial answer is as good as a whole one -- and collapsing them would confound both.
+        var levels = fractions
+            .SelectMany(fraction => counts.Select(count => new SweepLevel(count, fraction)))
             .ToList();
 
         return new PrecisionOptions(
             datasetPath,
             ParsePositive(Value("--questions"), 10, "--questions"),
             ParsePositive(Value("--seed"), 42, "--seed"),
-            counts,
+            levels,
             Value("--output"));
     }
 
@@ -281,10 +322,12 @@ internal static class LongMemEvalContextPrecisionProgram
             : throw new InvalidOperationException(
                 $"{name} is required; refusing to create a synthetic LongMemEval score.");
 
+    internal sealed record SweepLevel(int Distractors, double GoldFraction);
+
     private sealed record PrecisionOptions(
         string DatasetPath,
         int Questions,
         int Seed,
-        IReadOnlyList<int> DistractorCounts,
+        IReadOnlyList<SweepLevel> Levels,
         string? OutputPath);
 }
