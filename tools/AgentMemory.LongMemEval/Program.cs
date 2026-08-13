@@ -63,6 +63,14 @@ internal static class LongMemEvalProgram
             return 0;
         }
 
+        if (args.Contains("--capture-headroom", StringComparer.Ordinal))
+        {
+            // 8.3c. Read-only, credential-free, and dispatched before any Azure environment is required:
+            // this verb exists to decide whether a ~96M-input-token run could show anything, and a check
+            // that needs the credentials of a paid run is a check nobody makes before buying.
+            return LongMemEvalCaptureHeadroomProgram.Run(args);
+        }
+
         if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
         {
             // 7.6. The arms differ in exactly two things -- trace recall and promotion -- so that any
@@ -386,6 +394,7 @@ internal static class LongMemEvalProgram
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
         "--procedural-benefit", "--attempts",
+        "--capture-headroom", "--artifacts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
