@@ -1089,7 +1089,8 @@ internal static class LongMemEvalPreparedPairProgram
                 adapter.QuestionTelemetry,
                 options.OracleMode,
                 options.JudgeRetryAttempts,
-                retainContent: options.EvidenceDetail == LongMemEvalEvidenceDetail.Content)
+                retainContent: options.EvidenceDetail == LongMemEvalEvidenceDetail.Content,
+                verdictProtocol: options.JudgeProtocol)
             .ConfigureAwait(false);
         var answerSnapshot = answerCalls.Snapshot();
         var judgeSnapshot = judgeCalls.Snapshot();
@@ -1108,7 +1109,10 @@ internal static class LongMemEvalPreparedPairProgram
             // Diagnostics ran a call earlier; a verdict it already recovered must not be
             // reported as missing on the strength of AgentEval's original explanation.
             judgeRetries: diagnostics.JudgeRetries,
-            agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts);
+            agentEvalJudgeRetryAllowance: options.JudgeRetryAttempts,
+            // 3.7: the validator must know which judge protocol ran, or it reconciles a structured
+            // verdict against a free-text re-parse and rejects every question.
+            verdictProtocol: options.JudgeProtocol);
         total.Stop();
         return new PreparedArmExecution(
             mode,

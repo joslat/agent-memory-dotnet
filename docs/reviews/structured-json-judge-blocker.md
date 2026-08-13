@@ -1,6 +1,12 @@
-# StructuredJson judge protocol: reachable, and currently rejected
+# StructuredJson judge protocol: reachable, diagnosed, and fixed
 
-**Status:** blocker specified, not fixed. **Date:** 2026-08-13.
+**Status:** ✅ **fixed and verified end to end.** **Date:** 2026-08-13.
+
+> Re-run `longmemeval-prepared-20260813T011536Z` — 2 questions, `--judge-protocol structured-json`
+> — **accepted, zero validation issues, both arms accepted**, with
+> `fingerprint.judgeVerdictProtocol = StructuredJson` recorded. The call bounds were **not**
+> widened and the free-text reconciliation is **still enforced** under FreeText; both are
+> pinned by `StructuredJsonValidatorTests` from either side.
 
 ## Why the protocol matters
 
