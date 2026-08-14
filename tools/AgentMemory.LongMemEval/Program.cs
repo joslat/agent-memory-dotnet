@@ -109,6 +109,14 @@ internal static class LongMemEvalProgram
             return await LongMemEvalAnswerDeterminismProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--time-grounded-oracle", StringComparer.Ordinal))
+        {
+            // 26.3. Prospective memory, measurable for the first time: AgentEval 0.21.0-beta ships a
+            // time-grounded corpus. Oracle first -- gold context only, no Neo4j and no extraction --
+            // because a question the model fails WITH the evidence cannot be fixed by any memory work.
+            return await LongMemEvalTimeGroundedOracleProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--procedure-retrieval", StringComparer.Ordinal))
         {
             // 26.2. Procedural RETRIEVAL precision: does recall return the RIGHT procedure, and does it
@@ -451,7 +459,7 @@ internal static class LongMemEvalProgram
         "--capture-headroom", "--artifacts",
         "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
         "--answer-seed", "--typed-report", "--reports", "--arm",
-        "--procedure-retrieval", "--min-scores", "--query-formulation",
+        "--procedure-retrieval", "--min-scores", "--query-formulation", "--time-grounded-oracle",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
