@@ -1147,6 +1147,39 @@ internal static class LongMemEvalPreparedPairProgram
             LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
     }
 
+    /// <summary>
+    /// Judged verdicts keyed by question id, for the summaries that score by question rather than by
+    /// arm. Unjudged questions are omitted rather than defaulted to false, so "not scored" can never
+    /// be read as "got it wrong".
+    /// </summary>
+    private static Dictionary<string, bool> CorrectByQuestionId(PreparedArmExecution arm) =>
+        arm.Result.QuestionResults
+            .Where(question => question.QuestionId is not null && question.Correct is not null)
+            .GroupBy(question => question.QuestionId!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Correct!.Value, StringComparer.Ordinal);
+
+    /// <summary>Raw and improvable accuracy, with the excluded questions named in the report itself.</summary>
+    private static object ProjectOracleImpossible(PreparedArmExecution arm)
+    {
+        var score = LongMemEvalOracleImpossible.Score(CorrectByQuestionId(arm));
+        return new
+        {
+            rawCorrect = score.TotalCorrect,
+            rawQuestions = score.TotalQuestions,
+            rawAccuracy = score.RawAccuracy,
+            improvableCorrect = score.ImprovableCorrect,
+            improvableQuestions = score.ImprovableQuestions,
+            improvableAccuracy = score.ImprovableAccuracy,
+            // Named in every report. An exclusion a reader cannot see is an exclusion they cannot
+            // check, and the failure mode of a curated list is that it becomes a way of not counting
+            // inconvenient questions.
+            excludedQuestionIds = score.ExcludedQuestionIds,
+            excludedEvidence = score.ExcludedQuestionIds
+                .ToDictionary(id => id, id => LongMemEvalOracleImpossible.Questions[id], StringComparer.Ordinal),
+            contradiction = score.ExclusionContradicted,
+        };
+    }
+
     /// <summary>The meta-memory half of an arm's result, or nulls when no abstention question ran.</summary>
     private static object ProjectAbstentionAccuracy(PreparedArmExecution arm)
     {
@@ -1219,6 +1252,19 @@ internal static class LongMemEvalPreparedPairProgram
             // holds the two prices, never their difference). Reported as a group so a derived-answer
             // type's absences are not read as extraction failures.
             answerPresenceByType = LongMemEvalAnswerPresence.SummariseByType(arm.Telemetry),
+            // 27.3. Per-MEMORY-TYPE accuracy. LongMemEvalTypedBreakdown shipped with a full unit suite
+            // and had ZERO production call sites: every per-type figure this project has quoted was
+            // recomputed by hand from raw artifacts, because no report ever contained one. That is the
+            // same dead-code defect as an unwired flag, in the instrument that answers the question
+            // most often asked of it.
+            memoryTypeAccuracy = LongMemEvalTypedBreakdown.Summarise(
+                arm.Telemetry, CorrectByQuestionId(arm)),
+            // 27.3. Raw and improvable accuracy, side by side and never one without the other. Four
+            // questions in this dataset are answered wrongly by a PERFECT-CONTEXT oracle 8 times out of
+            // 8, so no memory system can reach them; leaving them in the denominator caps the score for
+            // reasons unrelated to memory. They are named, evidenced and reported -- not deleted -- and
+            // the score carries a contradiction flag that fires if one is ever answered correctly.
+            oracleImpossible = ProjectOracleImpossible(arm),
             // Meta-memory: how well the agent declines to answer what memory does not hold.
             // Reported separately from the AUC's "absent" count, which is a ground-truth INPUT
             // identical across arms -- reading a class balance as a result is the easy mistake,

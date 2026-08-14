@@ -52,7 +52,24 @@ internal static class LongMemEvalContextPrecisionProgram
                 options.DatasetPath, options.Questions, options.Seed,
                 judgeRetryAttempts: 0, LongMemEvalEvidenceDetail.Identifiers, maxRelevantMessages: 30);
             var evidenceIndex = LongMemEvalEvidenceIndex.Load(options.DatasetPath, benchmarkOptions);
-            var questions = evidenceIndex.Questions.ToList();
+            // 27.3. Targetable by id. Without this the oracle could only sweep whatever the sample
+            // happened to contain, which is how four questions came to be described as "0/36 with
+            // perfect context" when the archive shows the oracle had never been pointed at them at
+            // all -- every one of those 36 attempts was a RETRIEVAL run. Excluding questions from a
+            // published denominator demands evidence about those questions specifically.
+            var questionIds = options.QuestionIds;
+            var questions = questionIds.Count == 0
+                ? evidenceIndex.Questions.ToList()
+                : evidenceIndex.Questions
+                    .Where(question => questionIds.Contains(question.QuestionId, StringComparer.Ordinal))
+                    .ToList();
+            if (questions.Count == 0)
+            {
+                Console.Error.WriteLine(
+                    "longmemeval: --question-ids matched nothing in the sample; widen --questions.");
+                return 2;
+            }
+
             var judge = new LongMemEvalJudge(chatClient, NullLogger<LongMemEvalJudge>.Instance);
 
             Console.WriteLine(
@@ -321,7 +338,9 @@ internal static class LongMemEvalContextPrecisionProgram
             ParsePositive(Value("--questions"), 10, "--questions"),
             ParsePositive(Value("--seed"), 42, "--seed"),
             levels,
-            Value("--output"));
+            Value("--output"),
+            (Value("--question-ids") ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     private static int ParsePositive(string? value, int defaultValue, string option)
@@ -345,5 +364,6 @@ internal static class LongMemEvalContextPrecisionProgram
         int Questions,
         int Seed,
         IReadOnlyList<SweepLevel> Levels,
-        string? OutputPath);
+        string? OutputPath,
+        IReadOnlyList<string> QuestionIds);
 }

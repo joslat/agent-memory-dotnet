@@ -32,17 +32,39 @@ system never enters.
 
 ### 2.1 Four questions are unanswerable with perfect information
 
-Four questions in the whole archive were **never** answered correctly by the perfect-context oracle:
-`352ab8bd` (0/36), `58470ed2` (0/36), `09ba9854`, `031748ae_abs`. Thirty-six attempts each, gold
-sessions only, no retrieval involved.
+> **Corrected 2026-08-14.** An earlier version of this section named `352ab8bd` (0/36), `58470ed2`
+> (0/36), `09ba9854` and `031748ae_abs` as oracle-impossible. **The archive did not support that.**
+> The oracle had never been pointed at any of them — all 36 attempts were *retrieval* runs, where a
+> wrong answer is ambiguous between "unanswerable" and "not retrieved". Task 27.3 made the oracle
+> targetable by question id and settled it by measurement. Two of the four named questions do not
+> belong on the list, and two that were never suspected do.
 
-**What "0/36 with perfect context" means:** the model was handed exactly the evidence the dataset
-says answers the question, and got it wrong every time. No memory system can reach these. They are
-some mixture of ambiguous gold answers, judge disagreement, and questions whose stated answer does
-not follow from their stated evidence.
+Measured directly, gold-only context, zero distractors, no retrieval, **8 independent attempts each**
+(`--oracle-precision --distractor-sessions 0 --gold-fraction 1.0`,
+artifacts `oracle-impossible-probe-r1..r8.json`):
 
-They are still counted in every denominator this project publishes. That is 8% of a 50-question run
-that is structurally unwinnable.
+| Question | Type | Perfect-context oracle | Verdict |
+|---|---|---:|---|
+| `352ab8bd` | single-session-assistant | **0/8** | Oracle-impossible |
+| `58470ed2` | single-session-assistant | **0/8** | Oracle-impossible |
+| `7a8d0b71` | single-session-assistant | **0/8** | Oracle-impossible — *newly identified* |
+| `bf659f65` | multi-session | **0/8** | Oracle-impossible — *newly identified* |
+| `031748ae_abs` | knowledge-update | 3/4 | **Solvable** — wrongly listed before |
+| `gpt4_8279ba03` | temporal-reasoning | 4/4 | **Solvable** — a pure retrieval miss |
+
+**What "0/8 with perfect context" means:** the model was handed exactly the evidence the dataset says
+answers the question and got it wrong every time. No memory system can reach these. Under a coin-flip
+null, 0-of-8 is p≈0.004 per question; four of them together are not a sampling accident.
+
+**The pattern worth noticing:** three of the four are `single-session-assistant` — questions whose
+answer was stated by the *assistant*. That is the smallest question type in the set and it holds three
+quarters of the oracle-impossible questions. That is a property of the benchmark, not of any system
+measured against it.
+
+These are now excluded from the *improvable* denominator and reported beside the raw one, with the
+exclusion named and its evidence carried in every report — plus a contradiction flag that fires if one
+is ever answered correctly, because a curated exclusion list is exactly the kind of thing that decays
+into a way of not counting inconvenient questions.
 
 ### 2.2 The intermittent failures are not retrieval failures
 
