@@ -163,7 +163,21 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     {
         _logger.LogDebug("Assembling memory context for session {SessionId}", request.SessionId);
 
-        var recallOpts = request.Options;
+        // 25.2. `MemoryOptions.Recall` is the APPLICATION's default; `RecallOptions.Default` is the
+        // library's. A caller who did not set RecallRequest.Options gets the former, not the latter.
+        //
+        // Without this the configured value was read by almost nobody: RecallRequest.Options defaults
+        // to the static RecallOptions.Default singleton, so a host that tuned recall depth or
+        // similarity through MemoryOptions saw no effect on any direct RecallAsync call -- the option
+        // bound, validated, and changed nothing.
+        //
+        // Reference equality is exactly the right test: RecallOptions.Default is a singleton, so this
+        // is true precisely when the caller left the property alone. And it is a no-op for anyone who
+        // has not configured anything, because MemoryOptions.Recall itself defaults to that same
+        // instance -- so the unconfigured path stays byte-identical.
+        var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
+            ? _options.Recall
+            : request.Options;
         var minScore = recallOpts.MinSimilarityScore;
         var blendMode = recallOpts.BlendMode;
 
@@ -670,7 +684,21 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             "Assembling bitemporal memory context for session {SessionId} validAsOf {ValidAsOf} systemAsOf {SystemAsOf}",
             request.SessionId, validAsOf, systemAsOf);
 
-        var recallOpts = request.Options;
+        // 25.2. `MemoryOptions.Recall` is the APPLICATION's default; `RecallOptions.Default` is the
+        // library's. A caller who did not set RecallRequest.Options gets the former, not the latter.
+        //
+        // Without this the configured value was read by almost nobody: RecallRequest.Options defaults
+        // to the static RecallOptions.Default singleton, so a host that tuned recall depth or
+        // similarity through MemoryOptions saw no effect on any direct RecallAsync call -- the option
+        // bound, validated, and changed nothing.
+        //
+        // Reference equality is exactly the right test: RecallOptions.Default is a singleton, so this
+        // is true precisely when the caller left the property alone. And it is a no-op for anyone who
+        // has not configured anything, because MemoryOptions.Recall itself defaults to that same
+        // instance -- so the unconfigured path stays byte-identical.
+        var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
+            ? _options.Recall
+            : request.Options;
         var minScore = recallOpts.MinSimilarityScore;
 
         // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path --

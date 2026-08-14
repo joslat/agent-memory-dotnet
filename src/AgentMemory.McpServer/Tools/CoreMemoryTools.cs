@@ -19,6 +19,11 @@ internal sealed class CoreMemoryTools
     public static async Task<string> MemorySearch(
         IMemoryService memoryService,
         IOptions<AgentMemoryMcpOptions> options,
+        // 25.2. The host's CONFIGURED recall options, not the static default. Without this the tool
+        // started from RecallOptions.Default, so an operator who tuned similarity or recall depth
+        // through MemoryOptions got no effect here at all -- the configuration bound, validated, and
+        // was read by nobody on the path an MCP client actually uses.
+        IOptions<MemoryOptions> memoryOptions,
         [Description("The search query text")] string query,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("User identifier (optional)")] string? userId = null,
@@ -39,7 +44,10 @@ internal sealed class CoreMemoryTools
             // "recent messages, entities, facts, and preferences" and does not mention traces, so
             // widening trace retrieval here would add a vector search per call that no caller asked
             // for -- a cost change smuggled in behind a bug fix.
-            Options = RecallOptions.Default with
+            // Starts from the configured options so similarity threshold, trace budget and every
+            // other knob the host set are honoured; only the section caps the caller named are
+            // overridden.
+            Options = memoryOptions.Value.Recall with
             {
                 MaxRecentMessages = maxResults,
                 MaxRelevantMessages = maxResults,

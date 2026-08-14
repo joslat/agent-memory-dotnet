@@ -17,6 +17,11 @@ public sealed class CoreMemoryToolsTests
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly IClock _clock = Substitute.For<IClock>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
+
+    // 25.2. The tool now starts from the host's CONFIGURED recall options rather than the static
+    // default, so it needs them injected. Stock values here, so these tests keep asserting the
+    // behaviour they always did.
+    private readonly IOptions<MemoryOptions> _memoryOptions = Options.Create(new MemoryOptions());
     private readonly IOptions<LongTermMemoryOptions> _longTermOptions = Options.Create(new LongTermMemoryOptions());
 
     private static readonly DateTimeOffset FixedTime = new(2025, 1, 15, 10, 0, 0, TimeSpan.Zero);
@@ -47,7 +52,7 @@ public sealed class CoreMemoryToolsTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(CreateRecallResult());
 
-        await CoreMemoryTools.MemorySearch(_memoryService, _options, "test query", "ses-1", "user-1");
+        await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "test query", "ses-1", "user-1");
 
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r =>
@@ -63,7 +68,7 @@ public sealed class CoreMemoryToolsTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(CreateRecallResult());
 
-        await CoreMemoryTools.MemorySearch(_memoryService, _options, "query");
+        await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "query");
 
         await _memoryService.Received(1).RecallAsync(
             Arg.Is<RecallRequest>(r => r.SessionId == "default"),
@@ -76,7 +81,7 @@ public sealed class CoreMemoryToolsTests
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(CreateRecallResult(5));
 
-        var result = await CoreMemoryTools.MemorySearch(_memoryService, _options, "query");
+        var result = await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "query");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("totalItemsRetrieved").GetInt32().Should().Be(5);
