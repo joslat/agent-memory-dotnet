@@ -45,6 +45,7 @@ a memory **context provider** (injects memory before each run, persists after) p
 | **ChatHistoryProvider** | `Neo4jChatHistoryProvider` wired via `ChatClientAgentOptions.ChatHistoryProvider` — per-session conversation history (distinct from long-term memory). |
 | **BlendedAgent** | Blended persistent memory + GraphRAG retrieval, with OpenTelemetry. |
 | **MinimalAgent** | The four MAF integration points (pre-run context, post-run persist, memory tools, reasoning traces) via the facade. |
+| **ProceduralMemory** | The procedural loop end to end: record how a task was completed, **promote** the trace to a procedure, then recall it in a later session and reuse the ordering. Every other sample demonstrates memory of *facts* — what is true; this one demonstrates memory of *method* — how something was done. Needs a live Neo4j, because it reads back what it writes. |
 | **McpHost** | Hosting the AgentMemory MCP server. |
 | **AspireDemo** | A .NET Aspire AppHost orchestrating Neo4j + a scripted demo app. |
 
