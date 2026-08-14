@@ -50,13 +50,24 @@ the receipts to prove it about our own numbers.
 ## 3. Per memory type
 
 From the most recent accepted 50-question run. **Read the `n` column first** — these subsets are small,
-and one question in a 4-question subset is 25 points.
+and one question in a 4-question subset is 25 points. The per-type noise band is now measured by the
+instrument rather than estimated from question count.
 
-| Memory type | Structured | Hybrid | n | 1 question = |
-|---|---:|---:|---:|---:|
-| **Semantic** | **25/25 = 100%** | 22/25 = 88% | 25 | 4.0 pts |
-| **Temporal** | 18/21 = 85.7% | 17/21 = 81.0% | 21 | 4.8 pts |
-| **Episodic** | 2/4 = 50% | 3/4 = 75% | **4** | **25 pts** |
+| Memory type | Structured | Hybrid | n | 1 question = | measured band |
+|---|---:|---:|---:|---:|---|
+| **Semantic** | **25/25 = 100%** | 22/25 = 88% | 25 | 4.0 pts | *not measured* |
+| **Temporal** | 18/21 = 85.7% | 17/21 = 81.0% | 21 | 4.8 pts | **±0.0 pts** (2 runs) |
+| **Episodic** | 2/4 = 50% | 3/4 = 75% | **4** | **25 pts** | *not measured* |
+
+Produced by `--typed-report`, not by hand. **"Not measured" is not "zero".** Only two 50-question runs
+exist, and they sampled *different numbers* of each type — 23 vs 25 semantic, 6 vs 4 episodic. Runs with
+different denominators score different question sets, so their difference is not this configuration's
+noise. Temporal is the one type with the same denominator in both runs (21), and there the two runs
+agreed exactly.
+
+An earlier draft of this table reported **±17.4 points** for semantic. That figure was wrong: it came
+from pooling the 23-question and 25-question runs, so it measured the sampling difference and labelled
+it measurement error. The instrument now refuses that comparison.
 
 Adjusting for the oracle-impossible question in the episodic subset (`352ab8bd`, see §5), episodic
 improvable is **2/3 structured and 3/3 hybrid** — which is a different story from "50%", and is also

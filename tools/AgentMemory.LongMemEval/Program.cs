@@ -93,6 +93,13 @@ internal static class LongMemEvalProgram
             return await LongMemEvalOracleDecompositionProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--typed-report", StringComparer.Ordinal))
+        {
+            // 25.7. Purely retrospective: reads reports already on disk, no provider call, no Neo4j.
+            // Wires up a per-type reporting stack that was complete, tested and called by nothing.
+            return await LongMemEvalTypedReportProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--probe-answer-determinism", StringComparer.Ordinal))
         {
             // 27.2. Answer calls only, no judge and no infrastructure. Asks whether the answer model
@@ -436,7 +443,7 @@ internal static class LongMemEvalProgram
         "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",
         "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
-        "--answer-seed",
+        "--answer-seed", "--typed-report", "--reports", "--arm",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",

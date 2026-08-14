@@ -77,9 +77,26 @@ internal static class LongMemEvalTypedNoiseFloorCalculator
         foreach (var (type, rows) in byType)
         {
             // A type absent from some runs cannot have its spread measured against the others: the
-            // denominators differ, so the comparison is between different questions. Reported at the
-            // count it actually has rather than silently averaged over a changing set.
-            var accuracies = rows.Where(r => r.Accuracy is not null).Select(r => r.Accuracy!.Value).ToArray();
+            // denominators differ, so the comparison is between different questions.
+            //
+            // The same objection applies to a type PRESENT in both runs at different sizes, and until
+            // this instrument was first wired up (25.7) the code did not enforce what this comment
+            // said. Two accepted 50-question runs sampled 23 and 25 semantic questions; pooling them
+            // reported a +/-17.4 point "noise band" that was mostly the difference between two
+            // different question sets, and then labelled it with the FIRST run's denominator.
+            //
+            // So: only rows sharing a denominator are comparable. The largest such cohort is used, and
+            // a type whose cohort has fewer than two runs reports no spread rather than a fabricated
+            // one -- consistent with how a single run is treated everywhere else here.
+            var cohort = rows
+                .Where(row => row.Accuracy is not null)
+                .GroupBy(row => row.Questions)
+                .OrderByDescending(group => group.Count())
+                .ThenByDescending(group => group.Key)
+                .FirstOrDefault();
+            if (cohort is null) continue;
+
+            var accuracies = cohort.Select(row => row.Accuracy!.Value).ToArray();
             if (accuracies.Length == 0) continue;
 
             var mean = accuracies.Average();
@@ -90,7 +107,7 @@ internal static class LongMemEvalTypedNoiseFloorCalculator
             results.Add(new LongMemEvalTypedNoiseFloor(
                 type,
                 accuracies.Length,
-                rows[0].Questions,
+                cohort.Key,
                 accuracies.Min(),
                 accuracies.Max(),
                 mean,
