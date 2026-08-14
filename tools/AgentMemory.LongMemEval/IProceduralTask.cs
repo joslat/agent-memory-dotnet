@@ -42,12 +42,13 @@ internal static class ProceduralTasks
     /// Reflected over by a test, so a task added here without being runnable — or runnable without
     /// being listed — fails rather than sits unreachable.
     /// </remarks>
-    internal static IReadOnlyList<string> Names { get; } = ["rail", "incident"];
+    internal static IReadOnlyList<string> Names { get; } = ["rail", "incident", "archive"];
 
     internal static IProceduralTask Create(string name) => name.ToLowerInvariant() switch
     {
         "rail" => new ProceduralBenchmarkTask(),
         "incident" => new ProceduralIncidentTask(),
+        "archive" => new ProceduralArchiveTask(),
         _ => throw new ArgumentException(
             $"--task must be one of: {string.Join(", ", Names)}; got '{name}'."),
     };

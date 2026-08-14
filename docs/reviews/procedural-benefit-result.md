@@ -155,6 +155,60 @@ It does **not** weaken the rail result: that run stands, with its witness and it
 mean the sample is still **one discriminating task**, not two. Generality remains unestablished, and
 the honest count is now *two tasks attempted, one of which the benchmark could not measure.*
 
+## 4b. A third task: the gate worked, and promotion captured the wrong thing (26.1)
+
+`ProceduralArchiveTask` was built specifically to satisfy the fifth rule. Its gate — *warm the read
+cache before retiring a record* — is genuinely arbitrary: not good practice, not a safety step, nothing
+a model proposes unprompted.
+
+**The gate worked.** The task cost **16.4 tool calls** against the incident task's 3, so the model
+really did have to explore. And the result was still `SHOWS BENEFIT: False`:
+
+| | completion | mean steps | mean tool calls |
+|---|---:|---:|---:|
+| procedures | 100% | 7.6 | **16.4** |
+| control | 100% | 7.8 | **16.4** |
+
+**Why, and this one is a product finding rather than a task finding.** The promoted procedure was:
+
+```
+check_legal_hold → list_downstream_consumers → list_tags → get_storage_class → get_access_log
+→ WarmCache → get_record_schema → list_snapshots → get_owner_team → get_record_size
+→ check_encryption → list_partitions → ListIndexShards → check_replication_lag ×2 → RetireRecord
+```
+
+**Sixteen calls, twelve of them decoys.** The procedure that was stored is the *exploration*, not the
+*solution*. Replaying it faithfully reproduces the entire flail, so the procedural arm saved nothing —
+it was following a correct record of a wasteful path.
+
+### Non-refused is not the same as useful
+
+An earlier fix made promotion skip **refused** calls, after run seven stored
+`PlaceHold then RefreshSession then PlaceHold` and the arm replaying it paid for the refused call
+again. This is the next layer of the same problem: **a decoy is not refused.** It returns
+*"no action required"* — a successful call that contributes nothing — and promotion records it.
+
+That is a real limitation of trace-based procedural memory, not a harness artefact: **promoting a raw
+call sequence promotes the noise with the signal.** It is invisible on a short chain (the rail task
+wastes almost nothing) and dominant on a long one.
+
+Fixing it properly needs a notion of *which calls contributed*, which a transcript alone does not
+carry — determining it counterfactually would mean replaying subsequences, at a cost that exceeds the
+saving. Recorded here as a known limit rather than papered over.
+
+### What three tasks now say
+
+| Task | Discovery cost | Procedure quality | Benefit |
+|---|---|---|---|
+| **rail** | moderate (6 calls) | clean — the chain *is* the solution | **yes**, −1 call |
+| **incident** | none (3 calls, solved cold) | clean | no — nothing to save |
+| **archive** | high (16 calls) | polluted — 12 of 16 are decoys | no — replays the flail |
+
+Procedural memory pays when the discovery cost is real **and** the recorded trace is close to minimal.
+Those two conditions are independent, and only one of three tasks satisfied both. **The honest count
+stands at one discriminating task of three attempted** — and the reason for each failure is now known
+rather than guessed, which is worth more than a second confirming result would have been.
+
 ## 5. The second instrument: retrieval precision (26.2)
 
 The harness above answers *"does using a procedure help?"*. It cannot answer *"does recall return the
