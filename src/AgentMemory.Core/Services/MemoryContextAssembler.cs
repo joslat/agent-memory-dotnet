@@ -742,6 +742,15 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         bool searchFacts = hasEmbedding && recallOpts.MaxFacts > 0;
         bool searchTraces = hasEmbedding && recallOpts.MaxTraces > 0;
 
+        // 25.5. The same per-request ranking intent the live path applies (D3). Without it, an as-of
+        // recall asking for `latest` or `analog` intent was silently ranked by the default policy --
+        // the option was accepted, and the only difference between the two paths was that one obeyed
+        // it. Identical mechanics to the live path: the repositories read the ambient context
+        // synchronously while each task is CREATED, before its first await, so it is reset immediately
+        // after creation and there is no await in the region for it to leak past.
+        bool overrideRanking = _rankingContext is not null && recallOpts.Intent != RankingIntent.Default;
+        if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
+
         var entitiesTask = searchEntities && scoredLongTerm is null
             ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
             : Empty<Entity>();
@@ -778,6 +787,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? scoredReasoning!.SearchSimilarTracesAsOfWithScoresAsync(
                 queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
             : null;
+
+        // Reset before the first await, exactly as the live path does.
+        if (overrideRanking) _rankingContext!.Current = null;
 
         await Task.WhenAll(
             recentTask,
