@@ -12,6 +12,7 @@ Structured memory reaches the full-history band while sending **304× fewer toke
 | Arm | Accuracy | Mean context / question | Artifact |
 |---|---:|---:|---|
 | **No memory** (floor) | **0%** (0/19 over two runs) | ~42 tokens | `longmemeval-reference-nomemory-*` |
+| **Raw** | **90.0%** (45/50, one run — see §6) | — | `raw-arm-50q.json` |
 | **Structured** | **76.0% – 90.0%** | **403 tokens** | `longmemeval-prepared-*` |
 | **Hybrid** | **84.0% – 90.0%** | 2,505 tokens | `longmemeval-prepared-*` |
 | **Full history** (ceiling) | **80% – 100%** (18/20) | **122,605 tokens** | `longmemeval-reference-fullhistory-*` |
@@ -115,10 +116,29 @@ the benchmark, not of anything measured against it.
 
 Stated because an absent arm is easy to mistake for a bad one:
 
-- **The raw arm has never run at 50 questions.** Every 50q report contains `structured` and `hybrid`
-  only. Raw needs no extraction, so this is cheap — it is simply not done.
 - **Prospective memory**: no instrument exists.
-- **Procedural at scale**: one task, one model. An existence proof, not an effect size.
+- **Procedural at scale**: one task, one model. An existence proof, not an effect size. Retrieval
+  *precision* is separately measured — see `procedure-retrieval-precision-result.md`.
+
+### The raw arm, and why its number carries an asterisk
+
+Run 2026-08-14 (task 23.3): **45/50 = 90.0%**, on a cold build with no extraction at all. Three
+caveats, all of which must travel with the figure:
+
+1. **The harness marked the run `accepted: false`**, for one reason: *"5 question(s) scored incorrect
+   and no answer-presence measurement was recorded, so this run cannot distinguish an extraction
+   failure from a retrieval failure."* That rejection is **inherent to raw mode rather than a defect in
+   the run** — the graph probe is only wired for modes that extract, and raw does not extract, so there
+   is no extraction step to attribute a failure to. The scoring itself (50 questions judged, 45
+   correct) is sound. *Instrument note: the validator should exempt the raw arm from an
+   attribution requirement it cannot satisfy by construction.*
+2. **Different corpus.** Raw built its own store; structured and hybrid ran on the frozen prepared
+   corpus. So `raw 90.0%` and `structured 90.0%` are **not** the same measurement of the same thing,
+   and the coincidence of the numbers is not evidence they are equivalent.
+3. **One run.** Structured moved 14 points between two accepted runs; there is no reason to think raw
+   is steadier. This is a point estimate with an unmeasured band, which is exactly what §2 warns
+   against — recorded here because an absent arm is easy to mistake for a bad one, not because one run
+   settles anything.
 
 ## 7. How to cite this
 

@@ -133,10 +133,39 @@ internal static class ProcedureRetrievalProgram
 
             if (storedIds.Count == 0 || !anyRetrieval)
             {
+                // A void run must say WHICH gate shut, or the next person re-derives it. Three
+                // independent things make a procedure unretrievable and they look identical from
+                // outside: no trace at all, a trace that was never promoted (proceduresOnly filters
+                // every episode out), and a trace whose success flag excludes it.
+                var probeEmbedding = await embedder
+                    .EmbedAsync(ProcedureRetrievalSet.Procedures[0].Task, cancellationToken)
+                    .ConfigureAwait(false);
+
+                var anyTrace = await reasoning.SearchSimilarTracesAsync(
+                    probeEmbedding, proceduresOnly: null, successFilter: null,
+                    limit: 5, minScore: 0, scope: owner, cancellationToken).ConfigureAwait(false);
+                var anyProcedure = await reasoning.SearchSimilarTracesAsync(
+                    probeEmbedding, proceduresOnly: true, successFilter: null,
+                    limit: 5, minScore: 0, scope: owner, cancellationToken).ConfigureAwait(false);
+                var anySuccessful = await reasoning.SearchSimilarTracesAsync(
+                    probeEmbedding, proceduresOnly: null, successFilter: true,
+                    limit: 5, minScore: 0, scope: owner, cancellationToken).ConfigureAwait(false);
+
                 Console.Error.WriteLine(
-                    "longmemeval: VOID — nothing was stored, or no query retrieved anything at any "
-                    + "threshold. A retriever that returns nothing scores a wrong-procedure rate of "
-                    + "zero, which reads as perfect precision. Refusing to report it.");
+                    "longmemeval: VOID — no query retrieved anything at any threshold. A retriever "
+                    + "that returns nothing scores a wrong-procedure rate of zero, which reads as "
+                    + "perfect precision. Refusing to report it.");
+                Console.Error.WriteLine(
+                    $"  stored={storedIds.Count}  unfiltered={anyTrace.Count}  "
+                    + $"proceduresOnly={anyProcedure.Count}  successfulOnly={anySuccessful.Count}");
+                Console.Error.WriteLine(
+                    anyTrace.Count == 0
+                        ? "  → nothing is retrievable at all: the traces have no task embedding, or "
+                          + "the owner scope does not match what was written."
+                        : anyProcedure.Count == 0
+                            ? "  → traces exist but none is a PROCEDURE: promotion did not persist "
+                              + "trace_kind, so proceduresOnly filters every one of them out."
+                            : "  → traces and procedures exist; the success filter is excluding them.");
                 return 3;
             }
 

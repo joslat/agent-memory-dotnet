@@ -35,16 +35,30 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         CancellationToken cancellationToken) =>
         await _tx.ReadAsync(async runner =>
         {
+            var parameters = new Dictionary<string, object?>
+            {
+                ["embedding"] = queryEmbedding.ToList(),
+                ["limit"] = limit,
+                ["minScore"] = minScore,
+                ["ownerId"] = scope.OwnerId,
+            };
+
+            // The generator emits `AND t.success = $successFilter` whenever successFilter.HasValue,
+            // and this dictionary did not bind it -- so EVERY owner-scoped trace search carrying a
+            // success filter threw "Expected parameter(s): successFilter" the moment it reached this
+            // last-resort scan. Not a rare path for procedural recall: a proceduresOnly search returns
+            // zero from the indexed pass by construction whenever the corpus holds no promoted
+            // procedures, which is exactly what sends it here.
+            //
+            // The correct binding already existed twenty lines up the call site, in a
+            // `fallbackParameters` dictionary that was built and then never passed to anything. The
+            // fix was written and left unwired; that dead dictionary is deleted with this change.
+            if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
+
             var cursor = await runner.RunAsync(
                 ReasoningQueries.SearchByTaskVectorOwnerScopedFallback(
                     successFilter.HasValue, includeShared, proceduresOnly),
-                new Dictionary<string, object?>
-                {
-                    ["embedding"] = queryEmbedding.ToList(),
-                    ["limit"] = limit,
-                    ["minScore"] = minScore,
-                    ["ownerId"] = scope.OwnerId,
-                }).ConfigureAwait(false);
+                parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Select(r =>
             {
@@ -129,7 +143,13 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         {
             var cursor = await runner.RunAsync(
                 ReasoningQueries.PromoteTrace,
-                new { id = traceId, traceKind = kind.ToString() }).ConfigureAwait(false);
+                // kind.ToString() gave "Procedure". Every filter in ReasoningQueries and the
+                // read-back below compare case-sensitively against lowercase "procedure", so
+                // PROMOTION HAS NEVER WORKED: a promoted trace read back as an Episode, was invisible
+                // to proceduresOnly recall, and -- the part that loses data -- was never exempt from
+                // retention pruning, which is promotion's main purpose. The create path six hundred
+                // lines down always wrote the lowercase form; only this one disagreed.
+                new { id = traceId, traceKind = TraceKindValue(kind) }).ConfigureAwait(false);
             // Same concurrent-delete contract as UpdateAsync: a prune between the caller's read and
             // this write returns no rows, and null says "gone" rather than throwing something opaque.
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -300,14 +320,9 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
                 _logger.LogDebug(
                     "Owner-scoped trace vector search still empty after widening; falling back to a "
                     + "scoped similarity scan.");
-                var fallbackParameters = new Dictionary<string, object>
-                {
-                    ["embedding"] = taskEmbedding.ToList(),
-                    ["limit"] = limit,
-                    ["minScore"] = minScore,
-                    ["ownerId"] = scope!.OwnerId!,
-                };
-                if (successFilter.HasValue) fallbackParameters["successFilter"] = successFilter.Value;
+                // The dictionary that used to be built here was never passed anywhere:
+                // OwnerScopedScanAsync builds its own. Its successFilter binding was the one the scan
+                // was missing, so the fix sat here, correct and unreachable, while the scan threw.
                 results = await OwnerScopedScanAsync(
                     taskEmbedding, limit, minScore, scope!, includeShared, successFilter,
                     proceduresOnly, cancellationToken).ConfigureAwait(false);
@@ -541,11 +556,20 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             // Absent property == Episode. Every trace written before trace_kind existed reads back as
             // an episode, which is what it is -- never as an unknown that a caller has to handle.
             Kind           = node.Properties.TryGetValue("trace_kind", out var tk)
-                                && string.Equals(tk?.As<string?>(), "procedure", StringComparison.Ordinal)
+                                // Case-INsensitive so traces already written as "Procedure" by the
+                                // broken promote path start reading correctly, without a migration.
+                                && string.Equals(tk?.As<string?>(), "procedure", StringComparison.OrdinalIgnoreCase)
                                     ? TraceKind.Procedure
                                     : TraceKind.Episode,
             Metadata       = DeserializeMetadata(node.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
+
+    /// <summary>
+    /// The single stored spelling of a <see cref="TraceKind"/>. Centralised because two write sites
+    /// disagreed for as long as promotion existed, and the disagreement was silent at every layer.
+    /// </summary>
+    private static string TraceKindValue(TraceKind kind) =>
+        kind == TraceKind.Procedure ? "procedure" : "episode";
 
     private static float[]? ReadEmbedding(INode node)
     {
@@ -567,7 +591,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         // Written as a lowercase string rather than an int so the stored value is readable in a Cypher
         // console and stable if the enum is ever reordered -- an ordinal would silently re-point every
         // existing node at a different meaning.
-        ["traceKind"]   = trace.Kind == TraceKind.Procedure ? "procedure" : "episode"
+        ["traceKind"]   = TraceKindValue(trace.Kind)
     };
 
     /// <summary>

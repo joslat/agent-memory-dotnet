@@ -141,7 +141,7 @@ internal static class ReasoningQueries
         // Written as "is NOT a procedure" rather than "is an episode" on purpose: a trace stored before
         // trace_kind existed has the property NULL, and a NULL-unsafe comparison would exempt every
         // legacy trace from retention, quietly turning a bounded store into an unbounded one.
-        const string exemption = " AND coalesce(t.trace_kind, 'episode') <> 'procedure'";
+        const string exemption = " AND toLower(coalesce(t.trace_kind, 'episode')) <> 'procedure'";
         return @"
             MATCH (t:ReasoningTrace {session_id: $sessionId})
             WHERE true" + owner + exemption + @"
@@ -175,8 +175,8 @@ internal static class ReasoningQueries
         // Null-safe for the same reason as the prune: a pre-trace_kind trace has the property NULL.
         if (proceduresOnly is { } procedures)
             conditions.Add(procedures
-                ? "coalesce(node.trace_kind, 'episode') = 'procedure'"
-                : "coalesce(node.trace_kind, 'episode') <> 'procedure'");
+                ? "toLower(coalesce(node.trace_kind, 'episode')) = 'procedure'"
+                : "toLower(coalesce(node.trace_kind, 'episode')) <> 'procedure'");
         if (hasOwnerFilter)
             conditions.Add(includeShared
                 ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)"
@@ -316,7 +316,7 @@ internal static class ReasoningQueries
         // missing, and a NULL-unsafe comparison would drop the whole pre-migration corpus from the
         // episode side of this filter.
         var kind = proceduresOnly is { } procedures
-            ? Environment.NewLine + "              AND coalesce(t.trace_kind, 'episode') "
+            ? Environment.NewLine + "              AND toLower(coalesce(t.trace_kind, 'episode')) "
                 + (procedures ? "=" : "<>") + " 'procedure'"
             : string.Empty;
         return $@"
