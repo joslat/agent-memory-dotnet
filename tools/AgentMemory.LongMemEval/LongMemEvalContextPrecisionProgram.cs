@@ -14,6 +14,13 @@ namespace AgentMemory.LongMemEval;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>SUPERSEDED (28.2).</b> AgentEval 0.21.0-beta ships this oracle publicly, and
+/// <c>--upstream-oracle</c> reproduces this program's own measurement: <b>96.4% upstream against
+/// 96.6% here</b> at K=0 / gold=1.0, i.e. the same instrument. Prefer the upstream verb for new work.
+/// This program is kept, not deleted, because every oracle number already in
+/// <c>artifacts/evaluation/</c> came from it and deleting it would make the archive unreproducible.
+/// </para>
+/// <para>
 /// <b>The lead this tests.</b> The decomposed-answering experiment measured the monolithic oracle at
 /// <b>27 of 29 (93%)</b> with gold-only context, while real runs score ~88% — and separately, 65 of 67
 /// recorded wrong answers had gold already present. Those reconcile only one way: gold being

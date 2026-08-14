@@ -19,6 +19,13 @@ namespace AgentMemory.LongMemEval;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>SUPERSEDED (28.2).</b> AgentEval 0.21.0-beta ships this oracle publicly, and
+/// <c>--upstream-oracle</c> reproduces this program's own measurement: <b>96.4% upstream against
+/// 96.6% here</b> at K=0 / gold=1.0, i.e. the same instrument. Prefer the upstream verb for new work.
+/// This program is kept, not deleted, because every oracle number already in
+/// <c>artifacts/evaluation/</c> came from it and deleting it would make the archive unreproducible.
+/// </para>
+/// <para>
 /// <b>The last untested candidate.</b> The clean-context oracle answers 96.6% correctly from raw
 /// messages; real structured runs score ~88%. Two candidate explanations have now been eliminated —
 /// decomposed answering won 0 of 29, and 9.2× context noise moved accuracy by nothing. What remains

@@ -13,6 +13,13 @@ namespace AgentMemory.LongMemEval;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>SUPERSEDED (28.2).</b> AgentEval 0.21.0-beta ships this oracle publicly, and
+/// <c>--upstream-oracle</c> reproduces this program's own measurement: <b>96.4% upstream against
+/// 96.6% here</b> at K=0 / gold=1.0, i.e. the same instrument. Prefer the upstream verb for new work.
+/// This program is kept, not deleted, because every oracle number already in
+/// <c>artifacts/evaluation/</c> came from it and deleting it would make the archive unreproducible.
+/// </para>
+/// <para>
 /// <b>Why this verb exists, and why it needs no infrastructure.</b> Across 62 recorded reports, 65 of
 /// 67 wrong answers had the gold evidence already retrieved or present. The loss is at the answering
 /// stage, where no retrieval change can reach it. The oracle reads gold sessions straight from the

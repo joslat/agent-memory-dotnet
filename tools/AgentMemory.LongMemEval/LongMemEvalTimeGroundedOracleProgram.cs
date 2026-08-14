@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
+using AgentEval.Memory.External.Models;
 using Azure;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;

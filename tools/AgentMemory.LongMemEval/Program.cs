@@ -109,6 +109,13 @@ internal static class LongMemEvalProgram
             return await LongMemEvalAnswerDeterminismProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--upstream-oracle", StringComparer.Ordinal))
+        {
+            // 28.2. AgentEval's oracle, now public. Runs before ours so the two can be compared on the
+            // same level -- retirement of the hand-rolled one has to be earned, not assumed.
+            return await LongMemEvalUpstreamOracleProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--time-grounded-oracle", StringComparer.Ordinal))
         {
             // 26.3. Prospective memory, measurable for the first time: AgentEval 0.21.0-beta ships a
@@ -459,7 +466,7 @@ internal static class LongMemEvalProgram
         "--capture-headroom", "--artifacts",
         "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
         "--answer-seed", "--typed-report", "--reports", "--arm",
-        "--procedure-retrieval", "--min-scores", "--query-formulation", "--time-grounded-oracle",
+        "--procedure-retrieval", "--min-scores", "--query-formulation", "--time-grounded-oracle", "--upstream-oracle",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
