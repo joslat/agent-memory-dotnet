@@ -28,6 +28,13 @@ namespace AgentMemory.Tests.Unit.Repositories;
 /// drift into reporting an intention rather than the query that ran.
 /// </para>
 /// </remarks>
+// Serialized with the other observability tests. ActivitySource.AddActivityListener registers
+// PROCESS-WIDE and sampling is the UNION across every registered listener, so a sibling class
+// sampling the same span name concurrently causes an Activity this class then receives. That is
+// what made NothingIsMeasuredWhenNoListenerWantsTheData fail roughly one full run in four while
+// passing every time in isolation -- the signature of cross-class listener bleed, not a broken
+// assertion. EntityVectorYieldTelemetryTests already carried this; its four siblings did not.
+[Collection("Observability")]
 public sealed class FactVectorYieldTelemetryTests
 {
     private const string SpanName = "memory.recall.fact_vector";
