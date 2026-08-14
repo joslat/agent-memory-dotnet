@@ -109,6 +109,13 @@ internal static class LongMemEvalProgram
             return await LongMemEvalAnswerDeterminismProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--procedure-retrieval", StringComparer.Ordinal))
+        {
+            // 26.2. Procedural RETRIEVAL precision: does recall return the RIGHT procedure, and does it
+            // stay quiet when none applies? Embedding calls only -- no chat model, no judge.
+            return await ProcedureRetrievalProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
         {
             // 7.6. The arms differ in exactly two things -- trace recall and promotion -- so that any
@@ -444,6 +451,7 @@ internal static class LongMemEvalProgram
         "--capture-headroom", "--artifacts",
         "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
         "--answer-seed", "--typed-report", "--reports", "--arm",
+        "--procedure-retrieval", "--min-scores",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",

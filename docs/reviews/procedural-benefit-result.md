@@ -111,3 +111,33 @@ were nearly reported as:
 The honest summary: **procedural memory demonstrably works on a task built to need it, once, on one
 model.** Turning that into an effect size needs the task suite in 26.1 — at least three task shapes and
 two models — and that work has not been done.
+
+## 5. The second instrument: retrieval precision (26.2)
+
+The harness above answers *"does using a procedure help?"*. It cannot answer *"does recall return the
+**right** procedure?"* — and those two come apart in the dangerous direction.
+
+An agent with **no** procedural memory investigates: slower, and safe. An agent with the **wrong**
+procedure executes — confidently, on a plan built for a different task. A promotion change that raises
+hit-rate while also raising the wrong-procedure rate improves every efficiency measure it has.
+
+`--procedure-retrieval` runs a labelled set of 12 procedures × 20 queries through real recall and
+scores it with `ProcedureRetrievalPrecision`. It costs **embedding calls only** — no chat model, no
+judge — against a benefit harness that costs hundreds of agent turns.
+
+Three design choices carry it:
+
+- **Six of the twenty queries should abstain.** Nothing stored solves them. Without such cases,
+  abstention is unmeasurable and a retriever that always answers scores identically to one that knows
+  when to stay quiet.
+- **Near-misses are deliberate.** "A key was posted publicly" must retrieve *revoke* (drain traffic
+  first), not *rotate* — an agent following the rotation procedure revokes a live credential. A set
+  where every wrong answer is obviously wrong measures nothing.
+- **The abstention threshold is swept and reported.** Whether a retriever "answers" is entirely a
+  function of the minimum score it accepts, so a precision figure without its threshold is not
+  reproducible.
+
+**It reports correct / wrong / abstained, never an accuracy.** Abstention is not a failure — it is the
+safe outcome, and folding it into the wrong column makes a cautious retriever look identical to a
+reckless one. Quoting a single percentage from this instrument would be exactly the metric substitution
+this document exists to refuse.
