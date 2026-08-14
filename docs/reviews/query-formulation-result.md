@@ -44,6 +44,26 @@ Hybrid moved **exactly 0.0000** on all three metrics. Retired.
 that rewriting hurts — but it is emphatically not evidence that it helps, and the pre-registration
 named accuracy a secondary endpoint precisely so this number could not be mined either way.
 
+## 2a. "Exactly zero" is suspicious, so it was checked per question
+
+An aggregate delta of **0.0000** on three separate hybrid metrics looks like a mechanism that never
+reached retrieval. It is not, and the per-question comparison is what settles it:
+
+| | Retrieved item IDs differ | Gold coverage changed |
+|---|---:|---:|
+| **hybrid** | **50 of 50 questions** | **0 of 50 questions** |
+| structured | 35 of 50 (by item count) | 1 of 50 |
+
+**The rewrite changed which items came back on every single hybrid question, and not one question's
+gold coverage moved.** That is a far stronger null than the aggregate: retrieval demonstrably
+responded to the new query, and the thing being measured demonstrably did not. At 0.980 coverage both
+queries find the gold sessions; only the non-gold filler reshuffles.
+
+*A caveat on the structured half of that table.* Structured `RankedItems` is empty on every question —
+it has no recalled raw messages, which is precisely why 27.1 existed — so comparing ranked-ID sequences
+there is **vacuous** and reports a meaningless 50/50 "identical". The usable structured signal is
+`ItemsRetrieved`, which differs on 35 of 50.
+
 ## 3. The confound that nearly produced a false positive
 
 The first comparison used the existing accepted control from 2026-08-13. Against it, structured turn
