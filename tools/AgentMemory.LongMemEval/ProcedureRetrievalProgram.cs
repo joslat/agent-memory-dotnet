@@ -110,7 +110,8 @@ internal static class ProcedureRetrievalProgram
                 var score = ProcedureRetrievalPrecision.Score(cases);
                 Console.WriteLine(
                     $"  minScore={threshold:0.00}  correct={score.CorrectAtOne,2}  wrong={score.WrongAtOne,2}  "
-                    + $"abstained={score.Abstained,2}  wrongRate={score.WrongProcedureRate:P1}  "
+                    + $"abstained={score.Abstained,2}  missed={score.Missed,2}  "
+                    + $"wrongRate={score.WrongProcedureRate:P1}  "
                     + $"precisionWhenAnswering={score.PrecisionWhenAnswering:P1}");
 
                 levels.Add(new
@@ -120,9 +121,11 @@ internal static class ProcedureRetrievalProgram
                     score.CorrectAtOne,
                     score.WrongAtOne,
                     score.Abstained,
+                    score.Missed,
                     score.PrecisionAtOne,
                     score.WrongProcedureRate,
                     score.AbstentionRate,
+                    score.MissRate,
                     score.PrecisionWhenAnswering,
                     cases = cases.Select(c => new { c.TaskId, c.RetrievedProcedureIds, c.CorrectProcedureIds }),
                 });
@@ -148,9 +151,11 @@ internal static class ProcedureRetrievalProgram
                     queries = ProcedureRetrievalSet.Queries.Count,
                     abstainExpected = ProcedureRetrievalSet.Queries.Count(q => q.Correct.Count == 0),
                     // Named in the artifact so nobody quotes a precision figure as an accuracy.
-                    note = "correct / wrong / abstained are reported separately. Abstention is NOT a "
-                        + "failure: it is the safe outcome, and folding it in makes a cautious "
-                        + "retriever look identical to a reckless one.",
+                    note = "correct / wrong / abstained / missed are reported separately. Abstention "
+                        + "(nothing applied, nothing returned) is NOT a failure. A MISS (a "
+                        + "procedure applied and nothing was returned) is a failure, and a safe "
+                        + "one -- it is neither of its neighbours and folding it into either "
+                        + "loses the distinction this instrument exists to preserve.",
                     levels,
                 },
                 new JsonSerializerOptions { WriteIndented = true }));
