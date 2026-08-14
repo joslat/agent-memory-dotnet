@@ -1007,6 +1007,14 @@ internal static class LongMemEvalPreparedPairProgram
         using var vectorYield = new LongMemEvalVectorYieldListener();
         using var answerCalls = new LongMemEvalChatCallMeter(
             azureClient.GetChatClient(deployment).AsIChatClient());
+        // 27.4. Metered separately from the answer calls: the arms differ by one model call per
+        // question, and folding that into the answer meter would make the call accounting -- which
+        // exists to catch exactly this -- unable to reconcile.
+        using var queryCalls = new LongMemEvalChatCallMeter(
+            azureClient.GetChatClient(deployment).AsIChatClient());
+        var formulator = options.QueryFormulation == LongMemEvalQueryFormulation.Verbatim
+            ? null
+            : new LongMemEvalQueryFormulator(queryCalls, options.QueryFormulation);
         using var judgeCalls = new LongMemEvalChatCallMeter(
             azureClient.GetChatClient(deployment).AsIChatClient());
         using var diagnosticCalls = new LongMemEvalChatCallMeter(
@@ -1055,6 +1063,9 @@ internal static class LongMemEvalPreparedPairProgram
                 MemoryMode = mode,
                 PreparedMemory = true,
                 PreparedState = state,
+                // 27.4. Null unless --query-formulation was asked for, which is byte-for-byte the
+                // historical retrieval path: the question text, verbatim.
+                QueryFormulator = formulator,
                 MaxRelevantMessages = options.MaxRelevantMessages,
                 MinSimilarityScore = 0,
                 ModelId = deployment,
@@ -1144,7 +1155,8 @@ internal static class LongMemEvalPreparedPairProgram
                 adapter.QuestionTelemetry.Sum(item =>
                     item.StageTimings?.AnswerMs ?? 0),
                 total.Elapsed.TotalMilliseconds),
-            LongMemEvalVectorYieldSummary.From(vectorYield.Samples));
+            LongMemEvalVectorYieldSummary.From(vectorYield.Samples),
+            formulator);
     }
 
     /// <summary>
@@ -1265,6 +1277,24 @@ internal static class LongMemEvalPreparedPairProgram
             // reasons unrelated to memory. They are named, evidenced and reported -- not deleted -- and
             // the score carries a contradiction flag that fires if one is ever answered correctly.
             oracleImpossible = ProjectOracleImpossible(arm),
+            // 27.4. Null on the control. `voidReason` is the load-bearing field: an arm whose
+            // rewriter changed too few queries measured its own control, and "no difference" would
+            // then be a claim about a mechanism that mostly did not run.
+            queryFormulation = arm.QueryFormulator is null
+                ? null
+                : (object)new
+                {
+                    mode = arm.QueryFormulator.Mode.ToString(),
+                    derived = arm.QueryFormulator.Derived,
+                    changed = arm.QueryFormulator.Changed,
+                    failed = arm.QueryFormulator.Failed,
+                    changedFraction = arm.QueryFormulator.Derived == 0
+                        ? (double?)null
+                        : (double)arm.QueryFormulator.Changed / arm.QueryFormulator.Derived,
+                    questionsAnswered = arm.Telemetry.Count(t => t.Status == "completed"),
+                    voidReason = arm.QueryFormulator.VoidReason(
+                        arm.Telemetry.Count(t => t.Status == "completed")),
+                },
             // Meta-memory: how well the agent declines to answer what memory does not hold.
             // Reported separately from the AUC's "absent" count, which is a ground-truth INPUT
             // identical across arms -- reading a class balance as a result is the easy mistake,
@@ -1494,7 +1524,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--questions", "--resolve-query-relations", "--retain-prepared-volumes",
         "--reuse-prepared-volumes", "--seed", "--single-session-unified",
         "--description", "--memory-types", "--allow-stale-prepared",
-        "--abstention", "--abstention-proportion",
+        "--abstention", "--abstention-proportion", "--query-formulation",
         "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
     ];
 
@@ -1512,6 +1542,15 @@ internal static class LongMemEvalPreparedPairProgram
         }
         bool Has(string name) =>
             Array.IndexOf(args, name) >= 0;
+
+        var queryFormulation = (Value("--query-formulation") ?? "verbatim").ToLowerInvariant() switch
+        {
+            "verbatim" or "" => LongMemEvalQueryFormulation.Verbatim,
+            "rewrite" => LongMemEvalQueryFormulation.Rewrite,
+            "expansion" => LongMemEvalQueryFormulation.Expansion,
+            var other => throw new ArgumentException(
+                $"--query-formulation must be verbatim, rewrite or expansion; got '{other}'."),
+        };
 
         return new PreparedPairOptions(
             // Explicit --dataset wins; LONGMEMEVAL_DATASET is the standing setting; the known
@@ -1566,7 +1605,8 @@ internal static class LongMemEvalPreparedPairProgram
             Has("--allow-stale-prepared"),
             ParseAbstention(Value("--abstention")),
             ParseAbstentionProportion(Value("--abstention-proportion")),
-            ParseJudgeProtocol(Value("--judge-protocol")));
+            ParseJudgeProtocol(Value("--judge-protocol")),
+            queryFormulation);
     }
 
     /// <summary>
@@ -1911,7 +1951,10 @@ internal static class LongMemEvalPreparedPairProgram
         bool AllowStalePrepared = false,
         AbstentionSamplingPolicy AbstentionPolicy = AbstentionSamplingPolicy.AsSampled,
         double? AbstentionProportion = null,
-        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText)
+        JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText,
+        // 27.4. Verbatim is the control and the shipped behaviour; the other modes derive the
+        // retrieval query with one model call per question.
+        LongMemEvalQueryFormulation QueryFormulation = LongMemEvalQueryFormulation.Verbatim)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];
@@ -1940,5 +1983,8 @@ internal static class LongMemEvalPreparedPairProgram
         LongMemEvalChatCallSnapshot DiagnosticCalls,
         LongMemEvalChatCallSnapshot ExtractionCalls,
         PreparedArmTimings Timings,
-        LongMemEvalVectorYieldSummary VectorYield);
+        LongMemEvalVectorYieldSummary VectorYield,
+        // 27.4. Null on the control arm. Carries the void witness: an arm whose rewriter changed too
+        // few queries measured its own control and must say so.
+        LongMemEvalQueryFormulator? QueryFormulator = null);
 }

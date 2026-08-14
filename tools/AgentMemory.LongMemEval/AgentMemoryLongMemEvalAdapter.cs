@@ -580,6 +580,13 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         var requestedMessages = _options.ExcludeSyntheticFormatterMessages
             ? budget.Messages * _options.SyntheticExclusionCandidateMultiplier
             : budget.Messages;
+        // 27.4. The retrieval query, which until now was always the question verbatim. The formulator
+        // counts how many queries it actually changed; an arm that changed too few voids rather than
+        // reporting "no difference" about a mechanism that mostly did not run.
+        var retrievalQuery = _options.QueryFormulator is null
+            ? prompt
+            : await _options.QueryFormulator.DeriveAsync(prompt, cancellationToken).ConfigureAwait(false);
+
         RecallResult recall;
         try
         {
@@ -592,7 +599,7 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                         {
                             SessionId = sessionId,
                             UserId = ownerId,
-                            Query = prompt,
+                            Query = retrievalQuery,
                             Options = new RecallOptions
                             {
                                 MaxRecentMessages = 0,
@@ -1582,6 +1589,12 @@ public sealed record LongMemEvalAdapterOptions
     /// </para>
     /// </remarks>
     public int? AnswerSeed { get; init; }
+
+    /// <summary>
+    /// 27.4. Derives the RETRIEVAL query from the question. Null (the default) retrieves with the
+    /// question verbatim, which is what ships and what every sealed measurement used.
+    /// </summary>
+    internal LongMemEvalQueryFormulator? QueryFormulator { get; init; }
 
     internal bool PreparationOnly { get; init; }
 
