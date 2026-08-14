@@ -23,6 +23,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IClock _clock;
     private readonly MemoryOptions _options;
     private readonly IWritableMemoryRankingContext? _rankingContext;
+    private readonly IReadOnlyList<IMemoryReranker> _rerankers;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
@@ -65,7 +66,8 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         ILogger<MemoryContextAssembler> logger,
         IMemoryIsolationPolicy isolationPolicy,
         IWritableMemoryRankingContext? rankingContext,
-        IEnumerable<ITruncationStrategy>? truncationStrategies)
+        IEnumerable<ITruncationStrategy>? truncationStrategies,
+        IEnumerable<IMemoryReranker>? rerankers = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -75,6 +77,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         _clock = clock;
         _options = options.Value;
         _rankingContext = rankingContext;
+        // 17.4b. Materialised once: each reranker owns an IsEnabled gate reading MemoryOptions, and
+        // both ship false, so an ordinary recall pays one enumeration of an empty-or-disabled list.
+        _rerankers = rerankers?.ToArray() ?? [];
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
         _isolationPolicy = isolationPolicy;
@@ -214,6 +219,9 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
         IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
+        // Hoisted for the reranker context (17.4b): NodeDistanceReranker finds its centroid entity by
+        // the SAME query embedding, so handing it null would leave it enabled and inert.
+        float[]? rerankEmbedding = request.QueryEmbedding;
         // Retrieval scores per section, populated only on the diagnostics path below. Empty — never a
         // placeholder score — for any section whose provider could not supply one, so a reader can tell
         // "retrieved weakly" apart from "not ranked at all".
@@ -549,6 +557,24 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             preferenceRanked = BuildRankedItems(preferences, preferenceScores, static p => p.PreferenceId);
             factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
             traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
+        }
+
+        // 17.4b. Reranking (R6 node-distance, R7 mention-frequency). Applied to FACTS, the section both
+        // shipped rerankers were written for. The candidate list is rebuilt here rather than reused
+        // from the diagnostics block above, because diagnostics are opt-in: depending on them would
+        // make reordering happen only for callers who had asked to be told about it.
+        if (facts.Count > 1 && _rerankers.Any(reranker => reranker.IsEnabled))
+        {
+            var rerankCandidates = BuildRankedItems(facts, factScores, static f => f.FactId);
+            if (rerankCandidates.Count == facts.Count)
+            {
+                facts = await RerankSectionAsync(
+                    facts, rerankCandidates,
+                    new MemoryRerankContext(request.Query, rerankEmbedding, scope, MemoryItemKind.Fact),
+                    static f => f.FactId, cancellationToken).ConfigureAwait(false);
+                if (recallOpts.IncludeDiagnostics)
+                    factRanked = BuildRankedItems(facts, factScores, static f => f.FactId);
+            }
         }
 
         var context = new MemoryContext
@@ -966,6 +992,74 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var messages = await _shortTerm.SearchMessagesAsync(
             sessionId, queryEmbedding, limit, minScore, cancellationToken).ConfigureAwait(false);
         return new RelevantMessageSearchResult(messages, Array.Empty<(Message, double)>());
+    }
+
+    /// <summary>
+    /// Runs every enabled reranker over a section and reorders its items to match (17.4b).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A reranker that throws must not fail the recall.</b> A degraded order is recoverable; a lost
+    /// recall is not. Each is isolated so one bad implementation cannot cost a host its memory, and
+    /// the failure is logged rather than swallowed.
+    /// </para>
+    /// <para>
+    /// <b>Reorder-only is enforced, not trusted.</b> The interface says a reranker returns the same set
+    /// permuted, and notes that adding or dropping candidates "is not supported and not checked for
+    /// cheaply, so it would corrupt the section's diagnostics silently". It is checked here: a result
+    /// whose ids are not exactly the input's is discarded and the provider order kept.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<T>> RerankSectionAsync<T>(
+        IReadOnlyList<T> items,
+        IReadOnlyList<MemoryContextRankedItem> candidates,
+        MemoryRerankContext context,
+        Func<T, string> idOf,
+        CancellationToken cancellationToken)
+    {
+        var order = candidates;
+        foreach (var reranker in _rerankers)
+        {
+            if (!reranker.IsEnabled) continue;
+            try
+            {
+                var reordered = await reranker.RerankAsync(order, context, cancellationToken)
+                    .ConfigureAwait(false);
+                if (reordered.Count == order.Count &&
+                    reordered.Select(item => item.ItemId).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(order.Select(item => item.ItemId)))
+                {
+                    order = reordered;
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Reranker {Reranker} returned a different candidate set; keeping provider order.",
+                        reranker.GetType().Name);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception, "Reranker {Reranker} failed; keeping provider order.",
+                    reranker.GetType().Name);
+            }
+        }
+
+        if (ReferenceEquals(order, candidates)) return items;
+
+        var byId = items.ToDictionary(idOf, StringComparer.Ordinal);
+        var result = new List<T>(items.Count);
+        foreach (var ranked in order)
+        {
+            if (byId.TryGetValue(ranked.ItemId, out var item)) result.Add(item);
+        }
+
+        return result.Count == items.Count ? result : items;
     }
 
     /// <summary>

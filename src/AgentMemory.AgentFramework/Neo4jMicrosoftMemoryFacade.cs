@@ -83,49 +83,39 @@ public sealed class Neo4jMicrosoftMemoryFacade
             // #92 Phase 8: message content also goes through the same per-item admission check MafTypeMapper
             // applies (Strict mode excludes instruction-like content; Permissive, the default, still
             // includes it) -- through the same DI-injectable _admissionPolicy, so a host's custom
-            // IMemoryContextAdmissionPolicy registration governs this recall path too, not just
-            // Neo4jMemoryContextProvider's (self-review fix: an earlier version of this called the internal
-            // RecalledMemoryAdmission.ShouldAdmit directly, silently bypassing any custom policy a host
-            // registered). Deliberately not delimited, since a recalled message renders as an individual
-            // conversation turn here, not a separately-injected memory block (see
-            // MafTypeMapper.WrapUntrustedContent's remarks).
+            // IMemoryContextAdmissionPolicy registration governs this recall path too. The policy is
+            // passed into ToContextMessages below rather than applied by a local function here: an
+            // earlier version called the internal RecalledMemoryAdmission.ShouldAdmit directly and
+            // silently bypassed any custom policy a host registered, and a second hand-rolled
+            // application is the same hazard one step removed.
             var contextFormat = _options.ContextFormat;
-            bool Admit(string content, MemoryTrustLevel trustLevel)
-            {
-                var decision = _admissionPolicy.Evaluate(new MemoryAdmissionContext
-                {
-                    Category = "messages",
-                    Content = content,
-                    Mode = contextFormat.SecurityMode,
-                    TrustLevel = trustLevel,
-                    MinimumTrustForAdmissionBypass = contextFormat.MinimumTrustForAdmissionBypass
-                });
 
-                if (decision.InstructionLikeContentDetected && decision.Include)
-                    _logger.LogDebug(
-                        "Recalled message in session {SessionId} flagged as instruction-like content but " +
-                        "included (SecurityMode={Mode}).", sessionId, contextFormat.SecurityMode);
-
-                if (!decision.Include)
-                    _logger.LogWarning(
-                        "Excluded a recalled message from session {SessionId} context: {Reason}.",
-                        sessionId, decision.ExclusionReason ?? "unspecified");
-
-                return decision.Include;
-            }
-
-            return recall.Context.RecentMessages.Items
+            // 17.9. This projected RecentMessages and RelevantMessages and discarded everything else --
+            // so a facade consumer paid for entity, fact, preference and trace retrieval on every turn
+            // and received none of it. The long-term memory this library exists to provide was
+            // retrieved, counted, and thrown away one line before it reached the agent.
+            //
+            // Routed through ToContextMessages rather than growing a second projection here: that is
+            // the path the MAF provider already uses, and it carries the #92 per-item admission
+            // policy, the recalled-role gate and 2.5's history dedup. A parallel implementation would
+            // be a second place for all three to drift, and the drift would only show up in a corpus
+            // months later.
+            var messageIds = recall.Context.RecentMessages.Items
                 .Reverse()
                 .Concat(recall.Context.RelevantMessages.Items)
-                .DistinctBy(m => m.MessageId)
-                .Select(m => (Message: m, TrustLevel: m.Metadata.GetTrustLevel()))
-                .Where(x => Admit(x.Message.Content, x.TrustLevel))
-                .Select(x => MafTypeMapper.ToChatMessage(x.Message with
-                {
-                    Role = RecalledMessageRoleGate.EffectiveRole(
-                        x.Message.Role, x.TrustLevel, contextFormat.MinimumTrustForSystemRole)
-                }))
+                .DistinctBy(message => message.MessageId)
                 .ToList();
+
+            return MafTypeMapper.ToContextMessages(
+                recall.Context with
+                {
+                    RecentMessages = recall.Context.RecentMessages with { Items = messageIds },
+                    RelevantMessages = recall.Context.RelevantMessages with { Items = [] },
+                },
+                contextFormat,
+                _admissionPolicy,
+                _logger,
+                liveThread: messages).ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

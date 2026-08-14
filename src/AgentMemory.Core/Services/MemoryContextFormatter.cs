@@ -60,6 +60,21 @@ internal static class MemoryContextFormatter
         AppendCategory(sb, "preferences", "### User Preferences", ctx.RelevantPreferences.Items,
             p => $"- [{p.Category}] {p.PreferenceText}",
             p => p.Metadata.GetTrustLevel(), opts, logger);
+        // Procedural memory was invisible on this formatter, and therefore invisible to Semantic
+        // Kernel and to every consumer using Core directly -- while a trace vector search ran on each
+        // recall and its results were counted into TotalItemsRetrieved. The tier shipped, was tested
+        // against a live database, and could not be seen by two of the four read surfaces.
+        //
+        // Task AND outcome, never task alone: a recalled procedure that says what was attempted and
+        // drops how it went tells the model "you have done this before" and nothing useful -- the
+        // product gap 7.6 spent five runs finding. The success mark is three-state because
+        // ReasoningTrace.Success is bool? and null means UNRECORDED; collapsing null into failure
+        // presents a precedent library in which everything failed, which is worse than showing
+        // nothing, because a wrong precedent is acted on and an absent one is investigated.
+        AppendCategory(sb, "traces", "### Similar Past Tasks", ctx.SimilarTraces.Items,
+            t => $"- [{(t.Success switch { true => "✓", false => "✗", null => "?" })}] {t.Task}"
+                + (string.IsNullOrWhiteSpace(t.Outcome) ? string.Empty : $": {t.Outcome}"),
+            t => t.Metadata.GetTrustLevel(), opts, logger);
         if (!graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         // Nothing rendered under the heading: say nothing rather than announce an empty section. An
         // empty string is what a caller already handles (the zero-items early return above returns

@@ -45,14 +45,43 @@ public sealed class MemoryContextFormatterEmptyGuardTests
     };
 
     [Fact]
-    public void ATracesOnlyRecallDoesNotEmitABareHeading()
+    public void ATracesOnlyRecallNowRendersItsTraces()
     {
-        // Red before 0.6: this returned "## Memory Context" and nothing else.
+        // SUPERSEDED BY THE FIX, and updated rather than deleted so the history is legible.
+        //
+        // 0.6 made this return empty, because the formatter had no trace section and a bare
+        // "## Memory Context" told the model memory was empty when the truth was that the formatter
+        // could not express what had been retrieved. 15.5 gave it a section, so the honest output is
+        // no longer emptiness -- it is the traces.
+        //
+        // The guard itself still matters and is held by the tests below; what changed is that this
+        // particular input is no longer an example of it.
         var formatted = MemoryContextFormatter.FormatRecallResult(TracesOnly(3));
 
-        formatted.Should().BeEmpty(
-            "a heading with no body tells the model memory is empty, when the truth is that this "
-            + "formatter has no section for what was retrieved");
+        formatted.Should().Contain("## Memory Context");
+        formatted.Should().Contain("task 0", "the traces are the body this heading was missing");
+    }
+
+    [Fact]
+    public void AContextWhoseOnlyItemsAreUnrenderableStillReturnsEmpty()
+    {
+        // THE guard, restated on an input the formatter genuinely cannot express. GraphRagContext is
+        // counted into TotalItemsRetrieved by callers but renders only when non-empty, so a context
+        // reporting items with nothing renderable must say nothing rather than announce an empty
+        // section.
+        var result = new RecallResult
+        {
+            Context = new MemoryContext
+            {
+                SessionId = "s1",
+                AssembledAtUtc = DateTimeOffset.UtcNow,
+            },
+            // Deliberately inconsistent with the (empty) context: this is exactly the state that
+            // produced a bare heading, arrived at by a caller's count rather than by content.
+            TotalItemsRetrieved = 5,
+        };
+
+        MemoryContextFormatter.FormatRecallResult(result).Should().BeEmpty();
     }
 
     [Fact]

@@ -89,6 +89,20 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IReasoningStepRepository, Neo4jReasoningStepRepository>();
         services.TryAddTransient<IToolCallRepository, Neo4jToolCallRepository>();
 
+        // 17.4b. Rerankers (R6 node-distance, R7 mention-frequency). Both shipped with full unit
+        // suites and BOTH WERE REGISTERED BY NOTHING -- zero DI registrations and zero RerankAsync
+        // call sites across the whole repository -- while `MemoryOptions.NodeDistanceReranking` and
+        // `MentionFrequencyReranking` sat in the public surface documenting behaviour no consumer
+        // could obtain, and Phase 10 was recorded COMPLETE.
+        //
+        // Registered unconditionally and enumerable, because each one already owns its own IsEnabled
+        // gate reading those options. Gating the REGISTRATION on the flags instead would mean a host
+        // using IOptions reconfiguration (or IOptionsSnapshot) could turn a flag on and still get
+        // nothing -- the same class of defect one layer up. Both flags default false, so the default
+        // recall path is unchanged.
+        services.AddScoped<IMemoryReranker, NodeDistanceReranker>();
+        services.AddScoped<IMemoryReranker, MentionFrequencyReranker>();
+
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();
 
