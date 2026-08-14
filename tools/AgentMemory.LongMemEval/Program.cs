@@ -93,6 +93,15 @@ internal static class LongMemEvalProgram
             return await LongMemEvalOracleDecompositionProgram.RunAsync(args).ConfigureAwait(false);
         }
 
+        if (args.Contains("--probe-answer-determinism", StringComparer.Ordinal))
+        {
+            // 27.2. Answer calls only, no judge and no infrastructure. Asks whether the answer model
+            // -- which the adapter currently invokes with NO ChatOptions, and which disagrees with
+            // itself on 13 of 14 flipping questions under byte-identical retrieval -- can be pinned by
+            // configuration on this deployment.
+            return await LongMemEvalAnswerDeterminismProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
         if (args.Contains("--procedural-benefit", StringComparer.Ordinal))
         {
             // 7.6. The arms differ in exactly two things -- trace recall and promotion -- so that any
@@ -175,6 +184,7 @@ internal static class LongMemEvalProgram
                 {
                     MaxRelevantMessages = options.MaxRelevantMessages,
                     MemoryMode = options.MemoryMode,
+                    AnswerSeed = options.AnswerSeed,
                     MinSimilarityScore = 0,
                     ModelId = deployment,
                     ExcludeSyntheticFormatterMessages = options.ExcludeSyntheticMessages,
@@ -270,6 +280,12 @@ internal static class LongMemEvalProgram
                     judgeModel = deployment,
                     maxRelevantMessages = options.MaxRelevantMessages,
                     operatingMode = options.MemoryMode.Fingerprint(),
+                    // 27.2. A seeded run and an unseeded one have different answer-variance, so they
+                    // must never be compared by accident. "unpinned-temperature-1" is the honest name
+                    // for the default: this deployment refuses every temperature but its own.
+                    answerSampling = options.AnswerSeed is { } seed
+                        ? $"seeded-{seed}-temperature-1"
+                        : "unpinned-temperature-1",
                     // G3B.1 changes which items fill the budget, so a filtered run must never be
                     // comparable to the control by accident.
                     syntheticFormatterExclusion = options.ExcludeSyntheticMessages
@@ -419,6 +435,8 @@ internal static class LongMemEvalProgram
         "--oracle-decomposition", "--max-sub-questions", "--question-ids", "--no-content",
         "--oracle-precision", "--distractor-sessions", "--gold-fraction", "--oracle-representation",
         "--capture-headroom", "--artifacts",
+        "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
+        "--answer-seed",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
@@ -457,7 +475,13 @@ internal static class LongMemEvalProgram
             Array.IndexOf(args, "--exclude-synthetic-messages") >= 0,
             ParseNonNegative(Value("--max-items-per-session"), 0, "--max-items-per-session"),
             Array.IndexOf(args, "--chronological-context") >= 0,
-            ParseMemoryTypes(Value("--memory-types")));
+            ParseMemoryTypes(Value("--memory-types")),
+            // 27.2. Null unless asked for. Measured on this deployment to cut distinct answers from
+            // 19-in-24 to 8-in-24; defaulting it on would make new runs incomparable with every
+            // sealed measurement in the archive, which were all taken without it.
+            Value("--answer-seed") is { } answerSeed
+                ? ParseNonNegative(answerSeed, 0, "--answer-seed")
+                : null);
     }
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
@@ -628,5 +652,6 @@ internal static class LongMemEvalProgram
         bool ExcludeSyntheticMessages,
         int MaxItemsPerSourceSession,
         bool ChronologicalAnswerContext,
-        IReadOnlyList<string> MemoryTypes);
+        IReadOnlyList<string> MemoryTypes,
+        int? AnswerSeed);
 }

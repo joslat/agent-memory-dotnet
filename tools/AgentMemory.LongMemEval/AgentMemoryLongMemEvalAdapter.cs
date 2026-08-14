@@ -800,7 +800,13 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                             new ChatMessage(ChatRole.System, SystemPrompt),
                             new ChatMessage(ChatRole.User, answerPrompt)
                         ],
-                        cancellationToken: cancellationToken))).ConfigureAwait(false);
+                        // Null unless AnswerSeed is set, which is byte-for-byte the historical call.
+                        // Temperature is deliberately never set: this deployment refuses any value but
+                        // its default, so passing one would fail the run rather than pin the model.
+                        _options.AnswerSeed is null
+                            ? null
+                            : new ChatOptions { Seed = _options.AnswerSeed },
+                        cancellationToken))).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -1549,6 +1555,33 @@ public sealed record LongMemEvalAdapterOptions
     public bool PreparedMemory { get; init; }
 
     public LongMemEvalPreparedState? PreparedState { get; init; }
+
+    /// <summary>
+    /// 27.2. Seed applied to the <b>answer</b> call. Null (the default) reproduces the historical
+    /// behaviour exactly: no <see cref="ChatOptions"/> at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured, not assumed.</b> <c>--probe-answer-determinism</c> re-issued one identical answer
+    /// call many times on this deployment: the baseline returned <b>19 distinct texts in 24 calls</b>,
+    /// and the same calls with a seed returned <b>8</b>. Reproduced on a second, independent run
+    /// (8-of-8 distinct falling to 3-of-8). The provider honours the seed without guaranteeing it.
+    /// </para>
+    /// <para>
+    /// <b>Temperature is not an option here, and that is a provider fact rather than a choice.</b> The
+    /// same probe had <c>temperature: 0</c> refused outright — <i>"does not support 0 with this model.
+    /// Only the default (1) value is supported"</i>. The answer model therefore samples at temperature
+    /// 1 no matter what, which is the mechanism behind 13 of 14 verdict flips occurring under
+    /// byte-identical retrieval.
+    /// </para>
+    /// <para>
+    /// <b>Opt-in on purpose.</b> Every sealed measurement in this project was taken with no seed;
+    /// defaulting this on would silently make new runs incomparable with the entire archive. Runs that
+    /// set it echo it into the report, so a run is self-describing either way. Setting it narrows the
+    /// noise band — it does <b>not</b> license calling a run reproducible.
+    /// </para>
+    /// </remarks>
+    public int? AnswerSeed { get; init; }
 
     internal bool PreparationOnly { get; init; }
 
