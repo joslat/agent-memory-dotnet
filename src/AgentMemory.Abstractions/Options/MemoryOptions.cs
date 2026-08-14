@@ -234,10 +234,22 @@ public sealed record MemoryOptions
     /// rung, while the starved owner's rows are found. This option skips the ladder only for the first.
     /// </para>
     /// <para>
-    /// Off by default. The results are identical either way — an owner with nothing to find finds
-    /// nothing — so this is purely a cost saving; but it is gated because an existence probe that
-    /// disagreed with the search's own scoping would skip a rescue that would have worked, and a
-    /// silent recall loss is not worth one avoided query.
+    /// <b>Off by default, and MEASURED to be the right default (2026-08-14).</b> Flipping it on and
+    /// re-running the hermetic profile moved <c>PERF-R-01</c> from <b>13 queries to 16</b> — worse,
+    /// not better. The probe is an <i>additional</i> query per category, and it only pays for itself
+    /// when the owner turns out to be empty. On a turn where the owner does hold rows, all it buys is
+    /// three probes that answer "yes, look anyway".
+    /// </para>
+    /// <para>
+    /// So this is a bet on the shape of the workload, not a free saving: enable it for a deployment
+    /// dominated by owners with little or no stored memory (a large multi-tenant estate with a long
+    /// tail of near-empty tenants), and leave it off otherwise. The results are identical either way —
+    /// an owner with nothing to find finds nothing, asserted live — so the trade is purely cost, in
+    /// both directions.
+    /// </para>
+    /// <para>
+    /// It is also gated because an existence probe that disagreed with the search's own scoping would
+    /// skip a rescue that would have worked, and a silent recall loss is not worth one avoided query.
     /// </para>
     /// </remarks>
     public bool SkipEscalationWhenOwnerHasNoRows { get; init; }
