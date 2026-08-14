@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **⚠️ `agent-memory-mcp` now targets .NET 10.** The MCP server ships as a `DotnetTool`, so its target
+  framework determines which runtime you must have installed to run it. **Installing or updating this
+  tool now requires the .NET 10 runtime.** The library packages are unaffected — they continue to
+  multi-target `net10.0;net9.0;net8.0`, so consuming `AgentMemory.*` from a .NET 8 or .NET 9
+  application is unchanged.
+
+  Every other app, tool, test and sample in the repository moved to `net10.0` at the same time. The
+  MCP host could not be held back: `AgentMemory.Tests.Unit` references it, and a `net10.0` project
+  cannot reference a `net9.0` one.
+
+  Two things surfaced during the move and are worth knowing:
+
+  - **Three known-vulnerable transitive packages** appeared under .NET 10's dependency resolution that
+    .NET 9 never pulled: `SSH.NET` 2025.1.0 (GHSA-q939-rpr3-3284), `Microsoft.Bcl.Memory` 9.0.4
+    (GHSA-73j8-2gch-69rq) and `MessagePack` 2.5.192. All are fixed — `Testcontainers.Neo4j` bumped
+    4.11.0 → 4.14.0, the other two pinned at patched versions rather than suppressed. None reached a
+    shipped package; all were in tools, tests and a sample.
+  - **No performance claim is made.** The hermetic perf harness gates on query counts, which are
+    runtime-independent, and two runs of identical code on the same machine differed by 12 points on
+    total wall time. The migration is verified not to have changed query behaviour; it is not verified
+    to be faster.
+
 ### Added
 
 - **Recalled reasoning traces can carry their outcome (opt-in).**
