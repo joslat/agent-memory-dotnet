@@ -23,6 +23,13 @@
     here depends on source access.
   -->
   <ItemGroup>
+    <!-- 29.1. Transitive, and vulnerable at the version net10.0 resolves (9.0.4, GHSA-73j8-2gch-69rq).
+         Pinned explicitly rather than suppressed: NU1903 is a real advisory, and NoWarn would
+         hide the next one too. -->
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AgentEval" Version="0.21.0-beta" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
@@ -37,7 +44,7 @@
     <!-- Embedded vocabularies, so counting never needs a network fetch at run time. -->
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.O200kBase" Version="2.0.0" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="2.0.0" />
-    <PackageReference Include="Testcontainers.Neo4j" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.Neo4j" Version="4.14.0" />
   </ItemGroup>
 
   <ItemGroup>
