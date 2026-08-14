@@ -112,6 +112,49 @@ The honest summary: **procedural memory demonstrably works on a task built to ne
 model.** Turning that into an effect size needs the task suite in 26.1 — at least three task shapes and
 two models — and that work has not been done.
 
+## 4a. A second task was built, ran, and did NOT reproduce the effect (26.1)
+
+`ProceduralIncidentTask` — restore a service after a failed deploy — was written to be structurally
+different from the rail task: a three-call chain, the gate before the payload rather than between two
+lookups. It passed all seven static validity tests.
+
+**It does not discriminate.** Five attempts per arm, mechanism fully working:
+
+| | completion | mean steps | mean tool calls |
+|---|---:|---:|---:|
+| procedures | 100% | 4.0 | **3.0** |
+| control | 100% | 3.8 | **3.0** |
+
+`SHOWS BENEFIT: False`, and **this is not a void run** — the witness reports
+`proceduresInContextPerAttempt=[0, 1, 2, 3, 3]` and the recalled procedure is the correct chain. The
+arm read a procedure and it bought nothing.
+
+**Why: the control solved it cold.** Per attempt, control tool calls were `[3, 3, 3, 3, 3]` — it never
+paid a discovery cost, so there was none to save. The model orders *inspect registry → acquire change
+window → republish* correctly first time, because **"take a change window before deploying" is standard
+practice a model already knows.**
+
+### The fifth validity rule, learned here
+
+The rail task's four rules say the dependency must not be *inferable from names* and must be
+*discoverable only by refusal*. Mine satisfied both and still failed, so the rules were necessary and
+not sufficient. The missing one:
+
+> **The convention must be arbitrary, not merely enforced.** A gate the model would propose anyway
+> costs nothing to discover, however strictly the environment enforces it. The rail task works because
+> nothing suggests a *service bulletin* holds a clearance code, or that a session must be refreshed
+> before a hold. A plausible gate is not a procedure worth remembering.
+
+**Static tests cannot check this** — it is a property of what the model already believes, not of the
+code. Only running it finds out, which is the argument for running a new task cheaply before trusting
+it.
+
+### What this does to the procedural claim
+
+It does **not** weaken the rail result: that run stands, with its witness and its noise floor. It does
+mean the sample is still **one discriminating task**, not two. Generality remains unestablished, and
+the honest count is now *two tasks attempted, one of which the benchmark could not measure.*
+
 ## 5. The second instrument: retrieval precision (26.2)
 
 The harness above answers *"does using a procedure help?"*. It cannot answer *"does recall return the

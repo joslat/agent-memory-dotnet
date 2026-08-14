@@ -68,8 +68,12 @@ internal static class ProceduralBenefitProgram
             log,
             cancellationToken).ConfigureAwait(false);
 
+        // 26.1. Selected by name, never named concretely here. The harness used to construct
+        // ProceduralBenchmarkTask in three places, which is why a fully-tested second task shape sat
+        // unreachable: "add a task" was a three-site edit, so it was tempting to trust the tests.
+        var taskName = Value(args, "--task") ?? "rail";
         // Prompt and completion only -- both are pure, and this instance is never given to an agent.
-        var template = new ProceduralBenchmarkTask();
+        var template = ProceduralTasks.Create(taskName);
         var traces = profile.Services.GetRequiredService<IReasoningTraceRepository>();
 
         // One witness per procedural attempt, in attempt order. The arm is not trusted to be wired:
@@ -86,7 +90,7 @@ internal static class ProceduralBenefitProgram
             // time or the control arm inherits the discovery instead of paying for it.
             proceduralMemoryEnabled =>
                 BuildAgent(
-                    chatClient, new ProceduralBenchmarkTask(), proceduralMemoryEnabled,
+                    chatClient, ProceduralTasks.Create(taskName), proceduralMemoryEnabled,
                     profile.Services, witnesses),
             template.Prompt,
             template.IsComplete,
@@ -95,9 +99,11 @@ internal static class ProceduralBenefitProgram
             // So the promoted procedure is the chain that WORKED, not the transcript of finding it. The
             // seventh run stored "PlaceHold then RefreshSession then PlaceHold" and the arm replaying it
             // paid for the refused call all over again.
-            ProceduralBenchmarkTask.IsRefusal);
+            ProceduralTasks.IsRefusal);
 
-        log.WriteLine($"procedural-benefit: {attempts} attempts per arm, task='{template.Prompt}'");
+        log.WriteLine(
+            $"procedural-benefit: task='{taskName}', {attempts} attempts per arm, "
+            + $"prompt='{template.Prompt}'");
         var result = await ProceduralBenefitResult
             .MeasureAsync(runner, "procedural-benchmark", attempts, cancellationToken)
             .ConfigureAwait(false);
@@ -163,7 +169,7 @@ internal static class ProceduralBenefitProgram
     /// </remarks>
     private static AIAgent BuildAgent(
         IChatClient chatClient,
-        ProceduralBenchmarkTask task,
+        IProceduralTask task,
         bool proceduralMemoryEnabled,
         IServiceProvider services,
         List<ProceduralRecallWitness> witnesses)
@@ -320,6 +326,13 @@ internal static class ProceduralBenefitProgram
                && int.TryParse(args[index + 1], out var value) && value >= 2
             ? value
             : 3;
+    }
+
+    /// <summary>A named argument's value, or null.</summary>
+    private static string? Value(string[] args, string name)
+    {
+        var index = Array.IndexOf(args, name);
+        return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
     }
 
     private static string Required(string name) =>

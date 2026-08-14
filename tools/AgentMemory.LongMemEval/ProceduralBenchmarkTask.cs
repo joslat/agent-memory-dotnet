@@ -28,7 +28,7 @@ namespace AgentMemory.LongMemEval;
 /// to tell those apart.
 /// </para>
 /// </remarks>
-internal sealed class ProceduralBenchmarkTask
+internal sealed class ProceduralBenchmarkTask : IProceduralTask
 {
     /// <summary>Marker the agent can only emit by completing the real chain.</summary>
     /// <remarks>
@@ -72,13 +72,13 @@ internal sealed class ProceduralBenchmarkTask
     private bool _sessionRefreshed;
 
     /// <summary>Records what was called, so a test can assert the chain without a model.</summary>
-    internal List<string> Calls { get; } = [];
+    public List<string> Calls { get; } = [];
 
-    internal string Prompt =>
+    public string Prompt =>
         $"Book the 14:05 rail connection for traveller '{Traveller}'. "
         + $"Reply with the confirmation reference exactly as the booking tool returns it.";
 
-    internal bool IsComplete(string response) =>
+    public bool IsComplete(string response) =>
         response.Contains(ConfirmationMarker, StringComparison.Ordinal);
 
     /// <summary>Marker every refusal in this environment starts with.</summary>
@@ -115,7 +115,7 @@ internal sealed class ProceduralBenchmarkTask
         ["require", "first", "before", "returned by", "from the"];
 
     /// <summary>The tools, in the order a correct procedure uses them.</summary>
-    internal IReadOnlyList<AITool> CreateTools() =>
+    public IReadOnlyList<AITool> CreateTools() =>
     [
         AIFunctionFactory.Create(LookUpTraveller),
         AIFunctionFactory.Create(PlaceHold),

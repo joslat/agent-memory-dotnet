@@ -466,7 +466,7 @@ internal static class LongMemEvalProgram
         "--capture-headroom", "--artifacts",
         "--probe-answer-determinism", "--repeats", "--probe-questions", "--include-text",
         "--answer-seed", "--typed-report", "--reports", "--arm",
-        "--procedure-retrieval", "--min-scores", "--query-formulation", "--time-grounded-oracle", "--upstream-oracle",
+        "--procedure-retrieval", "--min-scores", "--task", "--query-formulation", "--time-grounded-oracle", "--upstream-oracle",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",

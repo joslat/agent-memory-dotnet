@@ -35,7 +35,7 @@ namespace AgentMemory.LongMemEval;
 /// that merely renamed the first one would measure the same thing twice.
 /// </para>
 /// </remarks>
-internal sealed class ProceduralIncidentTask
+internal sealed class ProceduralIncidentTask : IProceduralTask
 {
     /// <summary>Marker the agent can only emit by completing the real chain.</summary>
     internal const string ConfirmationMarker = "SERVICE-RESTORED";
@@ -50,16 +50,16 @@ internal sealed class ProceduralIncidentTask
 
     private bool _windowAcquired;
 
-    internal List<string> Calls { get; } = [];
+    public List<string> Calls { get; } = [];
 
-    internal string Prompt =>
+    public string Prompt =>
         $"Service '{Service}' is failing after release {BadVersion}. Restore it. "
         + "Reply with the restoration reference exactly as the tool returns it.";
 
-    internal bool IsComplete(string response) =>
+    public bool IsComplete(string response) =>
         response.Contains(ConfirmationMarker, StringComparison.Ordinal);
 
-    internal IReadOnlyList<AITool> CreateTools() =>
+    public IReadOnlyList<AITool> CreateTools() =>
     [
         AIFunctionFactory.Create(InspectArtifactRegistry),
         AIFunctionFactory.Create(AcquireChangeWindow),
