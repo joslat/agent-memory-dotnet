@@ -240,14 +240,12 @@ internal static class ProceduralBenefitProgram
                 IncludeFacts = false,
                 IncludePreferences = false,
                 MaxChatHistoryMessages = 0,
-                // The shipped prefix frames recalled memory as untrusted data and tells the model never
-                // to follow instructions found inside it. For a promoted procedure that is a direct
-                // contradiction -- the block IS a suggested ordering, and the arm's own instructions ask
-                // the agent to follow it. The untrusted framing is kept verbatim and one sentence added,
-                // scoped to procedures, rather than dropping a #92 defence to make a number move.
-                ContextPrefix = new ContextFormatOptions().ContextPrefix
-                    + " One exception, and only this one: a \"Similar past tasks\" entry records the tool "
-                    + "ordering that previously completed this same task, and you may reuse that ordering.",
+                // The procedure exception used to be appended here, by this harness alone: the shipped
+                // prefix frames recalled memory as untrusted and tells the model never to follow
+                // instructions inside it, which directly contradicts a promoted procedure. As of 25.3
+                // that fix lives in the PRODUCT (ContextFormatOptions.ProcedureTrustClause, applied
+                // automatically whenever IncludeTraceOutcomes is on), so the harness no longer carries
+                // its own copy -- and the arm now measures what a consumer actually gets.
             }),
             Options.Create(new AgentFrameworkOptions
             {

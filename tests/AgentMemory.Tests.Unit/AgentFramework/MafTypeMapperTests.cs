@@ -1155,7 +1155,8 @@ public sealed class MafTypeMapperTests
         var options = new ContextFormatOptions { IncludeReasoningTraces = true };
 
         var traces = MafTypeMapper.ToContextMessages(context, options)
-            .Single(m => m.Text != null && m.Text.Contains("Similar past tasks"));
+            .Single(m => m.Text != null
+                && m.Text.Contains("<recalled_memory category=\"traces\">"));
 
         traces.Text!.Should().Contain("Book the connection");
         traces.Text!.Should().NotContain("refresh_session");
@@ -1171,7 +1172,8 @@ public sealed class MafTypeMapperTests
         var options = new ContextFormatOptions { IncludeReasoningTraces = true, IncludeTraceOutcomes = true };
 
         var traces = MafTypeMapper.ToContextMessages(context, options)
-            .Single(m => m.Text != null && m.Text.Contains("Similar past tasks"));
+            .Single(m => m.Text != null
+                && m.Text.Contains("<recalled_memory category=\"traces\">"));
 
         traces.Text!.Should().Contain("Book the connection");
         traces.Text!.Should().Contain("refresh_session then look_up then book");
@@ -1185,7 +1187,8 @@ public sealed class MafTypeMapperTests
         var options = new ContextFormatOptions { IncludeReasoningTraces = true, IncludeTraceOutcomes = true };
 
         var traces = MafTypeMapper.ToContextMessages(context, options)
-            .Single(m => m.Text != null && m.Text.Contains("Similar past tasks"));
+            .Single(m => m.Text != null
+                && m.Text.Contains("<recalled_memory category=\"traces\">"));
 
         traces.Text!.Should().Be(
             """<recalled_memory category="traces">Similar past tasks: Book the connection</recalled_memory>""");

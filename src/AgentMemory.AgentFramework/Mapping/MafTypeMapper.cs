@@ -140,8 +140,11 @@ internal static class MafTypeMapper
 
         // Lead (always kept): optional prefix + graph context when it leads (GraphRagOnly/GraphRagThenMemory).
         var lead = new List<ChatMessage>();
-        if (!string.IsNullOrWhiteSpace(options.ContextPrefix))
-            lead.Add(new ChatMessage(ChatRole.System, options.ContextPrefix));
+        // EffectiveContextPrefix, not ContextPrefix: with trace outcomes on it carries the one narrow
+        // exception that lets the agent reuse its own previously-successful tool ordering (25.3).
+        // Without it the prefix tells the model to ignore exactly what procedural memory supplies.
+        if (!string.IsNullOrWhiteSpace(options.EffectiveContextPrefix))
+            lead.Add(new ChatMessage(ChatRole.System, options.EffectiveContextPrefix));
 
         bool graphFirst = context.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
         // GraphRAG has no per-item metadata (a single opaque string, not a list of items), so it's always
