@@ -41,6 +41,16 @@ public sealed record MemoryOptions
     /// <summary>Recall configuration.</summary>
     public RecallOptions Recall { get; init; } = RecallOptions.Default;
 
+    /// <summary>
+    /// Application-level projection configuration, inherited by any recall that did not ask for its own.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors how <see cref="Recall"/> works: a request whose <c>RecallOptions.Projection</c> is still
+    /// the <see cref="MemoryProjectionOptions.Default"/> singleton inherits this value. Both default to
+    /// that same singleton, so an unconfigured application is byte-identical.
+    /// </remarks>
+    public MemoryProjectionOptions Projection { get; init; } = MemoryProjectionOptions.Default;
+
     /// <summary>Context budget configuration.</summary>
     public ContextBudget ContextBudget { get; init; } = ContextBudget.Default;
 

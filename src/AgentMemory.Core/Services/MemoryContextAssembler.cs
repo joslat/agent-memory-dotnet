@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -24,6 +24,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly MemoryOptions _options;
     private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
+    private readonly Projection.MemoryContextProjector _projector;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
@@ -67,7 +68,8 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IMemoryIsolationPolicy isolationPolicy,
         IWritableMemoryRankingContext? rankingContext,
         IEnumerable<ITruncationStrategy>? truncationStrategies,
-        IEnumerable<IMemoryReranker>? rerankers = null)
+        IEnumerable<IMemoryReranker>? rerankers = null,
+        IEnumerable<Projection.IProjectionFeature>? projectionFeatures = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -80,10 +82,74 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // 17.4b. Materialised once: each reranker owns an IsEnabled gate reading MemoryOptions, and
         // both ship false, so an ordinary recall pays one enumeration of an empty-or-disabled list.
         _rerankers = rerankers?.ToArray() ?? [];
+        // 30.2. Same shape as the rerankers above and for the same reason: registered unconditionally,
+        // each owning its own IsEnabled gate, all flags off by default. Null (the non-DI ctor) means no
+        // projection is possible at all, which is the byte-identical path.
+        _projector = new Projection.MemoryContextProjector(projectionFeatures ?? []);
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
         _isolationPolicy = isolationPolicy;
     }
+
+    /// <summary>
+    /// The projection options in force: the request's when it set them, otherwise the application's.
+    /// </summary>
+    /// <remarks>
+    /// The 25.2 inheritance pattern applied one level down. Reference equality against the singleton is
+    /// precisely "the caller left this alone", and because <c>MemoryOptions.Projection</c> also defaults
+    /// to that same instance, an unconfigured application resolves to the all-off default and nothing
+    /// changes.
+    /// </remarks>
+    /// <remarks>
+    /// Takes the requested value rather than the whole <see cref="RecallOptions"/> so that BOTH recall
+    /// paths read <c>recallOpts.Projection</c> at their own call site. That is not cosmetic: the as-of
+    /// divergence guard establishes "does this path honour this option" by reading the source, and a
+    /// helper that hid the reference would report a divergence that does not exist — or, far worse,
+    /// would hide a real one later.
+    /// </remarks>
+    private MemoryProjectionOptions ResolveProjectionOptions(MemoryProjectionOptions requested) =>
+        ReferenceEquals(requested, MemoryProjectionOptions.Default)
+            ? _options.Projection
+            : requested;
+
+    /// <summary>
+    /// Runs projection over the post-budget context, or returns null when nothing is enabled.
+    /// </summary>
+    /// <remarks>
+    /// Called after truncation on purpose: the two read-performing features then pay only for items
+    /// that actually reached the prompt, rather than for everything retrieval happened to return.
+    /// </remarks>
+    private Task<ProjectedContext?> ProjectAsync(
+        MemoryProjectionOptions projectionOpts,
+        MemoryScope? scope,
+        IReadOnlyList<Entity> entities,
+        IReadOnlyList<Fact> facts,
+        IReadOnlyList<Preference> preferences,
+        IReadOnlyList<ReasoningTrace> traces,
+        IReadOnlyList<Message> recentMessages,
+        IReadOnlyList<Message> relevantMessages,
+        IReadOnlyList<(Entity Entity, double Score)> entityScores,
+        IReadOnlyList<(Fact Fact, double Score)> factScores,
+        IReadOnlyList<(Preference Preference, double Score)> preferenceScores,
+        IReadOnlyList<(ReasoningTrace Trace, double Score)> traceScores,
+        CancellationToken cancellationToken) =>
+        _projector.ProjectAsync(
+            new Projection.ProjectionState
+            {
+                Options = projectionOpts,
+                Scope = scope,
+                Entities = entities,
+                Facts = facts,
+                Preferences = preferences,
+                Traces = traces,
+                RecentMessages = recentMessages,
+                RelevantMessages = relevantMessages,
+                EntityScores = entityScores,
+                FactScores = factScores,
+                PreferenceScores = preferenceScores,
+                TraceScores = traceScores,
+            },
+            cancellationToken);
 
     // Start from the four built-in strategies (so the OldestFirst fallback is always available even when
     // DI passes an empty enumerable), then let any injected strategy override the default for its key.
@@ -178,6 +244,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
             ? _options.Recall
             : request.Options;
+        var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         var minScore = recallOpts.MinSimilarityScore;
         var blendMode = recallOpts.BlendMode;
 
@@ -298,8 +365,16 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // and WITHOUT a second query. Null when diagnostics are off (the default) or when a custom
             // service implementation does not expose the contract, and every call below is then the
             // pre-existing one — same query, same allocations, same behaviour.
-            var scoredLongTerm = recallOpts.IncludeDiagnostics ? _longTerm as IScoredLongTermSearch : null;
-            var scoredReasoning = recallOpts.IncludeDiagnostics ? _reasoning as IScoredTraceSearch : null;
+            //
+            // 30.2 widens the gate, not the query. Match-quality projection needs the same scores
+            // diagnostics needs, and the scored overloads are the SAME Cypher returning the score
+            // column the unscored path discards -- same round trips, same allocations. The PUBLIC
+            // RankedItems/Diagnostics population below stays gated on IncludeDiagnostics exactly as
+            // before, so no existing consumer's payload changes; projection reads the in-scope scored
+            // tuples directly.
+            var needsScores = recallOpts.IncludeDiagnostics || projectionOpts.AnnotateMatchQuality;
+            var scoredLongTerm = needsScores ? _longTerm as IScoredLongTermSearch : null;
+            var scoredReasoning = needsScores ? _reasoning as IScoredTraceSearch : null;
 
             // Recent messages need no embedding; the rest are semantic and are gated on hasEmbedding. Each
             // is also gated on its own MaxX > 0 (#88): a task-aware recall policy that excludes a category
@@ -591,10 +666,19 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             }
         }
 
+        // 30.2. After truncation AND after reranking, so projection describes exactly the items that
+        // reach the prompt in the order they will be rendered. Null unless a feature is enabled.
+        var projection = await ProjectAsync(
+            projectionOpts, scope, entities, facts, preferences, traces,
+            recentMessages, relevantMessages,
+            entityScores, factScores, preferenceScores, traceScores,
+            cancellationToken).ConfigureAwait(false);
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
+            Projection = projection,
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,
@@ -699,6 +783,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         var recallOpts = ReferenceEquals(request.Options, RecallOptions.Default)
             ? _options.Recall
             : request.Options;
+        var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         var minScore = recallOpts.MinSimilarityScore;
 
         // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path --
@@ -735,8 +820,12 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // second code path — an instrument wired into only one of the two recall paths would report a
         // point-in-time recall as unscored when it merely went the other way. Null when diagnostics are
         // off (the default), and every call below is then the pre-existing one.
-        var scoredLongTerm = recallOpts.IncludeDiagnostics ? _longTerm as IScoredLongTermSearch : null;
-        var scoredReasoning = recallOpts.IncludeDiagnostics ? _reasoning as IScoredTraceSearch : null;
+        // 30.2 widens it here too, for the same reason the elision above is asserted rather than
+        // trusted: a projection wired into only one of the two recall paths would silently produce an
+        // unprojected context for every as-of recall, and these paths have already diverged once.
+        var needsScores = recallOpts.IncludeDiagnostics || projectionOpts.AnnotateMatchQuality;
+        var scoredLongTerm = needsScores ? _longTerm as IScoredLongTermSearch : null;
+        var scoredReasoning = needsScores ? _reasoning as IScoredTraceSearch : null;
         bool searchEntities = hasEmbedding && recallOpts.MaxEntities > 0;
         bool searchPreferences = hasEmbedding && recallOpts.MaxPreferences > 0;
         bool searchFacts = hasEmbedding && recallOpts.MaxFacts > 0;
@@ -886,10 +975,20 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             traceRanked = BuildRankedItems(traces, traceScores, static t => t.TraceId);
         }
 
+        // 30.2, post-budget, mirroring the live path. This path assembles no relevant-messages section
+        // at all (it passes Array.Empty to the budget above), so projection is told that honestly rather
+        // than being handed the recent list twice.
+        var projection = await ProjectAsync(
+            projectionOpts, scope, entities, facts, preferences, traces,
+            recentMessages, Array.Empty<Message>(),
+            entityScores, factScores, preferenceScores, traceScores,
+            cancellationToken).ConfigureAwait(false);
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
+            Projection = projection,
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,
