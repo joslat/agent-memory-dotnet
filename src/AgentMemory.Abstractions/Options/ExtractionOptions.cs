@@ -149,6 +149,17 @@ public sealed class ExtractionOptions
     /// </para>
     /// </remarks>
     public int ExtractionContextTurns { get; set; }
+
+    /// <summary>
+    /// The session accountant: materialises aggregates from what a batch just persisted. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// Sits on extraction options because the accountant runs as a post-persistence pass over exactly
+    /// the groups the batch touched — it is part of writing, not of reading. Recall needs no changes at
+    /// all: a derived fact <i>is</i> a <c>:Fact</c>, so it rides the existing vector index, budget,
+    /// owner scoping, invalidation gate and valid-time gate for free.
+    /// </remarks>
+    public DerivedMemoryOptions DerivedMemory { get; set; } = new();
 }
 
 /// <summary>Controls which matching strategies are used for entity resolution.</summary>

@@ -258,4 +258,110 @@ public interface IFactRepository
         throw new NotSupportedException(
             "This IFactRepository implementation does not support delta recall. An empty delta means "
             + "'nothing changed', so it must not be fabricated by an implementation that cannot compute one.");
+
+    /// <summary>
+    /// The live, non-derived facts sharing one canonical subject and predicate, ordered by when they
+    /// became true (30.6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The order is the arithmetic.</b> Results come back sorted by
+    /// <c>coalesce(valid_from, created_at)</c> ascending — valid time first so a fact learned yesterday
+    /// about 2019 sorts as 2019, with a transaction-clock fallback because most extracted facts carry no
+    /// valid time at all. A delta computed over an unordered group subtracts two arbitrary members and
+    /// reports the result as a change.
+    /// </para>
+    /// <para>
+    /// <b>Derived facts are excluded</b>, which keeps the derivation DAG one level deep. Aggregating
+    /// aggregates would make the staleness cascade recursive, and a recursive cascade inside a supersede
+    /// statement is one that eventually gets moved out of the transaction "for performance" — at which
+    /// point stale derived values become retrievable.
+    /// </para>
+    /// <para>
+    /// Defaults to empty rather than throwing, unlike the delta member above: an empty group is a
+    /// perfectly ordinary answer that simply yields no aggregates, so a backend without this query
+    /// degrades to "the accountant finds nothing" rather than failing an ingestion.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> GetGroupFactsAsync(
+        string subjectKey,
+        string predicateKey,
+        MemoryScope? scope,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>([]);
+
+    /// <summary>
+    /// Writes or refreshes one derived fact, repointing its <c>DERIVED_FROM</c> edges to
+    /// <paramref name="inputFactIds"/> (30.6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Identity is the derivation key carried in <paramref name="fact"/>'s metadata, not the canonical
+    /// triple: an aggregate's value changes on every recompute, so triple identity would spawn a fresh
+    /// node per observation and leave one dead aggregate behind each time.
+    /// </para>
+    /// <para>
+    /// <b>Throws by default</b>, for the same reason the delta member does. Silently accepting a write
+    /// that never happened would leave the accountant reporting derived facts it did not store, and the
+    /// feature's void witness — "flag on and zero derived facts materialised" — would then be reading a
+    /// count that was never true.
+    /// </para>
+    /// </remarks>
+    Task<Fact> UpsertDerivedAsync(
+        Fact fact,
+        IReadOnlyList<string> inputFactIds,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "This IFactRepository implementation does not support derived (arithmetic) memory.");
+
+    /// <summary>
+    /// Facts that became due in <c>(since, now]</c> and facts expiring within
+    /// <paramref name="expiringWindow"/> (30.7).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Time-predicate selection. No embedding, no similarity floor, and that absence is the
+    /// specification.</b> A reminder is off-topic by definition — nobody asks "is there anything I
+    /// should know?" — so scoping this by similarity to the current query would reintroduce the exact
+    /// failure it exists to fix.
+    /// </para>
+    /// <para>
+    /// Defaults to <see cref="ProspectiveDueResult.Empty"/> rather than throwing: a store that cannot
+    /// fire simply does not fire, which is a coherent state. The section diagnostics mark the section
+    /// never-searched in that case, so silence stays distinguishable from "nothing was due" — the
+    /// distinction a throwing default would enforce more loudly but at the cost of failing recalls that
+    /// have nothing wrong with them.
+    /// </para>
+    /// </remarks>
+    Task<ProspectiveDueResult> GetDueFactsAsync(
+        DateTimeOffset since,
+        DateTimeOffset now,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ProspectiveDueResult.Empty);
+
+    /// <summary>
+    /// Vector search over facts the prune let go of — <c>invalidated_reason = 'decay'</c> only (30.8).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Decayed, <b>not merely invalidated</b>. A superseded fact is also invalidated, and reporting one
+    /// as forgotten would be wrong in the most damaging direction: the system did not forget it, it
+    /// replaced it, and the replacement is live and should be answering.
+    /// </para>
+    /// <para>
+    /// Defaults to empty — a store that cannot report forgetting simply does not report it, and the
+    /// agent's answers are exactly what they were.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchDecayedFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>([]);
 }

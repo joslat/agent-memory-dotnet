@@ -471,6 +471,47 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
             queryEmbedding, limit, minScore, scope, expandByPredicate, expansionLimit,
             questionRelations, scoreSink: null, cancellationToken);
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A straight forward to the repository, with the owner scope resolved through the isolation policy
+    /// exactly as every other read here is. Note what this method does <b>not</b> do: it takes no query
+    /// embedding and applies no score floor, because firing selects by time. A reminder is off-topic by
+    /// definition, and a similarity-scoped version could never surface the ones that matter most.
+    /// </remarks>
+    public Task<ProspectiveDueResult> GetDueFactsAsync(
+        DateTimeOffset since,
+        DateTimeOffset now,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetDueFactsAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetDueFactsAsync(
+            since, now, expiringWindow, limit, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Scope resolved through the isolation policy like every other read. The <paramref name="minScore"/>
+    /// arrives from the caller unchanged and deliberately: a tombstone must clear the same similarity
+    /// bar a live fact would have, or it is a confident claim about having forgotten something on an
+    /// unrelated topic.
+    /// </remarks>
+    public Task<IReadOnlyList<Fact>> SearchDecayedFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(SearchDecayedFactsAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.SearchDecayedFactsAsync(
+            queryEmbedding, limit, minScore, resolved, cancellationToken);
+    }
+
     /// <summary>
     /// Fact recall that also hands back the similarity scores the vector index already produced — see
     /// <see cref="IScoredLongTermSearch"/>. Operation name pinned to <c>SearchFactsAsync</c> for the same

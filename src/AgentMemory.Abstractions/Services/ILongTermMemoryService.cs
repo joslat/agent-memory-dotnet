@@ -269,4 +269,38 @@ public interface ILongTermMemoryService
         MemoryScope? scope,
         CancellationToken cancellationToken) =>
         SearchFactsAsync(queryEmbedding, limit, minScore, scope, cancellationToken);
+
+    /// <summary>
+    /// Facts that became due in <c>(since, now]</c>, and facts expiring soon (30.7).
+    /// </summary>
+    /// <remarks>
+    /// A fourth default interface method, for the same SemVer reason as the three above. Note what is
+    /// <b>missing</b> from the signature: no query embedding and no minimum score. Firing selects by
+    /// time alone, because a reminder is off-topic by definition and a similarity-scoped one could
+    /// never surface the reminders that matter most.
+    /// </remarks>
+    Task<ProspectiveDueResult> GetDueFactsAsync(
+        DateTimeOffset since,
+        DateTimeOffset now,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(ProspectiveDueResult.Empty);
+
+    /// <summary>
+    /// Facts the prune let go of, for reporting a stated absence (30.8). Default: empty.
+    /// </summary>
+    /// <remarks>
+    /// A fifth default interface method. Note the <b>same</b> <paramref name="minScore"/> a live search
+    /// would use: a tombstone that clears a looser bar is a confident claim about having forgotten
+    /// something on an unrelated topic, which invites the user to re-supply information they never gave.
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> SearchDecayedFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>([]);
 }

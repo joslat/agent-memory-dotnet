@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -8,6 +8,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Derivation;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 using static AgentMemory.Neo4j.Repositories.Neo4jRecordMapper;
@@ -616,6 +617,12 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             InvalidatedAtUtc = properties.TryGetValue("invalidated_at", out var iat)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
                                 : null,
+            // 30.8. Null for everything except a prune-decayed node -- including every node
+            // invalidated before this property existed, whose reason is genuinely unknowable and is
+            // therefore left unknown rather than backfilled with a guess.
+            InvalidatedReason = properties.TryGetValue("invalidated_reason", out var ir)
+                                ? ir?.As<string>()
+                                : null,
             Embedding = embedding,
             SourceMessageIds = properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
@@ -683,6 +690,182 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 NewlyDueProspective = await BucketAsync(FactQueries.DeltaNewlyDueProspective(hasOwner, includeShared)).ConfigureAwait(false),
             };
         }, cancellationToken).ConfigureAwait(false) ?? new FactDeltaRows();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// Both halves run against the <c>fact_valid_from_idx</c> / <c>fact_valid_until_idx</c> range
+    /// indexes when the <c>delta-recall</c> extension is active — the same clocks, so the same indexes
+    /// serve both features and firing adds no schema of its own. Without that extension the query is
+    /// still <b>correct</b>, just planned as an owner seek plus a property filter, which is a disclosed
+    /// cost rather than a hidden one.
+    /// </para>
+    /// <para>
+    /// The expiry horizon is computed here, in C#, and passed as ISO-8601 — no Cypher duration
+    /// arithmetic, matching how <c>$now</c> already travels and keeping one clock authority.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<Fact>> SearchDecayedFactsAsync(
+        float[] queryEmbedding,
+        int limit,
+        double minScore,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        // The same boundary invariant as every other vector search here: a zero-dimension embedding has
+        // no semantic signal and would throw a dimension mismatch inside the index call.
+        if (queryEmbedding is not { Length: > 0 }) return [];
+
+        var hasOwner = scope?.HasOwnerFilter == true;
+        var includeShared = scope?.IncludeShared ?? true;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["embedding"] = queryEmbedding.ToList(),
+            ["limit"] = limit,
+            ["minScore"] = minScore,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        // NO escalation ladder, deliberately. SearchByVectorAsync widens its top-K when an owner is
+        // starved by the global index; this probe does not. If the global top-K starves, the tombstone
+        // silently does not render -- the correct failure direction for a line whose entire job is
+        // honesty about absence, and the wrong place to spend a second and third query.
+        var cypher = FactQueries.SearchDecayedByVector(hasOwner, includeShared, limit);
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records
+                .Select(r => MapToFact(r["node"].As<IReadOnlyDictionary<string, object>>(), null))
+                .ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+    }
+
+    /// <inheritdoc/>
+    public async Task<ProspectiveDueResult> GetDueFactsAsync(
+        DateTimeOffset since,
+        DateTimeOffset now,
+        TimeSpan expiringWindow,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["since"] = since.ToString("O", culture),
+            ["now"] = now.ToString("O", culture),
+            ["expiryHorizon"] = (now + expiringWindow).ToString("O", culture),
+            ["limit"] = limit,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            async Task<List<Fact>> SectionAsync(string cypher)
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
+            }
+
+            return new ProspectiveDueResult
+            {
+                Due = await SectionAsync(FactQueries.GetDueFacts(hasOwner, includeShared))
+                    .ConfigureAwait(false),
+                Expiring = await SectionAsync(FactQueries.GetExpiringFacts(hasOwner, includeShared))
+                    .ConfigureAwait(false),
+            };
+        }, cancellationToken).ConfigureAwait(false) ?? ProspectiveDueResult.Empty;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Fact>> GetGroupFactsAsync(
+        string subjectKey,
+        string predicateKey,
+        MemoryScope? scope,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["subjectKey"] = subjectKey,
+            ["predicateKey"] = predicateKey,
+            ["limit"] = limit,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                DerivedFactQueries.GetGroupFacts(hasOwner, includeShared), parameters)
+                .ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records
+                .Select(r => MapToFact(r["f"].As<INode>(), embedding: null))
+                .ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? [];
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The embedding is written in the same statement rather than through the follow-up sub-write
+    /// <see cref="UpsertAsync"/> uses, because a derived fact's whole purpose is to be <i>retrievable</i>
+    /// — an aggregate with a null embedding is invisible to the vector recall it was materialised for,
+    /// and would leave the feature's "flag on, zero derived facts surfaced" void witness pointing at
+    /// retrieval when the defect was in the write.
+    /// </remarks>
+    public async Task<Fact> UpsertDerivedAsync(
+        Fact fact,
+        IReadOnlyList<string> inputFactIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fact);
+        ArgumentNullException.ThrowIfNull(inputFactIds);
+
+        var derivationKey = DerivationKey.For(fact);
+        _logger.LogDebug(
+            "Upserting derived fact {Id} ({Key}) from {InputCount} inputs",
+            fact.FactId, derivationKey, inputFactIds.Count);
+
+        return await _tx.WriteAsync(async runner =>
+        {
+            var parameters = new Dictionary<string, object?>
+            {
+                ["derivationKey"] = derivationKey,
+                ["id"] = fact.FactId,
+                ["subject"] = fact.Subject,
+                ["predicate"] = fact.Predicate,
+                ["object"] = fact.Object,
+                ["ownerId"] = fact.OwnerId,
+                ["confidence"] = fact.Confidence,
+                // Empty means "no vector", the same convention every other repository uses, and the
+                // boundary invariant the empty-embedding sweep pinned across all nine vector searches.
+                ["embedding"] = fact.Embedding is { Length: > 0 } ? fact.Embedding.ToList() : null,
+                ["operator"] = fact.Metadata.GetDerivationOperator()?.ToString(),
+                ["derivation"] = fact.Metadata.GetDerivation(),
+                ["now"] = DateTimeOffset.UtcNow.ToString(
+                    "O", System.Globalization.CultureInfo.InvariantCulture),
+                ["metadata"] = SerializeMetadata(fact.Metadata),
+                ["inputFactIds"] = inputFactIds.ToList(),
+            };
+
+            var cursor = await runner.RunAsync(DerivedFactQueries.UpsertDerived, parameters)
+                .ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            // UNWIND over the inputs returns one row per edge merged. The node is the same on every
+            // row; taking the first avoids a SingleAsync that would throw for any group of more than
+            // one input -- which is every group, since no evaluator aggregates fewer than two.
+            var node = records[0]["f"].As<INode>();
+            return MapToFact(node, fact.Embedding);
+        }, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                $"Derived fact upsert returned no row for derivation key {derivationKey}.");
     }
 
     /// <inheritdoc/>

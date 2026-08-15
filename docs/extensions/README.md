@@ -61,3 +61,5 @@ extension's scripts and skips them through the ordinary applied-check.
 - [`working-memory`](working-memory.md) — the compiled per-owner profile block on upstream's `:User`.
 - [`delta-recall`](delta-recall.md) — RANGE indexes over the clocks "what changed since I last looked?"
   seeks on. No labels, no properties, empty parity delta.
+- [`arithmetic`](arithmetic.md) — the session accountant's materialised aggregates: `kind='derived'` on
+  `:Fact` plus one `DERIVED_FROM` edge, for answers that must be computed rather than found.

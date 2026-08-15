@@ -246,6 +246,35 @@ internal static class MafTypeMapper
                 "\n"));
         }
 
+        // 30.7. Volunteered reminders render ahead of everything the query asked for. The point of
+        // volunteering is prominence: a reminder placed after the relevance-ranked answer to a
+        // different question has been delivered and not received. Both sections are empty unless firing
+        // ran, so an unflagged recall produces byte-identical messages.
+        if (context.DueFacts.Items.Count > 0)
+            memory.AddRange(CategoryMessages("due", context.DueFacts.Items,
+                f => $"{f.Subject} {f.Predicate} {f.Object}"
+                    + (f.ValidFrom is { } from
+                        ? $" (valid from {from.UtcDateTime:yyyy-MM-dd})"
+                        : string.Empty),
+                f => f.Metadata.GetTrustLevel(), "Due now: ", "; "));
+
+        if (context.ExpiringFacts.Items.Count > 0)
+            memory.AddRange(CategoryMessages("expiring", context.ExpiringFacts.Items,
+                f => $"{f.Subject} {f.Predicate} {f.Object}"
+                    + (f.ValidUntil is { } until
+                        ? $" (until {until.UtcDateTime:yyyy-MM-dd})"
+                        : string.Empty),
+                f => f.Metadata.GetTrustLevel(), "Expiring soon: ", "; "));
+
+        // 30.8. A stated absence. Untrusted like everything else: the topic is an extracted fact's
+        // subject, so it is user text, and being a statement ABOUT memory does not make it trusted.
+        if (context.ForgottenTopics.Count > 0)
+            memory.AddRange(CategoryMessages("forgotten", context.ForgottenTopics,
+                t => $"{t.Count} thing(s) about {t.Topic}"
+                    + (t.AgedOutUtc is { } agedOut ? $", last held {agedOut.UtcDateTime:yyyy-MM-dd}" : string.Empty),
+                _ => MemoryTrustLevel.Untrusted,
+                "No longer known (aged out, details unavailable): ", "; "));
+
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
             memory.AddRange(CategoryMessages("entities", context.RelevantEntities.Items,
                 e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}",
@@ -253,7 +282,9 @@ internal static class MafTypeMapper
 
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
             memory.AddRange(CategoryMessages("facts", ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, context.Projection),
-                f => $"{f.Subject} {f.Predicate} {f.Object}",
+                // 30.6: one renderer, both surfaces. Ordinary facts render byte-identically to before.
+                f => AgentMemory.Core.Services.DerivedFactRenderer.Append(
+                    $"{f.Subject} {f.Predicate} {f.Object}", f),
                 f => f.Metadata.GetTrustLevel(), "Known facts: ", "; ", f => f.FactId));
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)

@@ -162,7 +162,17 @@ internal sealed class MemoryService : IMemoryService
             + context.RelevantEntities.Items.Count
             + context.RelevantPreferences.Items.Count
             + context.RelevantFacts.Items.Count
-            + context.SimilarTraces.Items.Count;
+            + context.SimilarTraces.Items.Count
+            // 30.7. Counted, because the formatter's zero-items early return reads this: a recall whose
+            // ONLY content is a volunteered reminder would otherwise render nothing at all, which is
+            // exactly the shape of the procedural-tier defect -- a section populated, counted nowhere,
+            // and invisible on the surface that renders it.
+            + context.DueFacts.Items.Count
+            + context.ExpiringFacts.Items.Count
+            // 30.8, same reason: a recall whose only content is "I used to know things about X"
+            // would otherwise hit the formatter's zero-items early return and render nothing -- which
+            // is precisely the recall where saying so matters most.
+            + context.ForgottenTopics.Count;
 
         int estimatedChars =
             context.RecentMessages.Items.Sum(m => m.Content.Length)

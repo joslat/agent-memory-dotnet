@@ -427,7 +427,14 @@ internal static class FactQueries
         return @"
             MATCH (f:Fact {id: $id})
             WHERE true" + owner + @"
-            SET f.invalidated_at = coalesce(f.invalidated_at, datetime($now))
+            SET f.invalidated_at = coalesce(f.invalidated_at, datetime($now))"
+            // 30.6. Any aggregate computed from this fact stops being live in the SAME statement. A
+            // derived 750 whose input 800 was just retracted is a manufactured confident-wrong answer,
+            // and an eventually-consistent sweep would leave a window in which exactly that is
+            // retrievable. Unconditional rather than flag-gated: switching the accountant off must not
+            // freeze every aggregate it ever wrote into permanent truth. Row-neutral on a store with no
+            // derived facts (guard G1) -- see DerivedFactQueries.CascadeInvalidateDerived.
+            + DerivedFactQueries.CascadeInvalidateDerived("f") + @"
             RETURN count(f) > 0 AS invalidated";
     }
 
@@ -468,9 +475,100 @@ internal static class FactQueries
                         THEN 0.0
                         ELSE coalesce(loser.confidence, 0.0) - (2 * $reinforceAlpha) END
                     ELSE loser.confidence END
-            MERGE (loser)-[:SUPERSEDED_BY]->(winner)
+            MERGE (loser)-[:SUPERSEDED_BY]->(winner)"
+            // 30.6, same reasoning as Invalidate: an aggregate over a fact that was just replaced is
+            // stale the instant the replacement lands. The next accountant pass recomputes and re-arms
+            // it from the surviving inputs.
+            + DerivedFactQueries.CascadeInvalidateDerived("loser") + @"
             RETURN count(loser) > 0 AS superseded";
     }
+
+    // ── Legible forgetting (30.8) ──────────────────────────────────────
+
+    /// <summary>
+    /// Vector search over facts the prune let go of — <c>invalidated_reason = 'decay'</c> only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A sibling of <see cref="SearchByVector"/> with exactly two clauses inverted, so the two cannot
+    /// drift apart on anything else. The vector index already contains these nodes: soft-invalidation
+    /// keeps the embedding, and every live query simply filters them out afterwards. This inverts that
+    /// filter rather than adding an index.
+    /// </para>
+    /// <para>
+    /// <b><c>invalidated_reason = 'decay'</c>, not merely <c>invalidated_at IS NOT NULL</c>.</b> A
+    /// superseded fact is also invalidated, and reporting one as forgotten would be a lie in the most
+    /// damaging direction: the system did not forget it, it <i>replaced</i> it, and its replacement is
+    /// live and should be answering the question. The reason property is the partition.
+    /// </para>
+    /// <para>
+    /// <b>The same <c>$minScore</c> floor a live fact would face.</b> A tombstone that clears a looser
+    /// bar is a confident statement about having forgotten something on an unrelated topic — worse
+    /// than silence, because it invites the user to re-supply information they never gave.
+    /// </para>
+    /// <para>
+    /// <b>No escalation tiers.</b> The owner-starvation fallback ladder is deliberately not replicated
+    /// for a diagnostic line: if the global top-K starves, the tombstone silently does not render,
+    /// which is the correct failure direction for a surface whose whole job is honesty about absence.
+    /// </para>
+    /// </remarks>
+    public static string SearchDecayedByVector(bool hasOwnerFilter, bool includeShared, int topK) =>
+        VectorRerank.Finish(
+            new CypherBuilder()
+                .WithVectorSearch("fact_embedding_idx", "$embedding", "node", topK)
+                .Where("score >= $minScore")
+                .And("node.invalidated_at IS NOT NULL")
+                .And("node.invalidated_reason = 'decay'")
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter),
+            recencyRerank: false, omitEmbedding: true);
+
+    // ── Prospective firing (30.7) ──────────────────────────────────────
+
+    /// <summary>
+    /// Facts whose validity <b>opened</b> in <c>(since, now]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No <c>$embedding</c>, no <c>$minScore</c>, no vector index.</b> That absence is the
+    /// specification, not an omission: a reminder is off-topic by definition, so a similarity-scoped
+    /// version of this query could never surface the reminders that matter most.
+    /// </para>
+    /// <para>
+    /// <c>valid_from</c>, the valid-time clock — deliberately not <c>created_at</c>. "I learned last
+    /// week that the renewal is today" must fire today, not last week, and those are different clocks
+    /// answering different questions.
+    /// </para>
+    /// <para>
+    /// Ordered most-recently-due first, so <c>LIMIT</c> truncates the oldest. Half-open on the same
+    /// convention every other window query here uses.
+    /// </para>
+    /// </remarks>
+    public static string GetDueFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND f.valid_from IS NOT NULL
+              AND f.valid_from > datetime($since)
+              AND f.valid_from <= datetime($now)"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_from DESC LIMIT $limit";
+
+    /// <summary>
+    /// Facts whose validity <b>closes</b> between now and the expiry horizon.
+    /// </summary>
+    /// <remarks>
+    /// <c>valid_until &gt; $now</c> excludes what has already expired: that belongs to delta recall's
+    /// expired-validity bucket, and reporting it here as "expiring" would be a tense error the reader
+    /// acts on. The horizon is computed in C# and passed ISO-8601 — no Cypher duration arithmetic, the
+    /// same way <c>$now</c> already travels.
+    /// </remarks>
+    public static string GetExpiringFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND f.valid_until IS NOT NULL
+              AND f.valid_until > datetime($now)
+              AND f.valid_until <= datetime($expiryHorizon)"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
 
     // ── Delta recall (30.5) ────────────────────────────────────────────
 

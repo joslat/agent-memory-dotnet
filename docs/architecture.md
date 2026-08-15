@@ -160,7 +160,7 @@ time (see `docs/reviews/net10-performance-comparison.md`).
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.3 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 70 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, etc.), 45 service interfaces (incl. `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 19 configuration types (incl. `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 31 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`) |
+| **Key types** | 72 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, etc.), 45 service interfaces (incl. `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 32 enums (incl. `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`) |
 
 **Namespace structure:**
 ```
@@ -443,6 +443,29 @@ Honouring `valid_from` delivers the first two mechanisms of **prospective memory
 gating (due-on-next-interaction semantics); acting at a time with no query is a scheduler and
 deliberately out of scope. *(CHANGELOG [Unreleased].)*
 
+**Firing (30.7)** adds the third: `RecallOptions.ProspectiveFiring` surfaces facts that *became* due
+since a lookback window, and facts about to expire, without being asked for them. Every other channel
+is reactive — it answers the question in front of it — and a reminder is off-topic by definition, so
+firing selects by **time alone**: no query embedding, no similarity floor. That absence is the
+specification; a similarity-scoped reminder could never surface the ones that matter most.
+
+| Invariant | Mechanism |
+|---|---|
+| **Gated twice** | The flag *and* `ValidTime == Current`. Firing reads a fact's validity window; a recall ignoring valid time has no window to read, and surfacing facts by a clock the rest of that recall ignores would make one recall's two halves disagree |
+| **Its own budget** | `MaxDueItems` (5), never competing with `MaxFacts`. A reminder that loses a budget contest to a relevance-ranked fact has already failed |
+| **Prominence** | Rendered before every query-driven section on both surfaces. A reminder placed after the answer to a different question is delivered, not received |
+| **Never premature** | The window is `(since, now]` on the valid-time clock. A not-yet-valid fact in context is a confident statement about a world that does not exist yet — the counter this feature would be withdrawn over |
+| **Fires once** | Half-open lower bound, same convention as every other window query here |
+| **De-duplicated** | A fact that is both relevant and due renders only as due, and its score is dropped in lockstep |
+| **Silence ≠ absence** | Section diagnostics mark the section never-searched when firing is off, so a host hitting the DIM's empty default can tell that apart from "nothing was due" |
+| **Trust unchanged** | Firing changes *when* a fact surfaces, never its trust: same delimiter, same per-item admission |
+| **Zero schema** | Reads `valid_from`/`valid_until`, already present; served by `delta-recall`'s range indexes over the same clocks |
+
+**The as-of path deliberately does not fire**, recorded in `AsOfRecallDivergenceTests` alongside the
+other eight documented divergences. An as-of recall reconstructs what was known at a past instant;
+splicing present-tense urgency into a historical reconstruction would mislead about which world the
+answer describes.
+
 #### 3.2.8 The projection layer (30.2)
 
 One pipeline between storage and the prompt, so a rendering decision is made **once**. Three surfaces
@@ -513,6 +536,67 @@ Rendered by `MemoryDeltaFormatter` through the same admission check and delimite
 recalled category, filling the projection layer's reserved `DeltaSummary` slot. The Agent Framework path
 passes its own host-pluggable admission policy in, so a custom policy is not applied everywhere *except*
 the delta. *(See [`docs/extensions/delta-recall.md`](extensions/delta-recall.md).)*
+
+#### 3.2.9b Legible forgetting: the stated absence (30.8)
+
+Forgetting already worked and was **invisible**. Decay pruned, recall returned less, and the agent
+answered as though it had never known — indistinguishable, to the person asking, from never having been
+told. A system whose gaps all look like the same gap cannot be corrected by its user, because they do
+not know there is anything to re-supply.
+
+On a recall whose fact section comes back **empty from a search that ran**, one extra vector probe asks
+what the system used to know about this and has let go, and `MemoryContext.ForgottenTopics` carries a
+summary — topic, count, dates.
+
+| Invariant | Mechanism |
+|---|---|
+| **Never the content** | A summary only. Rendering the forgotten facts would undo the forgetting: the decayed values back in the prompt, occupying budget, answered from |
+| **Decayed ≠ superseded** | The prune stamps `invalidated_reason='decay'`; supersession stamps nothing. Reporting a replaced fact as forgotten is wrong in the damaging direction — its replacement is live and should be answering |
+| **Three gates** | The flag; an existing query embedding (a turn that skipped embedding must not have one reintroduced by a diagnostic); and thinness — searched-and-found-nothing, not never-asked |
+| **The same floor** | A tombstone clears the same `minScore` a live fact would. A looser bar invites the user to re-supply information they never gave |
+| **No escalation ladder** | If the global top-K starves, the tombstone silently does not render — the correct failure direction for a surface whose job is honesty about absence |
+| **Precedence, once** | A tombstone suppresses the projection layer's no-direct-match line for that section, resolved in the assembler rather than in each renderer |
+| **Zero schema** | Reuses `fact_embedding_idx`, which already holds these nodes — soft-invalidation keeps the embedding and live queries filter them out afterwards. This inverts that filter |
+| **No backfill** | Facts invalidated before this shipped have an unknowable reason and never surface. A disclosed start-at-deployment limit, not a guess |
+
+Absent from the as-of path, recorded in `AsOfRecallDivergenceTests`: a tombstone is a claim about the
+**present** state of memory, and at the as-of instant those facts may still have been live.
+
+#### 3.2.10 Arithmetic memory: the session accountant (30.6)
+
+Answers that must be **computed** rather than found. 16% of LongMemEval questions have a derived gold
+answer — a count, a difference, a latest-of-chain, a duration, a list — and memory holds the *parts* of
+it and never the whole. Every retrieval-side idea died against a saturated coverage ceiling; this class
+of answer is one retrieval structurally cannot produce, because it is a property of a **set** and
+retrieval returns a sample.
+
+A deterministic post-persistence pass materialises aggregates for the `(subject, predicate, owner)`
+groups each extraction batch touched, on **both** the per-request and multi-session-batch paths. A
+derived fact is an ordinary `:Fact` with `kind='derived'`, so it rides the existing vector index,
+budget, owner scoping, invalidation gate and valid-time gate with **no recall-path changes at all**.
+
+| Invariant | Mechanism |
+|---|---|
+| **LLM-free** | Numeric parse plus graph aggregation. Answer-time decomposition died 0/29 on perfect context; the bet is moving arithmetic from a stochastic reader to a deterministic writer |
+| **Refuse, don't guess** | Any unparsable object in a group disqualifies its numeric operators; nothing aggregates a single fact; the parser attempts no unit or approximation handling |
+| **Sum is allowlisted** | Additivity cannot be inferred — summing three temperatures is arithmetically perfect and meaningless, and no audit of the arithmetic catches it |
+| **Duration is off** | The corpus stamps `UnixEpoch + counter`; it also refuses the `created_at` fallback, since an interval between extraction timestamps measures when we were *told*, not when it happened |
+| **Provenance is inline** | `17 — derived: 12 (a1) + 5 (b2)`, rendered by one shared renderer on both surfaces, so the model can check rather than trust |
+| **Staleness is same-statement** | `Supersede`/`Invalidate` cascade to dependent aggregates in the same Cypher statement, unconditionally — an eventually-consistent sweep leaves a window where a stale aggregate is retrievable |
+| **Recompute updates in place** | Identity is `derivation_key` = SHA-256 of `subject|predicate|operator|owner`, computed in C# (the U+0130 lesson); the *object* is absent from the key, or every recompute would spawn a node |
+| **DAG is one level deep** | The group read excludes `kind='derived'`, so the cascade never needs to recurse |
+| **Off is byte-identical** | `DerivedMemory.Enabled` defaults false; off means the repository sees zero calls, not merely an unchanged graph |
+
+**Parity cost: one relationship type and five documented properties, zero labels.** Ships as the
+`arithmetic` schema extension. The `DERIVED_FROM` edge is argued for rather than assumed: reusing
+`EXTRACTED_FROM` points at `:Message` and would poison the provenance instrument, and a JSON id list is
+parity-free but not traversable in the direction the cascade needs — *"every derived fact whose inputs
+include this one"*, evaluated inside the supersede statement.
+
+**Guard G2 is enforced by omission.** A derived fact carries no merge-key quadruple, so the fact upsert's
+MERGE and `FindByTriple` cannot reach it. MERGE cannot carry a `WHERE`, so making the collision
+*unreachable* is the only form of the guarantee that holds. *(See
+[`docs/extensions/arithmetic.md`](extensions/arithmetic.md).)*
 
 ### 3.3 AgentMemory.Neo4j
 

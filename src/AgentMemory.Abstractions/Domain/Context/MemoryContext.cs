@@ -43,6 +43,33 @@ public sealed record MemoryContext
         MemoryContextSection<Fact>.Empty;
 
     /// <summary>
+    /// Facts that became true since the last checkpoint, volunteered rather than asked for (30.7).
+    /// </summary>
+    /// <remarks>
+    /// Its own section, and its own budget, because a reminder that competes with relevance-ranked
+    /// facts for space has already lost the thing it exists to do. A fact appearing here is dropped
+    /// from <see cref="RelevantFacts"/> so it is never rendered twice.
+    /// </remarks>
+    public MemoryContextSection<Fact> DueFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>Facts whose real-world validity closes soon (30.7).</summary>
+    public MemoryContextSection<Fact> ExpiringFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>
+    /// Topics the system used to know about and has let go of (30.8) — a stated absence, not the
+    /// forgotten content.
+    /// </summary>
+    /// <remarks>
+    /// Not a <c>MemoryContextSection</c>, deliberately: these are not recalled items competing for the
+    /// retrieval budget, they are a note <i>about</i> what is missing. Giving them a section would put
+    /// them on the same footing as memory the agent actually has.
+    /// </remarks>
+    public IReadOnlyList<ForgottenTopicSummary> ForgottenTopics { get; init; } =
+        Array.Empty<ForgottenTopicSummary>();
+
+    /// <summary>
     /// Similar past reasoning traces.
     /// </summary>
     public MemoryContextSection<ReasoningTrace> SimilarTraces { get; init; } =

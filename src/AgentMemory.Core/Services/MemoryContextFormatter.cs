@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
@@ -62,6 +63,23 @@ internal static class MemoryContextFormatter
                 line => line, _ => MemoryTrustLevel.Untrusted, opts, logger);
         }
 
+        // 30.7. Firing renders FIRST, ahead of everything the query asked for. The point of
+        // volunteering is prominence: a reminder buried under the relevance-ranked answer to a
+        // different question has been delivered and not received. Empty sections append nothing, so a
+        // recall with firing off is byte-identical to what it always was.
+        AppendCategory(sb, "due", "### Due Now", ctx.DueFacts.Items,
+            f => $"- DUE: {f.Subject} {f.Predicate} {f.Object}"
+                + (f.ValidFrom is { } from
+                    ? $" (valid from {from.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)})"
+                    : string.Empty),
+            f => f.Metadata.GetTrustLevel(), opts, logger);
+        AppendCategory(sb, "expiring", "### Expiring Soon", ctx.ExpiringFacts.Items,
+            f => $"- EXPIRING: {f.Subject} {f.Predicate} {f.Object}"
+                + (f.ValidUntil is { } until
+                    ? $" (until {until.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)})"
+                    : string.Empty),
+            f => f.Metadata.GetTrustLevel(), opts, logger);
+
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts, logger);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts, logger);
@@ -70,7 +88,7 @@ internal static class MemoryContextFormatter
             e => e.Metadata.GetTrustLevel(), opts, logger, projection, e => e.EntityId);
         AppendCategory(sb, "facts", "### Known Facts",
             ProjectionRenderer.Reorder("facts", ctx.RelevantFacts.Items, f => f.FactId, projection),
-            f => $"- {f.Subject} {f.Predicate} {f.Object}",
+            f => DerivedFactRenderer.Append($"- {f.Subject} {f.Predicate} {f.Object}", f),
             f => f.Metadata.GetTrustLevel(), opts, logger, projection, f => f.FactId);
         AppendCategory(sb, "preferences", "### User Preferences", ctx.RelevantPreferences.Items,
             p => $"- [{p.Category}] {p.PreferenceText}",
@@ -90,6 +108,19 @@ internal static class MemoryContextFormatter
             t => $"- [{(t.Success switch { true => "✓", false => "✗", null => "?" })}] {t.Task}"
                 + (string.IsNullOrWhiteSpace(t.Outcome) ? string.Empty : $": {t.Outcome}"),
             t => t.Metadata.GetTrustLevel(), opts, logger, projection, t => t.TraceId);
+        // 30.8. A stated absence, rendered AFTER the facts section it is about — it explains what is
+        // missing from what precedes it, so it has to follow it. Empty unless the probe ran and found
+        // something, so an unflagged recall appends nothing.
+        AppendCategory(sb, "forgotten", "### No Longer Known", ctx.ForgottenTopics,
+            t => $"- I used to know {t.Count} thing(s) about {t.Topic}"
+                + (t.AgedOutUtc is { } agedOut
+                    ? $", last held {agedOut.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}"
+                    : string.Empty)
+                + ". Those details have aged out and are no longer available.",
+            // Untrusted: the topic string comes from an extracted fact's subject, so it is user text
+            // like any other. Being a statement ABOUT memory does not make it trusted content.
+            _ => MemoryTrustLevel.Untrusted, opts, logger);
+
         if (!graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         // Nothing rendered under the heading: say nothing rather than announce an empty section. An
         // empty string is what a caller already handles (the zero-items early return above returns

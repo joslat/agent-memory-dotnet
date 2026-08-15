@@ -52,6 +52,33 @@ public sealed class AsOfRecallDivergenceTests
         "MaxRelevantMessages",
         "ResolveQueryRelations",
         "ValidTime",
+
+        // 30.7 prospective firing, live path only — a decision, recorded here because this guard
+        // exists to stop such decisions being made by omission.
+        //
+        // An as-of recall reconstructs what was known at a past instant. It is a forensic query, and
+        // volunteering "this is due now" into a historical reconstruction would splice present-tense
+        // urgency into an answer about the past — a reminder that is not merely irrelevant but
+        // actively misleading about which world it describes. Firing is therefore a live-recall
+        // feature, not an as-of one.
+        //
+        // The four move together: the flag and the three settings that shape it are meaningless
+        // apart, so a future author wiring one into the as-of path will find the other three failing
+        // this list beside it.
+        "DueLookback",
+        "ExpiringWindow",
+        "MaxDueItems",
+        "ProspectiveFiring",
+
+        // 30.8 legible forgetting, live path only — the same reasoning one step further.
+        //
+        // A tombstone says "I knew things about X and have let them go", which is a statement about the
+        // PRESENT state of memory. At the as-of instant those facts may well still have been live, so
+        // reporting them as forgotten inside a reconstruction of that moment would be false about the
+        // very moment being reconstructed. As-of recall answers "what did I know then"; forgetting
+        // answers "what have I lost since".
+        "LegibleForgetting",
+        "TombstoneProbeTopK",
     ];
 
     [Fact]

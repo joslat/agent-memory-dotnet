@@ -32,6 +32,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Legible forgetting — a stated absence (`RecallOptions.LegibleForgetting`).** Off by default.
+  Forgetting already worked and was **invisible**: decay pruned, recall returned less, and the agent
+  answered as though it had never known — indistinguishable, to the person asking, from never having
+  been told. A memory system whose gaps all look like the same gap cannot be corrected by its user,
+  because they do not know there is anything to re-supply.
+
+  On a recall whose fact section comes back **empty from a search that actually ran**, one extra
+  vector probe asks what the system used to know about this and has let go. What surfaces is a
+  `ForgottenTopicSummary` — topic, count, dates — and never the forgotten content, because rendering
+  that would undo the forgetting outright: the decayed values would be back in the prompt, occupying
+  budget, being answered from.
+
+  **The partition is `invalidated_reason`, a new property the prune stamps.** `invalidated_at` alone
+  cannot tell a fact that *decayed* from one that was *contradicted*, and reporting the second as
+  forgotten is wrong in the most damaging direction — the system did not forget it, it **replaced** it,
+  and the replacement is live and should be answering the question. Supersession deliberately stamps no
+  reason; the null is the partition. Facts invalidated before this shipped have an unknowable reason
+  and are simply never reported — a disclosed start-at-deployment limit rather than a backfilled guess.
+
+  **Zero parity cost, zero new schema, zero migration.** The probe reuses `fact_embedding_idx`, which
+  already contains these nodes: soft-invalidation keeps the embedding, and every live query filters
+  them out afterwards. This inverts that filter.
+
+  Three gates, each load-bearing: the flag; an existing query embedding, so a turn narrowed to skip
+  embedding does not have one reintroduced by a diagnostic; and **thinness** — a recall that answered
+  the question has nothing to apologise for, and a section that was never searched has not established
+  an absence. It applies the **same** similarity floor a live search would: a tombstone clearing a
+  looser bar is a confident claim about having forgotten something on an unrelated topic, which invites
+  the user to re-supply information they never gave. No escalation ladder either: if the global top-K
+  starves, the tombstone silently does not render, which is the correct failure direction for a surface
+  whose entire job is honesty about absence.
+
+  Precedence is resolved once, in the assembler: a tombstone suppresses the projection layer's
+  no-direct-match line for the same section, since the two make overlapping claims and rendering both
+  would say it twice and then disagree about how much is known.
+
+  Like firing, it is deliberately absent from the as-of recall path, and the reason is recorded in
+  `AsOfRecallDivergenceTests`: a tombstone is a statement about the **present** state of memory, and at
+  the as-of instant those facts may still have been live.
+
+- **Prospective firing — memory that volunteers (`RecallOptions.ProspectiveFiring`).** Off by default.
+  Every other retrieval channel is *reactive*: it answers the question in front of it. A reminder is
+  off-topic by definition — nobody asks "is there anything I should know?" — so a similarity-scored
+  channel can never surface one. Firing selects by **time alone**: no query embedding, no similarity
+  floor, and that absence is the specification rather than an optimisation.
+
+  Two sections, deliberately not merged: `DueFacts` (validity just opened) and `ExpiringFacts`
+  (validity closes within `ExpiringWindow`). They are different claims, and a reader who has to infer
+  which from the dates is a reader who skips the block. Both render **before** everything the query
+  asked for, on both surfaces — the point of volunteering is prominence, and a reminder placed after
+  the relevance-ranked answer to a different question has been delivered without being received.
+
+  **Gated twice.** The flag, and `ValidTime == Current`: firing reads a fact's valid-time window, and a
+  recall that is ignoring valid time has no window to read — surfacing facts by a clock the rest of
+  that recall deliberately ignores would make the two halves disagree with no way for the reader to
+  tell. Its own budget (`MaxDueItems`, default 5) rather than competing with `MaxFacts`, because a
+  reminder that loses a budget contest to a relevance-ranked fact has already failed at the one thing
+  it exists to do. A fact that is both relevant and due renders **only** as due.
+
+  **Zero parity cost and zero new schema**: it reads `valid_from`/`valid_until`, which already exist,
+  and is served by the range indexes the `delta-recall` extension creates over the same clocks. Without
+  that extension the query is still correct, just planned as an owner seek plus a filter — a disclosed
+  cost, not a hidden one.
+
+  The counter this feature would be withdrawn over is **premature surfacing**: a not-yet-valid fact in
+  assembled context is a confident statement about a world that does not exist yet. It has a dedicated
+  live-graph test, verified to be the only failure when the upper window bound is removed.
+
+  Firing changes *when* a fact surfaces, never its trust: due facts go through the same delimiter and
+  the same per-item admission check as every other recalled category.
+
+  The as-of recall path deliberately does **not** fire, and that decision is now recorded in
+  `AsOfRecallDivergenceTests` — the guard caught the omission before it could become a discovery. An
+  as-of recall reconstructs what was known at a past instant; splicing present-tense urgency into a
+  historical reconstruction would be actively misleading about which world the answer describes.
+
+- **Arithmetic memory — the session accountant (`ExtractionOptions.DerivedMemory`).** Off by default.
+  16% of LongMemEval questions have a **derived** answer: a count, a difference, a latest-of-chain, a
+  duration, a list. The store holds `800` and `50`; the answer is `750`, and nothing ever wrote it
+  down. Every retrieval-side idea in this project died against a saturated coverage ceiling; what
+  remains alive is the class of answers retrieval structurally *cannot* produce, because they are
+  properties of a **set** and retrieval returns a sample of it.
+
+  A deterministic post-persistence pass materialises aggregates for the `(subject, predicate, owner)`
+  groups each extraction batch touched. **LLM-free by design**: answer-time decomposition died 0/29 on
+  perfect context and the answer model is the noisiest component in the stack, so arithmetic moves from
+  a stochastic reader to a deterministic writer. Six operators — Count, Delta, Latest, SetEnumeration
+  on by default; **Sum and Duration deliberately off**, the first because summing non-additive
+  quantities is arithmetically perfect and semantically nonsense (so it takes an explicit predicate
+  allowlist), the second because the current corpus stamps `UnixEpoch + counter` and durations computed
+  there are fiction with a plausible shape.
+
+  Every operator **refuses** rather than guesses: a group containing one unparsable object loses its
+  numeric operators entirely, because the change between two values that happened to be readable is not
+  the change over the chain. Nothing aggregates a single fact. The number parser — the only
+  hallucination surface in the feature — strips a currency symbol and thousands separators and then
+  defers to `decimal.TryParse`; it does not attempt "twice a week", "a couple" or "about 800".
+
+  Each aggregate renders its arithmetic inline — `17 — derived: 12 (a1) + 5 (b2)` — so the model can
+  **check** it. A derived number presented bare is a claim; presented with its inputs it is an argument.
+
+  **The staleness cascade is the safety property of the whole feature, and it is same-statement.** A
+  derived `750` whose input `800` was superseded is a manufactured confident-wrong answer — stored,
+  embedded, recallable, wearing provenance that makes it look verified. `Supersede` and `Invalidate`
+  now invalidate dependent aggregates in the same Cypher statement that retracts the input, and the
+  cascade is **unconditional**: switching the accountant off must not freeze every aggregate it ever
+  wrote into permanent truth.
+
+  Ships as the `arithmetic` schema extension — one `DERIVED_FROM` relationship type and five documented
+  properties on `:Fact`, **zero labels**. See [`docs/extensions/arithmetic.md`](docs/extensions/arithmetic.md)
+  for why the edge earns its allowlist entry over the two parity-free alternatives.
+
+  Two binding guards from the TCK audit, both enforced structurally:
+
+  - **G1 — the cascade is cardinality-safe.** `OPTIONAL MATCH` plus `WITH DISTINCT` on both sides, so a
+    fact with N dependants does not multiply the row its caller counts, and a store with no derived
+    facts behaves exactly as before.
+  - **G2 — the fact upsert cannot merge into a derived node.** Enforced by *omission*: a derived fact
+    carries no merge-key quadruple at all, so MERGE and `FindByTriple` cannot reach it. A user restating
+    a number would otherwise land on an aggregate, overwriting its value while leaving its
+    `DERIVED_FROM` edges and derivation string intact.
+
+  Also in this change:
+
+  - `--extraction-compare --vocabulary-ab` measures the predicate-vocabulary prerequisite this feature
+    hard-depends on (aggregation needs two facts to agree they are instances of the same predicate;
+    421 distinct predicates over ~700 facts means they never do). It runs both arms **in one process
+    over byte-identical input** — the two-cold-build A/B the plan originally scheduled is not
+    achievable, because the flag changes the extraction prompt and two builds of one *unchanged*
+    configuration already disagree on ~86% of triples.
+  - `MethodBuiltQueryStructureTests` matched labels by scanning for every `:Name` and excusing
+    relationship types from a hand-written list containing exactly one entry. It now matches node
+    labels and relationship types in their own syntactic positions, and checks both.
+
 - **Delta recall — "what changed since I last looked?" (`IMemoryRecall.RecallChangedSinceAsync`).**
   Off by default at the adapter (`AgentFrameworkOptions.InjectDeltaOnSessionResume`). An agent resuming
   work re-receives everything it already processed; full recall re-assembles the same facts at every

@@ -72,6 +72,25 @@ public sealed record Fact
     public DateTimeOffset? InvalidatedAtUtc { get; init; }
 
     /// <summary>
+    /// Why this fact stopped being live — <c>'decay'</c> when the prune let it go, null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="InvalidatedAtUtc"/> alone cannot tell a fact that <b>decayed</b> from one that was
+    /// <b>contradicted</b>, and the two need opposite treatment on read. A superseded fact was replaced
+    /// by something better and its replacement is what should surface. A decayed one is knowledge the
+    /// system quietly let go of — the only kind that can honestly be reported back as "I used to know
+    /// something about this and no longer do".
+    /// </para>
+    /// <para>
+    /// Null is the partition, and it is also the honest value for everything invalidated before this
+    /// property existed: those facts have an unknowable reason and are simply never reported as
+    /// forgotten. A disclosed start-at-deployment limit rather than a backfilled guess.
+    /// </para>
+    /// </remarks>
+    public string? InvalidatedReason { get; init; }
+
+    /// <summary>
     /// Optional embedding vector for semantic search.
     /// </summary>
     public float[]? Embedding { get; init; }

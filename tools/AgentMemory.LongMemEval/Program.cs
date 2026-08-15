@@ -475,6 +475,11 @@ internal static class LongMemEvalProgram
         "--exclude-synthetic-messages", "--judge-retries", "--max-items-per-session",
         "--max-relevant", "--memory-mode", "--oracle", "--output", "--questions", "--seed",
         "--units", "--turns", "--repeat", "--extraction-seed", "--memory-types",
+        // 30.6 sub-step 0. Listed here even though --extraction-compare dispatches before validation
+        // runs: an option known to the parser but read by nobody is the exact defect 30.1 found in
+        // --extraction-seed, and the mirror-image defect (read but unlisted) becomes real the moment
+        // dispatch order changes. ExtractionCompareCommandLineTests holds both directions.
+        "--vocabulary-ab", "--use-predicate-vocabulary",
     ];
 
     private static Options Parse(string[] args)

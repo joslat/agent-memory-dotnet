@@ -66,7 +66,10 @@ internal sealed class SchemaExtensionRegistry
     /// against what DI produces, so an implementation missing from <i>this</i> list is caught too.
     /// </remarks>
     public static IReadOnlyList<ISchemaExtension> CreateShipped() =>
-        [new ProceduralSchemaExtension(), new WorkingMemorySchemaExtension(), new DeltaRecallSchemaExtension()];
+    [
+        new ProceduralSchemaExtension(), new WorkingMemorySchemaExtension(),
+        new DeltaRecallSchemaExtension(), new ArithmeticSchemaExtension(),
+    ];
 
     /// <summary>A registry over <see cref="CreateShipped"/>, for callers with no container.</summary>
     public static SchemaExtensionRegistry CreateDefault() => new(CreateShipped());

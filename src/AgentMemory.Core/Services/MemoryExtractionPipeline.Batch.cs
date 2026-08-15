@@ -78,6 +78,10 @@ internal sealed partial class MemoryExtractionPipeline
                 ownerId,
                 trustLevel,
                 cancellationToken).ConfigureAwait(false);
+            // 30.6, on BOTH paths. Every recorded quality number in this project came from the batch
+            // extractor, so a feature wired only into the per-request path would be measured as absent
+            // and concluded ineffective -- the shape of at least two earlier findings here.
+            await AccountAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
             sw.Stop();
             if (result.Outcomes.Any(outcome => outcome.Status == IngestionItemStatus.Failed))
                 _extractionStage.InvalidateResolutionBatch();

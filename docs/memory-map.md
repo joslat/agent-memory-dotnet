@@ -427,6 +427,38 @@ written in a **different session** from the query *and* has low lexical overlap 
 is the only one that isolates semantic memory from transcript search. Secondary signal: fact count
 per entity should plateau. A curve that keeps rising means you are storing restatements.
 
+#### 4.1a Derived knowledge — a capability of semantic memory, not a seventh type
+
+*What follows from what I know?* The store holds `800` and `50`; the answer is `750`, and nothing ever
+wrote it down. Roughly one in six benchmark questions is like this — a count, a difference, a
+latest-of-chain, a list — and the answer is a property of a **set** while retrieval returns a sample of
+it. No amount of better retrieval closes that gap.
+
+The session accountant (30.6, `arithmetic` extension) materialises those aggregates as ordinary facts
+carrying `kind='derived'`, with `DERIVED_FROM` edges to their inputs and the arithmetic rendered inline
+so it can be checked rather than trusted.
+
+**Why this is documented here and not as a seventh memory type.** The case *for* one is real: it
+answers a question no other type can, which is this taxonomy's own admission criterion, and its trust
+story genuinely differs — derived, not observed. The case against is what decides it. It answers *what
+is true*, which is semantic memory's question, by other means; it shares semantic memory's substrate,
+index, budget and failure modes; and §3 position 2 says a type earns the name when it earns its **own
+retrieval channel and budget**, which this deliberately does not build. It is a `kind` within semantic
+memory in exactly the way a promoted procedure is a `trace_kind` within reasoning memory.
+
+It graduates to a seventh type if and when it gets a dedicated channel.
+
+**When it is the wrong tool.** A derived fact is the most dangerous thing this system stores, because
+it arrives wearing provenance that makes it look verified. Two mitigations are load-bearing rather than
+nice: the arithmetic is deterministic (no model in the loop, so the only failure mode is a parsing bug),
+and the staleness cascade runs *in the same statement* that retracts an input. An aggregate over a
+superseded fact is a manufactured confident-wrong answer, and it is worse than having no aggregate.
+
+**How you would know it works.** Recompute every materialised aggregate out-of-band from its
+`DERIVED_FROM` inputs and compare exactly: the bar is **100%**, and a single wrong value rejects the
+feature outright. Secondary signal: the answer-presence gate's checkable-count on numeric-answer
+questions, which was structurally 0 before this existed.
+
 ### 4.2 Episodic memory
 
 **Answers:** *What happened, in what order, and who said it?*
@@ -532,6 +564,23 @@ Memory's defensible role is to be the **record** of the intention and the **gate
 - **Due-item latency** — elapsed time between an item becoming due and the first assembled context
   containing it. Under purely query-triggered recall this is bounded below by the user's next visit,
   and that number is the product's honest promise.
+
+**What is built here (30.7): expression, gating, and a *query-triggered* form of firing.**
+`RecallOptions.ProspectiveFiring` volunteers newly-due and soon-expiring facts on the next recall,
+selected by **time alone** — no embedding, no similarity floor. That is what makes it firing rather
+than gating: the item surfaces because its moment arrived, not because the query happened to resemble
+it, which is the distinction that matters since a reminder is off-topic by definition.
+
+It is deliberately **not** mechanism (3) in the full sense. There is no timer, no wall-clock trigger,
+no delivery: due-item latency remains bounded below by the user's next visit, and that bound is the
+honest promise. A background scheduler stays out of scope for the reason stated above — it would make
+the memory layer an actor, and actors need delivery guarantees, idempotency, retries and defined
+behaviour when they are wrong at 3 a.m. If it is ever built it belongs in the host, with the library
+supplying the query and at most a sink interface.
+
+Premature surfacing is held at zero **structurally** — the window is `(since, now]` on the valid-time
+clock — with a live-graph test named for it. It is off by default, gated additionally on
+`ValidTimeMode.Current`, and costs no schema at all.
 
 ### 4.5 Meta-memory
 
@@ -647,6 +696,19 @@ self-confirming.** "This item was surfaced often" measures your ranker, not the 
 > auto-prune-on-extraction. Decay and access tracking cover `Entity`/`Fact`/`Preference` only
 > ([`MemoryNodeKind.cs`](../src/AgentMemory.Abstractions/Domain/MemoryNodeKind.cs)); reasoning traces
 > receive neither.
+>
+> **Forgetting is now sayable (30.8, `RecallOptions.LegibleForgetting`, off by default).** It used to
+> be invisible: decay pruned, recall returned less, and the agent answered as though it had never
+> known — indistinguishable, to the person asking, from never having been told. A system whose gaps
+> all look like the same gap cannot be corrected by its user, because they do not know there is
+> anything to re-supply. On a recall whose fact section comes back empty from a search that ran, one
+> probe reports a **summary** of what was let go — topic, count, dates — and never the content, since
+> rendering that would undo the forgetting.
+>
+> This required distinguishing two states that were previously identical in every query: the prune now
+> stamps `invalidated_reason = 'decay'`, and supersession deliberately stamps nothing. A superseded
+> fact was **replaced**, not forgotten, and its replacement is live and should be answering the
+> question — reporting it as lost would be wrong in the direction that misleads.
 
 ### 5.3 Contradiction handling
 

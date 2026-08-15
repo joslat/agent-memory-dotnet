@@ -324,7 +324,21 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<MemoryExtractionPipeline>>(),
             sp.GetRequiredService<IMemoryIsolationPolicy>(),
             sp.GetService<IOptions<ExtractionOptions>>(),
-            sp.GetServices<IMultiSessionUnifiedMemoryExtractor>()));
+            sp.GetServices<IMultiSessionUnifiedMemoryExtractor>(),
+            sp.GetService<AgentMemory.Core.Extraction.Derivation.IDerivedMemoryAccountant>()));
+
+        // 30.6. Registered UNCONDITIONALLY with the flag read inside AccountAsync -- the reranker
+        // pattern. A conditional registration reads the options once, at container-build time, so a
+        // host that enables derived memory through IOptions reconfiguration afterwards would find the
+        // service simply absent and the feature silently off.
+        //
+        // GetService rather than GetRequiredService above, and a nullable IFactRepository is NOT used
+        // here: SessionAccountant genuinely needs the repository, and Core already registers services
+        // that require one (ILongTermMemoryService), so this introduces no dependency a resolvable
+        // container did not already have.
+        services.TryAddScoped<
+            AgentMemory.Core.Extraction.Derivation.IDerivedMemoryAccountant,
+            AgentMemory.Core.Extraction.Derivation.SessionAccountant>();
 
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();

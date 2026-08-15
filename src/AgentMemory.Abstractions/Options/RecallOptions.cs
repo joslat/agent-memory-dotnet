@@ -123,6 +123,71 @@ public sealed record RecallOptions
     public ValidTimeMode ValidTime { get; init; } = ValidTimeMode.Ignore;
 
     /// <summary>
+    /// Surfaces facts that <b>became due</b> since the last checkpoint, and facts about to expire,
+    /// without being asked for them. Default off, and off is byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Everything else in recall is <i>reactive</i>: it answers the question in front of it. A reminder
+    /// is by definition off-topic — nobody asks "is there anything I should know?" — so a
+    /// similarity-scored channel can never surface one. This is a <b>time-predicate</b> selection with
+    /// no embedding and no similarity floor, and that absence is the specification rather than an
+    /// optimisation.
+    /// </para>
+    /// <para>
+    /// Only evaluated when <see cref="ValidTime"/> is <see cref="ValidTimeMode.Current"/>: firing reads
+    /// a fact's valid-time window, and a store that is ignoring valid time has no window to read.
+    /// <c>MemoryProfile.Parity</c> resolves this to <see langword="false"/>, because upstream has no
+    /// firing and parity means ranking exactly like upstream.
+    /// </para>
+    /// </remarks>
+    public bool ProspectiveFiring { get; init; }
+
+    /// <summary>
+    /// Budget for the DUE section — its own claimant, never competing with <see cref="MaxFacts"/>.
+    /// </summary>
+    /// <remarks>
+    /// A separate budget because a volunteered reminder that loses a budget contest to a
+    /// relevance-ranked fact has failed at precisely the thing it exists to do.
+    /// </remarks>
+    public int MaxDueItems { get; init; } = 5;
+
+    /// <summary>A fact whose <c>valid_until</c> falls within this window of now renders as EXPIRING.</summary>
+    public TimeSpan ExpiringWindow { get; init; } = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// How far back to look for newly-due facts when no delta checkpoint is available.
+    /// </summary>
+    /// <remarks>
+    /// Also the <b>clamp</b> on a checkpoint that is available: a caller returning after months away
+    /// would otherwise flood the DUE section with everything that became true in the interim. Bounded
+    /// three ways — this clamp, <see cref="MaxDueItems"/>, and visible truncation in section
+    /// diagnostics.
+    /// </remarks>
+    public TimeSpan DueLookback { get; init; } = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
+    /// and off is byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Forgetting already works and is <b>invisible</b>: decay prunes, recall returns less, and the
+    /// agent answers as though it had never known — indistinguishable, to the person asking, from never
+    /// having been told. This makes the gap sayable.
+    /// </para>
+    /// <para>
+    /// The probe runs <b>only on thin recalls</b> and only when a query embedding exists, so a
+    /// well-answered turn pays nothing. What surfaces is a summary — topic, count, dates — never the
+    /// forgotten content itself, because rendering that would undo the forgetting.
+    /// </para>
+    /// </remarks>
+    public bool LegibleForgetting { get; init; }
+
+    /// <summary>Candidate cap for the decayed-fact probe.</summary>
+    public int TombstoneProbeTopK { get; init; } = 10;
+
+    /// <summary>
     /// Which projection features render what the store knows but the renderers discard. All off by
     /// default, and off is byte-identical.
     /// </summary>

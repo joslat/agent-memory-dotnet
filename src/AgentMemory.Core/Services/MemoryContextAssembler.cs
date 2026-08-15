@@ -175,6 +175,108 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     }
 
     /// <summary>
+    /// Drops the no-direct-match block for one section, when a tombstone will speak for it instead.
+    /// </summary>
+    /// <remarks>
+    /// Returns the projection unchanged when there is nothing to drop, including the common case of no
+    /// projection at all — so with legible forgetting off this is never reached, and with it on but no
+    /// projection features enabled it is a no-op.
+    /// </remarks>
+    private static ProjectedContext? SuppressNoDirectMatch(
+        ProjectedContext? projection, string sectionKey)
+    {
+        if (projection is null || projection.Blocks.Count == 0) return projection;
+
+        var kept = projection.Blocks
+            .Where(block => !(block.Kind == ProjectedBlockKind.NoDirectMatch
+                              && string.Equals(block.SectionKey, sectionKey, StringComparison.Ordinal)))
+            .ToArray();
+
+        if (kept.Length == projection.Blocks.Count) return projection;
+
+        // A projection whose only content was that one block becomes null, not an empty shell: null is
+        // what every surface already treats as "take the pre-projection path".
+        return kept.Length == 0 && projection.Annotations.Count == 0 && projection.SectionOrder.Count == 0
+            ? null
+            : projection with { Blocks = kept };
+    }
+
+    /// <summary>
+    /// Asks what the system used to know about this, when it turns out to know nothing (30.8).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Three gates, and each one is load-bearing.</b> The flag, because this is off by default and
+    /// off must cost nothing. A query embedding, because a turn narrowed to skip embedding must not
+    /// have one reintroduced by a diagnostic — that would undo the embedding-gating saving outright.
+    /// And <b>thinness</b>: the probe runs only when the fact section came back empty from a search
+    /// that actually ran. A recall that answered the question has nothing to apologise for, and a
+    /// section that was never searched has not established an absence.
+    /// </para>
+    /// <para>
+    /// <b>One summary, not a list.</b> Aggregating to the single dominant subject is what keeps this a
+    /// stated absence rather than a second retrieval channel: "I no longer have details on X" is
+    /// actionable, while three competing half-forgotten topics is just noise about noise.
+    /// </para>
+    /// <para>
+    /// Failures degrade to silence. A probe that cannot run leaves the answer exactly as it would have
+    /// been without the feature, which is the correct failure direction for a meta-memory surface.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<ForgottenTopicSummary>> ProbeForgottenAsync(
+        RecallOptions recallOpts,
+        float[]? queryEmbedding,
+        IReadOnlyList<Fact> facts,
+        MemoryScope? scope,
+        double minScore,
+        CancellationToken cancellationToken)
+    {
+        if (!recallOpts.LegibleForgetting) return Array.Empty<ForgottenTopicSummary>();
+        if (queryEmbedding is not { Length: > 0 }) return Array.Empty<ForgottenTopicSummary>();
+        // The thinness trigger. Searched-and-found-nothing, not merely found-nothing: a recall whose
+        // fact budget was zero never asked, and never asking is not the same as an absence.
+        if (facts.Count > 0 || recallOpts.MaxFacts <= 0) return Array.Empty<ForgottenTopicSummary>();
+
+        try
+        {
+            var decayed = await _longTerm.SearchDecayedFactsAsync(
+                queryEmbedding, recallOpts.TombstoneProbeTopK, minScore, scope, cancellationToken)
+                .ConfigureAwait(false);
+            if (decayed.Count == 0) return Array.Empty<ForgottenTopicSummary>();
+
+            // Grouped case-insensitively, the way the graph groups: two spellings of one subject are
+            // one topic, and reporting them as two would overstate how much was lost.
+            var dominant = decayed
+                .Where(f => !string.IsNullOrWhiteSpace(f.Subject))
+                .GroupBy(f => f.Subject, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (dominant is null) return Array.Empty<ForgottenTopicSummary>();
+
+            return
+            [
+                new ForgottenTopicSummary
+                {
+                    Topic = dominant.Key,
+                    Count = dominant.Count(),
+                    OldestUtc = dominant.Min(f => f.CreatedAtUtc),
+                    AgedOutUtc = dominant.Max(f => f.InvalidatedAtUtc),
+                },
+            ];
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Forgotten-topic probe failed; the recall is unaffected.");
+            return Array.Empty<ForgottenTopicSummary>();
+        }
+    }
+
+    /// <summary>
     /// Builds a section's diagnostics from what the retrieval actually did.
     /// </summary>
     /// <remarks>
@@ -308,6 +410,18 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Preference> preferences = Array.Empty<Preference>();
         IReadOnlyList<Fact> facts = Array.Empty<Fact>();
         IReadOnlyList<ReasoningTrace> traces = Array.Empty<ReasoningTrace>();
+        // 30.7. Hoisted to this scope for the same reason every sibling above it is: the retrieval is
+        // started inside the has-embedding branch, and the result is read after it. Firing itself needs
+        // no embedding -- it is a time predicate -- but it is dispatched alongside the searches so it
+        // shares their concurrency rather than adding a serial round trip.
+        var fireProspective = false;
+        var prospective = ProspectiveDueResult.Empty;
+        // 30.8. Populated only on a thin recall with the flag on — see ProbeForgottenAsync.
+        IReadOnlyList<ForgottenTopicSummary> forgottenTopics = Array.Empty<ForgottenTopicSummary>();
+        // The embedding the searches ACTUALLY used, which is not always request.QueryEmbedding — a
+        // caller may supply none and have one generated. Kept separate from rerankEmbedding, which
+        // deliberately holds only the caller-supplied vector.
+        float[]? effectiveQueryEmbedding = null;
         // Hoisted for the reranker context (17.4b): NodeDistanceReranker finds its centroid entity by
         // the SAME query embedding, so handing it null would leave it enabled and inert.
         float[]? rerankEmbedding = request.QueryEmbedding;
@@ -365,6 +479,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // searches rather than issue zero-dimension vector queries (which the index rejects).
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
             vectorSearchRan = hasEmbedding;
+            effectiveQueryEmbedding = queryEmbedding;
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
             // Every long-term/reasoning search below is ranked by the vector index and the service layer
@@ -489,6 +604,29 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                                 scope, cancellationToken))
                 : Empty<Fact>();
 
+            // 30.7. Gated on BOTH the flag and ValidTimeMode.Current: firing reads a fact's valid-time
+            // window, and a recall that is ignoring valid time has no window to read. Off ⇒ the task is
+            // a completed empty result, so the section array below and every await on it are unchanged.
+            //
+            // `since` is the lookback, clamped by construction. There is no checkpoint store to consult
+            // here -- the delta checkpoint is a caller-held token living in the MAF session state bag
+            // (30.5), which the assembler cannot see -- so the stateless lookback is not a fallback, it
+            // is the whole mechanism at this layer. That is a deliberate narrowing of the design, which
+            // assumed a registered checkpoint store; a host that wants checkpoint-anchored firing has
+            // the delta block for exactly that, and firing stays a pure function of the clock.
+            fireProspective =
+                recallOpts.ProspectiveFiring && recallOpts.ValidTime == ValidTimeMode.Current;
+            var dueTask = fireProspective
+                ? TimedAsync("memory.recall.due",
+                    () => _longTerm.GetDueFactsAsync(
+                        _clock.UtcNow - recallOpts.DueLookback,
+                        _clock.UtcNow,
+                        recallOpts.ExpiringWindow,
+                        recallOpts.MaxDueItems,
+                        scope,
+                        cancellationToken))
+                : Task.FromResult(ProspectiveDueResult.Empty);
+
             var tracesTask = searchTraces && scoredReasoning is null
                 ? TimedAsync("memory.recall.traces",
                     () => _reasoning.SearchSimilarTracesAsync(
@@ -597,7 +735,41 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                 traceScores = await tracesScoredTask.ConfigureAwait(false);
                 traces = traceScores.Select(static scored => scored.Trace).ToArray();
             }
+
+            // 30.7. Awaited outside the section array on purpose: firing has its own budget and must
+            // not be dropped by the latency-budget sweep that replaces unfinished sections with
+            // empties. A dropped reminder is silence, and silence here is indistinguishable from
+            // "nothing was due" -- the one confusion this feature cannot afford.
+            prospective = await dueTask.ConfigureAwait(false);
         }
+
+        if (!prospective.IsEmpty)
+        {
+            // De-dup: a fact that is BOTH relevant and newly due renders only as due. Rendering it twice
+            // would spend the budget twice on one fact and, worse, make the reminder look like a
+            // coincidence of the query rather than something volunteered.
+            var dueIds = prospective.Due.Select(f => f.FactId)
+                .Concat(prospective.Expiring.Select(f => f.FactId))
+                .ToHashSet(StringComparer.Ordinal);
+            if (dueIds.Count > 0 && facts.Count > 0)
+            {
+                var kept = facts.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+                if (kept.Length != facts.Count)
+                {
+                    facts = kept;
+                    // The scored set is filtered in lockstep: a score left behind for a fact no longer
+                    // in Items is a ranked item pointing at nothing, which the projection layer reads.
+                    factScores = factScores.Where(s => !dueIds.Contains(s.Fact.FactId)).ToArray();
+                }
+            }
+        }
+
+        // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
+        // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
+        // turn pays nothing at all.
+        forgottenTopics = await ProbeForgottenAsync(
+            recallOpts, effectiveQueryEmbedding, facts, scope, minScore, cancellationToken)
+            .ConfigureAwait(false);
 
         if (graphRagTask != null)
             await graphRagTask.ConfigureAwait(false);
@@ -690,6 +862,14 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             entityScores, factScores, preferenceScores, traceScores,
             cancellationToken).ConfigureAwait(false);
 
+        // 30.8 precedence. A tombstone and a no-direct-match line make overlapping claims about the
+        // same empty section, and the tombstone is strictly the more informative: "nothing closely
+        // matched" versus "I knew things about X and let them go". Rendering both says it twice and
+        // then disagrees with itself about how much is known. Resolved HERE, once, rather than in each
+        // surface that renders them.
+        if (forgottenTopics.Count > 0)
+            projection = SuppressNoDirectMatch(projection, Projection.ProjectionSectionKeys.Facts);
+
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
@@ -751,6 +931,25 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                         recallOpts.MaxTraces, traces, traceRanked, minScore, droppedTraces)
                     : null
             },
+            // 30.7. Diagnosed as SEARCHED only when firing actually ran, so a host whose custom
+            // ILongTermMemoryService silently hits the DIM's empty default sees "never searched" rather
+            // than "nothing was due". Those are opposite conclusions, and the shipped-but-unreachable
+            // trap is precisely that they look identical from outside.
+            DueFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospective.Due,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(fireProspective, recallOpts.MaxDueItems, prospective.Due, [], minScore)
+                    : null
+            },
+            ExpiringFacts = new MemoryContextSection<Fact>
+            {
+                Items = prospective.Expiring,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(fireProspective, recallOpts.MaxDueItems, prospective.Expiring, [], minScore)
+                    : null
+            },
+            ForgottenTopics = forgottenTopics,
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
             ResolvedQueryRelations = resolvedQueryRelations,
