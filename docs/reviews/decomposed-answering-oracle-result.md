@@ -69,14 +69,20 @@ that escapes both.
 
 ## The finding that outlives the kill
 
-**The monolithic oracle scored 27 of 29 — 93% — at perfect context.** There is roughly 7% headroom
-for *any* answering-stage improvement, and decomposition lost both available questions.
+**The monolithic oracle scored 29 of 29 — 100% — at perfect context** (BothCorrect 27 +
+MonolithicOnly 2; the thirtieth question was judge-invalid, not wrong). The **decomposed** arm is
+the one that scored 27 of 29 — 93%. *[Corrected 2026-08-15: the original text attributed 27/29 —
+93% — to the monolithic arm and derived "roughly 7% headroom for any answering-stage improvement"
+from it. The artifact shows the opposite: monolithic answering at perfect context had **zero**
+headroom on this sample, and the 7% deficit belongs to decomposition. See the audit addendum at the
+end.]*
 
-That reconciles two facts that looked contradictory. "65 of 67 failures had gold present" was
+That sharpens the reconciliation rather than breaking it. "65 of 67 failures had gold present" was
 measured at **real** retrieval, where the context is noisy and the gold sits among competitors.
-At **clean** context the model is right 93% of the time. So gold being *present* is not the same as
-the context being *usable*, and the gap between 93% (clean) and ~88% (real, hybrid) is not an
-answering-stage problem at all.
+At **clean** context the model is right essentially every time — 100% here, 96.6% at K=0 in the
+Addendum below, within one judge call of each other (the originally claimed 93% was consistent with
+neither). So gold being *present* is not the same as the context being *usable*, and the gap
+between clean context (~97–100%) and ~88% (real, hybrid) is not an answering-stage problem at all.
 
 **The implied lever is context precision — fewer wrong items, not more right ones, and not a
 different answering strategy.** That is a retrieval-side property, but a different one from recall:
@@ -85,6 +91,8 @@ it is about what gets *excluded*. Nothing in the current plan measures it.
 ## What this closes
 
 - Decomposed answering (option (b)): **killed**. Do not build `AgentMemory.Composition`.
+  *(Scope narrowed 2026-08-15 — this kills **answer-time** decomposition on this corpus;
+  retrieval-time per-type fan-out was not tested here. See the audit addendum at the end.)*
 - Query decomposition for compound queries: already out of scope at **2 of 500 (0.4%)**.
 - Memory-type routing on accuracy: already capped at 1 question of 50.
 
@@ -268,3 +276,56 @@ Nothing about the direction, everything about the target. If the relationship we
 coverage improvements would pay off proportionally and any retrieval gain would be worth having.
 A step means **the only coverage improvement that pays is the one that crosses the threshold** — and
 that a system sitting at 0.6 is not "60% of the way there", it is on the wrong side of a cliff.
+
+---
+
+## Audit addendum (2026-08-15)
+
+An independent audit of this report against its own artifact
+(`artifacts/evaluation/oracle-decomp-n30.json`) confirmed the kill verdict but found one factual
+error — now corrected in place in "The finding that outlives the kill" — and three limits the
+original text did not state. **The kill verdict stands for what was tested.** This addendum exists
+so the record says precisely what that was.
+
+### 1. The corrected score (for the record)
+
+The artifact shows `BothCorrect 27 + MonolithicOnly 2` over `Comparable 29`: the **monolithic** arm
+scored **29/29 (100%)**; the **decomposed** arm scored 27/29 (93%). The original text attributed
+27/29 to the monolithic arm and built a "~7% answering-stage headroom" claim on it. That claim is
+withdrawn: monolithic answering at perfect context missed nothing on this sample, and the doc's own
+first Addendum (clean-context 96.6% at K=0) was never consistent with a 93% monolithic figure.
+
+### 2. The sample structurally could not produce a decomposition win
+
+A `DecomposedOnly` pair requires the monolithic arm to be wrong on that pair. The monolithic arm was
+correct on **all 29** comparable pairs, so `DecomposedOnly = 0` was guaranteed the moment monolithic
+swept the sample — "0 wins of 29" is partly preordained by sample selection (questions easy enough
+for the monolithic oracle to answer perfectly), not purely a property of decomposition. The
+pre-registered criterion ("kill if wins ≤ losses") still holds, but on this sample it could only
+ever be triggered, never escaped: the headline "zero wins under the best possible conditions"
+overstates what the sample was able to show.
+
+### 3. The actually-split pairs carry zero information about splitting
+
+Both counted losses (`6d550036`, `ba61f0b9`) come from pairs with `SubQuestionCount = 1` — pairs the
+decomposer never split. Their failure mechanism is the composer being denied source context on a
+passthrough sub-question, not multi-way decomposition. Among the **12 pairs that were actually
+split** (2 sub-questions each), the score is **12/12 vs 12/12 — zero discordant pairs**. The
+experiment therefore measured the cost of the single-sub-question passthrough path and measured
+nothing, for or against, about splitting itself.
+
+### 4. What is closed, and what is not
+
+This experiment kills **answer-time decomposition** (decompose → sub-answer → compose) **on this
+corpus, at gold context**. It does not test, and cannot close:
+
+- **Retrieval-time decomposition / per-type fan-out** — issuing multiple retrieval queries and
+  pooling the results ahead of a single monolithic answer. A gold-context oracle is structurally
+  blind to it: perfect context is precisely the one condition in which better retrieval fan-out
+  cannot show its benefit. Its only bound remains the separate compound-query base-rate measurement
+  (2 of 500).
+- Answer-time decomposition on a corpus where the monolithic arm is not already at 100% — the only
+  regime in which a decomposition win is arithmetically possible.
+
+The closure in "What this closes" should accordingly be read as: **answer-time decomposition, this
+corpus — killed; retrieval-time fan-out — untested here.**

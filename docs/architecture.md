@@ -1,6 +1,6 @@
 ﻿# Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-07-17 (#92 Phase 8 + stabilization pass)
+**Last Updated:** 2026-08-15 (1.4.x + measurement-track reconciliation — procedural memory, valid-time recall, owner-starvation pipeline, NAMS trio, .NET 10)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
@@ -106,10 +106,16 @@ Agent Memory for .NET is a **native .NET implementation of graph-native persiste
 │  │   configuration options — IGeocodingService,                │   │
 │  │   IEnrichmentService added Phase 5)                         │   │
 │  │                                                              │   │
-│  │  One approved external dep: M.E.AI.Abstractions 10.8.0      │   │
+│  │  One approved external dep: M.E.AI.Abstractions 10.8.3      │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Note (2026-08-15):** This diagram predates the **NAMS package trio** shipped with NuGet 1.3.0 —
+> `AgentMemory.Nams` (framework-free hosted-backend client), `AgentMemory.AgentFramework.Nams`
+> (MAF/NAMS provider), and `AgentMemory.McpServer.Nams` (NAMS MCP tools). They form a separate,
+> self-contained branch beside the layers above (B9–B11 in §5 define their boundaries; §3.5 describes
+> them) and are deliberately not drawn into this diagram.
 
 ### 2.2 Dependency Direction Rule
 
@@ -131,6 +137,18 @@ graph TD
     OBS -. decorates .-> Neo4j
 ```
 
+### 2.3 Target Frameworks (.NET 10)
+
+The repository targets **net10.0 everywhere** — apps, tools, tests, samples (root
+`Directory.Build.props`) — **except the shipped library packages, which multi-target
+`net10.0;net9.0;net8.0`**, so consuming `AgentMemory.*` from .NET 8/9 is unchanged. The one
+consumer-visible consequence: `agent-memory-mcp` ships as a DotnetTool, so installing or updating it
+now requires the .NET 10 runtime. The move surfaced three known-vulnerable transitives under net10
+resolution (fixed: Testcontainers.Neo4j 4.11.0→4.14.0, two pinned patches; none reached a shipped
+package). **No net9→net10 performance claim is made or supportable**: the hermetic perf harness gates
+on query counts (unchanged, 3/3 passing) and two runs of identical code differed by 12 points of wall
+time (see `docs/reviews/net10-performance-comparison.md`).
+
 ---
 
 ## 3. Package Responsibilities
@@ -140,9 +158,9 @@ graph TD
 | Attribute | Value |
 |---|---|
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
-| **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.0 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
+| **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.3 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 59 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, etc.), 44 service interfaces (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 16 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`), 30 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`) |
+| **Key types** | 59 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, etc.), 44 service interfaces (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 17 configuration types (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 30 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`) |
 
 **Namespace structure:**
 ```
@@ -157,7 +175,7 @@ AgentMemory.Abstractions.Options       — configuration records
 | Attribute | Value |
 |---|---|
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
-| **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.8.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10, FuzzySharp |
+| **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.8.3, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10, FuzzySharp |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
 | **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7) |
 
@@ -353,11 +371,15 @@ regardless of cause; Phase 3 both sanitized caller input and kept the trust conc
   and `MemoryRecallSecurityOptions.MinimumTrustForSystemRole` (Semantic Kernel, new). Both default to
   `MemoryTrustLevel.Untrusted` — the lowest level — so rendering is unchanged unless a host raises the
   threshold, the same additive-by-default posture every phase since Phase 2 has used.
-- **Deliberately NOT delimited/admission-checked**: message *content* stays exactly as before — this is
-  genuinely recalled conversation transcript, not a "memory object" being injected as if authoritative, and
-  delimiting ordinary chat history would be a much larger, more visible behavior change for comparatively
-  little additional security value once the role itself is gated (a demoted message is merely
-  user-authority content, the same threat model the model already has to handle safely as ordinary input).
+- **Content admission — superseded by Phase 8 (PR #126):** at Phase 7's time, message *content* stayed
+  exactly as before, on the theory that genuinely recalled conversation transcript is not a "memory
+  object" being injected as if authoritative. Phase 8 closed the admission half of that gap: recalled-message
+  content now goes through the **same per-item admission check** as every other category
+  (`MafTypeMapper.ToContextMessages` and `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync`). Message
+  content remains **deliberately undelimited** — delimiting ordinary chat history would be a much larger,
+  more visible behavior change for comparatively little additional security value once the role is gated
+  and the content is admission-checked (a demoted, admitted message is merely user-authority content, the
+  same threat model the model already has to handle safely as ordinary input).
 - **Not applied to genuine chat-history replay**: `MafTypeMapper.ToChatMessage` itself (used by
   `Neo4jChatMessageStore`/`Neo4jChatHistoryProvider` to continue an actual conversation with an LLM) is
   untouched — gating is applied only on a role-adjusted copy of the message (`message with { Role = ... }`),
@@ -383,14 +405,98 @@ regardless of cause; Phase 3 both sanitized caller input and kept the trust conc
   construction. Fixed by mapping fresh on every call via a shared `MemoryRecallSecurityOptionsExtensions.ToFormatterOptions()`
   helper (also now used by `Neo4jMemoryPlugin`, removing a second hand-duplicated copy of the same mapping).
 
+#### 3.2.5 Context assembly configuration: `MemoryOptions.Recall` as the application default (25.2)
+
+`MemoryContextAssembler` resolves the effective `RecallOptions` by **reference-equality**: a
+`RecallRequest` whose `Options` is still the `RecallOptions.Default` singleton gets
+`MemoryOptions.Recall` instead (`MemoryContextAssembler.cs:166` and `:687`, task 25.2). Previously a
+host tuning recall depth or similarity through `MemoryOptions` saw **no effect** on any direct
+`RecallAsync` call, because almost nothing read the configured value. The unconfigured path is
+byte-identical, since `MemoryOptions.Recall` itself defaults to the same singleton.
+
+In the same effort, roughly ten `MemoryOptions` scalars became actually settable/read rather than
+silently ignored: `EnableGraphRag`, `RescueShortOwnerResults`, `NodeDistanceReranking`,
+`MentionFrequencyReranking`, `DeferAccessTracking`, `ConfidenceReinforcementAlpha`,
+`ResolveTemporalQueries`, `OmitEmbeddingsFromRecall`, `SkipEscalationWhenOwnerHasNoRows`
+(`MemoryOptions.cs`).
+
+#### 3.2.6 As-of ranking-intent parity with the live path (25.5)
+
+`AssembleContextAsOfCoreAsync` now applies the per-request `RankingIntent` (D3) through the ambient
+ranking context exactly as the live path does (`MemoryContextAssembler.cs:745-752`, task 25.5).
+Previously an as-of recall asking for `Latest` or `Analog` intent was **silently ranked by the default
+policy** — the option was accepted, and the only difference between the two recall paths was that one
+obeyed it. Same mechanics as live: repositories read the ambient context synchronously at task
+creation, before the first `await`, so it cannot leak.
+
+#### 3.2.7 Valid-time recall and prospective-memory gating
+
+`RecallOptions.ValidTime` (`ValidTimeMode`, default `Ignore` — byte-for-byte previous behavior) lets
+live recall filter facts on their **real-world validity window** (`valid_from`/`valid_until`) rather
+than only the transaction clock; previously a fact valid from six months hence was returned today, and
+an expired fact was returned forever. The gate covers **both** live fact paths — the indexed vector
+query and 1.4.1's owner-scoped fallback (§3.3.2) — so starved multi-tenant owners are not exempt. Only
+two writers stamp validity bounds: `TemporalValidityMode.Extract` and supersession (for which the gate
+is redundant, since `invalidated_at` already removes superseded facts).
+
+Honouring `valid_from` delivers the first two mechanisms of **prospective memory** — expression and
+gating (due-on-next-interaction semantics); acting at a time with no query is a scheduler and
+deliberately out of scope. *(CHANGELOG [Unreleased].)*
+
 ### 3.3 AgentMemory.Neo4j
 
 | Attribute | Value |
 |---|---|
 | **Purpose** | Persistence — Neo4j repository implementations, Cypher queries, schema management, driver infrastructure |
-| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j.Driver 6.0.0, Microsoft.Extensions.AI.Abstractions 10.8.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
+| **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j.Driver 6.0.0, Microsoft.Extensions.AI.Abstractions 10.8.3, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Microsoft.Agents.* |
-| **Key types** | Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions |
+| **Key types** | Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions, `NodeDistanceReranker`/`MentionFrequencyReranker` (`IMemoryReranker` implementations) |
+
+**Rerankers wired into DI.** `AgentMemory.Neo4j` registers two `IMemoryReranker` implementations —
+`NodeDistanceReranker` and `MentionFrequencyReranker` (`Services/`) — as enumerable scoped services in
+`ServiceCollectionExtensions` (lines 103-104). They were previously **unreachable**: the classes and
+their `MemoryOptions` flags (`NodeDistanceReranking`, `MentionFrequencyReranking`, both default
+`false`) existed, but nothing registered them, so the options bound, validated, and did nothing.
+Registration is deliberately unconditional; each reranker owns its own `IsEnabled` gate reading the
+options, so `IOptions` reconfiguration works and the default recall path is unchanged.
+`MemoryContextAssembler` (Core) consumes the enumerable.
+
+#### 3.3.1 Procedural memory: TraceKind promotion, prune exemption, proceduresOnly recall
+
+A reasoning trace can be **promoted to a reusable procedure** — a capability spanning the Core
+contract and Neo4j persistence: `TraceKind` (`Episode`/`Procedure`) marks it, `trace_kind_idx` (§4.6)
+makes it seekable, migration `0011_trace_kind.cypher` backfills existing databases, and task-similarity
+search takes an opt-in `proceduresOnly` filter (`null` by default, byte-identical Cypher). The
+load-bearing part is the **retention exemption**: `PruneSessionTraces` prunes by age alone, so without
+the exemption a promoted procedure is deleted by recency and the capability does not exist.
+
+Promotion had **never worked** before 2026-08-14: `PromoteAsync` wrote `"Procedure"` while every
+filter compared against lowercase `"procedure"`, so promoted traces read back as `Episode`, were
+invisible to `proceduresOnly` recall, and were pruned like any episode — fixed by centralising the
+stored spelling and `toLower()`-normalising the Cypher comparisons (see
+`docs/reviews/procedure-retrieval-precision-result.md` §1). Old rows work without migration.
+
+**Architecture-relevant caveat** from that instrument: the shipped `RecallOptions.MinSimilarityScore`
+default (0.7) sits in a **dead zone** for procedure retrieval — every threshold 0.00-0.86 behaves
+identically and never abstains; the measured knee is 0.92 — so procedure retrieval needs its own, much
+higher threshold than semantic recall.
+
+#### 3.3.2 Owner-scoped vector recall: the owner-starvation pipeline
+
+Neo4j's vector index is **global**, so an owner filter is a post-filter over a top-K drawn from every
+tenant. The recall pipeline now has three tiers: the indexed search; a **widened retry** (×8, capped
+at 2,000 candidates — 1.4.0); and a final **owner-bounded similarity scan** using
+`vector.similarity.cosine`, reached only when both indexed passes return nothing (1.4.1) — bounded by
+one owner's rows rather than the corpus, applying to facts, entities, preferences, and reasoning
+traces (as-of variants unchanged). `MemoryOptions.RescueShortOwnerResults` (opt-in) extends the rescue
+to short-but-nonempty results, and `SkipEscalationWhenOwnerHasNoRows` short-circuits the escalation.
+
+**Observability:** `MemoryContextSection<T>.Diagnostics` (behind `RecallOptions.IncludeDiagnostics`)
+distinguishes never-searched / genuinely-empty / filtered-away, and the
+`memory.recall.section.empty`/`.short` counters expose misses — which the `:MemoryReadAudit` hit-only
+trail never could. The query embedding is now generated **only when some vector category will read
+it** (gated in both assembly paths and `Neo4jMemoryContextProvider`), so a narrowed turn no longer
+pays a ~120 ms provider round trip for nothing.
 
 ### 3.4 Adapter Packages
 
@@ -401,7 +507,7 @@ regardless of cause; Phase 3 both sanitized caller input and kept the trust conc
 | **Purpose** | Thin adapter layer exposing memory capabilities to Microsoft Agent Framework |
 | **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j (project ref), Microsoft.Agents.AI.Abstractions 1.9.0, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Business logic — act only as a type mapper and adapter |
-| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2/3) and its `DefaultMemoryContextAdmissionPolicy` implementation, `RecalledMemoryMessageRole` (#92 Phase 4) |
+| **Key types** | `Neo4jMemoryContextProvider` (extends `AIContextProvider`), `Neo4jChatMessageStore`, `Neo4jMicrosoftMemoryFacade`, `MafTypeMapper` (bidirectional `ChatMessage` ↔ `Message` mapping), `MemoryToolFactory` (6 tools), `AgentTraceRecorder`, `IAutomaticRecallPolicy` (#88) and its `TrivialTurnRecallPolicy` (default)/`ConfiguredAutomaticRecallPolicy`/`HeuristicAutomaticRecallPolicy` implementations, `IMemoryContextAdmissionPolicy` (#92 Phase 2/3) and its `DefaultMemoryContextAdmissionPolicy` implementation, `RecalledMemoryMessageRole` (#92 Phase 4) |
 | **Core responsibility** | Bridge between Microsoft Agent Framework lifecycle (`ProvideAIContextAsync`, `StoreAIContextAsync`) and Neo4j memory persistence |
 
 **Key Patterns:**
@@ -422,6 +528,7 @@ regardless of cause; Phase 3 both sanitized caller input and kept the trust conc
 8. **Trust-metadata Foundation (#92 Phase 3)** — `MemoryTrustLevel` stamped into each item's `Metadata` during extraction lets a host explicitly mark controlled sources as trusted enough to bypass instruction-like-content evaluation — see §3.4.1.3
 9. **Configurable Recall Message Role (#92 Phase 4)** — `MafTypeMapper.ToContextMessages` computes each recalled item's effective `ChatRole` (`System` vs. `User`) from its trust level against a configurable threshold, instead of unconditionally rendering every admitted block as `System` — see §3.4.1.4
 10. **Recalled-message Role Gating (#92 Phase 7)** — `MafTypeMapper.ToContextMessages` (and `Neo4jMicrosoftMemoryFacade.GetContextForRunAsync`, its own separate semantic-recall path) demote a recalled chat message's persisted role from `system`/`tool` to `user` when its trust level doesn't meet a configurable threshold, closing the caller-controlled-role gap disclosed in §3.4.1.2 — see §3.2.4
+11. **Trace Outcomes in Recalled Context** — `ContextFormatOptions.IncludeTraceOutcomes` renders a recalled trace's outcome (not just its task) into the injected context, with `ProcedureTrustClause` carving the narrow prompt exception that makes promoted procedures usable — see §3.4.1.5
 
 **Namespace structure:**
 ```
@@ -443,9 +550,16 @@ decision pluggable, running deterministically inside `BuildContextAsync` before 
   `AutomaticRecallDecision` with `ShouldRecall`, `Categories` (an `AutomaticRecallCategories` flags enum:
   `RecentMessages`/`RelevantMessages`/`Entities`/`Facts`/`Preferences`/`ReasoningTraces`/`GraphRag`),
   an optional `Intent` override (D3's `RankingIntent`), and an optional full `RecallOptions` override.
-- `ConfiguredAutomaticRecallPolicy` (the default, registered by `AddAgentMemoryFramework`) always returns
+- `TrivialTurnRecallPolicy` (the default, registered by `AddAgentMemoryFramework` —
+  `ServiceCollectionExtensions.cs:76`, `TryAddScoped`): on a greeting/acknowledgement-only turn it
+  recalls recent messages only (it **narrows**, deliberately does not skip); on every other turn it is
+  byte-identical to the old default. Rationale: a greeting previously cost 13 Cypher queries + 12 read
+  transactions + an embedding round trip (PERF-R-01; CHANGELOG: "A greeting no longer costs a full
+  recall").
+- `ConfiguredAutomaticRecallPolicy` (the previous default) always returns
   `Categories = AutomaticRecallCategories.All` with no `Intent`/`RecallOptions` override — this reproduces
-  the pre-#88 behavior exactly, deferring entirely to whatever the host already configured.
+  the pre-#88 behavior exactly, deferring entirely to whatever the host already configured. Hosts restore
+  the old behavior with `services.AddScoped<IAutomaticRecallPolicy, ConfiguredAutomaticRecallPolicy>()`.
 - `HeuristicAutomaticRecallPolicy` is a lightweight, deterministic, model-call-free policy: skips recall
   for an empty or greeting/acknowledgement-only turn (a linear-time tokenizer, not a regex — an earlier
   regex-based version of this check exhibited catastrophic backtracking on adversarial input), applies
@@ -520,7 +634,10 @@ model (deferred to a future phase):
   (§3.2.4) found that theory incomplete**: the "originally-persisted role" is itself caller-controlled — a
   caller-facing tool can persist a message with role `"system"`/`"tool"` in the first place — so replaying
   it unconditionally was not actually safe. Phase 7 closes that specific gap by gating the role (not the
-  content); content-level delimiting/admission for recalled messages remains open.
+  content); **Phase 8 (PR #126) then closed the admission half** — recalled-message content now goes
+  through the same per-item admission check as every other category (`MafTypeMapper.ToContextMessages`
+  and `Neo4jMicrosoftMemoryFacade`; see §3.2.4). Only *delimiting* of recalled chat history remains
+  deliberately not done.
 
 #### 3.4.1.3 Trust-metadata foundation (#92 Phase 3)
 
@@ -544,9 +661,13 @@ speculative field in `Metadata` until its shape proves stable — see the backlo
   *item* — today's extractors take the whole message batch and return items with no per-item attribution to
   a specific source message, so distinguishing "the user said this" from "the assistant said that" within
   the same turn is not yet possible without deeper extractor changes (out of scope for this phase).
-  `ReasoningTrace` is not stamped by this phase either — traces are recorded directly by
-  `AgentTraceRecorder`, a separate mechanism from the extraction pipeline, and default to `Untrusted` when
-  read back (the safe default) until a future phase gives that path its own trust treatment.
+  `ReasoningTrace` was not stamped by this phase either — traces are recorded directly by
+  `AgentTraceRecorder`, a separate mechanism from the extraction pipeline, and defaulted to `Untrusted`
+  when read back (the safe default). **Superseded:** that future phase happened —
+  `ReasoningMemoryOptions.DefaultTraceTrustLevel` (default `MemoryTrustLevel.ModelGenerated`) now stamps
+  every trace at creation (`ReasoningMemoryService.cs:93`, `.WithTrustLevel(_options.DefaultTraceTrustLevel)`).
+  Safe at shipped defaults, since `ModelGenerated` does not reach the `ApplicationTrusted` bypass
+  threshold (CHANGELOG: "Reasoning traces carry a trust level").
 - **Trust is monotonic for entities**: entity resolution (auto-merge/SAME_AS) can hand `PersistenceStage` an
   *existing*, previously-persisted entity — already carrying its own prior `Metadata`/trust level — as the
   resolved match for a brand-new, unrelated mention. `PersistenceStage` takes the higher of the entity's
@@ -565,8 +686,9 @@ speculative field in `Metadata` until its shape proves stable — see the backlo
   instruction-like-content detection. `MemoryTrustMetadataExtensions.WithoutCallerSuppliedTrustLevel()`
   strips any caller-supplied `trust_level` entry before combining external metadata with a
   framework-assigned value; `memory_add_fact` applies it and stamps `MemoryTrustLevel.ToolDerived` (below
-  the default bypass threshold), and `StartTraceAsync` applies it with no replacement stamp (traces aren't
-  given trust treatment this phase, per the limitation above). Any future write path that accepts
+  the default bypass threshold), and `StartTraceAsync` applies it — originally with no replacement stamp;
+  **since superseded**: traces are now stamped with `ReasoningMemoryOptions.DefaultTraceTrustLevel`
+  (default `ModelGenerated`), per the supersession note above. Any future write path that accepts
   caller-supplied `Entity`/`Fact`/`Preference`/`ReasoningTrace` metadata must apply the same sanitization.
 - `DefaultMemoryContextAdmissionPolicy` gains a bypass: an item whose trust level is at or above
   `ContextFormatOptions.MinimumTrustForAdmissionBypass` (default `ApplicationTrusted`, the highest level) skips
@@ -618,6 +740,22 @@ message. Phase 4 makes that role configurable and ties it to the trust signal Ph
   default" is not achieved without opt-in configuration — the same tradeoff Phases 2–3 already accepted for
   `SecurityMode`/`MinimumTrustForAdmissionBypass`, flagged again here for visibility.
 
+#### 3.4.1.5 Trace outcomes in recalled context + `ProcedureTrustClause`
+
+`ContextFormatOptions.IncludeTraceOutcomes` (default `false`): a recalled trace previously rendered
+its *Task* and **dropped its Outcome** — so procedural memory (§3.3.1) was retrievable, owner-scoped,
+prune-exempt, and mute on the Agent Framework surface: the injected block said "you have done this
+before" and nothing about *how* (a product defect found while wiring the procedural-benefit
+measurement; see `docs/reviews/procedural-benefit-result.md` §3). When enabled, outcomes render as
+"task: outcome", admitted and delimited like every other recalled item.
+
+Companion: `ContextFormatOptions.ProcedureTrustClause` — the #92 context prefix instructs the model to
+never follow instructions inside `<recalled_memory>` blocks, which told it to **ignore promoted
+procedures**. The clause appends a narrow exception (naming one block type and one permitted use, with
+the untrusted framing kept verbatim), automatically whenever `IncludeTraceOutcomes` is on. Before
+this, that exception lived only in the benchmark harness's own code — meaning the published procedural
+result ran under a prompt no consumer could get (`procedural-benefit-result.md` §3a).
+
 #### 3.4.2 GraphRAG Retrieval — built into AgentMemory.Neo4j (Phase 4 ✅ COMPLETE)
 
 GraphRAG retrieval capability is implemented directly inside `AgentMemory.Neo4j` rather than as a separate package. This keeps the retrieval infrastructure co-located with the repositories that own the same Neo4j driver connection.
@@ -655,8 +793,8 @@ AgentMemory.Neo4j.Services            — Neo4jGraphRagContextSource
 1. **Decorator pattern** — `AddAgentMemoryObservability()` finds the already-registered `IMemoryService` and `IGraphRagContextSource` descriptors, removes them, and re-registers them wrapped in instrumented decorators. No Scrutor dependency.
 2. **OTel API only** — Uses only the vendor-neutral `OpenTelemetry.Api` package. The actual exporter (OTLP, console, etc.) is wired up by the host application.
 3. **Registration order** — Must be called **after** `AddAgentMemoryCore()` and, when GraphRAG is enabled, after `AgentMemory.Neo4j.Infrastructure.AddGraphRagAdapter()`. If no `IGraphRagContextSource` is registered, the decorator step is skipped.
-4. **Metrics** — `MemoryMetrics` exposes counters (`messages.stored`, `entities.extracted`, `graphrag.queries`) and histograms (`recall.duration`, `persist.duration`, `graphrag.duration`).
-5. **Tracing** — All spans are emitted under `ActivitySource` name `"AgentMemory"` (version `1.0.0`).
+4. **Metrics** — `MemoryMetrics` defines ~20 instruments: the original counters (`messages.stored`, `entities.extracted`, `graphrag.queries`) and histograms (`recall.duration`, `persist.duration`, `graphrag.duration`), plus recall-miss observability (`memory.recall.section.empty`, `memory.recall.section.short` — gated on `RecallOptions.IncludeDiagnostics`, see §3.3.2), `facts.extracted`/`preferences.extracted`/`relationships.extracted`, `extraction.errors`, per-stage extraction durations, and `enrichment.requests`.
+5. **Tracing** — All spans are emitted under `ActivitySource` name `"AgentMemory"` (version `1.0.0`). The source now lives in Abstractions (`AgentMemoryDiagnostics.Source`); `MemoryActivitySource` forwards to it. Spans no longer carry `memory.user_id` by default — `memory.owner_scoped` (bool) instead, with `ObservabilityOptions.IncludeOwnerIdInTelemetry` as the opt-in.
 
 **Namespace structure:**
 ```
@@ -746,7 +884,11 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 
 | Package | Phase | External Dependency | Implements |
 |---|---|---|---|
-| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 25 MCP tools, 6 resources, 3 prompts |
+| `AgentMemory.McpServer` | 6 ✅ | ModelContextProtocol SDK 1.2.0, M.E.Hosting | 33 MCP tools, 12 resources, 6 prompts |
+| `AgentMemory.McpServer.Nams` | NAMS Phase 8 ✅ | ModelContextProtocol SDK 1.2.0 | 11 NAMS MCP tools (see §3.5, B11) |
+
+> `memory_start_trace` now accepts a `userId` and scopes the trace — previously an MCP-started trace
+> went to the shared/global bucket (CHANGELOG [Unreleased]).
 
 #### 3.4.7 AgentMemory.Analytics (Optional GDS Analytics ✅ SHIPPED)
 
@@ -770,6 +912,24 @@ All adapter packages have shipped. The table below was the original roadmap; `Ag
 AgentMemory.Analytics    — GDS services, availability probe, models, options, DI
 ```
 
+### 3.5 NAMS Hosted-Backend Packages (✅ SHIPPED, NuGet 1.3.0)
+
+Three packages form the NAMS (hosted Neo4j Agent Memory Server) branch — a separate, self-contained
+dependency tree beside the direct-Neo4j stack (boundary rules B9–B11 in §5; §5's verification bullets
+carry the full per-phase detail):
+
+- **`AgentMemory.Nams`** (B9) — **framework-free client for the hosted NAMS backend**: REST client
+  with retry policy and error model, identity/conversation resolution
+  (`INamsConversationStateStore`/`INamsConversationResolver`), recall mapping (`INamsRecallService`),
+  and post-turn persistence (`INamsPersistenceService`). Zero project references — it may not touch
+  Core, Neo4j, or any sibling `AgentMemory.*` project.
+- **`AgentMemory.AgentFramework.Nams`** (B10) — the MAF/NAMS provider. `NamsMemoryContextProvider`
+  routes NAMS recall through the **same #92 escaping/delimiting/admission/trust gates** the direct
+  backend uses (`RecalledMemoryDelimiter`/`RecalledMessageRoleGate`/`IMemoryContextAdmissionPolicy`).
+- **`AgentMemory.McpServer.Nams`** (B11) — 11 NAMS MCP tools, with write tools behind a separate
+  explicit opt-in (`AddNamsAgentMemoryMcpWriteTools`); `nams_graph_query` (raw Cypher passthrough)
+  deliberately excluded.
+
 ---
 
 ## 4. Neo4j Graph Model
@@ -787,7 +947,7 @@ AgentMemory.Analytics    — GDS services, availability probe, models, options, 
 | `:Entity` | `Entity` | `id`, `name`, `canonical_name`, `type`, `subtype`, `description`, `confidence`, `embedding`, `aliases`, `attributes`, `source_message_ids`, `location`, `metadata` |
 | `:Fact` | `Fact` | `id`, `subject`, `predicate`, `object`, `confidence`, `valid_from`, `valid_until`, `embedding`, `source_message_ids`, `created_at`, `metadata` |
 | `:Preference` | `Preference` | `id`, `category`, `preference`, `context`, `confidence`, `embedding`, `source_message_ids`, `created_at`, `metadata` |
-| `:ReasoningTrace` | `ReasoningTrace` | `id`, `session_id`, `task`, `outcome`, `success`, `started_at`, `completed_at`, `task_embedding`, `metadata` |
+| `:ReasoningTrace` | `ReasoningTrace` | `id`, `session_id`, `task`, `outcome`, `success`, `trace_kind`, `started_at`, `completed_at`, `task_embedding`, `metadata` — `trace_kind` (values `episode`/`procedure`, stored lowercase) marks promotion to a reusable procedure (§3.3.1; the promote path's `"Procedure"` casing bug meant promotion **never worked** until fixed 2026-08-14 — Cypher comparisons are now `toLower()`'d, so old rows work without migration; see `docs/reviews/procedure-retrieval-precision-result.md` §1.1). `success` is **tri-state** (`bool?`, `null` = unrecorded — renderers must not show `null` as failure) |
 | `:ReasoningStep` | `ReasoningStep` | `id`, `trace_id`, `step_number`, `thought`, `action`, `observation`, `embedding`, `metadata` |
 | `:ToolCall` | `ToolCall` | `id`, `step_id`, `tool_name`, `arguments`, `result`, `status`, `duration_ms`, `error`, `metadata` |
 | `:Tool` | *(aggregate)* | `name`, `created_at`, `total_calls` |
@@ -867,7 +1027,11 @@ CREATE CONSTRAINT tool_name IF NOT EXISTS FOR (t:Tool) REQUIRE t.name IS UNIQUE
 CREATE CONSTRAINT extractor_name IF NOT EXISTS FOR (ex:Extractor) REQUIRE ex.name IS UNIQUE
 CREATE CONSTRAINT consolidation_run_id IF NOT EXISTS FOR (r:ConsolidationRun) REQUIRE r.id IS UNIQUE
 CREATE CONSTRAINT memory_read_audit_id IF NOT EXISTS FOR (a:MemoryReadAudit) REQUIRE a.id IS UNIQUE
+CREATE CONSTRAINT migration_version IF NOT EXISTS FOR (m:Migration) REQUIRE m.version IS UNIQUE
 ```
+
+> **Note:** 13 constraints total — the `migration_version` constraint backs the `MigrationRunner`'s
+> `:Migration` bookkeeping nodes, not a domain type.
 
 ### 4.4 Fulltext Indexes (Implemented in SchemaBootstrapper)
 
@@ -898,7 +1062,7 @@ CREATE VECTOR INDEX reasoning_step_embedding_idx IF NOT EXISTS FOR (n:ReasoningS
 
 ### 4.6 Property Indexes (Implemented in SchemaBootstrapper)
 
-**27 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
+**28 range indexes** (`SchemaQueries.PropertyIndexes`, in bootstrap order — note `rel_owner_idx` is a **relationship-property** index on the `RELATED_TO` edge):
 
 ```cypher
 CREATE INDEX conversation_session_idx IF NOT EXISTS FOR (c:Conversation) ON (c.session_id)
@@ -913,6 +1077,7 @@ CREATE INDEX fact_category IF NOT EXISTS FOR (f:Fact) ON (f.category)
 CREATE INDEX preference_category_idx IF NOT EXISTS FOR (p:Preference) ON (p.category)
 CREATE INDEX trace_session_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.session_id)
 CREATE INDEX trace_success_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.success)
+CREATE INDEX trace_kind_idx IF NOT EXISTS FOR (t:ReasoningTrace) ON (t.trace_kind)
 CREATE INDEX reasoning_step_timestamp IF NOT EXISTS FOR (s:ReasoningStep) ON (s.timestamp)
 CREATE INDEX tool_call_status_idx IF NOT EXISTS FOR (tc:ToolCall) ON (tc.status)
 CREATE INDEX schema_name_idx IF NOT EXISTS FOR (s:Schema) ON (s.name)
@@ -936,7 +1101,7 @@ CREATE INDEX memory_read_audit_memory_id_idx IF NOT EXISTS FOR (a:MemoryReadAudi
 CREATE POINT INDEX entity_location_idx IF NOT EXISTS FOR (e:Entity) ON (e.location)
 ```
 
-> **Note:** The five owner-scope indexes — four node indexes (`fact_owner_idx`, `entity_owner_idx`, `preference_owner_idx`, `trace_owner_idx`) plus the `rel_owner_idx` relationship-property index — accelerate the `owner_id` filter applied during scoped vector recall (R1, multi-user isolation).
+> **Note:** The five owner-scope indexes — four node indexes (`fact_owner_idx`, `entity_owner_idx`, `preference_owner_idx`, `trace_owner_idx`) plus the `rel_owner_idx` relationship-property index — accelerate the `owner_id` filter applied during scoped vector recall (R1, multi-user isolation). `trace_kind_idx` makes promoted procedures seekable (§3.3.1) and is brought to existing databases by migration `0011_trace_kind.cypher`.
 
 ---
 
@@ -961,7 +1126,7 @@ These rules are inviolable. Violation of any rule is a blocking review finding.
 **Enforcement:** Code review gates on all PRs, plus automated CI guards — **B1** via `AbstractionsContractGuardTests` and **B2–B6/B8–B11** via `PackageBoundaryGuardTests` (both compiled-reference and `.csproj` scans). These run as unit tests in the CI workflow on every PR. (**B7** — "no business logic in adapters" — remains a review-only rule.)
 
 **Current Verification (as of Gap Closure Sprint + MEAI adoption D-AR2-1):**
-- ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.8.0 (approved, B1)
+- ✅ Abstractions .csproj: one `<PackageReference>` — `Microsoft.Extensions.AI.Abstractions` 10.8.3 (approved, B1)
 - ✅ Core .csproj: FuzzySharp + M.E.AI.Abstractions + M.E.DI/Logging/Options (no Neo4j.Driver, no framework SDKs)
 - ✅ Neo4j .csproj: Neo4j.Driver 6.0.0 + M.E.DI/Logging/Options (no Microsoft.Agents.*, no MCP SDK)
 - ✅ `grep` for `Microsoft.Agents` across `src/AgentMemory.Neo4j/` returns zero matches
@@ -1051,8 +1216,13 @@ The upstream `neo4j-maf-provider` was built for **MAF 0.3** (pre-GA). Our Phase 
 | Test Layer | Project | Scope | Key Dependencies |
 |---|---|---|---|
 | **Unit** | `AgentMemory.Tests.Unit` | Core services, stubs, domain logic, validation | xUnit 2.9.2, FluentAssertions 8.9.0, NSubstitute 5.3.0, coverlet 6.0.2 |
-| **Integration** | `AgentMemory.Tests.Integration` | Repository implementations, schema bootstrap, transaction behavior | Testcontainers.Neo4j 4.11.0, Neo4j.Driver 6.0.0, real Neo4j container |
-| **E2E** | `Tests.E2E` (Phase 3+) | Full pipeline with MAF adapter | MAF test host + Testcontainers |
+| **Unit (SK)** | `AgentMemory.Tests.Unit.SemanticKernel` | Semantic Kernel adapter (plugin, text search, security options) | xUnit 2.9.2, FluentAssertions 8.9.0, NSubstitute 5.3.0 |
+| **Unit (LongMemEval)** | `AgentMemory.Tests.Unit.LongMemEval` | Evaluation-harness seams (`tools/AgentMemory.LongMemEval`) | xUnit 2.9.2, FluentAssertions 8.9.0 |
+| **Integration** | `AgentMemory.Tests.Integration` | Repository implementations, schema bootstrap, transaction behavior | Testcontainers.Neo4j 4.14.0 (bumped during the .NET 10 move to clear the SSH.NET GHSA), Neo4j.Driver 6.0.0, real Neo4j container |
+| **Performance** | `AgentMemory.Tests.Performance` | Hermetic perf gates (query counts, not wall time) | xUnit 2.9.2 |
+
+> **Note:** No `Tests.E2E` project exists — an earlier revision listed one as "Phase 3+", but full-pipeline
+> coverage landed as live-Neo4j integration tests and the `AgentWithMemory` end-to-end soak instead.
 
 ### Testing Rules
 
@@ -1067,6 +1237,27 @@ The upstream `neo4j-maf-provider` was built for **MAF 0.3** (pre-GA). Our Phase 
 - **Unit tests:** Covering all src packages — domain models, services, repositories, extraction pipeline, entity resolution, MCP tools/resources/prompts, MAF adapter, GraphRAG, observability, enrichment, geocoding, configuration, datetime migration, session strategies, metadata filters
 - **Integration tests:** Neo4j connectivity, repository CRUD, schema bootstrap, transaction behavior via Testcontainers
 - **Test infrastructure:** Neo4jTestFixture, IntegrationTestBase, TestDataSeeders, MockFactory, Neo4jTestCollection
+
+### Evaluation Instruments
+
+`tools/AgentMemory.LongMemEval` carries durable measurement seams beyond the benchmark runner (results
+live in `docs/reviews/`; only the components are described here):
+
+- **`IProceduralTask`** — the pluggable task contract behind `--procedural-benefit`, with three
+  implementations (`ProceduralBenchmarkTask`/rail, `ProceduralIncidentTask`, `ProceduralArchiveTask`)
+  and a reachability test suite; task validity rules — including the fifth, "the convention must be
+  *arbitrary*, not merely enforced" — live with it.
+- **`ProcedureRetrievalPrecision`** (`--procedure-retrieval`) — scores a labelled 12-procedure/20-query
+  set as correct/wrong/abstained/missed, never a single accuracy, at embedding-only cost.
+- **`AnswerSeed`** (opt-in, via AgentEval 0.21.0-beta) — the answer-path determinism lever (the
+  deployment hard-refuses temperature below 1.0), with wiring guarded by `AnswerSeedWiringTests`.
+- **Upstream-oracle delegation** — the hand-rolled judge oracle was retired in favour of AgentEval's
+  public upstream oracle on measured agreement (commit `64ce51c`, task 28.2).
+- **`LongMemEvalTimeGroundedOracleProgram`** — the time-grounded corpus (tg-asof / tg-current /
+  tg-prospective) that made prospective memory (§3.2.7) measurable for the first time (task 26.3).
+- **Query-formulation arm** (`--query-formulation verbatim`) — exists, opt-in and off by default, and
+  **retired as a lever** on this corpus; kept because the instrument, not the treatment, is the asset
+  (see `docs/reviews/query-formulation-result.md` §5).
 
 ---
 
@@ -1085,7 +1276,7 @@ The upstream `neo4j-maf-provider` was built for **MAF 0.3** (pre-GA). Our Phase 
 
 ### All Phases Complete
 
-All 6 implementation phases plus the gap closure and hardening work are complete. The project ships 11 adapter/library packages plus the `AgentMemory` meta-package, with extensive unit and integration test coverage and ~99% functional parity with the Python reference.
+All 6 implementation phases plus the gap closure and hardening work are complete. The project ships 14 adapter/library packages plus the `AgentMemory` meta-package — 15 `src/*` projects in all, including the NAMS trio (`AgentMemory.Nams`, `AgentMemory.AgentFramework.Nams`, `AgentMemory.McpServer.Nams`) shipped with NuGet 1.3.0 — with extensive unit and integration test coverage and ~99% functional parity with the Python reference.
 
 ### Phase 1 Exit Criteria
 
@@ -1103,6 +1294,13 @@ All 6 implementation phases plus the gap closure and hardening work are complete
 
 **Added:** 2026-04-17
 **Author:** Jose Luis Latorre Millas
+
+> **Note (2026-08-15):** This section predates the **NAMS package trio** (`AgentMemory.Nams`,
+> `AgentMemory.AgentFramework.Nams`, `AgentMemory.McpServer.Nams`, shipped with NuGet 1.3.0 — see §3.5
+> and B9–B11 in §5). The isolation reasoning below still holds for the 11 direct-backend packages it
+> analyzes; the NAMS packages follow the same firewall philosophy (each isolates its own dependency:
+> the hosted-backend REST client, the MAF SDK, the MCP SDK) but are deliberately not redrawn into the
+> tables and diagrams here.
 
 ### 9.1 Package Dependency Isolation Audit
 
