@@ -65,12 +65,12 @@ public sealed class ProjectionFeatureReachabilityTests
     }
 
     [Fact]
-    public void AllFiveFeaturesResolve()
+    public void AllSixFeaturesResolve()
     {
         using var provider = BuildContainer();
         using var scope = provider.CreateScope();
 
-        scope.ServiceProvider.GetServices<IProjectionFeature>().Should().HaveCount(5);
+        scope.ServiceProvider.GetServices<IProjectionFeature>().Should().HaveCount(6);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public sealed class ProjectionFeatureReachabilityTests
         var projector = new MemoryContextProjector(
             scope.ServiceProvider.GetServices<IProjectionFeature>());
 
-        projector.Features.Should().HaveCount(5);
+        projector.Features.Should().HaveCount(6);
         projector.Features.Should().OnlyContain(f => !f.IsEnabled(MemoryProjectionOptions.Default));
     }
 }

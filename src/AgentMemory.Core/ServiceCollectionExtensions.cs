@@ -231,6 +231,8 @@ public static class ServiceCollectionExtensions
             Services.Projection.IProjectionFeature, Services.Projection.MatchQualityProjectionFeature>());
         services.TryAddEnumerable(ServiceDescriptor.Scoped<
             Services.Projection.IProjectionFeature, Services.Projection.ConflictProjectionFeature>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            Services.Projection.IProjectionFeature, Services.Projection.ProcedureShapeProjectionFeature>());
         // The two-type-parameter factory overload, not the one-type one: TryAddEnumerable de-duplicates
         // by IMPLEMENTATION type, and a bare factory records the service type as its implementation,
         // which makes every entry "indistinguishable" and throws.

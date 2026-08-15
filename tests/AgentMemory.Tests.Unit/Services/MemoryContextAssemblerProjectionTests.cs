@@ -202,6 +202,46 @@ public sealed class MemoryContextAssemblerProjectionTests
         context.Projection.Should().NotBeNull("the as-of path must project exactly like the live path");
     }
 
+    [Fact]
+    public async Task TheTraceFloorReachesTheReasoningServiceOnTheLivePath()
+    {
+        // 30.3. THE reachability question for this option. A floor that is parsed, threaded and then
+        // dropped before the query is exactly how IncludeQuestionTypes and AbstentionPolicy came to be
+        // dead -- discovered only when a measurement failed to move.
+        var options = new RecallOptions { MinSimilarityScore = 0.7, MinTraceSimilarityScore = 0.92 };
+
+        await Sut().AssembleContextAsync(Request(options), CancellationToken.None);
+
+        await _reasoning.Received(1).SearchSimilarTracesAsync(
+            Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), 0.92,
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TheOtherSectionsKeepTheSharedFloorWhenTracesAreRaised()
+    {
+        // Per-CATEGORY: raising the procedure floor must not quietly raise the fact floor with it.
+        var options = new RecallOptions { MinSimilarityScore = 0.7, MinTraceSimilarityScore = 0.92 };
+
+        await Sut().AssembleContextAsync(Request(options), CancellationToken.None);
+
+        await _longTerm.Received(1).SearchFactsAsync(
+            Arg.Any<float[]>(), Arg.Any<int>(), 0.7, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task WithNoTraceFloorSetTheSharedScoreIsUsedForTracesToo()
+    {
+        // The byte-identical default, asserted at the query itself rather than at the option.
+        var options = new RecallOptions { MinSimilarityScore = 0.65 };
+
+        await Sut().AssembleContextAsync(Request(options), CancellationToken.None);
+
+        await _reasoning.Received(1).SearchSimilarTracesAsync(
+            Arg.Any<float[]>(), Arg.Any<bool?>(), Arg.Any<int>(), 0.65,
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
     /// <summary>A feature that always contributes, so the wiring itself is what is under test.</summary>
     private sealed class StubFeature : IProjectionFeature
     {

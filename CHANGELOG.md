@@ -32,6 +32,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A separate similarity floor for reasoning traces (`RecallOptions.MinTraceSimilarityScore`).**
+  Null by default, which resolves to `MinSimilarityScore` — today's behaviour exactly.
+
+  **This is a safety property, not a tuning knob.** At the shared 0.7 default, procedure retrieval
+  *never abstains*: a sweep found every threshold from 0.00 to 0.86 behaves identically — a measured
+  dead zone — so the one setting that looks like it controls procedure precision controlled nothing
+  across the whole range anyone would plausibly set. The measured knee is **0.92** (0.90 is the free
+  variant, at which no correct answer was lost). An agent handed a confident wrong procedure
+  *executes* it, where an agent handed nothing investigates — so recalling no procedure is a strictly
+  better failure than recalling the wrong one, and at the shared default only the worse outcome was
+  reachable.
+
+  Honoured on **both** recall paths, asserted at the query rather than at the option, and raising it
+  leaves the other categories on the shared floor.
+
+  A promoted procedure now also renders its length (`(16 steps)`) when match-quality projection is on:
+  replaying the archive task promoted a 16-call exploration, dead ends included, and rendered as a bare
+  outcome that is indistinguishable from a tight five-step recipe.
+
 - **The projection layer — render what the store already knows (`RecallOptions.Projection`,
   `MemoryOptions.Projection`).** Retrieval computes a similarity score for every item and every
   renderer discarded it, so a 0.72 near-miss reached the model looking exactly like a 0.99 match; the

@@ -245,6 +245,11 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? _options.Recall
             : request.Options;
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
+        // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
+        // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --
+        // and an agent handed a confident wrong procedure executes it where one handed nothing
+        // investigates. Null (the default) resolves to MinSimilarityScore, so this is byte-identical.
+        var traceMinScore = recallOpts.EffectiveTraceMinScore;
         var minScore = recallOpts.MinSimilarityScore;
         var blendMode = recallOpts.BlendMode;
 
@@ -491,13 +496,13 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
                         // it as a failure, so imitating reasoning that did not work is worse than
                         // recalling nothing. Default stays null - today's behaviour - until measured.
                         recallOpts.SuccessfulTracesOnly,
-                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                        recallOpts.MaxTraces, traceMinScore, scope, cancellationToken))
                 : Empty<ReasoningTrace>();
             var tracesScoredTask = searchTraces && scoredReasoning is not null
                 ? TimedAsync("memory.recall.traces",
                     () => scoredReasoning!.SearchSimilarTracesWithScoresAsync(
                         queryEmbedding, recallOpts.SuccessfulTracesOnly,
-                        recallOpts.MaxTraces, minScore, scope, cancellationToken))
+                        recallOpts.MaxTraces, traceMinScore, scope, cancellationToken))
                 : null;
 
             if (overrideRanking) _rankingContext!.Current = null;
@@ -784,6 +789,11 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             ? _options.Recall
             : request.Options;
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
+        // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
+        // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --
+        // and an agent handed a confident wrong procedure executes it where one handed nothing
+        // investigates. Null (the default) resolves to MinSimilarityScore, so this is byte-identical.
+        var traceMinScore = recallOpts.EffectiveTraceMinScore;
         var minScore = recallOpts.MinSimilarityScore;
 
         // R1 (IC5): scope temporal recall to the requesting owner, identically to the live path --
@@ -870,11 +880,11 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             // `node.started_at <= datetime($asOf)`, and returns the trace's present-time success on the
             // row either way — so filtering on it reveals nothing the result did not already carry.
             // Default is null, so unset behaviour here is byte-for-byte what it was.
-            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+            ? _reasoning.SearchSimilarTracesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, traceMinScore, scope, cancellationToken)
             : Empty<ReasoningTrace>();
         var tracesScoredTask = searchTraces && scoredReasoning is not null
             ? scoredReasoning!.SearchSimilarTracesAsOfWithScoresAsync(
-                queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, minScore, scope, cancellationToken)
+                queryEmbedding, systemAsOf, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces, traceMinScore, scope, cancellationToken)
             : null;
 
         // Reset before the first await, exactly as the live path does.
