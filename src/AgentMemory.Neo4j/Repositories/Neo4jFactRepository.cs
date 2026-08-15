@@ -633,6 +633,65 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         return ev.As<IList<object>>().Select(v => Convert.ToSingle(v)).ToArray();
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// One batched query for the whole recalled fact section, anchored on ids the caller already holds.
+    /// No owner clause is needed and none is added: <c>SupersedeAsync</c> guards both ends of the edge
+    /// with a same-owner check even on the unscoped path, so a chain cannot cross owners — asserted by
+    /// an owner-isolation integration test rather than assumed.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<SupersededFact>>>
+        GetSupersessionPredecessorsAsync(
+            IReadOnlyList<string> factIds,
+            int maxChainLength,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(factIds);
+
+        // Nothing to anchor on: skip the round trip entirely rather than issue a query whose result is
+        // always empty. Projection runs per recall, so this is the common case for a section with no
+        // facts at all.
+        if (factIds.Count == 0 || maxChainLength <= 0)
+        {
+            return new Dictionary<string, IReadOnlyList<SupersededFact>>(StringComparer.Ordinal);
+        }
+
+        _logger.LogDebug(
+            "Reading supersession predecessors for {Count} fact(s), chain cap {Cap}",
+            factIds.Count, maxChainLength);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                FactQueries.GetSupersessionPredecessors,
+                new { factIds = factIds.ToArray(), maxChain = maxChainLength }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+
+            var result = new Dictionary<string, IReadOnlyList<SupersededFact>>(StringComparer.Ordinal);
+            foreach (var record in records)
+            {
+                var factId = record["factId"].As<string>();
+                if (string.IsNullOrEmpty(factId)) continue;
+
+                var chain = record["chain"].As<IList<object>>()
+                    .Select(entry => entry.As<IDictionary<string, object>>())
+                    .Select(entry => new SupersededFact(
+                        entry.TryGetValue("object", out var o) ? o?.ToString() ?? string.Empty : string.Empty,
+                        entry.TryGetValue("invalidated_at", out var iat)
+                            ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(iat)
+                            : null,
+                        entry.TryGetValue("valid_until", out var vu)
+                            ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
+                            : null))
+                    .ToList();
+
+                if (chain.Count > 0) result[factId] = chain;
+            }
+
+            return (IReadOnlyDictionary<string, IReadOnlyList<SupersededFact>>)result;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PagedResult<Fact>> GetPageWithoutEmbeddingAsync(
         int limit,
         CancellationToken cancellationToken = default)

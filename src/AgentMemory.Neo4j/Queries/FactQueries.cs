@@ -472,6 +472,39 @@ internal static class FactQueries
             RETURN count(loser) > 0 AS superseded";
     }
 
+    // ── GetSupersessionPredecessorsAsync (30.2 projection) ─────────────
+
+    /// <summary>
+    /// For a set of fact ids the caller already holds, what each one superseded — newest first, capped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No owner clause, and that is a conclusion rather than an omission.</b> The edge this walks is
+    /// only ever created by <see cref="Supersede"/>, which carries a same-owner guard on <i>both</i>
+    /// ends — even on the unscoped admin path — so a <c>:SUPERSEDED_BY</c> chain cannot cross owners
+    /// and cannot be made to. Anchoring on ids the caller already retrieved under their own scope means
+    /// this query cannot widen it. An owner-isolation test covers the claim anyway.
+    /// </para>
+    /// <para>
+    /// One call per recall, not one per fact: <c>cur.id IN $factIds</c> batches the whole section. The
+    /// per-fact cap is applied inside the collect so a long chain cannot blow up the payload.
+    /// </para>
+    /// <para>
+    /// (A const, so it IS in the Cypher snapshot inventory — it is a fixed query with no variants.)
+    /// </para>
+    /// </remarks>
+    public const string GetSupersessionPredecessors = @"
+            MATCH (prev:Fact)-[:SUPERSEDED_BY]->(cur:Fact)
+            WHERE cur.id IN $factIds
+            WITH cur, prev
+            ORDER BY coalesce(prev.valid_until, prev.invalidated_at) DESC
+            WITH cur, collect({
+                object: prev.object,
+                invalidated_at: prev.invalidated_at,
+                valid_until: prev.valid_until
+            })[0..$maxChain] AS chain
+            RETURN cur.id AS factId, chain";
+
     // ── FindByTripleAsync ──────────────────────────────────────────────
 
     /// <summary>

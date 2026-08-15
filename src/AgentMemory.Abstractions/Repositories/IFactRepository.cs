@@ -199,4 +199,36 @@ public interface IFactRepository
         CancellationToken cancellationToken = default,
         IReadOnlyList<string>? priorityPredicates = null) =>
         Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
+    /// For each of <paramref name="factIds"/>, the facts it superseded — newest first, capped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this exists.</b> Live fact recall filters <c>invalidated_at IS NULL</c>, so a superseded
+    /// fact is silently <i>absent</i> from a recalled context. The graph holds the
+    /// <c>SUPERSEDED_BY</c> edges that say what changed, and nothing ever read them on a read path —
+    /// so a knowledge-update question arrived with the current answer and no cue that it had ever been
+    /// anything else.
+    /// </para>
+    /// <para>
+    /// Anchored on ids the caller already holds (the by-handle convention), so no scope argument is
+    /// needed: <c>SupersedeAsync</c>'s same-owner guard means a chain can never cross owners in the
+    /// first place. That is covered by an owner-isolation test anyway rather than taken on trust.
+    /// </para>
+    /// <para>
+    /// A default interface method returning empty, so every existing implementation — including any
+    /// outside this repository — keeps compiling and simply reports no supersession history.
+    /// </para>
+    /// </remarks>
+    /// <param name="factIds">Ids of facts whose predecessors are wanted.</param>
+    /// <param name="maxChainLength">Most predecessors to return per fact.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Fact id → its predecessors, newest first. Facts with no history are absent.</returns>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<SupersededFact>>> GetSupersessionPredecessorsAsync(
+        IReadOnlyList<string> factIds,
+        int maxChainLength,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<SupersededFact>>>(
+            new Dictionary<string, IReadOnlyList<SupersededFact>>(StringComparer.Ordinal));
 }
