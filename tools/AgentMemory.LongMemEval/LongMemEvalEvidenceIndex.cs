@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
+using AgentEval.Memory.External.TypedMemEval;
 using AgentMemory.Abstractions.Domain;
 
 namespace AgentMemory.LongMemEval;
@@ -45,6 +47,75 @@ internal sealed class LongMemEvalEvidenceIndex
     internal static LongMemEvalEvidenceIndex Create(
         IReadOnlyList<LongMemEvalEntry> entries,
         ExternalBenchmarkOptions options)
+        => CreateCore(entries, options, entry =>
+        {
+            var formatted = LongMemEvalHistoryFormatter.Format(entry, options);
+            return (formatted, Fingerprint(formatted), BuildInvocationPrompt(entry));
+        });
+
+    /// <summary>
+    /// Builds the index for entries a runner will inject through the <b>timestamped</b> channel
+    /// (<c>ITimestampedHistoryInjectableAgent</c>), i.e. any run whose temporal grounding is not
+    /// <see cref="TemporalGroundingMode.None"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three things differ from <see cref="Create"/>, each forced by what the runner actually sends.
+    /// The formatted content comes from <c>FormatTimestamped</c> — under TimestampsOnly the session
+    /// boundary marker drops its date, so an index built from the dated <c>Format</c> output would
+    /// never align. The invocation prompt is grounding-aware — under TimestampsOnly the runner sends
+    /// the bare question, because printing "Current Date:" would hand back the crutch the mode
+    /// removes. And the fingerprint is salted with the history's QueryTime — Prospective pair arms
+    /// share one haystack and one question text and differ only in the query instant, so a
+    /// fingerprint over the turns alone cannot tell the arms apart.
+    /// </para>
+    /// </remarks>
+    internal static LongMemEvalEvidenceIndex CreateTimestamped(
+        IReadOnlyList<LongMemEvalEntry> entries,
+        ExternalBenchmarkOptions options)
+        => CreateCore(entries, options, entry =>
+        {
+            var history = LongMemEvalHistoryFormatter.FormatTimestamped(entry, options);
+            var formatted = history.Turns
+                .Select(turn => (turn.UserMessage, turn.AssistantResponse))
+                .ToArray();
+            return (formatted,
+                Fingerprint(formatted, history.QueryTime),
+                BuildTimestampedInvocationPrompt(entry, options));
+        });
+
+    /// <summary>
+    /// Builds the evidence index for one TypedMemEval vertical from its embedded corpus, selecting
+    /// and formatting entries exactly as <c>TypedMemEvalRunner</c> will for the same facade options.
+    /// </summary>
+    /// <remarks>
+    /// This is the construction path the envelope pipeline was missing: <see cref="Load"/> requires
+    /// a dataset <i>file</i>, TypedMemEval corpora are embedded resources, and without an index the
+    /// adapter attaches no evidence envelope — every typed run reported attribution
+    /// <c>Unobserved</c>. Question counts, ids and hashes are all read from the corpus at run time,
+    /// never hard-coded, so the 0.23 corpus revision changes nothing here.
+    /// </remarks>
+    internal static LongMemEvalEvidenceIndex CreateTypedMemEval(
+        TypedMemEvalVertical vertical,
+        TypedMemEvalOptions? facade = null)
+    {
+        facade ??= new TypedMemEvalOptions();
+        facade.Validate();
+        var descriptor = TypedMemEvalVerticals.For(vertical);
+        var options = TypedMemEvalOptionMapping.ToExternalOptions(facade, descriptor);
+        var entries = TypedMemEvalCorpus.Load(vertical, options);
+        return options.TemporalGrounding == TemporalGroundingMode.None
+            ? Create(entries, options)
+            : CreateTimestamped(entries, options);
+    }
+
+    private static LongMemEvalEvidenceIndex CreateCore(
+        IReadOnlyList<LongMemEvalEntry> entries,
+        ExternalBenchmarkOptions options,
+        Func<LongMemEvalEntry,
+            (IReadOnlyList<(string UserMessage, string AssistantResponse)> Formatted,
+             string Fingerprint,
+             string InvocationPrompt)> format)
     {
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentNullException.ThrowIfNull(options);
@@ -54,9 +125,8 @@ internal sealed class LongMemEvalEvidenceIndex
         var questions = new List<LongMemEvalEvidenceQuestion>(entries.Count);
         foreach (var entry in entries)
         {
-            var formatted = LongMemEvalHistoryFormatter.Format(entry, options);
-            var question = BuildQuestion(entry, formatted, options);
-            var fingerprint = Fingerprint(formatted);
+            var (formatted, fingerprint, invocationPrompt) = format(entry);
+            var question = BuildQuestion(entry, formatted, options, invocationPrompt);
             if (!byHistory.TryGetValue(fingerprint, out var matching))
             {
                 matching = [];
@@ -81,8 +151,26 @@ internal sealed class LongMemEvalEvidenceIndex
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        return ResolveCore(Fingerprint(history), prompt);
+    }
 
-        var fingerprint = Fingerprint(history);
+    /// <summary>
+    /// Resolves a question injected through the timestamped channel. The query instant is part of
+    /// the identity: Prospective pair arms share one haystack and one question text, so without it
+    /// the two arms are a single fingerprint and neither can be attributed.
+    /// </summary>
+    public LongMemEvalEvidenceQuestion Resolve(
+        IReadOnlyList<(string UserMessage, string AssistantResponse)> history,
+        DateTimeOffset queryTime,
+        string prompt)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+        return ResolveCore(Fingerprint(history, queryTime), prompt);
+    }
+
+    private LongMemEvalEvidenceQuestion ResolveCore(string fingerprint, string prompt)
+    {
         lock (_gate)
         {
             if (!_questionsByHistory.TryGetValue(fingerprint, out var candidates))
@@ -122,7 +210,8 @@ internal sealed class LongMemEvalEvidenceIndex
     private static LongMemEvalEvidenceQuestion BuildQuestion(
         LongMemEvalEntry entry,
         IReadOnlyList<(string UserMessage, string AssistantResponse)> formatted,
-        ExternalBenchmarkOptions options)
+        ExternalBenchmarkOptions options,
+        string invocationPrompt)
     {
         var sessions = entry.HaystackSessions
             ?? throw new InvalidOperationException($"LongMemEval question {entry.QuestionId} has no sessions.");
@@ -248,7 +337,7 @@ internal sealed class LongMemEvalEvidenceIndex
             entry.QuestionId,
             entry.QuestionType,
             entry.Question,
-            BuildInvocationPrompt(entry),
+            invocationPrompt,
             entry.Answer,
             entry.QuestionDate ?? string.Empty,
             entry.IsAbstention,
@@ -261,6 +350,17 @@ internal sealed class LongMemEvalEvidenceIndex
         string.IsNullOrEmpty(entry.QuestionDate)
             ? entry.Question
             : $"Current Date: {entry.QuestionDate}\n\n{entry.Question}";
+
+    /// <summary>
+    /// The prompt <c>TypedMemEvalRunner.BuildPrompt</c> sends for a structurally-injected question:
+    /// under TimestampsOnly the query time arrives through the typed channel and the prompt is the
+    /// bare question; under TimestampsAndText the "Current Date:" prefix survives.
+    /// </summary>
+    private static string BuildTimestampedInvocationPrompt(
+        LongMemEvalEntry entry, ExternalBenchmarkOptions options) =>
+        options.TemporalGrounding == TemporalGroundingMode.TimestampsOnly
+            ? entry.Question
+            : BuildInvocationPrompt(entry);
 
     private static bool IsSessionBoundary((string UserMessage, string AssistantResponse) turn) =>
         turn.UserMessage.StartsWith("--- Session ", StringComparison.Ordinal) &&
@@ -275,6 +375,23 @@ internal sealed class LongMemEvalEvidenceIndex
 
     internal static string Fingerprint(
         IReadOnlyList<(string UserMessage, string AssistantResponse)> history)
+        => Fingerprint(history, salt: null);
+
+    /// <summary>
+    /// Fingerprint for a timestamped history: the turns <b>plus the query instant</b>. Two
+    /// Prospective pair arms are the same turns asked at two different instants, so the instant is
+    /// part of the question's identity, not metadata about it.
+    /// </summary>
+    internal static string Fingerprint(
+        IReadOnlyList<(string UserMessage, string AssistantResponse)> history,
+        DateTimeOffset queryTime)
+        => Fingerprint(
+            history,
+            $"query-time:{queryTime.UtcTicks.ToString(CultureInfo.InvariantCulture)}");
+
+    private static string Fingerprint(
+        IReadOnlyList<(string UserMessage, string AssistantResponse)> history,
+        string? salt)
     {
         var builder = new StringBuilder();
         foreach (var (user, assistant) in history)
@@ -282,6 +399,9 @@ internal sealed class LongMemEvalEvidenceIndex
             Append(user);
             Append(assistant);
         }
+
+        if (salt is not null)
+            Append(salt);
 
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
 
