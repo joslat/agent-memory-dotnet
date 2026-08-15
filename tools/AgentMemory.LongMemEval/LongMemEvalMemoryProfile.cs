@@ -43,7 +43,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         AssistantContentMode assistantContent = AssistantContentMode.Ignore,
         bool resolveTemporalQueries = false,
         bool rescueShortOwnerResults = false,
-        string? graphRagIndexName = null)
+        string? graphRagIndexName = null,
+        int? extractionSeed = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -76,6 +77,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                     resolveTemporalQueries,
                     rescueShortOwnerResults,
                     graphRagIndexName,
+                    extractionSeed,
                     cancellationToken)
                 .ConfigureAwait(false);
             return profile;
@@ -104,6 +106,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
         string? graphRagIndexName,
+        int? extractionSeed,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -130,7 +133,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
             resolveTemporalQueries,
             rescueShortOwnerResults,
             graphRagIndexName,
-            multiSessionBatch);
+            multiSessionBatch,
+            extractionSeed);
 
         _provider = services.BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
@@ -167,7 +171,8 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool resolveTemporalQueries,
         bool rescueShortOwnerResults,
         string? graphRagIndexName,
-        bool multiSessionBatch = true)
+        bool multiSessionBatch = true,
+        int? extractionSeed = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
@@ -190,6 +195,13 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
                 options.MaxConcurrentExtractionBatches = maxConcurrentExtractionBatches;
                 options.UsePredicateVocabulary = usePredicateVocabulary;
                 options.AssistantContent = assistantContent;
+                // 30.1. The one lever the provider offers against extraction nondeterminism, and it
+                // had no writer here: Temperature is already 0 and this deployment REJECTS an explicit
+                // zero, so the request runs at the provider default of 1.0. Three cold builds of one
+                // configuration agreed on 7.5% of their canonical triples and scored 25 accuracy points
+                // apart. Null (the default) sends nothing and reproduces every sealed measurement; a
+                // value is best-effort, which is why whether it helps is measured rather than assumed.
+                options.Seed = extractionSeed;
             }
             : null;
         services.AddNeo4jAgentMemory(

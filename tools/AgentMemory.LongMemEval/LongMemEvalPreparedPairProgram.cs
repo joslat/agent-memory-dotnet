@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Options;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -196,7 +197,8 @@ internal static class LongMemEvalPreparedPairProgram
                             options.IsDiagnostic ? 0 : options.MaxConcurrentExtractionBatches,
                         usePredicateVocabulary: options.UsePredicateVocabulary,
                         assistantContent: options.AssistantContent,
-                        rescueShortOwnerResults: options.RescueShortOwnerResults)
+                        rescueShortOwnerResults: options.RescueShortOwnerResults,
+                        extractionSeed: options.ExtractionSeed)
                     .ConfigureAwait(false);
                 profileStartup.Stop();
 
@@ -243,6 +245,7 @@ internal static class LongMemEvalPreparedPairProgram
                             EmbeddingDimensions = embeddingDimensions,
                             AssistantContent = options.AssistantContent.ToString(),
                             UsePredicateVocabulary = options.UsePredicateVocabulary,
+                            ExtractionSeed = options.ExtractionSeed,
                             ExtractionVocabularySha256 = MemoryPredicateSeedVocabulary.Fingerprint,
                             QueryRelationLexiconSha256 = MemoryRelationSeedTable.Fingerprint,
                             QuestionSeed = options.Seed,
@@ -689,6 +692,8 @@ internal static class LongMemEvalPreparedPairProgram
                     // refused instead of silently measuring a graph built under other settings.
                     assistantContent: options.AssistantContent.ToString(),
                     usePredicateVocabulary: options.UsePredicateVocabulary,
+                    // Schema 7. Sealed so a seeded corpus and an unseeded one are never confusable.
+                    extractionSeed: options.ExtractionSeed,
                     extractionVocabularySha256: MemoryPredicateSeedVocabulary.Fingerprint,
                     queryRelationLexiconSha256: MemoryRelationSeedTable.Fingerprint,
                     abstentionPolicy: options.AbstentionPolicy.ToString(),
@@ -853,6 +858,10 @@ internal static class LongMemEvalPreparedPairProgram
                     rescueShortOwnerResults = options.RescueShortOwnerResults,
                     resolveQueryRelations = options.ResolveQueryRelations,
                     usePredicateVocabulary = options.UsePredicateVocabulary,
+                    // 30.1. Same reason: an artifact that does not say whether extraction was seeded
+                    // cannot be compared against one that was, and the whole point of the seed is to
+                    // make two builds comparable.
+                    extractionSeed = options.ExtractionSeed,
                     // Fingerprinted for the same reason the vocabulary is: it changes what
                     // gets stored, so two bases built under different modes are not
                     // comparable and must not be confusable in an artifact.
@@ -1526,6 +1535,7 @@ internal static class LongMemEvalPreparedPairProgram
         "--description", "--memory-types", "--allow-stale-prepared",
         "--abstention", "--abstention-proportion", "--query-formulation",
         "--use-predicate-vocabulary", "--judge-protocol", "--rescue-short-owner-results",
+        "--extraction-seed",
     ];
 
     private static PreparedPairOptions Parse(string[] args)
@@ -1606,7 +1616,19 @@ internal static class LongMemEvalPreparedPairProgram
             ParseAbstention(Value("--abstention")),
             ParseAbstentionProportion(Value("--abstention-proportion")),
             ParseJudgeProtocol(Value("--judge-protocol")),
-            queryFormulation);
+            queryFormulation,
+            // 30.1. Null reproduces every corpus built so far. A value is sealed into the manifest and
+            // drift-checked, so a seeded corpus can never be adopted by an unseeded run or vice versa.
+            ParseExtractionSeed(Value("--extraction-seed")));
+    }
+
+    /// <summary>Parses <c>--extraction-seed &lt;int&gt;</c>; absent means send no seed.</summary>
+    private static int? ParseExtractionSeed(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            throw new ArgumentException($"--extraction-seed must be an integer; got '{value}'.");
+        return parsed;
     }
 
     /// <summary>
@@ -1954,7 +1976,10 @@ internal static class LongMemEvalPreparedPairProgram
         JudgeVerdictProtocol JudgeProtocol = JudgeVerdictProtocol.FreeText,
         // 27.4. Verbatim is the control and the shipped behaviour; the other modes derive the
         // retrieval query with one model call per question.
-        LongMemEvalQueryFormulation QueryFormulation = LongMemEvalQueryFormulation.Verbatim)
+        LongMemEvalQueryFormulation QueryFormulation = LongMemEvalQueryFormulation.Verbatim,
+        // 30.1. The extraction sampling seed, sealed into the manifest because it changes what the
+        // extractor returned and therefore what is in the graph. Null sends no seed at all.
+        int? ExtractionSeed = null)
     {
         /// <summary>The memory types this corpus was sampled for; empty means every type.</summary>
         internal IReadOnlyList<string> MemoryTypes => MemoryTypesRequested ?? [];

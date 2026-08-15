@@ -34,7 +34,8 @@ public sealed class PreparedCorpusDriftTests
         int seed = 42,
         int questions = 2,
         IReadOnlyList<string>? memoryTypes = null,
-        string abstention = "AsSampled") =>
+        string abstention = "AsSampled",
+        int? extractionSeed = null) =>
         LongMemEvalPreparationManifest.Create(
             preparationId: "prep-1",
             datasetSha256: datasetSha,
@@ -59,7 +60,8 @@ public sealed class PreparedCorpusDriftTests
             description: "the stratified 50",
             memoryTypes: memoryTypes ?? [],
             abstentionPolicy: abstention,
-            questionSeed: seed);
+            questionSeed: seed,
+            extractionSeed: extractionSeed);
 
     private static PreparedCorpusIdentity Current(
         string assistantContent = "Ignore",
@@ -68,7 +70,8 @@ public sealed class PreparedCorpusDriftTests
         int seed = 42,
         int questions = 2,
         IReadOnlyList<string>? memoryTypes = null,
-        string abstention = "AsSampled") => new()
+        string abstention = "AsSampled",
+        int? extractionSeed = null) => new()
     {
         DatasetSha256 = datasetSha,
         ExtractionModelId = extractionModel,
@@ -83,6 +86,7 @@ public sealed class PreparedCorpusDriftTests
         QuestionCount = questions,
         MemoryTypes = memoryTypes ?? [],
         AbstentionPolicy = abstention,
+        ExtractionSeed = extractionSeed,
     };
 
     [Fact]
@@ -311,6 +315,95 @@ public sealed class PreparedCorpusDriftTests
         LongMemEvalPreparedCorpusDrift.Compare(
                 Prepared(abstention: "AsSampled"), Current(abstention: "TargetProportion"))
             .Select(d => d.Field).Should().Contain("abstention");
+    }
+
+    // ── extraction determinism: the seed a corpus was built with (30.1, schema 7) ──
+
+    [Fact]
+    public void AnExtractionSeedDifferenceIsDrift()
+    {
+        // The seed decides what the extractor returned, so a seeded corpus and an unseeded one hold
+        // different facts. Adopting one for the other reports this run's configuration over another
+        // run's graph -- the exact failure the whole drift check exists to make impossible.
+        LongMemEvalPreparedCorpusDrift.Compare(
+                Prepared(extractionSeed: null), Current(extractionSeed: 20260815))
+            .Select(d => d.Field).Should().Contain("extractionSeed");
+    }
+
+    [Fact]
+    public void TwoDifferentSeedsAreAlsoDrift()
+    {
+        // Not merely seeded-vs-unseeded: two seeds are two samplings.
+        LongMemEvalPreparedCorpusDrift.Compare(
+                Prepared(extractionSeed: 1), Current(extractionSeed: 2))
+            .Select(d => d.Field).Should().Contain("extractionSeed");
+    }
+
+    [Fact]
+    public void TheSameSeedIsNotDrift()
+    {
+        LongMemEvalPreparedCorpusDrift.Compare(
+                Prepared(extractionSeed: 7), Current(extractionSeed: 7)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnOlderCorpusIsTreatedAsUnseededRatherThanAsUnrecorded()
+    {
+        // The one deliberate exception to "unknown is drift, never agreement", and it is a deduction
+        // rather than a default: LlmExtractionOptions.Seed had NO WRITER anywhere in this harness
+        // before schema 7, so a corpus sealed under 6 or earlier was provably built unseeded.
+        // Reporting it as unrecorded would drift every frozen corpus against every ordinary unseeded
+        // run and train the operator to pass --allow-stale-prepared, which is worse than no check.
+        var older = Prepared() with { SchemaVersion = 6 };
+
+        LongMemEvalPreparedCorpusDrift.Compare(older, Current(extractionSeed: null))
+            .Select(d => d.Field).Should().NotContain("extractionSeed");
+
+        // ...and it still drifts against a run that wants one, which is the half that must not be lost.
+        LongMemEvalPreparedCorpusDrift.Compare(older, Current(extractionSeed: 20260815))
+            .Select(d => d.Field).Should().Contain("extractionSeed");
+    }
+
+    [Fact]
+    public void TheSeedSeparatesTwoOtherwiseIdenticalCorpora()
+    {
+        // Schema 7 puts the seed in the hash for the reason schema 6 put the ingestion fields there:
+        // without it, two corpora built from different samplings are indistinguishable in every
+        // artifact a human reads.
+        Prepared(extractionSeed: 20260815).Fingerprint
+            .Should().NotBe(Prepared(extractionSeed: null).Fingerprint);
+    }
+
+    [Fact]
+    public void ACorpusSealedUnderSchemaSixStillVerifiesAfterTheSeedJoinedTheHash()
+    {
+        // THE regression that adding a hashed field can cause, pinned against a fingerprint computed
+        // by the build BEFORE ExtractionSeed existed. Schema 6 corpora are 7-9 hour builds; if the
+        // schema-6 field set is ever extended in place instead of frozen, every one of them stops
+        // verifying and presents as tampering rather than as a versioning mistake here. That has
+        // already happened once in this file's history (see GrandfatheredPreparationIds).
+        const string SealedBySchema6Build =
+            "6ee4356fe26cfc706836a0757bd3165ac5d30c2d2b95b11f0fdd19b6b3276cb5";
+        var schema6 = Prepared() with { SchemaVersion = 6 };
+
+        LongMemEvalPreparationManifest.ComputeFingerprint(schema6)
+            .Should().Be(SealedBySchema6Build);
+
+        var asSealed = schema6 with { Fingerprint = SealedBySchema6Build };
+        ((Action)(() => asSealed.VerifyIntegrity())).Should().NotThrow();
+        asSealed.FingerprintVerified.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ASchemaSevenManifestHashesDifferentlyFromASchemaSixOne()
+    {
+        // The two field sets must stay genuinely separate, for the same reason the legacy split does:
+        // if schema 6 quietly ran through the schema-7 path, an old manifest would fail to verify for
+        // a reason nobody could see from the outside.
+        var current = Prepared();
+
+        LongMemEvalPreparationManifest.ComputeFingerprint(current with { SchemaVersion = 6 })
+            .Should().NotBe(LongMemEvalPreparationManifest.ComputeFingerprint(current));
     }
 
     [Fact]

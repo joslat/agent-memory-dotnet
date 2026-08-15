@@ -119,6 +119,9 @@ internal static class LongMemEvalReportProjection
             // says "not the same", never "differs in the episodic mode".
             manifest.AssistantContent,
             manifest.UsePredicateVocabulary,
+            // Schema 7 (30.1): null means the corpus was built with no extraction seed, which is what
+            // every corpus predating schema 7 was.
+            manifest.ExtractionSeed,
             manifest.ExtractionVocabularySha256,
             manifest.QueryRelationLexiconSha256,
             manifest.ExtractionProvenance,

@@ -57,7 +57,9 @@ internal static class LongMemEvalExtractionCompareProgram
             ? (int?)parsedExtraction : null;
         var seed = int.TryParse(Value(args, "--seed"), out var parsedSeed) ? parsedSeed : 42;
         var output = Value(args, "--output")
-            ?? $"artifacts/evaluation/extraction-compare-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}.json";
+            ?? (repeat
+                ? $"artifacts/evaluation/extraction-self-agreement-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}.json"
+                : $"artifacts/evaluation/extraction-compare-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssZ}.json");
 
         var endpoint = Environment.GetEnvironmentVariable("AZURE_OPENAI_ENDPOINT");
         var apiKey = Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY");
@@ -86,19 +88,52 @@ internal static class LongMemEvalExtractionCompareProgram
 
         if (repeat)
         {
+            // 30.1. Which extractor is repeated matters and used to be unaskable: this arm was pinned
+            // to PerKind, while every recorded quality number in the archive came from the
+            // multi-session batch path. A seed that pins one says nothing about the other, so the arm
+            // is now selectable and RECORDED. Default stays PerKind, so prior invocations mean what
+            // they meant.
+            var arm = ParseArm(Value(args, "--arm"));
             var first = await RunPathAsync(
-                "run-1", slices, chatClient, extractionDeployment, Arm.PerKind, extractionSeed)
+                "run-1", slices, chatClient, extractionDeployment, arm, extractionSeed)
                 .ConfigureAwait(false);
             var second = await RunPathAsync(
-                "run-2", slices, chatClient, extractionDeployment, Arm.PerKind, extractionSeed)
+                "run-2", slices, chatClient, extractionDeployment, arm, extractionSeed)
                 .ConfigureAwait(false);
             var selfJaccard = Jaccard(first, second);
             Console.WriteLine(
-                $"SELF-AGREEMENT (extraction seed={(extractionSeed?.ToString() ?? "none")}): "
+                $"SELF-AGREEMENT (arm={arm}, extraction seed={(extractionSeed?.ToString() ?? "none")}): "
                 + $"run-1 {first.Facts.Count} facts, run-2 {second.Facts.Count} facts, "
                 + $"Jaccard={selfJaccard:F3}");
             Console.WriteLine(
                 "  Reference: three cold builds of one configuration agreed at Jaccard 0.17.");
+
+            // 30.1 acceptance: the overlap number is recorded EITHER WAY. A seed that turns out to do
+            // nothing on this deployment is a measured property of the provider, and a result that
+            // only ever existed in a console scrollback is a result nobody can cite later.
+            var repeatReport = new SelfAgreementReport
+            {
+                GeneratedAtUtc = DateTimeOffset.UtcNow,
+                Dataset = Path.GetFileName(datasetPath),
+                Units = slices.Count,
+                Seed = seed,
+                TurnsPerUnit = turns,
+                Arm = arm.ToString(),
+                ExtractionSeed = extractionSeed,
+                Run1 = Summarise(first),
+                Run2 = Summarise(second),
+                SelfJaccard = selfJaccard,
+                SharedFactTriples = SharedTriples(first, second),
+                UnionFactTriples = UnionTriples(first, second),
+                UnseededColdBuildReference = 0.17,
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+            await File.WriteAllTextAsync(
+                output,
+                JsonSerializer.Serialize(
+                    repeatReport, new JsonSerializerOptions { WriteIndented = true }))
+                .ConfigureAwait(false);
+            Console.WriteLine($"extraction-compare: wrote {output}");
             return 0;
         }
 
@@ -258,6 +293,24 @@ internal static class LongMemEvalExtractionCompareProgram
         return union == 0 ? 0 : (double)a.Intersect(b, StringComparer.Ordinal).Count() / union;
     }
 
+    private static int SharedTriples(PathResult left, PathResult right) =>
+        left.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal)
+            .Intersect(right.Facts.Select(TripleKey), StringComparer.Ordinal).Count();
+
+    private static int UnionTriples(PathResult left, PathResult right) =>
+        left.Facts.Select(TripleKey).ToHashSet(StringComparer.Ordinal)
+            .Union(right.Facts.Select(TripleKey), StringComparer.Ordinal).Count();
+
+    /// <summary>Parses <c>--arm per-kind|unified|batch</c>; absent keeps the historical PerKind.</summary>
+    private static Arm ParseArm(string? value) => (value ?? "per-kind").ToLowerInvariant() switch
+    {
+        "per-kind" or "perkind" or "" => Arm.PerKind,
+        "unified" => Arm.Unified,
+        "batch" or "multi-session-batch" => Arm.Batch,
+        var other => throw new ArgumentException(
+            $"--arm must be per-kind, unified or batch; got '{other}'."),
+    };
+
     private enum Arm
     {
         PerKind,
@@ -376,6 +429,44 @@ internal static class LongMemEvalExtractionCompareProgram
         public string[] DistinctEntityTypes { get; init; } = [];
         public double MeanFactConfidence { get; init; }
         public int DistinctFactConfidences { get; init; }
+    }
+
+    /// <summary>
+    /// 30.1. One arm run twice over byte-identical input: how much an extractor agrees with itself.
+    /// </summary>
+    /// <remarks>
+    /// This is the reference every cross-extractor Jaccard should have been read against, and the only
+    /// instrument that can say whether a seed buys reproducibility on the deployment in use. Written to
+    /// disk whatever the answer — "the seed did nothing here" is a measured property of the provider,
+    /// and the pre-registered rule (seeded must beat unseeded by ≥3× or the seed is declared
+    /// ineffective) needs both numbers on record to be decidable at all.
+    /// </remarks>
+    internal sealed record SelfAgreementReport
+    {
+        public DateTimeOffset GeneratedAtUtc { get; init; }
+        public string Dataset { get; init; } = string.Empty;
+        public int Units { get; init; }
+        public int Seed { get; init; }
+        public int TurnsPerUnit { get; init; }
+
+        /// <summary>Which extractor was repeated. Not decoration: the three are different code.</summary>
+        public string Arm { get; init; } = string.Empty;
+
+        /// <summary>The extraction sampling seed, or null for the unseeded control.</summary>
+        public int? ExtractionSeed { get; init; }
+
+        public required PathSummary Run1 { get; init; }
+        public required PathSummary Run2 { get; init; }
+        public double SelfJaccard { get; init; }
+        public int SharedFactTriples { get; init; }
+        public int UnionFactTriples { get; init; }
+
+        /// <summary>
+        /// Three cold builds of one configuration agreed at Jaccard 0.17 (7.5% common to all three).
+        /// Carried here as context, NOT as the control: it is a different arm through a different
+        /// pipeline. The same-build unseeded repeat is the control this number must be read against.
+        /// </summary>
+        public double UnseededColdBuildReference { get; init; }
     }
 
     internal sealed record ComparisonReport

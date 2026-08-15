@@ -82,6 +82,14 @@ internal static class LongMemEvalPreparedCorpusDrift
         Check("extractionProvenance", Recorded(prepared.ExtractionProvenance), current.ExtractionProvenance);
         Check("usePredicateVocabulary",
             Recorded(prepared.UsePredicateVocabulary.ToString()), current.UsePredicateVocabulary.ToString());
+        // 30.1. Deliberately NOT routed through Recorded(). Every other ingestion field could hold a
+        // plausible-but-wrong default on an older manifest, which is why "unrecorded" is treated as
+        // drift there. The seed cannot: LlmExtractionOptions.Seed had no writer in this harness before
+        // schema 7, so a corpus sealed under 6 or earlier was PROVABLY built unseeded. Reporting it as
+        // unrecorded would drift every frozen corpus against every unseeded run and train the operator
+        // to pass --allow-stale-prepared, which the header above names as worse than no check at all.
+        Check("extractionSeed",
+            FormatSeed(prepared.ExtractionSeed), FormatSeed(current.ExtractionSeed));
         Check("extractionVocabularySha256",
             prepared.ExtractionVocabularySha256, current.ExtractionVocabularySha256);
         Check("queryRelationLexiconSha256",
@@ -100,6 +108,13 @@ internal static class LongMemEvalPreparedCorpusDrift
 
         return differences;
     }
+
+    /// <summary>
+    /// Renders a seed for comparison. "none" rather than empty, so the message reads
+    /// <c>corpus=none run=20260815</c> instead of claiming the corpus never recorded the field.
+    /// </summary>
+    private static string FormatSeed(int? seed) =>
+        seed?.ToString(CultureInfo.InvariantCulture) ?? "none";
 
     /// <summary>
     /// The operator-facing explanation of a refusal, naming every drifted field.
@@ -144,6 +159,9 @@ internal sealed record PreparedCorpusIdentity
     internal required string AssistantContent { get; init; }
     internal string ExtractionProvenance { get; init; } = "Batch";
     internal required bool UsePredicateVocabulary { get; init; }
+
+    /// <summary>The extraction sampling seed this run would build with; null for none.</summary>
+    internal int? ExtractionSeed { get; init; }
     internal required string ExtractionVocabularySha256 { get; init; }
     internal required string QueryRelationLexiconSha256 { get; init; }
     internal required int QuestionSeed { get; init; }

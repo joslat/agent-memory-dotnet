@@ -47,6 +47,12 @@ internal sealed record LongMemEvalPreparationManifest(
     // Recorded here so a reuse can be refused instead of quietly measuring the wrong corpus.
     string AssistantContent = "Ignore",
     bool UsePredicateVocabulary = false,
+    // ── Extraction determinism (schema 7) ────────────────────────────────
+    // 30.1. The sampling seed the extraction calls were issued with, or null for none. It belongs
+    // with the fields above for exactly their reason: it changes WHAT WAS STORED. Null is not a
+    // guess for an older corpus — LlmExtractionOptions.Seed had no writer in this harness before
+    // schema 7, so every corpus sealed under 6 or earlier was provably built unseeded.
+    int? ExtractionSeed = null,
     string ExtractionVocabularySha256 = "",
     string QueryRelationLexiconSha256 = "",
     string ExtractionProvenance = "Batch",
@@ -70,7 +76,10 @@ internal sealed record LongMemEvalPreparationManifest(
     // provider reported none; a placeholder would let a report deny incomparability it cannot rule out.
     IReadOnlyList<string>? ExtractionProviderBuilds = null)
 {
-    public const int CurrentSchemaVersion = 6;
+    // Schema 7 adds ExtractionSeed to the hashed field set. The rule this file learned the hard way
+    // (see VerifyIntegrity) is that any change to the hashed field set MUST bump this, and the
+    // previous version's field set must be preserved verbatim so its corpora still verify.
+    public const int CurrentSchemaVersion = 7;
 
     internal int MessagesPrepared => Questions.Sum(question => question.MessagesPrepared);
 
@@ -102,6 +111,7 @@ internal sealed record LongMemEvalPreparationManifest(
         int maxConcurrentExtractionBatches = 0,
         string assistantContent = "Ignore",
         bool usePredicateVocabulary = false,
+        int? extractionSeed = null,
         string extractionVocabularySha256 = "",
         string queryRelationLexiconSha256 = "",
         string extractionProvenance = "Batch",
@@ -177,6 +187,7 @@ internal sealed record LongMemEvalPreparationManifest(
             Fingerprint: string.Empty,
             AssistantContent: assistantContent,
             UsePredicateVocabulary: usePredicateVocabulary,
+            ExtractionSeed: extractionSeed,
             ExtractionVocabularySha256: extractionVocabularySha256,
             QueryRelationLexiconSha256: queryRelationLexiconSha256,
             ExtractionProvenance: extractionProvenance,
@@ -296,14 +307,18 @@ internal sealed record LongMemEvalPreparationManifest(
     /// Schema 6 added five ingestion-identity fields to the hash. Hashing a schema-5 manifest with
     /// them would never reproduce its recorded fingerprint, so every older corpus would read as
     /// corrupt rather than as older -- and a corpus that took nine hours to build would be discarded
-    /// over a field it was never asked to record.
+    /// over a field it was never asked to record. Schema 7 adds ExtractionSeed under the same rule:
+    /// the schema-6 field set is kept verbatim below rather than extended in place.
     /// </remarks>
     internal static string ComputeFingerprint(LongMemEvalPreparationManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        return manifest.SchemaVersion >= 6
-            ? ComputeCurrentFingerprint(manifest)
-            : ComputeLegacyFingerprint(manifest);
+        return manifest.SchemaVersion switch
+        {
+            >= 7 => ComputeCurrentFingerprint(manifest),
+            6 => ComputeSchema6Fingerprint(manifest),
+            _ => ComputeLegacyFingerprint(manifest),
+        };
     }
 
     /// <summary>
@@ -422,6 +437,63 @@ internal sealed record LongMemEvalPreparationManifest(
         return Hash(JsonSerializer.Serialize(canonical, JsonOptions));
     }
 
+    /// <summary>
+    /// The schema-6 field set, preserved verbatim so corpora sealed under it still verify.
+    /// </summary>
+    /// <remarks>
+    /// Order matters: the hash is over serialized JSON, so moving a field changes the result even
+    /// when the values do not. Nothing may be added here — schema 7 and later go in
+    /// <see cref="ComputeCurrentFingerprint"/>.
+    /// </remarks>
+    private static string ComputeSchema6Fingerprint(LongMemEvalPreparationManifest manifest)
+    {
+        var canonical = new
+        {
+            manifest.SchemaVersion,
+            manifest.PreparationId,
+            manifest.DatasetSha256,
+            manifest.AgentEvalRevision,
+            manifest.ScopeRunIdSha256,
+            manifest.AnswerModelId,
+            manifest.JudgeModelId,
+            manifest.ExtractionModelId,
+            manifest.EmbeddingModelId,
+            manifest.EmbeddingDimensions,
+            manifest.MaxRelevantMessages,
+            manifest.ExtractionSourceTime,
+            manifest.AssistantContent,
+            manifest.UsePredicateVocabulary,
+            manifest.ExtractionVocabularySha256,
+            manifest.QueryRelationLexiconSha256,
+            manifest.ExtractionProvenance,
+            manifest.AbstentionPolicy,
+            manifest.RefusedSourceSessions,
+            manifest.QuestionSeed,
+            manifest.UseJsonResponseFormat,
+            manifest.ExtractionResponseContract,
+            manifest.UseUnifiedExtraction,
+            manifest.UseMultiSessionBatchExtraction,
+            manifest.PreparationWorkers,
+            manifest.MaxSessionsPerBatch,
+            manifest.MaxInputTokens,
+            manifest.MaxConcurrentBatchesPerExtraction,
+            manifest.MaxConcurrentExtractionBatches,
+            Questions = manifest.Questions.Select(question => new
+            {
+                question.QuestionNumber,
+                question.QuestionId,
+                question.HistorySha256,
+                question.ScopeSha256,
+                question.MessagesPrepared,
+                question.SourceSessions,
+                question.ExtractionUnitsPrepared,
+                question.GraphSnapshot
+            }),
+            manifest.InitialExtractionCalls
+        };
+        return Hash(JsonSerializer.Serialize(canonical, JsonOptions));
+    }
+
     private static string ComputeCurrentFingerprint(LongMemEvalPreparationManifest manifest)
     {
         var canonical = new
@@ -443,6 +515,9 @@ internal sealed record LongMemEvalPreparationManifest(
             // corpora hash identically.
             manifest.AssistantContent,
             manifest.UsePredicateVocabulary,
+            // Schema 7. What the extraction calls were seeded with, which decides what the extractor
+            // returned and therefore what the graph contains.
+            manifest.ExtractionSeed,
             manifest.ExtractionVocabularySha256,
             manifest.QueryRelationLexiconSha256,
             manifest.ExtractionProvenance,

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using AgentEval.Memory.External.LongMemEval;
 using AgentEval.Memory.External.Models;
@@ -203,7 +204,8 @@ internal static class LongMemEvalProgram
                     extractionDeployment,
                     embeddingDimensions,
                     Console.Out,
-                    CancellationToken.None)
+                    CancellationToken.None,
+                    extractionSeed: options.ExtractionSeed)
                 .ConfigureAwait(false);
             var adapter = new AgentMemoryLongMemEvalAdapter(
                 profile.Services.GetRequiredService<IMemoryService>(),
@@ -511,8 +513,21 @@ internal static class LongMemEvalProgram
             // sealed measurement in the archive, which were all taken without it.
             Value("--answer-seed") is { } answerSeed
                 ? ParseNonNegative(answerSeed, 0, "--answer-seed")
+                : null,
+            // 30.1. This verb accepted --extraction-seed in KnownOptions and then dropped it: the
+            // argument validator let it through and nothing read it, so a run that asked to be seeded
+            // silently was not. The seed's own doc says its effect must be MEASURED per deployment,
+            // which requires being able to set it here at all.
+            Value("--extraction-seed") is { } extractionSeed
+                ? ParseSeedValue(extractionSeed, "--extraction-seed")
                 : null);
     }
+
+    /// <summary>Parses a sampling seed, which may legitimately be negative or zero.</summary>
+    private static int ParseSeedValue(string value, string option) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : throw new ArgumentException($"{option} must be an integer.");
 
     private static object Project(LongMemEvalChatCallSnapshot snapshot) => new
     {
@@ -683,5 +698,6 @@ internal static class LongMemEvalProgram
         int MaxItemsPerSourceSession,
         bool ChronologicalAnswerContext,
         IReadOnlyList<string> MemoryTypes,
-        int? AnswerSeed);
+        int? AnswerSeed,
+        int? ExtractionSeed);
 }

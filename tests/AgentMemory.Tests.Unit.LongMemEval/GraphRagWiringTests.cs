@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Extraction.Llm;
 using AgentMemory.LongMemEval;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
@@ -83,7 +84,8 @@ public sealed class GraphRagWiringTests
     private static ServiceProvider Resolve(
         string? graphRagIndexName,
         bool resolveTemporalQueries = false,
-        bool rescueShortOwnerResults = false) =>
+        bool rescueShortOwnerResults = false,
+        int? extractionSeed = null) =>
         LongMemEvalMemoryProfile.ConfigureServices(
                 "bolt://localhost:7687",
                 Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>(),
@@ -99,7 +101,8 @@ public sealed class GraphRagWiringTests
                 assistantContent: AssistantContentMode.Ignore,
                 resolveTemporalQueries: resolveTemporalQueries,
                 rescueShortOwnerResults: rescueShortOwnerResults,
-                graphRagIndexName: graphRagIndexName)
+                graphRagIndexName: graphRagIndexName,
+                extractionSeed: extractionSeed)
             .BuildServiceProvider();
 
     [Theory]
@@ -130,5 +133,31 @@ public sealed class GraphRagWiringTests
 
         provider.GetRequiredService<IOptions<MemoryOptions>>().Value
             .RescueShortOwnerResults.Should().Be(enabled);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(20260815)]
+    public void TheExtractionSeedReachesTheExtractorOptions(int? seed)
+    {
+        // 30.1. LlmExtractionOptions.Seed shipped with NO writer anywhere in the harness: three cold
+        // builds of one configuration stored 6,078 / 6,199 / 6,272 canonical triples with 7.5% common
+        // to all three, and the single option the provider offers against that could not be set from
+        // the benchmark at all. This is the same shape as RescueShortOwnerResults above -- an option
+        // parsed, threaded and then dropped one line before it mattered -- so it is guarded here rather
+        // than discovered when a seeded build turns out to have been unseeded.
+        using var provider = Resolve(graphRagIndexName: null, extractionSeed: seed);
+
+        provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.Seed.Should().Be(seed);
+    }
+
+    [Fact]
+    public void NotAskingForASeedSendsNone()
+    {
+        // The state every sealed measurement was taken under. Null sends no seed field at all, so a
+        // corpus built without --extraction-seed is byte-identical in its requests to every prior one.
+        using var provider = Resolve(graphRagIndexName: null);
+
+        provider.GetRequiredService<IOptions<LlmExtractionOptions>>().Value.Seed.Should().BeNull();
     }
 }
