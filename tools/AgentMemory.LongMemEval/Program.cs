@@ -216,6 +216,8 @@ internal static class LongMemEvalProgram
                     MaxRelevantMessages = options.MaxRelevantMessages,
                     MemoryMode = options.MemoryMode,
                     AnswerSeed = options.AnswerSeed,
+                    AnswerVotes = options.AnswerVotes,
+                    QuoteForcing = options.QuoteForcing,
                     MinSimilarityScore = 0,
                     ModelId = deployment,
                     ExcludeSyntheticFormatterMessages = options.ExcludeSyntheticMessages,
@@ -480,6 +482,8 @@ internal static class LongMemEvalProgram
         // --extraction-seed, and the mirror-image defect (read but unlisted) becomes real the moment
         // dispatch order changes. ExtractionCompareCommandLineTests holds both directions.
         "--vocabulary-ab", "--use-predicate-vocabulary",
+        // 30.11. Listed AND read -- the pair that --extraction-seed broke by having only the first.
+        "--answer-votes", "--quote-forcing",
     ];
 
     private static Options Parse(string[] args)
@@ -525,7 +529,14 @@ internal static class LongMemEvalProgram
             // which requires being able to set it here at all.
             Value("--extraction-seed") is { } extractionSeed
                 ? ParseSeedValue(extractionSeed, "--extraction-seed")
-                : null);
+                : null,
+            // 30.11. One vote is the historical call, byte for byte. N > 1 samples N answers with
+            // distinct seeds derived from --answer-seed and votes; the pre-registered claim is that the
+            // BAND narrows across repeat runs, not that point accuracy rises.
+            Value("--answer-votes") is { } answerVotes
+                ? ParseNonNegative(answerVotes, 1, "--answer-votes")
+                : 1,
+            args.Contains("--quote-forcing", StringComparer.Ordinal));
     }
 
     /// <summary>Parses a sampling seed, which may legitimately be negative or zero.</summary>
@@ -704,5 +715,7 @@ internal static class LongMemEvalProgram
         bool ChronologicalAnswerContext,
         IReadOnlyList<string> MemoryTypes,
         int? AnswerSeed,
-        int? ExtractionSeed);
+        int? ExtractionSeed,
+        int AnswerVotes,
+        bool QuoteForcing);
 }

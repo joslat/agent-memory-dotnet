@@ -27,6 +27,10 @@ internal sealed class MemoryService : IMemoryService
     // host that builds a MemoryService by hand. DI always supplies it (ServiceCollectionExtensions
     // registers IMemoryIsolationPolicy unconditionally); DeltaRecallReachabilityTests asserts that.
     private readonly IMemoryIsolationPolicy? _isolationPolicy;
+    // 30.12. Optional for the same SemVer reason as the policy above: a public constructor cannot gain
+    // a required parameter. Null means the queue is unavailable and recall falls back to the inline or
+    // deferred path, which is what every host had before.
+    private readonly IMemoryAccessTracker? _accessTracker;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -49,7 +53,8 @@ internal sealed class MemoryService : IMemoryService
         ILogger<MemoryService> logger,
         IMemoryDecayService? decayService = null,
         IConversationRepository? conversationRepository = null,
-        IMemoryIsolationPolicy? isolationPolicy = null)
+        IMemoryIsolationPolicy? isolationPolicy = null,
+        IMemoryAccessTracker? accessTracker = null)
     {
         ArgumentNullException.ThrowIfNull(shortTerm);
         ArgumentNullException.ThrowIfNull(assembler);
@@ -77,6 +82,7 @@ internal sealed class MemoryService : IMemoryService
         _decayService = decayService;
         _conversationRepository = conversationRepository;
         _isolationPolicy = isolationPolicy;
+        _accessTracker = accessTracker;
     }
 
     /// <inheritdoc/>
@@ -128,7 +134,14 @@ internal sealed class MemoryService : IMemoryService
         // cancellation are observed; the method itself is resilient and logs internally.
         if (_decayService is not null)
         {
-            if (_options.DeferAccessTracking)
+            // 30.12. The queue wins when both are set: it is the same optimisation done safely, and a
+            // host that turned on the older option and then adopted this one should get the safe path
+            // rather than two writers racing over the same stamps.
+            if (_options.UseAccessTrackingQueue && _accessTracker is not null)
+            {
+                _accessTracker.Track(CollectAccessedNodes(context));
+            }
+            else if (_options.DeferAccessTracking)
             {
                 // 2.4. Bookkeeping the caller is not waiting for: it feeds decay and retention, and
                 // nothing in the returned context depends on it.
@@ -570,6 +583,34 @@ internal sealed class MemoryService : IMemoryService
         return false;
     }
 
+    /// <summary>
+    /// The entity/fact/preference ids one recall touched (30.12).
+    /// </summary>
+    /// <remarks>
+    /// Extracted so the queued path and the inline path build the identical list from the identical
+    /// sections. Two copies of "which nodes did this recall touch" is how one path quietly stops
+    /// counting a section the other still counts, and the symptom would be a decay curve that differs by
+    /// which flag a host set.
+    /// </remarks>
+    private static List<(string NodeId, MemoryNodeKind NodeKind)> CollectAccessedNodes(MemoryContext context)
+    {
+        var nodes = new List<(string NodeId, MemoryNodeKind NodeKind)>(
+            context.RelevantEntities.Items.Count
+            + context.RelevantFacts.Items.Count
+            + context.RelevantPreferences.Items.Count);
+
+        foreach (var entity in context.RelevantEntities.Items)
+            nodes.Add((entity.EntityId, MemoryNodeKind.Entity));
+
+        foreach (var fact in context.RelevantFacts.Items)
+            nodes.Add((fact.FactId, MemoryNodeKind.Fact));
+
+        foreach (var pref in context.RelevantPreferences.Items)
+            nodes.Add((pref.PreferenceId, MemoryNodeKind.Preference));
+
+        return nodes;
+    }
+
     private async Task UpdateAccessTimestampsAsync(MemoryContext context, CancellationToken cancellationToken)
     {
         // Spanned separately from the rest of recall because this is a WRITE burst on the pre-model read
@@ -584,19 +625,7 @@ internal sealed class MemoryService : IMemoryService
             // transaction — measured at 25 write transactions per default recall, all awaited before the
             // model was invoked. The batch API is a default interface method that falls back to exactly
             // that loop, so an implementation which cannot batch is unaffected.
-            var nodes = new List<(string NodeId, MemoryNodeKind NodeKind)>(
-                context.RelevantEntities.Items.Count
-                + context.RelevantFacts.Items.Count
-                + context.RelevantPreferences.Items.Count);
-
-            foreach (var entity in context.RelevantEntities.Items)
-                nodes.Add((entity.EntityId, MemoryNodeKind.Entity));
-
-            foreach (var fact in context.RelevantFacts.Items)
-                nodes.Add((fact.FactId, MemoryNodeKind.Fact));
-
-            foreach (var pref in context.RelevantPreferences.Items)
-                nodes.Add((pref.PreferenceId, MemoryNodeKind.Preference));
+            var nodes = CollectAccessedNodes(context);
 
             activity?.SetTag("memory.access_tracking.items", nodes.Count);
 

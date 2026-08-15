@@ -24,6 +24,20 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         "Answer the question using only the retrieved memory below. " +
         "Be concise and do not claim information that is absent from memory.";
 
+    /// <summary>
+    /// The answer text of a response, with quote-forcing unwrapped when it was used (30.11).
+    /// </summary>
+    /// <remarks>
+    /// Unwrapping happens here, before voting, so votes cluster on the ANSWER rather than on the whole
+    /// two-line response — otherwise two votes agreeing on the answer while citing different quotes
+    /// would be counted as a disagreement, and the two features would fight each other.
+    /// </remarks>
+    private string AnswerTextOf(ChatResponse response)
+    {
+        var text = response.Text ?? string.Empty;
+        return _options.QuoteForcing ? LongMemEvalQuoteForcing.Parse(text).Answer : text;
+    }
+
     private readonly IMemoryService _memory;
     private readonly IChatClient _chatClient;
     private readonly string _runId;
@@ -797,24 +811,67 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
 
         ChatResponse response;
+        // 30.11. Null unless voting ran, so an unvoted run's report is byte-identical.
+        AnswerVoteResult? voteResult = null;
         try
         {
+            // 30.11 quote-forcing. Built from SystemPrompt rather than replacing it, so the two cannot
+            // drift; identical to the historical prompt when off.
+            var systemPrompt = _options.QuoteForcing
+                ? LongMemEvalQuoteForcing.SystemPrompt(SystemPrompt)
+                : SystemPrompt;
+
+            // Distinct seeds per vote, derived from the one recorded base. With AnswerVotes = 1 (the
+            // default) this is a single-element list holding exactly the historical seed value, so the
+            // call below is byte-for-byte what it always was.
+            var seeds = LongMemEvalAnswerVote.SeedsFor(_options.AnswerSeed, Math.Max(1, _options.AnswerVotes));
+
+            Task<ChatResponse> AskAsync(int? seed) => LongMemEvalRuntime.ExecuteStageAsync(
+                "answer",
+                () => _chatClient.GetResponseAsync(
+                    [
+                        new ChatMessage(ChatRole.System, systemPrompt),
+                        new ChatMessage(ChatRole.User, answerPrompt)
+                    ],
+                    // Temperature is deliberately never set: this deployment refuses any value but its
+                    // default, so passing one would fail the run rather than pin the model.
+                    seed is null ? null : new ChatOptions { Seed = seed },
+                    cancellationToken));
+
             response = await timings.MeasureAsync(
                 LongMemEvalStage.Answer,
-                () => LongMemEvalRuntime.ExecuteStageAsync(
-                    "answer",
-                    () => _chatClient.GetResponseAsync(
-                        [
-                            new ChatMessage(ChatRole.System, SystemPrompt),
-                            new ChatMessage(ChatRole.User, answerPrompt)
-                        ],
-                        // Null unless AnswerSeed is set, which is byte-for-byte the historical call.
-                        // Temperature is deliberately never set: this deployment refuses any value but
-                        // its default, so passing one would fail the run rather than pin the model.
-                        _options.AnswerSeed is null
-                            ? null
-                            : new ChatOptions { Seed = _options.AnswerSeed },
-                        cancellationToken))).ConfigureAwait(false);
+                async () =>
+                {
+                    var first = await AskAsync(seeds[0]).ConfigureAwait(false);
+                    if (seeds.Count == 1)
+                    {
+                        // Quote-forcing still has to be unwrapped on the single-vote path, or the judge
+                        // reads the two-line envelope and scores the format instead of the answer. With
+                        // quote-forcing off this returns the response object untouched, which is the
+                        // byte-identical historical path.
+                        return _options.QuoteForcing
+                            ? new ChatResponse(new ChatMessage(ChatRole.Assistant, AnswerTextOf(first)))
+                            {
+                                Usage = first.Usage,
+                            }
+                            : first;
+                    }
+
+                    // Sequential, not concurrent: these are the most expensive calls in the run and the
+                    // deployment is rate-limited, so a burst buys latency at the cost of throttling the
+                    // whole run.
+                    var texts = new List<string> { AnswerTextOf(first) };
+                    for (var index = 1; index < seeds.Count; index++)
+                        texts.Add(AnswerTextOf(await AskAsync(seeds[index]).ConfigureAwait(false)));
+
+                    voteResult = LongMemEvalAnswerVote.Aggregate(texts);
+                    // The winner is returned in the FIRST response's envelope so usage/telemetry keep
+                    // their existing shape; only the text is the vote's.
+                    return new ChatResponse(new ChatMessage(ChatRole.Assistant, voteResult.Answer))
+                    {
+                        Usage = first.Usage,
+                    };
+                }).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -1611,6 +1668,33 @@ public sealed record LongMemEvalAdapterOptions
     /// </para>
     /// </remarks>
     public int? AnswerSeed { get; init; }
+
+    /// <summary>
+    /// 30.11. How many answers to sample per question before voting. Default 1 — one call, no voting,
+    /// byte-identical to every archived run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Votes get distinct seeds derived from <see cref="AnswerSeed"/>, so a run stays reproducible from
+    /// one recorded number. The pre-registered primary claim is that the <b>band narrows</b> across
+    /// repeat runs, not that point accuracy rises: with a measured 14-point spread between two identical
+    /// accepted runs, a point comparison on n=50 is noise wearing a decimal.
+    /// </para>
+    /// <para>
+    /// Costs N× the answer calls. Judge calls are unchanged — only the winner is judged.
+    /// </para>
+    /// </remarks>
+    public int AnswerVotes { get; init; } = 1;
+
+    /// <summary>
+    /// 30.11. Requires the model to quote its supporting evidence before answering. Default off.
+    /// </summary>
+    /// <remarks>
+    /// Composes with voting: voting reduces variance in what the model says, quote-forcing constrains
+    /// what it may say by making it name the retrieved line first. <c>EVIDENCE: NONE FOUND</c> is an
+    /// explicit escape, because the alternative to admitting absence is inventing presence.
+    /// </remarks>
+    public bool QuoteForcing { get; init; }
 
     /// <summary>
     /// 27.4. Derives the RETRIEVAL query from the question. Null (the default) retrieves with the

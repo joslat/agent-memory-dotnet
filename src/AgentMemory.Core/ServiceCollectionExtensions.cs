@@ -340,6 +340,20 @@ public static class ServiceCollectionExtensions
             AgentMemory.Core.Extraction.Derivation.IDerivedMemoryAccountant,
             AgentMemory.Core.Extraction.Derivation.SessionAccountant>();
 
+        // 30.12. A SINGLETON, owned by the root container — that placement is the whole feature.
+        // MemoryOptions.DeferAccessTracking already made this write fire-and-forget, but it starts
+        // inside the request scope, so a host that disposes the scope on response completion disposes
+        // the repository under an in-flight write. This one resolves its own scope per batch from the
+        // root provider, so the write outlives the request by construction.
+        //
+        // The factory closes over the ROOT provider deliberately, and creates a fresh scope per batch
+        // rather than capturing one service: capturing a scoped dependency in a singleton is the
+        // captive-dependency trap this codebase has already paid for once.
+        services.TryAddSingleton<IMemoryAccessTracker>(sp => new MemoryAccessTrackingChannel(
+            sp,
+            sp.GetRequiredService<IOptions<MemoryOptions>>(),
+            sp.GetRequiredService<ILogger<MemoryAccessTrackingChannel>>()));
+
         // Embedding orchestrator — centralizes embedding generation logic.
         services.TryAddScoped<IEmbeddingOrchestrator, EmbeddingOrchestrator>();
 

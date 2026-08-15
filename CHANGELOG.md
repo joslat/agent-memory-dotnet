@@ -32,6 +32,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Access tracking off the recall path, safely (`MemoryOptions.UseAccessTrackingQueue`).** Off by
+  default. Access stamps feed decay and retention; nothing in a returned context depends on them, so a
+  caller blocked on the write is blocked on nothing — at shipped defaults that was up to 25 write
+  transactions before the model was even invoked.
+
+  `DeferAccessTracking` already made the write fire-and-forget, and **its own documentation admits the
+  flaw**: the write starts inside the request scope, so a host that disposes that scope on response
+  completion can dispose the repository under an in-flight write, surfacing as an
+  `ObjectDisposedException` in a log nobody reads while access tracking silently stops. This is the same
+  optimisation done safely — a **singleton** channel owned by the root container, drained by one
+  long-running consumer that takes a fresh scope per batch, so the write outlives the request by
+  construction. It supersedes `DeferAccessTracking` where both are set.
+
+  Bounded and drop-on-full: an unbounded queue turns a slow database into unbounded memory, and a
+  blocking one puts the latency straight back. Dropping is right for this payload specifically — a lost
+  stamp ages one memory's retention marginally against a 30-day half-life — and drops are **counted and
+  logged**. It drains on dispose, which is what makes "audit rows equal at end of run" checkable.
+
+  Two defects were found in the first draft by its own tests and are worth recording, because both
+  would have shipped looking correct:
+
+  - Under `BoundedChannelFullMode.DropWrite`, `TryWrite` returns **true** and discards the item, so the
+    drop counter keyed on its return value counted zero forever while the queue silently threw work
+    away — precisely the "quietly discarding its input" failure the class comment warns against. Now
+    counted through the channel's `itemDropped` callback.
+  - A singleton implementing only `IAsyncDisposable` makes `ServiceProvider.Dispose()` *throw*, breaking
+    every host that disposes its container synchronously. It now implements both.
+
+- **Self-consistency voting and quote-forcing in the evaluation harness** (`--answer-votes`,
+  `--quote-forcing`). Defaults are one unvoted, unforced answer call — byte-identical to every archived
+  run. The pre-registered primary claim is that the **band narrows** across repeat runs, not that point
+  accuracy rises: with a measured 14-point spread between two identical accepted runs, a point
+  comparison on n=50 is noise wearing a decimal.
+
+  Votes get distinct seeds derived from `--answer-seed`, so a run stays reproducible from one recorded
+  number. Clustering is deliberately conservative — case, whitespace, trailing punctuation, nothing more
+  — because stripping articles or stemming would merge answers a judge scores differently, turning a
+  real disagreement into an invented consensus. A three-way split is *reported* rather than resolved,
+  since spending an LLM tiebreak costs money and must not be decided implicitly inside an aggregation
+  helper.
+
+  Quote-forcing asks for `EVIDENCE: "<verbatim quote>"` (or `EVIDENCE: NONE FOUND`) before the answer,
+  and an unformatted response keeps its answer with the miss recorded — discarding it would convert a
+  formatting failure into a scored memory failure. The two compose: votes cluster on the *answer*, not
+  the two-line envelope, or agreeing answers citing different quotes would count as disagreement.
+
+  **The void witness here is a live outcome, not a formality.** Proposal F assumed the provider's forced
+  temperature 1.0 is the sampler; 30.1 then measured that seeding *halves* answer variance on this
+  deployment. If votes are byte-identical on >80% of questions, the sampler is not sampling — that is a
+  measured provider property, and the pre-registered response is to record it and stop.
+
 - **Legible forgetting — a stated absence (`RecallOptions.LegibleForgetting`).** Off by default.
   Forgetting already worked and was **invisible**: decay pruned, recall returned less, and the agent
   answered as though it had never known — indistinguishable, to the person asking, from never having

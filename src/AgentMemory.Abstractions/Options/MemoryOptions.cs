@@ -152,6 +152,31 @@ public sealed record MemoryOptions
     public bool DeferAccessTracking { get; set; }
 
     /// <summary>
+    /// Routes access tracking through a root-owned background queue instead of the recall path (30.12).
+    /// Default off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the <b>safe</b> version of <see cref="DeferAccessTracking"/>, and it supersedes it where
+    /// both are set. Deferral starts the write inside the request scope, so a host that disposes that
+    /// scope on response completion can dispose the repository under an in-flight write — the failure
+    /// that option's own documentation admits to. The queue is owned by the <i>root</i> container and
+    /// resolves its own scope per batch, so the write outlives the request by construction.
+    /// </para>
+    /// <para>
+    /// Bounded and drop-on-full: a lost access stamp ages one memory's retention score marginally
+    /// against a 30-day half-life, while an unbounded queue turns a slow database into unbounded memory
+    /// and a blocking one puts the latency straight back. Drops are counted and logged.
+    /// </para>
+    /// </remarks>
+    public bool UseAccessTrackingQueue { get; set; }
+
+    /// <summary>
+    /// How many recall batches the access-tracking queue holds before dropping. Default 1024.
+    /// </summary>
+    public int AccessTrackingQueueCapacity { get; set; } = 1024;
+
+    /// <summary>
     /// How much a fact's confidence moves when the world corroborates or contradicts it (S2).
     /// </summary>
     /// <remarks>

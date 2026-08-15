@@ -160,7 +160,7 @@ time (see `docs/reviews/net10-performance-comparison.md`).
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.3 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 72 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, etc.), 45 service interfaces (incl. `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 32 enums (incl. `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`) |
+| **Key types** | 72 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, etc.), 46 service interfaces (incl. `IMemoryAccessTracker`, `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 32 enums (incl. `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`) |
 
 **Namespace structure:**
 ```
@@ -536,6 +536,31 @@ Rendered by `MemoryDeltaFormatter` through the same admission check and delimite
 recalled category, filling the projection layer's reserved `DeltaSummary` slot. The Agent Framework path
 passes its own host-pluggable admission policy in, so a custom policy is not applied everywhere *except*
 the delta. *(See [`docs/extensions/delta-recall.md`](extensions/delta-recall.md).)*
+
+#### 3.2.8b Access tracking on a root-owned queue (30.12)
+
+Access stamps feed decay and retention. Nothing in a returned context depends on them, so a caller
+blocked on the write is blocked on nothing — at shipped `RecallOptions` defaults that was up to **25
+write transactions before the model was invoked**.
+
+`MemoryOptions.DeferAccessTracking` already made the write fire-and-forget, and its own documentation
+names the flaw: the write starts *inside the request scope*, so a host that disposes that scope on
+response completion disposes the repository under an in-flight write — an `ObjectDisposedException` in a
+log nobody reads, after which access tracking silently stops.
+
+`MemoryOptions.UseAccessTrackingQueue` is the same optimisation done safely, and supersedes it where
+both are set.
+
+| Invariant | Mechanism |
+|---|---|
+| **Outlives the request** | A **singleton** owned by the root container; the consumer takes a fresh scope per batch rather than capturing a scoped service — the captive-dependency trap this codebase paid for once already |
+| **Never blocks the caller** | `Track` returns `void` by contract. A `Task`-returning version invites an await, which reinstates the latency the queue exists to remove |
+| **Drops, and says so** | Bounded with `DropWrite`. Unbounded turns a slow database into unbounded memory; blocking puts the latency straight back. A lost stamp ages one memory marginally against a 30-day half-life — and drops are counted through the channel's `itemDropped` callback, because `TryWrite` returns **true** when it discards |
+| **Never dies** | A failing batch is logged and swallowed: a dead consumer converts one bad batch into permanent silence |
+| **Drains on dispose** | Both `IDisposable` and `IAsyncDisposable` — an async-only singleton makes `ServiceProvider.Dispose()` throw. This is what makes "audit rows equal at end of run" checkable |
+
+The other half of the speed pair, recall projections (`MemoryOptions.OmitEmbeddingsFromRecall`), was
+already shipped across all three vector repositories.
 
 #### 3.2.9b Legible forgetting: the stated absence (30.8)
 
