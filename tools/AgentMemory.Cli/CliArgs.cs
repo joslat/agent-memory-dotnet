@@ -147,10 +147,13 @@ public static class CliHelp
                                      (passed as allow-counter-change) and a PR-body justification.
               decay [--owner <id>]   Decay-prune memories: soft-invalidate by default (kept + recoverable;
                                      set MemoryDecay:NonDestructive=false to hard-delete). Owner-scoped, or global.
-              schema-parity [--upstream-version <v>]
+              schema-parity [--upstream-version <v>] [--extensions <id,...>]
                                      Verify the .NET schema is compatible with an embedded upstream
                                      neo4j-agent-memory snapshot (default: newest). No DB needed; exit 1
-                                     on a break. CI-friendly self-check.
+                                     on a break. CI-friendly self-check. With --extensions, ALSO verifies
+                                     under the effective policy those schema extensions compose; base is
+                                     checked either way, so an extension cannot hide a base break behind
+                                     its own allowlist.
               help                   Show this help.
 
             CONNECTION (precedence: CLI option > Neo4j:* config > NEO4J_* env > default):

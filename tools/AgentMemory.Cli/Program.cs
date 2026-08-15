@@ -32,7 +32,8 @@ if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
 if (string.Equals(cli.Command, "schema-parity", StringComparison.OrdinalIgnoreCase))
 {
-    return new AgentMemory.Cli.Commands.SchemaParityCommand(Console.Out).Execute(cli.Get("upstream-version"));
+    return new AgentMemory.Cli.Commands.SchemaParityCommand(Console.Out)
+        .Execute(cli.Get("upstream-version"), cli.Get("extensions"));
 }
 
 // perf provisions its OWN Neo4j (Testcontainers) and its own deterministic embedding/model stand-ins,

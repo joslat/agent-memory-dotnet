@@ -344,7 +344,26 @@ public sealed class DecayCommand(IMemoryDecayService service, TextWriter output)
 /// </summary>
 public sealed class SchemaParityCommand(TextWriter output)
 {
-    public int Execute(string? upstreamVersion)
+    public int Execute(string? upstreamVersion) => Execute(upstreamVersion, extensions: null);
+
+    /// <summary>
+    /// Verifies parity under the <b>base</b> policy and, when extensions are named, under the
+    /// <b>effective</b> policy too — both worlds must stay green.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 30.14. Checking only base would leave every extension's <c>ParityDelta</c> verified by nothing an
+    /// operator or CI actually runs: the composition would be exercised in a unit test and never in the
+    /// command whose entire job is answering "are we still compatible?". That is the ship-but-unreachable
+    /// shape, one layer up from the code it was built to prevent.
+    /// </para>
+    /// <para>
+    /// <b>Base is always checked, even with extensions on.</b> An extension that made base parity fail
+    /// would be a genuine break, and reporting only the effective world would hide it behind the
+    /// allowlist the extension itself supplied.
+    /// </para>
+    /// </remarks>
+    public int Execute(string? upstreamVersion, string? extensions)
     {
         var registry = new UpstreamSchemaRegistry();
         var available = registry.AvailableVersions;
@@ -361,9 +380,36 @@ public sealed class SchemaParityCommand(TextWriter output)
             return 1;
         }
 
-        var report = SchemaParityVerifier.VerifyDotNet(target, registry);
-        output.WriteLine(report.Summary());
-        return report.IsCompatible ? 0 : 1;
+        var baseReport = SchemaParityVerifier.VerifyDotNet(target, registry);
+        output.WriteLine(baseReport.Summary());
+
+        var requested = (extensions ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (requested.Length == 0) return baseReport.IsCompatible ? 0 : 1;
+
+        SchemaParityReport effectiveReport;
+        try
+        {
+            var active = SchemaExtensionRegistry.CreateDefault().Active(requested);
+            output.WriteLine();
+            output.WriteLine(
+                $"With extensions [{string.Join(", ", active.Select(e => $"{e.Id} v{e.Version}"))}]:");
+            effectiveReport = SchemaParityVerifier.Verify(
+                EffectiveSchema.Describe(active),
+                registry.Load(target),
+                SchemaParityPolicy.ForVersion(target).WithExtensions(active));
+            output.WriteLine(effectiveReport.Summary());
+        }
+        catch (AgentMemory.Abstractions.Exceptions.SchemaInitializationException exception)
+        {
+            // An unknown id or a stale delta is a schema-parity FAILURE, not a usage error: the
+            // configuration names a divergence that cannot be composed, so no compatibility claim can
+            // be made for it at all.
+            output.WriteLine($"schema-parity: extension composition failed — {exception.Message}");
+            return 1;
+        }
+
+        return baseReport.IsCompatible && effectiveReport.IsCompatible ? 0 : 1;
     }
 }
 

@@ -55,6 +55,21 @@ internal sealed class SchemaExtensionRegistry
         _byId = All.ToDictionary(e => e.Id, StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// The extensions this package ships, as instances. <b>The single list</b> — DI registration and
+    /// every host-less caller (the <c>schema-parity</c> CLI verb, which builds no container) read it,
+    /// so the two can never disagree about what exists.
+    /// </summary>
+    /// <remarks>
+    /// A second hand-maintained list is how an extension ends up registered in one place and invisible
+    /// in another. <c>SchemaExtensionReachabilityTests</c> still reflects over the assembly and compares
+    /// against what DI produces, so an implementation missing from <i>this</i> list is caught too.
+    /// </remarks>
+    public static IReadOnlyList<ISchemaExtension> CreateShipped() => [new ProceduralSchemaExtension()];
+
+    /// <summary>A registry over <see cref="CreateShipped"/>, for callers with no container.</summary>
+    public static SchemaExtensionRegistry CreateDefault() => new(CreateShipped());
+
     /// <summary>Every registered extension, ordinal-sorted by id. Registration is not activation.</summary>
     public IReadOnlyList<ISchemaExtension> All { get; }
 

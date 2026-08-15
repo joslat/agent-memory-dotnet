@@ -55,6 +55,42 @@ public sealed class CliCommandsTests
     }
 
     [Fact]
+    public void SchemaParityCommand_WithNoExtensions_ChecksBaseOnly_AndStaysGreen()
+    {
+        var exit = new SchemaParityCommand(_output).Execute(upstreamVersion: null);
+
+        exit.Should().Be(0);
+        _output.ToString().Should().Contain("COMPATIBLE").And.NotContain("With extensions");
+    }
+
+    [Fact]
+    public void SchemaParityCommand_WithExtensions_VerifiesTheEffectivePolicyToo()
+    {
+        // 30.14. Without this, every extension's ParityDelta would be verified only by a unit test and
+        // never by the command whose whole job is answering "are we still compatible?" -- the
+        // ship-but-unreachable shape one layer up from the code it exists to prevent.
+        var exit = new SchemaParityCommand(_output).Execute(upstreamVersion: null, extensions: "procedural");
+
+        exit.Should().Be(0);
+        var text = _output.ToString();
+        text.Should().Contain("With extensions").And.Contain("procedural v1");
+        // BOTH worlds reported. Base is checked even with extensions on, so an extension cannot hide a
+        // base break behind the allowlist it supplied itself.
+        System.Text.RegularExpressions.Regex.Matches(text, "COMPATIBLE").Count.Should().Be(2);
+    }
+
+    [Fact]
+    public void SchemaParityCommand_UnknownExtension_FailsRatherThanIgnoringIt()
+    {
+        // Naming a divergence that cannot be composed means no compatibility claim can be made for
+        // that configuration at all -- so it is a parity FAILURE, not a usage warning.
+        var exit = new SchemaParityCommand(_output).Execute(upstreamVersion: null, extensions: "not-a-real-one");
+
+        exit.Should().Be(1);
+        _output.ToString().Should().Contain("composition failed").And.Contain("not-a-real-one");
+    }
+
+    [Fact]
     public async Task SchemaCheckCommand_WithExtensionRegistry_ReportsOwnersAlongsideConformance()
     {
         // 30.14. The two halves answer different questions -- "are the objects present?" and "whose

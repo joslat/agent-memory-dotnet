@@ -108,7 +108,10 @@ public static class ServiceCollectionExtensions
         // an extension *knowable* -- the owners report and the parity validator inspect every
         // registered extension, active or not, so a declaration that collides with base is caught on a
         // machine that has never enabled it. Empty Extensions set = base schema, byte-identical.
-        services.AddSingleton<Schema.Extensions.ISchemaExtension, Schema.Extensions.ProceduralSchemaExtension>();
+        // Registered from the SAME list the host-less callers read (the schema-parity CLI verb builds
+        // no container), so DI and the CLI can never disagree about which extensions exist.
+        foreach (var extension in Schema.Extensions.SchemaExtensionRegistry.CreateShipped())
+            services.AddSingleton(extension);
         services.TryAddSingleton<Schema.Extensions.SchemaExtensionRegistry>();
 
         // Graph query service
