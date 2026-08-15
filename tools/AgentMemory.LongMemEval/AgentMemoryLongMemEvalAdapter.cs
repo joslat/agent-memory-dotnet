@@ -17,6 +17,7 @@ namespace AgentMemory.LongMemEval;
 public sealed partial class AgentMemoryLongMemEvalAdapter :
     IEvaluableAgent,
     IHistoryInjectableAgent,
+    ITimestampedHistoryInjectableAgent,
     ISessionResettableAgent
 {
     internal const string SystemPrompt =
@@ -42,6 +43,18 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
     private readonly object _stateLock = new();
     private readonly List<LongMemEvalQuestionTelemetry> _telemetry = [];
     private IReadOnlyList<(string UserMessage, string AssistantResponse)>? _pendingHistory;
+
+    /// <summary>
+    /// One instant per pending turn pair, aligned with <see cref="_pendingHistory"/>. Null when the
+    /// history arrived through the untimestamped channel.
+    /// </summary>
+    private IReadOnlyList<DateTimeOffset>? _pendingTurnTimestamps;
+
+    /// <summary>
+    /// The instant the pending question is asked, from the typed channel. Null when the history
+    /// arrived untimestamped.
+    /// </summary>
+    private DateTimeOffset? _pendingQueryTime;
     private int _questionNumber;
     private string _sessionId;
     private string _ownerId;
@@ -185,6 +198,68 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         }
     }
 
+    /// <summary>
+    /// Accepts history whose turns carry real instants (TypedMemEval's TimestampsOnly channel).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each turn's <see cref="TimestampedConversationTurn.Timestamp"/> becomes the stored messages'
+    /// own clock (<c>Message.TimestampUtc</c> — the product's valid time), replacing the epoch +
+    /// injection-ordinal clock the untimestamped channel uses. <b>No date text is added to any
+    /// message content</b>: the whole point of the TimestampsOnly grounding mode is that dates are
+    /// structural, and a harness that re-printed them into the text would hand back the crutch the
+    /// mode exists to remove.
+    /// </para>
+    /// <para>
+    /// <see cref="TimestampedConversationHistory.QueryTime"/> is carried to the question call as the
+    /// answer-time anchor: recall runs through <c>RecallAsOfAsync</c> with QueryTime as the
+    /// valid-time clock (so a fact's validity window is judged against the question's "now", not the
+    /// machine's), and the answer prompt's "Current date" line is rendered from it rather than from
+    /// evaluator-side knowledge.
+    /// </para>
+    /// <para>
+    /// Refused up front when the adapter options include surfaces the point-in-time recall path does
+    /// not implement (predicate expansion, query-relation resolution, GraphRAG): accepting them
+    /// would run a question whose configuration silently did nothing — the dead-option shape this
+    /// codebase exists to refuse.
+    /// </para>
+    /// </remarks>
+    public void InjectTimestampedConversationHistory(TimestampedConversationHistory history)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(history.Turns);
+        if (_options.ExpandFactsByPredicate || _options.ResolveQueryRelations ||
+            _options.GraphRagItems > 0)
+        {
+            throw new InvalidOperationException(
+                "Timestamped LongMemEval history anchors recall at RecallAsOfAsync, which does not " +
+                "implement predicate expansion, query-relation resolution, or GraphRAG; refusing to " +
+                "run a question whose options would be silently ignored.");
+        }
+
+        var pairs = new (string UserMessage, string AssistantResponse)[history.Turns.Count];
+        var timestamps = new DateTimeOffset[history.Turns.Count];
+        for (var index = 0; index < history.Turns.Count; index++)
+        {
+            var turn = history.Turns[index];
+            pairs[index] = (turn.UserMessage, turn.AssistantResponse);
+            timestamps[index] = turn.Timestamp;
+        }
+
+        lock (_stateLock)
+        {
+            if (_pendingHistory is not null)
+            {
+                throw new InvalidOperationException(
+                    "LongMemEval history was injected more than once for the same question.");
+            }
+
+            _pendingHistory = pairs;
+            _pendingTurnTimestamps = timestamps;
+            _pendingQueryTime = history.QueryTime;
+        }
+    }
+
     public Task ResetSessionAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -194,6 +269,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             _sessionId = ScopeId("session", _questionNumber);
             _ownerId = ScopeId("owner", _questionNumber);
             _pendingHistory = null;
+            _pendingTurnTimestamps = null;
+            _pendingQueryTime = null;
         }
 
         return Task.CompletedTask;
@@ -207,6 +284,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         var timings = new LongMemEvalStageTimingCollector();
 
         IReadOnlyList<(string UserMessage, string AssistantResponse)> history;
+        IReadOnlyList<DateTimeOffset>? turnTimestamps;
+        DateTimeOffset? queryTime;
         string sessionId;
         string ownerId;
         int questionNumber;
@@ -221,7 +300,11 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                     "LongMemEval question cannot run with empty conversation history.");
             }
 
+            turnTimestamps = _pendingTurnTimestamps;
+            queryTime = _pendingQueryTime;
             _pendingHistory = null;
+            _pendingTurnTimestamps = null;
+            _pendingQueryTime = null;
             sessionId = _sessionId;
             ownerId = _ownerId;
             questionNumber = _questionNumber;
@@ -230,8 +313,13 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         LongMemEvalEvidenceQuestion? evidenceQuestion = null;
         try
         {
+            // A timestamped question must resolve through the QueryTime-aware fingerprint:
+            // Prospective pair arms share one haystack and differ only in the query instant, so a
+            // fingerprint over the turns alone would make the two arms indistinguishable.
             if (_options.EvidenceIndex is not null)
-                evidenceQuestion = _options.EvidenceIndex.Resolve(history, prompt);
+                evidenceQuestion = queryTime is { } evidenceQueryTime
+                    ? _options.EvidenceIndex.Resolve(history, evidenceQueryTime, prompt)
+                    : _options.EvidenceIndex.Resolve(history, prompt);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -241,7 +329,8 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
 
         var originsByMessageId = new Dictionary<string, LongMemEvalMessageOrigin>(StringComparer.Ordinal);
         var messages = BuildMessages(
-            _runId, history, sessionId, ownerId, questionNumber, evidenceQuestion, originsByMessageId);
+            _runId, history, sessionId, ownerId, questionNumber, evidenceQuestion, originsByMessageId,
+            turnTimestamps);
 
         LongMemEvalPreparedQuestion? preparedQuestion = null;
         if (_options.PreparedMemory)
@@ -578,6 +667,32 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         var requestedMessages = _options.ExcludeSyntheticFormatterMessages
             ? budget.Messages * _options.SyntheticExclusionCandidateMultiplier
             : budget.Messages;
+        var recallRequest = new RecallRequest
+        {
+            SessionId = sessionId,
+            UserId = ownerId,
+            Query = prompt,
+            Options = new RecallOptions
+            {
+                MaxRecentMessages = 0,
+                MaxRelevantMessages = requestedMessages,
+                MaxEntities = budget.Entities,
+                MaxPreferences = budget.Preferences,
+                MaxFacts = budget.Facts,
+                MaxTraces = 0,
+                // G5 "hard" tier: a relation returned whole, for the aggregation
+                // questions top-K structurally cannot answer.
+                ExpandFactsByPredicate = _options.ExpandFactsByPredicate,
+                // J2.2: also expand on the relations the question itself names, for
+                // the multi-relation case top-K structurally cannot nominate.
+                ResolveQueryRelations = _options.ResolveQueryRelations,
+                MaxExpandedFacts = _options.MaxExpandedFacts,
+                MaxGraphRagItems = budget.GraphRag,
+                MinSimilarityScore = _options.MinSimilarityScore,
+                BlendMode = BlendModeFor(budget.GraphRag),
+                IncludeDiagnostics = evidenceQuestion is not null
+            }
+        };
         RecallResult recall;
         try
         {
@@ -585,34 +700,16 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 LongMemEvalStage.Retrieval,
                 () => LongMemEvalRuntime.ExecuteStageAsync(
                     "retrieval",
-                    () => _memory.RecallAsync(
-                        new RecallRequest
-                        {
-                            SessionId = sessionId,
-                            UserId = ownerId,
-                            Query = prompt,
-                            Options = new RecallOptions
-                            {
-                                MaxRecentMessages = 0,
-                                MaxRelevantMessages = requestedMessages,
-                                MaxEntities = budget.Entities,
-                                MaxPreferences = budget.Preferences,
-                                MaxFacts = budget.Facts,
-                                MaxTraces = 0,
-                                // G5 "hard" tier: a relation returned whole, for the aggregation
-                                // questions top-K structurally cannot answer.
-                                ExpandFactsByPredicate = _options.ExpandFactsByPredicate,
-                                // J2.2: also expand on the relations the question itself names, for
-                                // the multi-relation case top-K structurally cannot nominate.
-                                ResolveQueryRelations = _options.ResolveQueryRelations,
-                                MaxExpandedFacts = _options.MaxExpandedFacts,
-                                MaxGraphRagItems = budget.GraphRag,
-                                MinSimilarityScore = _options.MinSimilarityScore,
-                                BlendMode = BlendModeFor(budget.GraphRag),
-                                IncludeDiagnostics = evidenceQuestion is not null
-                            }
-                        },
-                        cancellationToken))).ConfigureAwait(false);
+                    // A timestamped question anchors recall at its own "now". QueryTime is the
+                    // VALID-time clock — it decides which facts' validity windows contain the
+                    // question's instant, which is precisely the prospective-memory semantics the
+                    // typed channel exists to measure. The TRANSACTION clock must stay at the
+                    // machine's now: the corpus was ingested moments ago, so bounding created_at at
+                    // a 2023 QueryTime would erase everything just stored and score an empty memory.
+                    () => queryTime is { } asOf
+                        ? _memory.RecallAsOfAsync(
+                            recallRequest, asOf, DateTimeOffset.UtcNow, cancellationToken)
+                        : _memory.RecallAsync(recallRequest, cancellationToken))).ConfigureAwait(false);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -743,8 +840,15 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             };
         }
 
+        // The answer-time anchor. A timestamped question renders "now" from the QueryTime the typed
+        // channel delivered — data the system under test legitimately holds — rather than from the
+        // evaluator-side index, which the untimestamped path (whose only source is the evidence
+        // index) still uses.
         var answerPrompt = BuildAnswerPrompt(
-            recall.Context, prompt, evidenceQuestion?.QuestionDate, originsByMessageId);
+            recall.Context,
+            prompt,
+            queryTime is { } answerNow ? FormatQueryTime(answerNow) : evidenceQuestion?.QuestionDate,
+            originsByMessageId);
         LongMemEvalRetrievalEvidence? retrievalEvidence = null;
         AgentEval.Memory.External.Models.QuestionEvidenceEnvelope? normalizedEvidence = null;
         if (evidenceQuestion is not null)
@@ -1255,13 +1359,19 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
         string ownerId,
         int questionNumber,
         LongMemEvalEvidenceQuestion? evidenceQuestion,
-        IDictionary<string, LongMemEvalMessageOrigin> originsByMessageId)
+        IDictionary<string, LongMemEvalMessageOrigin> originsByMessageId,
+        IReadOnlyList<DateTimeOffset>? turnTimestamps = null)
     {
         var expectedCount = history.Count * 2;
         if (evidenceQuestion is not null && evidenceQuestion.Messages.Count != expectedCount)
         {
             throw new InvalidOperationException(
                 $"LongMemEval evidence contained {evidenceQuestion.Messages.Count} origins for {expectedCount} injected messages.");
+        }
+        if (turnTimestamps is not null && turnTimestamps.Count != history.Count)
+        {
+            throw new InvalidOperationException(
+                $"LongMemEval timestamped history carried {turnTimestamps.Count} instants for {history.Count} turns.");
         }
 
         var result = new List<Message>(expectedCount);
@@ -1314,11 +1424,25 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
                 ConversationId = sessionId,
                 Role = role,
                 Content = content,
-                TimestampUtc = DateTimeOffset.UnixEpoch.AddSeconds(current),
+                // The typed channel's whole claim: the turn's own instant becomes the message's
+                // valid time. Both halves of a pair share the turn's instant, and the untimestamped
+                // channel keeps its epoch + injection-ordinal clock so every sealed measurement
+                // stays byte-comparable with itself.
+                TimestampUtc = turnTimestamps is null
+                    ? DateTimeOffset.UnixEpoch.AddSeconds(current)
+                    : turnTimestamps[current / 2],
                 Metadata = metadata
             };
         }
     }
+
+    /// <summary>
+    /// Renders a QueryTime for the answer prompt's "Current date" line, in the corpus's own date
+    /// style so the anchor and the per-message timestamps read as one convention.
+    /// </summary>
+    internal static string FormatQueryTime(DateTimeOffset queryTime) =>
+        queryTime.UtcDateTime.ToString(
+            "yyyy/MM/dd (ddd) HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// G3B.2. The source timestamp AgentMemory persisted with the message and returns through recall.
