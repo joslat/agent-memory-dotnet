@@ -207,8 +207,45 @@ public static class ServiceCollectionExtensions
             // this the assembler can never publish the D3 per-request query intent, so RecallOptions.Intent
             // (Latest/Analog) is silently inert in every DI-wired deployment.
             rankingContext: sp.GetService<IWritableMemoryRankingContext>(),
-            truncationStrategies: sp.GetServices<ITruncationStrategy>()));
+            truncationStrategies: sp.GetServices<ITruncationStrategy>(),
+            rerankers: sp.GetServices<IMemoryReranker>(),
+            // 30.2. Enumerable and unconditional, the reranker pattern: every feature is registered,
+            // every feature reads its own flag, and every flag is off by default. Gating registration
+            // instead would mean a host that enables projection through IOptions reconfiguration still
+            // gets nothing -- silently, which is how both rerankers shipped registered by nobody.
+            projectionFeatures: sp.GetServices<Services.Projection.IProjectionFeature>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
+
+        // The five projection features (30.2), registered unconditionally and enumerably.
+        //
+        // The three that read go through GetService, not GetRequiredService, and take a NULLABLE
+        // repository. This is not defensive style, it is a resolvability requirement: a consumer may
+        // register Core with their OWN ILongTermMemoryService and no repositories at all -- a shape that
+        // exists in this repository's own tests and worked before this feature -- and a hard dependency
+        // inside an enumerable registration makes the WHOLE IEnumerable<IProjectionFeature>
+        // unresolvable, taking the assembler down with it. That is the same break an unconditional
+        // binding with an unsatisfiable dependency caused during the 1.0 lockdown. Each feature reports
+        // itself off when its repository is absent, which is more honest than accepting the flag and
+        // contributing nothing.
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            Services.Projection.IProjectionFeature, Services.Projection.MatchQualityProjectionFeature>());
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<
+            Services.Projection.IProjectionFeature, Services.Projection.ConflictProjectionFeature>());
+        // The two-type-parameter factory overload, not the one-type one: TryAddEnumerable de-duplicates
+        // by IMPLEMENTATION type, and a bare factory records the service type as its implementation,
+        // which makes every entry "indistinguishable" and throws.
+        services.TryAddEnumerable(ServiceDescriptor
+            .Scoped<Services.Projection.IProjectionFeature, Services.Projection.SupersessionProjectionFeature>(
+                sp => new Services.Projection.SupersessionProjectionFeature(
+                    sp.GetService<Abstractions.Repositories.IFactRepository>())));
+        services.TryAddEnumerable(ServiceDescriptor
+            .Scoped<Services.Projection.IProjectionFeature, Services.Projection.SourceQuoteProjectionFeature>(
+                sp => new Services.Projection.SourceQuoteProjectionFeature(
+                    sp.GetService<Abstractions.Repositories.IMessageRepository>())));
+        services.TryAddEnumerable(ServiceDescriptor
+            .Scoped<Services.Projection.IProjectionFeature, Services.Projection.DateGroundingProjectionFeature>(
+                sp => new Services.Projection.DateGroundingProjectionFeature(
+                    sp.GetService<Abstractions.Repositories.IMessageRepository>())));
 
         // Context compressor (reflection/observation summarization). It uses an IChatClient when one is
         // registered and degrades to a verbatim passthrough when not, so this binding is always safe to

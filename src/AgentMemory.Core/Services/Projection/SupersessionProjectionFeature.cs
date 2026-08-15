@@ -22,13 +22,28 @@ namespace AgentMemory.Core.Services.Projection;
 /// is also asserted — a feature that reads when disabled is a latency cost nobody opted into.
 /// </para>
 /// </remarks>
-internal sealed class SupersessionProjectionFeature(IFactRepository facts) : IProjectionFeature
+/// <remarks>
+/// <para>
+/// <b>The repository is optional, and that is a DI correctness requirement rather than a nicety.</b>
+/// This feature is registered unconditionally and enumerably, so a hard <c>IFactRepository</c>
+/// dependency would make the whole <c>IEnumerable&lt;IProjectionFeature&gt;</c> unresolvable in any
+/// container that supplies its own <c>ILongTermMemoryService</c> without repositories — a shape that
+/// exists today and used to work. That is the same class of break an unconditional binding with an
+/// unsatisfiable dependency caused during the 1.0 lockdown, so the dependency is resolved with
+/// <c>GetService</c> and the feature reports itself <b>off</b> when it is absent: a feature that cannot
+/// read cannot honour the flag, and saying so through <see cref="IsEnabled"/> is more honest than
+/// accepting the flag and silently contributing nothing.
+/// </para>
+/// </remarks>
+internal sealed class SupersessionProjectionFeature(IFactRepository? facts) : IProjectionFeature
 {
-    public bool IsEnabled(MemoryProjectionOptions options) => options.ResolveSupersessions;
+    public bool IsEnabled(MemoryProjectionOptions options) =>
+        options.ResolveSupersessions && facts is not null;
 
     public async Task ApplyAsync(ProjectionState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(state);
+        if (facts is null) return;
 
         var factIds = state.Facts.Select(fact => fact.FactId).ToList();
         if (factIds.Count == 0) return;

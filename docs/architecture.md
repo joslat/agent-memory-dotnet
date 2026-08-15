@@ -177,7 +177,7 @@ AgentMemory.Abstractions.Options       — configuration records
 | **Purpose** | Orchestration — service implementations, extraction pipeline, context assembly, stubs |
 | **Dependencies** | Abstractions (project ref), Microsoft.Extensions.AI.Abstractions 10.8.3, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10, FuzzySharp |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK |
-| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7) |
+| **Key types** | SystemClock, GuidIdGenerator, StubEmbeddingGenerator, EmbeddingOrchestrator, StubExtractionPipeline, StubEntityExtractor, StubFactExtractor, StubPreferenceExtractor, StubRelationshipExtractor, StubEntityResolver, `MemoryContextFormatter` (#92 Phase 6), `InstructionLikeContentDetector`/`RecalledMemoryDelimiter`/`RecalledMessageRoleGate` (shared by the Agent Framework and Semantic Kernel adapters, #92 Phases 6-7), `MemoryContextProjector`/`IProjectionFeature`/`ProjectionRenderer` (§3.2.8) |
 
 #### 3.2.1 Ingestion outcomes (#101)
 
@@ -442,6 +442,39 @@ is redundant, since `invalidated_at` already removes superseded facts).
 Honouring `valid_from` delivers the first two mechanisms of **prospective memory** — expression and
 gating (due-on-next-interaction semantics); acting at a time with no query is a scheduler and
 deliberately out of scope. *(CHANGELOG [Unreleased].)*
+
+#### 3.2.8 The projection layer (30.2)
+
+One pipeline between storage and the prompt, so a rendering decision is made **once**. Three surfaces
+render recalled memory — `MemoryContextFormatter` (Core/SK), `MafTypeMapper.ToContextMessages`, and the
+benchmark `BuildAnswerPrompt` — and each used to re-implement rendering, so every fix landed three
+times or rotted in two (the recorded case: a procedure-trust clause fixed in the harness while the
+product shipped the contradiction).
+
+`MemoryContextProjector` runs inside `MemoryContextAssembler` **after budgeting and reranking** in both
+the live and as-of paths, and produces a surface-neutral `MemoryContext.Projection` — per-item
+annotations (score, near-miss, supersession note, source quote, source date) plus section-level blocks
+(`NoDirectMatch`, `ConflictingMemory`, and reserved slots for `WorkingMemoryProfile`, `DueReminders`,
+`DeltaSummary`). All three surfaces read it through `ProjectionRenderer`.
+
+| Invariant | Mechanism |
+|---|---|
+| **Off is byte-identical** | No flag ⇒ `Projection` is `null` ⇒ every surface takes its pre-existing path. SHA256 fingerprints over all three surfaces, captured pre-feature, never regenerated |
+| **One extra read per read-feature** | Batched and id-anchored; the source-message fetch is memoised on the state so quotes and dates share it. Enforced by test |
+| **Unscoreable ≠ zero** | A provider without the scored contract yields `Score = null`, no near-miss marks and no abstention line — a fabricated cue is worse than none |
+| **Parity cost** | Zero. No labels, relationship types, properties, indexes or migrations |
+| **Reachability** | Every `IProjectionFeature` is DI-registered *and* every flag enables at least one feature — both directions reflected, not listed |
+
+The five features are registered unconditionally and enumerably (the `IMemoryReranker` pattern); the
+three that read take a **nullable** repository resolved with `GetService`, because a hard dependency
+inside an enumerable registration makes the whole enumerable unresolvable for a consumer who supplies
+their own `ILongTermMemoryService` without repositories.
+
+**Security posture unchanged, and strengthened at one point.** Quotes and supersession notes are
+recalled content: they render inside the existing delimit/admission machinery, never as system
+authority. Beyond the design, the *annotated* line is re-admitted — a source quote is recalled message
+content spliced onto a fact line, so leaving it unchecked would bypass admission for exactly the
+content most worth checking. On failure the item keeps its base line rather than being dropped.
 
 ### 3.3 AgentMemory.Neo4j
 

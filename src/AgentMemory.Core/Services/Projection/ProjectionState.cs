@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Repositories;
 
 namespace AgentMemory.Core.Services.Projection;
 
@@ -52,6 +53,52 @@ internal sealed class ProjectionState
     public required IReadOnlyList<(Preference Preference, double Score)> PreferenceScores { get; init; }
 
     public required IReadOnlyList<(ReasoningTrace Trace, double Score)> TraceScores { get; init; }
+
+    private Task<IReadOnlyDictionary<string, Message>>? _sourceMessages;
+
+    /// <summary>
+    /// The source messages behind the recalled items, fetched <b>once</b> however many features ask.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Memoises the <see cref="Task"/> rather than the result, so two features that both need source
+    /// messages — quotes and date grounding — share a single round trip even when they run
+    /// concurrently. Awaiting a completed task twice is free; issuing the query twice is not, and
+    /// "one extra read per recall per read-feature" is a budget this design states and tests.
+    /// </para>
+    /// <para>
+    /// Ids come from every long-term item's <c>SourceMessageIds</c>, deduplicated: one utterance
+    /// commonly produced several facts, and fetching it once per fact would multiply the read by the
+    /// section size.
+    /// </para>
+    /// </remarks>
+    public Task<IReadOnlyDictionary<string, Message>> GetSourceMessagesAsync(
+        IMessageRepository messages, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        return _sourceMessages ??= FetchSourceMessagesAsync(messages, cancellationToken);
+    }
+
+    private async Task<IReadOnlyDictionary<string, Message>> FetchSourceMessagesAsync(
+        IMessageRepository messages, CancellationToken cancellationToken)
+    {
+        var ids = Facts.SelectMany(fact => fact.SourceMessageIds)
+            .Concat(Entities.SelectMany(entity => entity.SourceMessageIds))
+            .Concat(Preferences.SelectMany(preference => preference.SourceMessageIds))
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (ids.Count == 0)
+            return new Dictionary<string, Message>(StringComparer.Ordinal);
+
+        var fetched = await messages.GetByIdsAsync(ids, cancellationToken).ConfigureAwait(false);
+        var map = new Dictionary<string, Message>(StringComparer.Ordinal);
+        foreach (var message in fetched)
+            map[message.MessageId] = message;
+
+        return map;
+    }
 
     /// <summary>Merges a contribution into one item's annotation, preserving what other features wrote.</summary>
     public void Annotate(string itemId, Func<ProjectedItemAnnotation, ProjectedItemAnnotation> contribute)

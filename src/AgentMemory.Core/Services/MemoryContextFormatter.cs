@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Core.Security;
+using AgentMemory.Core.Services.Projection;
 
 namespace AgentMemory.Core.Services;
 
@@ -48,18 +49,23 @@ internal static class MemoryContextFormatter
         // all other modes keep it after the memory-derived sections.
         bool graphFirst = ctx.BlendMode is RetrievalBlendMode.GraphRagOnly or RetrievalBlendMode.GraphRagThenMemory;
 
+        // 30.2. Null unless a projection feature was enabled, and every helper below is an identity
+        // when it is null -- which is what keeps the off-state byte-identical to every sealed prompt.
+        var projection = ctx.Projection;
+
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts, logger);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts, logger);
         AppendCategory(sb, "entities", "### Known Entities", ctx.RelevantEntities.Items,
             e => string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}",
-            e => e.Metadata.GetTrustLevel(), opts, logger);
-        AppendCategory(sb, "facts", "### Known Facts", ctx.RelevantFacts.Items,
+            e => e.Metadata.GetTrustLevel(), opts, logger, projection, e => e.EntityId);
+        AppendCategory(sb, "facts", "### Known Facts",
+            ProjectionRenderer.Reorder("facts", ctx.RelevantFacts.Items, f => f.FactId, projection),
             f => $"- {f.Subject} {f.Predicate} {f.Object}",
-            f => f.Metadata.GetTrustLevel(), opts, logger);
+            f => f.Metadata.GetTrustLevel(), opts, logger, projection, f => f.FactId);
         AppendCategory(sb, "preferences", "### User Preferences", ctx.RelevantPreferences.Items,
             p => $"- [{p.Category}] {p.PreferenceText}",
-            p => p.Metadata.GetTrustLevel(), opts, logger);
+            p => p.Metadata.GetTrustLevel(), opts, logger, projection, p => p.PreferenceId);
         // Procedural memory was invisible on this formatter, and therefore invisible to Semantic
         // Kernel and to every consumer using Core directly -- while a trace vector search ran on each
         // recall and its results were counted into TotalItemsRetrieved. The tier shipped, was tested
@@ -74,7 +80,7 @@ internal static class MemoryContextFormatter
         AppendCategory(sb, "traces", "### Similar Past Tasks", ctx.SimilarTraces.Items,
             t => $"- [{(t.Success switch { true => "✓", false => "✗", null => "?" })}] {t.Task}"
                 + (string.IsNullOrWhiteSpace(t.Outcome) ? string.Empty : $": {t.Outcome}"),
-            t => t.Metadata.GetTrustLevel(), opts, logger);
+            t => t.Metadata.GetTrustLevel(), opts, logger, projection, t => t.TraceId);
         if (!graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         // Nothing rendered under the heading: say nothing rather than announce an empty section. An
         // empty string is what a caller already handles (the zero-items early return above returns
@@ -156,19 +162,61 @@ internal static class MemoryContextFormatter
     private static void AppendCategory<T>(
         StringBuilder sb, string category, string heading, IReadOnlyList<T> items,
         Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel,
-        MemoryContextFormatterOptions opts, ILogger? logger)
+        MemoryContextFormatterOptions opts, ILogger? logger,
+        ProjectedContext? projection = null, Func<T, string>? idOf = null)
     {
-        if (items.Count == 0) return;
+        var preamble = ProjectionRenderer.SectionPreamble(category, projection);
+        // A section can be empty of items and still have something to say -- "nothing here matched" is
+        // exactly the case where there are no items worth rendering.
+        if (items.Count == 0 && preamble is null) return;
+
         var lines = new List<string>();
         foreach (var item in items)
         {
             var line = describe(item);
-            if (Admit(category, line, getTrustLevel(item), opts, logger))
-                lines.Add(line);
+            var trustLevel = getTrustLevel(item);
+            if (!Admit(category, line, trustLevel, opts, logger)) continue;
+
+            lines.Add(Annotate(category, line, item, trustLevel, opts, logger, projection, idOf));
         }
-        if (lines.Count == 0) return;
+
+        if (lines.Count == 0 && preamble is null) return;
+
         sb.AppendLine(heading);
-        sb.AppendLine(RecalledMemoryDelimiter.Wrap(category, string.Join("\n", lines)));
+        var body = preamble is null
+            ? string.Join("\n", lines)
+            : lines.Count == 0 ? preamble : preamble + "\n" + string.Join("\n", lines);
+        sb.AppendLine(RecalledMemoryDelimiter.Wrap(category, body));
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Applies projection to an already-admitted line, re-checking admission on what it added.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A deliberate strengthening of the design, which specified annotate-after-Admit and stopped
+    /// there.</b> A source quote is recalled <i>message</i> content spliced onto a fact line. The fact's
+    /// own admission check ran on a clean triple, so under Strict an instruction-like sentence could
+    /// ride into the delimited block behind a line that had already passed — the check would be
+    /// bypassed by construction, for exactly the content most worth checking.
+    /// </para>
+    /// <para>
+    /// So the annotated line is admitted too, and on failure the item keeps its <b>base</b> line rather
+    /// than being dropped: the memory itself was already judged admissible, and losing it because its
+    /// decoration was suspect would turn a rendering feature into silent retrieval loss.
+    /// </para>
+    /// </remarks>
+    private static string Annotate<T>(
+        string category, string line, T item, MemoryTrustLevel trustLevel,
+        MemoryContextFormatterOptions opts, ILogger? logger,
+        ProjectedContext? projection, Func<T, string>? idOf)
+    {
+        if (projection is null || idOf is null) return line;
+
+        var annotated = ProjectionRenderer.AnnotateLine(line, idOf(item), projection);
+        if (string.Equals(annotated, line, StringComparison.Ordinal)) return line;
+
+        return Admit(category, annotated, trustLevel, opts, logger) ? annotated : line;
     }
 }

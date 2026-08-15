@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework.Security;
 using AgentMemory.Core.Security;
+using AgentMemory.Core.Services.Projection;
 
 namespace AgentMemory.AgentFramework.Mapping;
 
@@ -101,11 +102,24 @@ internal static class MafTypeMapper
         // Each item's trust level (#92 Phase 3) is read from its own Metadata via GetTrustLevel().
         List<ChatMessage> CategoryMessages<T>(
             string category, IReadOnlyList<T> items, Func<T, string> describe, Func<T, MemoryTrustLevel> getTrustLevel,
-            string prefix, string separator)
+            string prefix, string separator, Func<T, string>? idOf = null)
         {
+            // 30.2. Identity when context.Projection is null, which is the default and the state every
+            // sealed prompt fingerprint was taken under.
+            var projection = context.Projection;
+
             var byRole = items
-                .Select(item => (Text: describe(item), Trust: getTrustLevel(item)))
+                .Select(item => (Item: item, Text: describe(item), Trust: getTrustLevel(item)))
                 .Where(x => Admit(category, x.Text, x.Trust))
+                // Annotate AFTER admission, then re-admit what projection added: a source quote is
+                // recalled MESSAGE content spliced onto a fact line, so leaving it unchecked would let
+                // instruction-like text ride in behind a triple that had already passed -- bypassing
+                // the check for exactly the content most worth checking. On failure the item keeps its
+                // base text rather than being dropped; it was already judged admissible, and losing it
+                // over a suspect decoration would be silent retrieval loss.
+                .Select(x => (
+                    Text: AnnotateAndAdmit(category, x.Text, x.Item, x.Trust, projection, idOf, Admit),
+                    x.Trust))
                 .GroupBy(x => EffectiveBlockRole(x.Trust))
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Text).ToList());
 
@@ -116,6 +130,18 @@ internal static class MafTypeMapper
             if (byRole.TryGetValue(RecalledMemoryMessageRole.User, out var userTexts) && userTexts.Count > 0)
                 messages.Add(new ChatMessage(ToChatRole(RecalledMemoryMessageRole.User),
                     WrapUntrustedContent(category, $"{prefix}{string.Join(separator, userTexts)}")));
+
+            // Section-level blocks (no-direct-match, conflicts) join the same bucket as their own
+            // delimited message at the lower-authority role. They describe recalled memory, so they get
+            // recalled memory's authority -- never the system role.
+            var preamble = ProjectionRenderer.SectionPreamble(category, projection);
+            if (!string.IsNullOrWhiteSpace(preamble) && Admit(category, preamble))
+            {
+                messages.Insert(0, new ChatMessage(
+                    EffectiveChatRole(MemoryTrustLevel.Untrusted),
+                    WrapUntrustedContent(category, preamble)));
+            }
+
             return messages;
         }
 
@@ -190,16 +216,16 @@ internal static class MafTypeMapper
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
             memory.AddRange(CategoryMessages("entities", context.RelevantEntities.Items,
                 e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}",
-                e => e.Metadata.GetTrustLevel(), "Relevant entities: ", ", "));
+                e => e.Metadata.GetTrustLevel(), "Relevant entities: ", ", ", e => e.EntityId));
 
         if (options.IncludeFacts && context.RelevantFacts.Items.Count > 0)
-            memory.AddRange(CategoryMessages("facts", context.RelevantFacts.Items,
+            memory.AddRange(CategoryMessages("facts", ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, context.Projection),
                 f => $"{f.Subject} {f.Predicate} {f.Object}",
-                f => f.Metadata.GetTrustLevel(), "Known facts: ", "; "));
+                f => f.Metadata.GetTrustLevel(), "Known facts: ", "; ", f => f.FactId));
 
         if (options.IncludePreferences && context.RelevantPreferences.Items.Count > 0)
             memory.AddRange(CategoryMessages("preferences", context.RelevantPreferences.Items, p => p.PreferenceText,
-                p => p.Metadata.GetTrustLevel(), "User preferences: ", "; "));
+                p => p.Metadata.GetTrustLevel(), "User preferences: ", "; ", p => p.PreferenceId));
 
         // A trace's Task is what was attempted; its Outcome is what happened -- and on a REPEATED task
         // the Task text is something the agent already has, so rendering it alone tells the model it has
@@ -208,7 +234,7 @@ internal static class MafTypeMapper
         // ContextFormatOptions.IncludeTraceOutcomes).
         if (options.IncludeReasoningTraces && context.SimilarTraces.Items.Count > 0)
             memory.AddRange(CategoryMessages("traces", context.SimilarTraces.Items, DescribeTrace,
-                t => t.Metadata.GetTrustLevel(), "Similar past tasks: ", "; "));
+                t => t.Metadata.GetTrustLevel(), "Similar past tasks: ", "; ", t => t.TraceId));
 
         if (!graphFirst && !string.IsNullOrEmpty(context.GraphRagContext) && Admit("graphrag", context.GraphRagContext))
             memory.Add(new ChatMessage(graphRagRole, WrapUntrustedContent("graphrag", context.GraphRagContext)));
@@ -289,6 +315,27 @@ internal static class MafTypeMapper
     // Extracted from ToContextMessages' local Admit closure (stabilization fix) so it can be shared with
     // ToGatedChatMessages below, instead of the two call sites re-deriving the same admission decision and
     // logging independently. Behavior is unchanged from the closure this replaces.
+    /// <summary>
+    /// Applies projection to an already-admitted line and re-admits what it added.
+    /// </summary>
+    /// <remarks>
+    /// Shared shape with <c>MemoryContextFormatter.Annotate</c> deliberately — the two surfaces must
+    /// make the same security decision about the same content, and this layer exists precisely because
+    /// they used to make rendering decisions independently and drift.
+    /// </remarks>
+    private static string AnnotateAndAdmit<T>(
+        string category, string text, T item, MemoryTrustLevel trustLevel,
+        ProjectedContext? projection, Func<T, string>? idOf,
+        Func<string, string, MemoryTrustLevel, bool> admit)
+    {
+        if (projection is null || idOf is null) return text;
+
+        var annotated = ProjectionRenderer.AnnotateLine(text, idOf(item), projection);
+        if (string.Equals(annotated, text, StringComparison.Ordinal)) return text;
+
+        return admit(category, annotated, trustLevel) ? annotated : text;
+    }
+
     private static bool AdmitItem(
         string category, string content, MemoryTrustLevel trustLevel,
         ContextFormatOptions options, IMemoryContextAdmissionPolicy admission, ILogger? logger)

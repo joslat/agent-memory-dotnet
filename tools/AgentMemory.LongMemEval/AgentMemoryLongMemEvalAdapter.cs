@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Text;
 using AgentEval.Core;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Core.Services.Projection;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.AI;
@@ -1433,48 +1434,69 @@ public sealed partial class AgentMemoryLongMemEvalAdapter :
             };
         }
 
+        // 30.2. The third render surface. Every helper below is an identity when Projection is null --
+        // which is the state every sealed measurement in the archive was taken under, so the off-state
+        // prompt stays byte-for-byte what it was.
+        var projection = context.Projection;
+
+        void AppendSection(string sectionKey, IEnumerable<string> lines)
+        {
+            if (ProjectionRenderer.SectionPreamble(sectionKey, projection) is { Length: > 0 } preamble)
+                builderPreamble(preamble);
+            foreach (var line in lines) builderLine(line);
+        }
+
         var builder = new StringBuilder("Retrieved memory:\n");
+        void builderLine(string line) => builder.AppendLine(line);
+        void builderPreamble(string text) => builder.Append("[note] ").AppendLine(text);
+
         foreach (var message in context.RelevantMessages.Items)
             AppendMessage(builder, message.Role, DisplayTimestamp(message), message.Content);
-        foreach (var entity in context.RelevantEntities.Items)
+
+        AppendSection("entities", context.RelevantEntities.Items.Select(entity =>
         {
-            builder.Append("[entity");
+            var line = new StringBuilder("[entity");
             if (SourceDates(entity.SourceMessageIds) is { Length: > 0 } entityDates)
-                builder.Append(" @ ").Append(entityDates);
-            builder.Append("] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
+                line.Append(" @ ").Append(entityDates);
+            line.Append("] ").Append(entity.Name).Append(" (").Append(entity.Type).Append(')');
             if (!string.IsNullOrWhiteSpace(entity.Description))
-                builder.Append(": ").Append(entity.Description);
-            builder.AppendLine();
-        }
-        foreach (var fact in context.RelevantFacts.Items)
+                line.Append(": ").Append(entity.Description);
+            return ProjectionRenderer.AnnotateLine(line.ToString(), entity.EntityId, projection);
+        }));
+
+        AppendSection("facts",
+            ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, projection)
+                .Select(fact =>
+                {
+                    var line = new StringBuilder("[fact");
+                    if (SourceDates(fact.SourceMessageIds) is { Length: > 0 } factDates)
+                        line.Append(" @ ").Append(factDates);
+                    line.Append("] ")
+                        .Append(fact.Subject).Append(' ')
+                        .Append(fact.Predicate).Append(' ')
+                        .Append(fact.Object);
+                    if (fact.ValidFrom is not null || fact.ValidUntil is not null)
+                    {
+                        line.Append(" [valid ")
+                            .Append(fact.ValidFrom?.ToString("O") ?? "?")
+                            .Append(" to ")
+                            .Append(fact.ValidUntil?.ToString("O") ?? "?")
+                            .Append(']');
+                    }
+                    return ProjectionRenderer.AnnotateLine(line.ToString(), fact.FactId, projection);
+                }));
+
+        AppendSection("preferences", context.RelevantPreferences.Items.Select(preference =>
         {
-            builder.Append("[fact");
-            if (SourceDates(fact.SourceMessageIds) is { Length: > 0 } factDates)
-                builder.Append(" @ ").Append(factDates);
-            builder.Append("] ")
-                .Append(fact.Subject).Append(' ')
-                .Append(fact.Predicate).Append(' ')
-                .Append(fact.Object);
-            if (fact.ValidFrom is not null || fact.ValidUntil is not null)
-            {
-                builder.Append(" [valid ")
-                    .Append(fact.ValidFrom?.ToString("O") ?? "?")
-                    .Append(" to ")
-                    .Append(fact.ValidUntil?.ToString("O") ?? "?")
-                    .Append(']');
-            }
-            builder.AppendLine();
-        }
-        foreach (var preference in context.RelevantPreferences.Items)
-        {
-            builder.Append("[preference");
+            var line = new StringBuilder("[preference");
             if (SourceDates(preference.SourceMessageIds) is { Length: > 0 } preferenceDates)
-                builder.Append(" @ ").Append(preferenceDates);
-            builder.Append("] ").Append(preference.PreferenceText);
+                line.Append(" @ ").Append(preferenceDates);
+            line.Append("] ").Append(preference.PreferenceText);
             if (!string.IsNullOrWhiteSpace(preference.Context))
-                builder.Append(" (").Append(preference.Context).Append(')');
-            builder.AppendLine();
-        }
+                line.Append(" (").Append(preference.Context).Append(')');
+            return ProjectionRenderer.AnnotateLine(line.ToString(), preference.PreferenceId, projection);
+        }));
+
         if (!string.IsNullOrWhiteSpace(context.GraphRagContext))
             builder.Append("[graphrag]\n").AppendLine(context.GraphRagContext);
         return AppendQuestion(builder, question, currentDate);

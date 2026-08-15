@@ -32,6 +32,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The projection layer — render what the store already knows (`RecallOptions.Projection`,
+  `MemoryOptions.Projection`).** Retrieval computes a similarity score for every item and every
+  renderer discarded it, so a 0.72 near-miss reached the model looking exactly like a 0.99 match; the
+  graph holds `SUPERSEDED_BY` edges, conflicting facts and real source dates that never reached a
+  prompt; and triples drop the tense, participants and ordinals their source sentences still carry.
+  Five independent opt-in features now surface each of those:
+
+  | Flag | What it renders |
+  |---|---|
+  | `AnnotateMatchQuality` | `[closest match, 0.72]` per item, and one `No stored item directly matches…` line when a section's *best* score is weak |
+  | `ResolveSupersessions` | `(since 2023-05-12; previously Globex)` from supersession edges live recall filters out |
+  | `RenderConflicts` | `CONFLICTING MEMORY — …` when two live recalled facts disagree |
+  | `AttachSourceQuotes` | `— said: "…"`, the shortest source sentence containing the fact's object |
+  | `GroundDates` / `ChronologicalOrdering` | the real date an item was stated, and optional within-section ordering |
+
+  **Every flag is off by default and off is byte-identical**, asserted by SHA256 fingerprints over all
+  three render surfaces — the Core Markdown formatter, the Agent Framework `ChatMessage` mapper, and
+  the benchmark answer prompt — captured before any of this code existed and never regenerated.
+
+  One pipeline, three surfaces. Projection runs once inside the context assembler (after budgeting, so
+  its reads are paid only for items that reached the prompt) and produces a surface-neutral
+  `MemoryContext.Projection`; all three renderers consume it through one shared helper, so a rendering
+  decision is made once and cannot drift the way a procedure-trust clause once did — fixed in the
+  benchmark harness while the product shipped the contradiction.
+
+  Costs are bounded by construction: exactly one extra read per recall per read-feature (batched,
+  id-anchored, and enforced by test), a quote-length cap, a quotes-per-recall cap, and a supersession
+  chain cap. **Parity impact: zero** — no new labels, relationship types, properties, indexes or
+  migrations.
+
+  New repository members are default interface methods, so no existing implementation breaks:
+  `IFactRepository.GetSupersessionPredecessorsAsync` and `IMessageRepository.GetByIdsAsync`.
+
 - **Schema extensions — optional, additive-only schema modules (`Neo4jOptions.Extensions`).** A named,
   versioned module owns its declarations, its own migration namespace, its parity divergence, and its
   entry in the ownership report. **The default is the empty set, which is the base schema,

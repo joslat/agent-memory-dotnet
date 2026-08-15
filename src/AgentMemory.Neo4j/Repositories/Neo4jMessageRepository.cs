@@ -168,6 +168,39 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Overrides the interface default (which loops <c>GetByIdAsync</c>) with one query, reusing the
+    /// existing <c>GetByIds</c> statement the batch-write path already re-reads through — so this adds
+    /// no Cypher to the catalogue, only a second caller.
+    /// <para>
+    /// Embeddings are read back per node rather than skipped: the caller is projection, which does not
+    /// need them, but a repository method that silently returned half-populated messages would be a
+    /// trap for the next caller that does.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<Message>> GetByIdsAsync(
+        IReadOnlyList<string> messageIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messageIds);
+        if (messageIds.Count == 0) return Array.Empty<Message>();
+
+        _logger.LogDebug("Getting {Count} message(s) by id", messageIds.Count);
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                MessageQueries.GetByIds, new { ids = messageIds.ToList() }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Message>)records.Select(record =>
+            {
+                var node = record["m"].As<INode>();
+                return MapToMessage(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Message>> GetByConversationAsync(string conversationId, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Getting messages for conversation {Id}", conversationId);
