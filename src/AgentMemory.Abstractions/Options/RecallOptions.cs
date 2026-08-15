@@ -86,6 +86,18 @@ public sealed record RecallOptions
     /// </remarks>
     public ValidTimeMode ValidTime { get; init; } = ValidTimeMode.Ignore;
 
+    /// <summary>
+    /// Which projection features render what the store knows but the renderers discard. All off by
+    /// default, and off is byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// Left at <see cref="MemoryProjectionOptions.Default"/>, a request inherits the application-level
+    /// value configured on <c>MemoryOptions</c> — the same reference-equality inheritance
+    /// <c>MemoryOptions.Recall</c> uses, so "the caller did not ask" stays distinguishable from "the
+    /// caller asked for the defaults".
+    /// </remarks>
+    public MemoryProjectionOptions Projection { get; init; } = MemoryProjectionOptions.Default;
+
     /// <summary>Default singleton instance.</summary>
     public static RecallOptions Default { get; } = new();
 

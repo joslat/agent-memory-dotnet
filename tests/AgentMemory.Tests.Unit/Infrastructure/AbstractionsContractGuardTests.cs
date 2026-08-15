@@ -18,8 +18,8 @@ public sealed class AbstractionsContractGuardTests
     // Counts mirrored in docs/architecture.md §3.1 and docs/design.md §5/§6.
     private const int DocumentedServiceInterfaces = 44; // +IEntitySummarySynthesizer, +IEntitySummaryService (PLAN 12.7 / S1)
     private const int DocumentedRepositoryInterfaces = 12; // +IEntitySummaryRepository (PLAN 12.7 / S1)
-    private const int DocumentedDomainRecords = 59; // +EntitySummary (PLAN 12.7 / S1; EntitySummarySource is a record STRUCT and the guard counts reference records only); +MemoryBlock, +MemoryBlockLine (PLAN 12.9 / S4); +BulkIngestionOptions, +BulkIngestionOutcome, +BulkIngestionResult (PLAN 2.9 / rank 27)
-    private const int DocumentedEnums = 30; // +TraceKind (7.1), +ExtractionProvenanceMode (9.3), +TemporalQueryClocks (13.2)
+    private const int DocumentedDomainRecords = 62; // +EntitySummary (PLAN 12.7 / S1; EntitySummarySource is a record STRUCT and the guard counts reference records only); +MemoryBlock, +MemoryBlockLine (PLAN 12.9 / S4); +BulkIngestionOptions, +BulkIngestionOutcome, +BulkIngestionResult (PLAN 2.9 / rank 27); +ProjectedContext, +ProjectedItemAnnotation, +ProjectedBlock (30.2 projection layer — MemoryProjectionOptions lives in .Options and is not counted here)
+    private const int DocumentedEnums = 31; // +TraceKind (7.1), +ExtractionProvenanceMode (9.3), +TemporalQueryClocks (13.2), +ProjectedBlockKind (30.2)
 
     private static IEnumerable<Type> PublicTypes() =>
         Abstractions.GetTypes().Where(t => t.IsPublic);

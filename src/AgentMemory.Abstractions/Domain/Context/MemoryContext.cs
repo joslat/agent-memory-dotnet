@@ -147,6 +147,19 @@ public sealed record MemoryContext
     public DateTimeOffset? ResolvedTemporalAsOf { get; init; }
 
     /// <summary>
+    /// What the projection layer computed about this context, or <see langword="null"/> when no
+    /// projection feature was enabled.
+    /// </summary>
+    /// <remarks>
+    /// <b>Null is the default and it is load-bearing.</b> Every render surface checks this for null
+    /// and takes its exact pre-existing path when it is — which is what makes the off-state byte
+    /// identical to every prompt the sealed measurements were taken over. "Enabled but produced
+    /// nothing" is a non-null projection with empty collections; the two states are deliberately
+    /// distinguishable.
+    /// </remarks>
+    public ProjectedContext? Projection { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =
