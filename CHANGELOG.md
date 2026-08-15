@@ -32,6 +32,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Schema extensions — optional, additive-only schema modules (`Neo4jOptions.Extensions`).** A named,
+  versioned module owns its declarations, its own migration namespace, its parity divergence, and its
+  entry in the ownership report. **The default is the empty set, which is the base schema,
+  byte-identical** — nothing about an existing deployment changes until an id is added. An unknown id
+  is rejected at startup listing the known ones, rather than ignored: a deployment that asked for an
+  extension and silently ran without it is the failure the mechanism exists to prevent.
+
+  Extension migrations live at `Schema/Migrations/ext/<id>/000N_name.cypher` and are recorded under the
+  namespaced key `ext/<id>/000N_name`, with the owning id on the new `(:Migration).extension_id`
+  property. The base sequence always runs first and is untouched. This exists because a linear sequence
+  cannot host optional modules: two independently-written features each correctly claimed `0012` as
+  "next free after 0011", and a database enabling one and later the other would have had two scripts
+  fighting over one key in the unique-constrained migration bookkeeping — one silently skipped as
+  "already applied", leaving an index missing with nothing to report it. A base version key never
+  contains `/`, so the existing `migration_version` constraint already covers both namespaces.
+
+  The first extension is `procedural`, a **retro-wrap**: its schema already shipped in base migration
+  `0011_trace_kind`, so activating it applies nothing. It exists to give `trace_kind` and
+  `trace_kind_idx` an *owner* — that property shipped with its entire rationale in a Cypher comment,
+  and nothing in the parity policy, the CLI or the docs recorded which feature it belonged to.
+
+  Verified at **178/178** on the upstream TCK with the system merged and everything off, and again at
+  178/178 on the same build with the extension on. See [`docs/extensions/`](docs/extensions/README.md).
+
+- **`agentmemory schema-check` now reports schema ownership.** Every non-base shape names its owning
+  extension, and an orphan fails the check (exit 1) — a divergence no active extension declares, or an
+  applied `ext/<id>/…` migration whose id this build does not have registered, which means the database
+  carries schema from a module the binary cannot account for. This fails *even when every index is
+  present*, which conformance alone reports as OK.
+
+- **`agentmemory schema-parity [--extensions <id,…>]`** additionally verifies the effective policy the
+  named extensions compose. Base is verified either way, so an extension cannot hide a base
+  compatibility break behind the allowlist it supplied itself.
+
 - **Recalled reasoning traces can carry their outcome (opt-in).**
   `ContextFormatOptions.IncludeTraceOutcomes`, default `false`. A recalled trace rendered its `Task`
   and dropped its `Outcome`, so on a repeated task the injected block told the agent it had done this
