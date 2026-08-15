@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neo4j.Driver;
 using AgentMemory.Abstractions.Repositories;
@@ -113,6 +113,10 @@ public static class ServiceCollectionExtensions
         foreach (var extension in Schema.Extensions.SchemaExtensionRegistry.CreateShipped())
             services.AddSingleton(extension);
         services.TryAddSingleton<Schema.Extensions.SchemaExtensionRegistry>();
+
+        // 30.4. Registered unconditionally and self-gated on WorkingMemoryOptions.Enabled -- the
+        // reranker pattern, so IOptions reconfiguration works.
+        services.TryAddScoped<IWorkingMemoryService, Services.Neo4jWorkingMemoryService>();
 
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();

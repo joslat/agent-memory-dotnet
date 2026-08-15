@@ -25,6 +25,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
     private readonly Projection.MemoryContextProjector _projector;
+    private readonly IWorkingMemoryService? _workingMemory;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
@@ -69,7 +70,8 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         IWritableMemoryRankingContext? rankingContext,
         IEnumerable<ITruncationStrategy>? truncationStrategies,
         IEnumerable<IMemoryReranker>? rerankers = null,
-        IEnumerable<Projection.IProjectionFeature>? projectionFeatures = null)
+        IEnumerable<Projection.IProjectionFeature>? projectionFeatures = null,
+        IWorkingMemoryService? workingMemory = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -86,6 +88,7 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
         // each owning its own IsEnabled gate, all flags off by default. Null (the non-DI ctor) means no
         // projection is possible at all, which is the byte-identical path.
         _projector = new Projection.MemoryContextProjector(projectionFeatures ?? []);
+        _workingMemory = workingMemory;
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
         _isolationPolicy = isolationPolicy;
@@ -671,6 +674,14 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             }
         }
 
+        // 30.4. The deterministic tier: a point-read by owner, not a vector competition, so it cannot
+        // be starved the way the sections above measurably are (an owner's own facts inside the global
+        // top-60 averaged 7, minimum 1; one real question retrieved ZERO from a graph holding 504 of
+        // its own). Null unless the tier is enabled AND the recall resolved to a concrete owner.
+        var workingMemory = _workingMemory is not null && !string.IsNullOrWhiteSpace(scope?.OwnerId)
+            ? await _workingMemory.GetAsync(scope!.OwnerId!, cancellationToken).ConfigureAwait(false)
+            : null;
+
         // 30.2. After truncation AND after reranking, so projection describes exactly the items that
         // reach the prompt in the order they will be rendered. Null unless a feature is enabled.
         var projection = await ProjectAsync(
@@ -684,6 +695,8 @@ internal sealed class MemoryContextAssembler : IMemoryContextAssembler
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.UtcNow,
             Projection = projection,
+            WorkingMemoryBlock = workingMemory?.Text,
+            WorkingMemoryBuiltAtUtc = workingMemory?.BuiltAtUtc,
             RecentMessages = new MemoryContextSection<Message>
             {
                 Items = recentMessages,

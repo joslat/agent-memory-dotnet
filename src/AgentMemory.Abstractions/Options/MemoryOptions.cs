@@ -51,6 +51,9 @@ public sealed record MemoryOptions
     /// </remarks>
     public MemoryProjectionOptions Projection { get; init; } = MemoryProjectionOptions.Default;
 
+    /// <summary>Working-memory tier (the compiled per-owner profile block). Off by default.</summary>
+    public WorkingMemoryOptions WorkingMemory { get; init; } = new();
+
     /// <summary>Context budget configuration.</summary>
     public ContextBudget ContextBudget { get; init; } = ContextBudget.Default;
 

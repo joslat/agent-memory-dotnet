@@ -54,6 +54,15 @@ public sealed class ContextFormatOptions
     /// admitted trace contributes. Blank outcomes render as before.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Renders the owner's compiled working-memory block, when one exists. Default false.
+    /// </summary>
+    /// <remarks>
+    /// The block is compiled from extraction output, i.e. untrusted content, so it renders through the
+    /// same per-item admission and delimiting machinery as facts and earns no trust bypass.
+    /// </remarks>
+    public bool IncludeWorkingMemory { get; set; }
+
     public bool IncludeTraceOutcomes { get; set; } = false;
 
     /// <summary>

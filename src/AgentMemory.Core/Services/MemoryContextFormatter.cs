@@ -53,6 +53,15 @@ internal static class MemoryContextFormatter
         // when it is null -- which is what keeps the off-state byte-identical to every sealed prompt.
         var projection = ctx.Projection;
 
+        // 30.4. Before every probabilistic section: this is the head of the question distribution and
+        // is a point-read, not a vector competition.
+        if (opts.IncludeWorkingMemory && !string.IsNullOrWhiteSpace(ctx.WorkingMemoryBlock))
+        {
+            AppendCategory(sb, "profile", "### Profile", 
+                ctx.WorkingMemoryBlock!.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+                line => line, _ => MemoryTrustLevel.Untrusted, opts, logger);
+        }
+
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, opts, logger);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, opts, logger);

@@ -235,7 +235,10 @@ public static class ServiceCollectionExtensions
             // every feature reads its own flag, and every flag is off by default. Gating registration
             // instead would mean a host that enables projection through IOptions reconfiguration still
             // gets nothing -- silently, which is how both rerankers shipped registered by nobody.
-            projectionFeatures: sp.GetServices<Services.Projection.IProjectionFeature>()));
+            projectionFeatures: sp.GetServices<Services.Projection.IProjectionFeature>(),
+            // 30.4. Optional: the working-memory tier is registered by the Neo4j package, so a
+            // memory-only Core consumer resolves null here and the block is simply never fetched.
+            workingMemory: sp.GetService<IWorkingMemoryService>()));
         services.TryAddScoped<IMemoryService, MemoryService>();
 
         // The five projection features (30.2), registered unconditionally and enumerably.

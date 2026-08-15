@@ -39,6 +39,7 @@ public static class ServiceCollectionExtensions
                 // dropping its outcome -- "you have done this before" and nothing about how. The
                 // property existed, the option bound, and the bridge silently discarded it.
                 ctx.IncludeTraceOutcomes = src.IncludeTraceOutcomes;
+                ctx.IncludeWorkingMemory = src.IncludeWorkingMemory;
                 ctx.ContextPrefix = src.ContextPrefix;
                 // 25.3. Same lesson, one line down: EverySettablePropertyCrossesTheBridge caught this
                 // omission the moment the property was added, which is precisely what that guard is for.

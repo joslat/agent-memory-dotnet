@@ -160,6 +160,19 @@ public sealed record MemoryContext
     public ProjectedContext? Projection { get; init; }
 
     /// <summary>
+    /// The owner's compiled working-memory block, or null when the tier is off or no block exists.
+    /// </summary>
+    /// <remarks>
+    /// An opaque string, exactly like <see cref="GraphRagContext"/>: null renders zero bytes, which is
+    /// what keeps the off-state byte-identical. Deliberately NOT populated on the as-of recall path —
+    /// the block is a <i>current</i> view and would poison a point-in-time reconstruction.
+    /// </remarks>
+    public string? WorkingMemoryBlock { get; init; }
+
+    /// <summary>When the working-memory block was last recompiled. Null when there is no block.</summary>
+    public DateTimeOffset? WorkingMemoryBuiltAtUtc { get; init; }
+
+    /// <summary>
     /// Additional metadata.
     /// </summary>
     public IReadOnlyDictionary<string, object> Metadata { get; init; } =

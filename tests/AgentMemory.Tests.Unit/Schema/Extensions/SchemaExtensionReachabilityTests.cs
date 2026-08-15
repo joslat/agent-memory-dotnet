@@ -91,7 +91,7 @@ public sealed class SchemaExtensionReachabilityTests
         using var provider = BuildContainer();
 
         provider.GetRequiredService<SchemaExtensionRegistry>().KnownIds
-            .Should().Equal("procedural");
+            .Should().Equal("procedural", "working-memory");
     }
 
     [Fact]

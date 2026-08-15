@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
@@ -25,6 +25,8 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     private readonly LongTermMemoryOptions _options;
     private readonly ILogger<LongTermMemoryService> _logger;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
+    private readonly IWorkingMemoryService? _workingMemory;
+    private readonly WorkingMemoryOptions _workingMemoryOptions;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LongTermMemoryService"/> class.
@@ -37,7 +39,11 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         IEmbeddingOrchestrator embeddingOrchestrator,
         IOptions<LongTermMemoryOptions> options,
         ILogger<LongTermMemoryService> logger,
-        IMemoryIsolationPolicy isolationPolicy)
+        IMemoryIsolationPolicy isolationPolicy,
+        // 30.4. Optional, mirroring the assembler's nullable IGraphRagContextSource: a host that has
+        // not registered the working-memory tier keeps the exact previous construction shape.
+        IWorkingMemoryService? workingMemory = null,
+        IOptions<MemoryOptions>? memoryOptions = null)
     {
         ArgumentNullException.ThrowIfNull(entityRepo);
         ArgumentNullException.ThrowIfNull(factRepo);
@@ -56,6 +62,62 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         _options = options.Value;
         _logger = logger;
         _isolationPolicy = isolationPolicy;
+        _workingMemory = workingMemory;
+        _workingMemoryOptions = memoryOptions?.Value.WorkingMemory ?? new WorkingMemoryOptions();
+    }
+
+    /// <summary>
+    /// Rebuilds the owner's working-memory block after a write that changed long-term memory.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Awaited inline, not fire-and-forget.</b> The contract the staleness canary tests is "after
+    /// the write call returns, the block is current" — a fire-and-forget rebuild would trade that
+    /// contract for a few milliseconds on a write that already cost about a second of extraction.
+    /// </para>
+    /// <para>
+    /// <b>Never fails the write.</b> A rebuild is derived bookkeeping; a caller who successfully stored
+    /// a fact must not see an exception because a projection of it could not be recompiled. On failure
+    /// the stored block is CLEARED rather than left stale, because absence degrades to today's
+    /// behaviour while staleness manufactures knowledge-update errors.
+    /// </para>
+    /// <para>
+    /// <b>GUARD G3 lives at the other end</b> (<c>Neo4jWorkingMemoryService.ShouldSkip</c>): an
+    /// ownerless write — which is what every TCK bridge write is — must not reach a MERGE on a null
+    /// identity key.
+    /// </para>
+    /// </remarks>
+    private async Task RebuildWorkingMemoryAsync(string? ownerId, CancellationToken cancellationToken)
+    {
+        if (_workingMemory is null) return;
+        if (!_workingMemoryOptions.Enabled || !_workingMemoryOptions.RebuildOnWrite) return;
+        if (string.IsNullOrWhiteSpace(ownerId)) return;
+
+        try
+        {
+            await _workingMemory.RebuildAsync(ownerId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Working-memory rebuild failed for owner {Owner}; the write itself succeeded.", ownerId);
+
+            if (!_workingMemoryOptions.ClearOnRebuildFailure) return;
+            try
+            {
+                await _workingMemory.ClearAsync(ownerId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception clearFailure)
+            {
+                // The residual risk this design accepts and names: if the CLEAR also fails, a stale
+                // block can survive. Logged at Error because nothing else can notice it.
+                _logger.LogError(
+                    clearFailure,
+                    "Working-memory block for owner {Owner} could not be cleared after a failed "
+                    + "rebuild; it may now be STALE.", ownerId);
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -200,7 +262,9 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         }
 
         var toSave = embedding is null ? preference : preference with { Embedding = embedding };
-        return await _prefRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+        var saved = await _prefRepo.UpsertAsync(toSave, cancellationToken).ConfigureAwait(false);
+        await RebuildWorkingMemoryAsync(saved.OwnerId, cancellationToken).ConfigureAwait(false);
+        return saved;
     }
 
     /// <inheritdoc/>
@@ -238,9 +302,24 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         _prefRepo.SearchByVectorAsync(queryEmbedding, limit, minScore, Resolve(scope, nameof(SearchPreferencesAsync)), cancellationToken);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A thin epilogue wrapper. The core below has three separate return branches (below-threshold,
+    /// plain upsert, dedup-reinforce), and hanging the working-memory rebuild off each of them is how
+    /// one branch quietly stops rebuilding — the design's own instruction was to route them all
+    /// through a single epilogue.
+    /// </remarks>
     public async Task<Fact> AddFactAsync(
         Fact fact,
         CancellationToken cancellationToken = default)
+    {
+        var saved = await AddFactCoreAsync(fact, cancellationToken).ConfigureAwait(false);
+        await RebuildWorkingMemoryAsync(saved.OwnerId, cancellationToken).ConfigureAwait(false);
+        return saved;
+    }
+
+    private async Task<Fact> AddFactCoreAsync(
+        Fact fact,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fact);
         fact = fact with { OwnerId = ResolveOwner(fact.OwnerId, nameof(AddFactAsync)) };
@@ -648,12 +727,33 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
         => _prefRepo.InvalidateAsync(preferenceId, Resolve(scope, nameof(InvalidatePreferenceAsync)), cancellationToken);
 
     /// <inheritdoc/>
-    public Task<bool> SupersedeFactAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _factRepo.SupersedeAsync(loserFactId, winnerFactId, Resolve(scope, nameof(SupersedeFactAsync)), cancellationToken);
+    /// <remarks>
+    /// Rebuilds the working-memory block on success. THIS is the call the staleness canary exercises:
+    /// supersession is the write that makes a block wrong, and a block asserting a superseded value
+    /// would manufacture failures in the weakest measured question type.
+    /// </remarks>
+    public async Task<bool> SupersedeFactAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        var resolved = Resolve(scope, nameof(SupersedeFactAsync));
+        var superseded = await _factRepo
+            .SupersedeAsync(loserFactId, winnerFactId, resolved, cancellationToken).ConfigureAwait(false);
+        if (superseded)
+            await RebuildWorkingMemoryAsync(resolved?.OwnerId, cancellationToken).ConfigureAwait(false);
+
+        return superseded;
+    }
 
     /// <inheritdoc/>
-    public Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
-        => _prefRepo.SupersedeAsync(loserPreferenceId, winnerPreferenceId, Resolve(scope, nameof(SupersedePreferenceAsync)), cancellationToken);
+    public async Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
+    {
+        var resolved = Resolve(scope, nameof(SupersedePreferenceAsync));
+        var superseded = await _prefRepo
+            .SupersedeAsync(loserPreferenceId, winnerPreferenceId, resolved, cancellationToken).ConfigureAwait(false);
+        if (superseded)
+            await RebuildWorkingMemoryAsync(resolved?.OwnerId, cancellationToken).ConfigureAwait(false);
+
+        return superseded;
+    }
 
     // ── #100 Stage 2: every remaining read/write in this service now goes through the central policy
     // too, not just invalidate/supersede — a write with no owner (or a read with no scope) fails closed

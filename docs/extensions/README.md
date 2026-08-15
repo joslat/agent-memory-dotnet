@@ -58,3 +58,4 @@ extension's scripts and skips them through the ordinary applied-check.
 ## Shipped extensions
 
 - [`procedural`](procedural.md) — the `trace_kind` promotion marker.
+- [`working-memory`](working-memory.md) — the compiled per-owner profile block on upstream's `:User`.

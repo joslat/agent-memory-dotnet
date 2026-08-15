@@ -32,6 +32,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The working-memory tier — a compiled per-owner profile block (`MemoryOptions.WorkingMemory`).**
+  Off by default. Everything else the system retrieves is probabilistic (query embedding → global
+  vector top-K → owner post-filter → threshold); this is a **point-read by owner**, so it cannot be
+  starved. Starvation is measured, not theoretical: an owner's own facts inside the global top-60
+  averaged **7, minimum 1**, and one real question retrieved **zero** facts from a graph holding 504 of
+  its own — all live, all above the floor.
+
+  Ships as the `working-memory` schema extension, and it is the **first parity delta that removes an
+  upstream-only label**: `:User` leaves `UpstreamOnlyLabels` and `NetOnlyLabels` stays empty, so
+  adopting it *narrows* divergence. It is keyed by upstream's own unique property `identifier` under
+  upstream's own constraint name `user_identifier` — a correction to the design, which had proposed a
+  new `user_owner_unique` constraint on `owner_id`; adopting a label while keying it differently would
+  make the adoption nominal, the same spelling carrying a different meaning, which is exactly what the
+  parity verifier cannot catch. See [`docs/extensions/working-memory.md`](docs/extensions/working-memory.md).
+
+  **Staleness is the kill rule.** Structured recall scores 8/9 on knowledge-update — the weakest
+  measured non-episodic type — so a block asserting the *old* value of an updated fact would
+  manufacture failures in exactly that type. Hence: full eager rebuild with no partial invalidation,
+  awaited inline so the contract is "after the write returns, the block is current", and the block is
+  **cleared** rather than left stale if a rebuild fails. A live canary asserts that superseding through
+  the production path leaves the new value and not the old.
+
+  Rendering (`ContextFormatOptions.IncludeWorkingMemory`, also off by default) goes through the same
+  per-item admission and delimiting as facts — the block is compiled from extraction output, so it
+  earns no trust bypass.
+
 - **A separate similarity floor for reasoning traces (`RecallOptions.MinTraceSimilarityScore`).**
   Null by default, which resolves to `MinSimilarityScore` — today's behaviour exactly.
 

@@ -213,6 +213,22 @@ internal static class MafTypeMapper
         // the model itself -- cannot masquerade as an unrestricted, undelimited system instruction, and
         // cannot forge or prematurely close its own boundary.
         var memory = new List<ChatMessage>();
+
+        // 30.4. The deterministic tier renders BEFORE the probabilistic sections: it is the head of the
+        // question distribution (name, job, stable preferences) and cannot be starved the way a vector
+        // section measurably can. Compiled from extraction output, so it is untrusted content and gets
+        // the same per-item admission + delimiting as facts -- no trust bypass.
+        if (options.IncludeWorkingMemory && !string.IsNullOrWhiteSpace(context.WorkingMemoryBlock))
+        {
+            memory.AddRange(CategoryMessages(
+                "profile",
+                context.WorkingMemoryBlock!.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+                line => line,
+                _ => MemoryTrustLevel.Untrusted,
+                string.Empty,
+                "\n"));
+        }
+
         if (options.IncludeEntities && context.RelevantEntities.Items.Count > 0)
             memory.AddRange(CategoryMessages("entities", context.RelevantEntities.Items,
                 e => string.IsNullOrEmpty(e.Description) ? $"{e.Name} ({e.Type})" : $"{e.Name} ({e.Type}): {e.Description}",
