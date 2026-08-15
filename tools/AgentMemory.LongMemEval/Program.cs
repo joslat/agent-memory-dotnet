@@ -76,6 +76,14 @@ internal static class LongMemEvalProgram
                 .ConfigureAwait(false);
         }
 
+        if (args.Contains("--typedmemeval", StringComparer.Ordinal))
+        {
+            // 30.9c. TypedMemEval verticals (embedded AgentEval corpora): typed-outcome runs,
+            // oracle ceilings, the Prospective control arm, and N-run bands. Cited as
+            // TypedMemEval-<Vertical> (AgentEval), never as LongMemEval.
+            return await TypedMemEvalProgram.RunAsync(args).ConfigureAwait(false);
+        }
+
 
         try
         {
@@ -385,7 +393,7 @@ internal static class LongMemEvalProgram
     private static readonly string[] KnownOptions =
     [
         "--reference-arm", "--surface-probe", "--predicate-distribution", "--prepared-pair",
-        "--procedural-benefit", "--attempts",
+        "--procedural-benefit", "--typedmemeval", "--attempts",
         "--list-prepared-corpora",
         "--extraction-compare", "--help",
         "--chronological-context", "--dataset", "--evidence-detail",
@@ -566,6 +574,18 @@ internal static class LongMemEvalProgram
         A question that does not fit is reported as skipped and excluded from fitted accuracy, never
         scored as wrong. Cannot be combined with --memory-mode, --prepared-pair,
         --exclude-synthetic-messages, or a non-none --oracle.
+
+        --typedmemeval <prospective|episodic|arithmetic|workingmemory|forgetting|all> runs a
+        TypedMemEval vertical from AgentEval's embedded corpora against the structured memory stack:
+          [--max-questions N] [--random-seed N] [--answer-seed N] [--runs N] [--oracle] [--control]
+        --oracle runs the perfect-retrieval ceiling (LongMemEvalOracleOptions.GoldOnly; no memory
+        store, no container). --control runs the Prospective pair's control arm (dates re-added to
+        the text) and is valid only with the prospective vertical. --runs N repeats the identical
+        configuration and, past one run, prints the TypedMemEvalRunSet band with QuestionsWithFlips;
+        it requires --random-seed so every run draws the same questions. Each run's native
+        ExternalBenchmarkResult JSON lands under artifacts/evaluation/, named by vertical, arm,
+        seed, run index, and UTC stamp. TypedMemEval results are never LongMemEval results: do not
+        sum or average across the two families.
 
         --prepared-pair prepares structured memory once, freezes it, clones it, and evaluates isolated Structured and Hybrid arms.
         Supplying both diagnostic selectors with --prepared-pair runs exactly one extraction unit and can never emit a report or execute recall/judging.
