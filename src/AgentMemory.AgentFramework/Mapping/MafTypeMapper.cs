@@ -54,6 +54,23 @@ internal static class MafTypeMapper
         string.IsNullOrWhiteSpace(message.MessageId) ? null : $"maf:{message.MessageId}";
 
     /// <summary>
+    /// The chat role a delimited block of recalled memory renders at, given the trust level of what is
+    /// inside it (#92 Phase 4).
+    /// </summary>
+    /// <remarks>
+    /// Static, and the single source of truth for this decision: <see cref="ToContextMessages"/> uses it
+    /// for every category block, and the delta block (30.5) — assembled outside this method, in the
+    /// context provider — uses the same one. Two call sites re-deriving one security decision is exactly
+    /// how the Semantic Kernel and Agent Framework surfaces drifted apart before #92 Phase 6 unified them.
+    /// </remarks>
+    internal static ChatRole RecalledBlockChatRole(MemoryTrustLevel trustLevel, ContextFormatOptions options) =>
+        (trustLevel >= options.MinimumTrustForSystemRole
+            ? options.DefaultMemoryRole
+            : RecalledMemoryMessageRole.User) == RecalledMemoryMessageRole.System
+            ? ChatRole.System
+            : ChatRole.User;
+
+    /// <summary>
     /// Converts a <see cref="MemoryContext"/> to a list of context <see cref="ChatMessage"/> instances.
     /// </summary>
     public static IReadOnlyList<ChatMessage> ToContextMessages(
@@ -92,7 +109,7 @@ internal static class MafTypeMapper
         ChatRole ToChatRole(RecalledMemoryMessageRole role) =>
             role == RecalledMemoryMessageRole.System ? ChatRole.System : ChatRole.User;
 
-        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) => ToChatRole(EffectiveBlockRole(trustLevel));
+        ChatRole EffectiveChatRole(MemoryTrustLevel trustLevel) => RecalledBlockChatRole(trustLevel, options);
 
         // Renders a list-shaped category's (entities/facts/preferences/traces) admitted items into up to
         // two messages, one per effective role (#92 Phase 4) -- see the granularity note on Admit above for
@@ -352,7 +369,15 @@ internal static class MafTypeMapper
         return admit(category, annotated, trustLevel) ? annotated : text;
     }
 
-    private static bool AdmitItem(
+    /// <summary>
+    /// One item's admission decision, through the host's pluggable policy.
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private so the delta block (30.5), assembled in the context provider rather
+    /// than here, goes through the <i>same</i> policy as every category block. A host that installs a
+    /// custom admission policy must not find it applied everywhere except one place.
+    /// </remarks>
+    internal static bool AdmitItem(
         string category, string content, MemoryTrustLevel trustLevel,
         ContextFormatOptions options, IMemoryContextAdmissionPolicy admission, ILogger? logger)
     {

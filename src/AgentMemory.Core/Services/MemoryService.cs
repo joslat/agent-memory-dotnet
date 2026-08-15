@@ -23,6 +23,10 @@ internal sealed class MemoryService : IMemoryService
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IMemoryDecayService? _decayService;
     private readonly IConversationRepository? _conversationRepository;
+    // Optional only for SemVer: this is a public constructor, and a required parameter would break every
+    // host that builds a MemoryService by hand. DI always supplies it (ServiceCollectionExtensions
+    // registers IMemoryIsolationPolicy unconditionally); DeltaRecallReachabilityTests asserts that.
+    private readonly IMemoryIsolationPolicy? _isolationPolicy;
     private readonly MemoryOptions _options;
     private readonly IClock _clock;
     private readonly IIdGenerator _idGenerator;
@@ -44,7 +48,8 @@ internal sealed class MemoryService : IMemoryService
         IIdGenerator idGenerator,
         ILogger<MemoryService> logger,
         IMemoryDecayService? decayService = null,
-        IConversationRepository? conversationRepository = null)
+        IConversationRepository? conversationRepository = null,
+        IMemoryIsolationPolicy? isolationPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(shortTerm);
         ArgumentNullException.ThrowIfNull(assembler);
@@ -71,6 +76,7 @@ internal sealed class MemoryService : IMemoryService
         _logger = logger;
         _decayService = decayService;
         _conversationRepository = conversationRepository;
+        _isolationPolicy = isolationPolicy;
     }
 
     /// <inheritdoc/>
@@ -595,5 +601,107 @@ internal sealed class MemoryService : IMemoryService
         {
             _logger.LogWarning(ex, "Failed to update access timestamps for recalled memories");
         }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The upper bound is read from the clock ONCE</b> and passed to all three repositories, then
+    /// handed back as <c>TakenAtUtc</c>. That is what makes consecutive deltas partition time exactly:
+    /// a write landing during the read with <c>created_at &gt; until</c> falls into the NEXT delta
+    /// rather than being lost to read skew. Reading the clock per repository would open a gap between
+    /// them that nothing could later reconstruct.
+    /// </para>
+    /// <para>
+    /// A future checkpoint is caller error, not an empty delta -- returning "nothing changed" for a
+    /// nonsensical window is the reassuring-fabrication failure again.
+    /// </para>
+    /// </remarks>
+    public async Task<MemoryDelta> RecallChangedSinceAsync(
+        MemoryDeltaRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var until = _clock.UtcNow;
+        if (request.Since >= until)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                $"Delta window start {request.Since:O} is not before now ({until:O}). A future or "
+                + "present checkpoint is a caller error, not an empty delta.");
+        }
+
+        // A delta reads the repositories directly, so it must resolve its own scope -- the assembler,
+        // which does this for every other read, is not in the path. Passing request.Scope straight
+        // through would hand a caller who supplied only a UserId an unfiltered, cross-owner answer: the
+        // ClearSession owner-leak (#56) in a new place.
+        var scope = ResolveDeltaScope(request);
+
+        var cap = request.MaxItemsPerSection;
+        var factsTask = _factRepository.ListChangedInWindowAsync(
+            request.Since, until, scope, cap, cancellationToken);
+        var preferencesTask = _preferenceRepository.ListChangedInWindowAsync(
+            request.Since, until, scope, cap, cancellationToken);
+        var entitiesTask = _entityRepository.ListCreatedInWindowAsync(
+            request.Since, until, scope, cap, cancellationToken);
+
+        var facts = await factsTask.ConfigureAwait(false);
+        var preferences = await preferencesTask.ConfigureAwait(false);
+        var entities = await entitiesTask.ConfigureAwait(false);
+
+        // Truncation is REPORTED, never silent: a caller told nothing would believe they had seen
+        // every change in the window.
+        var truncated = new List<string>();
+        void Note(string name, int count) { if (count >= cap) truncated.Add(name); }
+        Note(nameof(MemoryDelta.NewFacts), facts.NewFacts.Count);
+        Note(nameof(MemoryDelta.SupersededPairs), facts.SupersededPairs.Count);
+        Note(nameof(MemoryDelta.InvalidatedFacts), facts.InvalidatedFacts.Count);
+        Note(nameof(MemoryDelta.ExpiredValidity), facts.ExpiredValidity.Count);
+        Note(nameof(MemoryDelta.NewlyDueProspective), facts.NewlyDueProspective.Count);
+        Note(nameof(MemoryDelta.NewPreferences), preferences.NewPreferences.Count);
+        Note(nameof(MemoryDelta.SupersededPreferences), preferences.SupersededPreferences.Count);
+        Note(nameof(MemoryDelta.NewEntities), entities.Count);
+
+        return new MemoryDelta
+        {
+            Since = request.Since,
+            TakenAtUtc = until,
+            NewFacts = facts.NewFacts,
+            SupersededPairs = facts.SupersededPairs,
+            InvalidatedFacts = facts.InvalidatedFacts,
+            ExpiredValidity = facts.ExpiredValidity,
+            NewlyDueProspective = facts.NewlyDueProspective,
+            NewPreferences = preferences.NewPreferences,
+            SupersededPreferences = preferences.SupersededPreferences,
+            NewEntities = entities,
+            TruncatedSections = truncated,
+        };
+    }
+
+    /// <summary>
+    /// Resolves the owner scope a delta read runs under.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Delegates to <see cref="IMemoryIsolationPolicy"/> when one was supplied — that is the only path
+    /// that enforces <see cref="MemoryIsolationMode.StrictMultiTenant"/>, and it is the path every
+    /// DI-built host takes.
+    /// </para>
+    /// <para>
+    /// The fallback exists solely for a hand-constructed <see cref="MemoryService"/> and reproduces what
+    /// the default policy does in single-tenant mode: an explicit scope wins, else the owner, else
+    /// global. It deliberately does <b>not</b> silently pass a null scope through to the repositories.
+    /// </para>
+    /// </remarks>
+    private MemoryScope ResolveDeltaScope(MemoryDeltaRequest request)
+    {
+        if (_isolationPolicy is not null)
+        {
+            return _isolationPolicy.ResolveReadScope(
+                request.Scope, request.UserId, nameof(RecallChangedSinceAsync), MemoryOperationAccess.Tenant);
+        }
+
+        return request.Scope
+            ?? (string.IsNullOrEmpty(request.UserId) ? MemoryScope.Global : MemoryScope.For(request.UserId));
     }
 }

@@ -21,7 +21,11 @@ namespace AgentMemory.Tests.Unit.Schema.Extensions;
 /// </remarks>
 public sealed class SchemaExtensionDocumentationTests
 {
-    private static readonly SchemaExtensionRegistry Registry = new([new ProceduralSchemaExtension()]);
+    // CreateShipped(), NOT a hand-listed array. This guard was written against a literal
+    // [new ProceduralSchemaExtension()] and therefore silently stopped covering each new extension the
+    // moment one was added -- working-memory shipped a page that this test never once read. A guard that
+    // enumerates its own subjects by hand grades whatever it was born knowing about.
+    private static readonly SchemaExtensionRegistry Registry = new(SchemaExtensionRegistry.CreateShipped());
 
     private static string DocumentationRoot()
     {

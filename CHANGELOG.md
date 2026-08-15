@@ -32,6 +32,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Delta recall — "what changed since I last looked?" (`IMemoryRecall.RecallChangedSinceAsync`).**
+  Off by default at the adapter (`AgentFrameworkOptions.InjectDeltaOnSessionResume`). An agent resuming
+  work re-receives everything it already processed; full recall re-assembles the same facts at every
+  session start, and there was no way to ask for the difference.
+
+  Every ingredient already existed and was already enforced on the live write path — `created_at`
+  stamped on create only, `invalidated_at` stamped idempotently, `SUPERSEDED_BY` edges,
+  `valid_from`/`valid_until`. Nothing read them as a diff. Eight buckets (new / superseded-as-pairs /
+  invalidated / expired-validity / newly-due / new preferences / superseded preferences / new entities)
+  are **disjoint by construction**: the window is half-open, `(since, until]`, everywhere without
+  exception, and the upper bound is read from the clock **once** and handed back as the next
+  checkpoint. That is what makes consecutive deltas partition time exactly, and it is also what makes
+  the feature verifiable without a judge or a benchmark.
+
+  The subtlest case has a test named after it. Supersession stamps **both** clocks, so a superseded
+  fact would appear as a pair *and* as an expiry — two entries for one change — without the
+  transaction-clock gate on the expiry query. Removing that gate was verified to fail exactly one test
+  and no others.
+
+  Ships as the `delta-recall` schema extension: **seven RANGE indexes, no labels, no properties, empty
+  parity delta** — the clocks were already there, and the extension only makes them seekable. TCK
+  Gold-safe with the extension on for two independent reasons: an index changes plans and never
+  results, and the new members are called by no bridge endpoint. See
+  [`docs/extensions/delta-recall.md`](docs/extensions/delta-recall.md).
+
+  The checkpoint is a **caller-held token**, not a stored node — it rides the MAF session's state bag,
+  so no schema pays for it. Advancing it is an *acknowledgement*, not a read receipt: a turn that threw
+  advances nothing and its delta is replayed, because replaying a change set costs tokens while losing
+  one loses knowledge.
+
+  Two things found while building it, both fixed here:
+
+  - `MemoryService` now resolves the delta's owner scope through `IMemoryIsolationPolicy`, as every
+    other read does. A delta reads the repositories directly — the assembler is not in that path — so
+    passing a caller's scope straight through would have handed a caller who supplied only a `UserId`
+    an unfiltered, cross-owner answer.
+  - The extension **documentation drift guard** was enumerating its subjects from a hand-written list
+    and had therefore silently stopped covering each new extension as it was added; it now reads
+    `SchemaExtensionRegistry.CreateShipped()`.
+
 - **The working-memory tier — a compiled per-owner profile block (`MemoryOptions.WorkingMemory`).**
   Off by default. Everything else the system retrieves is probabilistic (query embedding → global
   vector top-K → owner post-filter → threshold); this is a **point-read by owner**, so it cannot be

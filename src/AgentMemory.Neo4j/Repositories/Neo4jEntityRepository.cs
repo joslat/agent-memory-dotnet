@@ -1046,4 +1046,27 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
 
         return present;
     }
-}
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Entity>> ListCreatedInWindowAsync(
+        DateTimeOffset since, DateTimeOffset until, MemoryScope? scope, int maxPerBucket,
+        CancellationToken cancellationToken = default)
+    {
+        var hasOwner = scope?.OwnerId is not null;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["since"] = since.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["until"] = until.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["limit"] = maxPerBucket,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                EntityQueries.DeltaNewEntities(hasOwner, scope?.IncludeShared ?? false), parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Entity>)records
+                .Select(r => MapToEntity(r["e"].As<INode>(), null)).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? Array.Empty<Entity>();
+    }}

@@ -1,4 +1,4 @@
-﻿using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -471,6 +471,89 @@ internal static class FactQueries
             MERGE (loser)-[:SUPERSEDED_BY]->(winner)
             RETURN count(loser) > 0 AS superseded";
     }
+
+    // ── Delta recall (30.5) ────────────────────────────────────────────
+
+    /// <summary>
+    /// The owner fragment shared by every delta query. Same shape as <c>GetBySubject</c>'s.
+    /// </summary>
+    private static string DeltaOwner(bool hasOwnerFilter, bool includeShared, string alias = "f") =>
+        !hasOwnerFilter ? string.Empty
+            : includeShared ? $" AND ({alias}.owner_id = $ownerId OR {alias}.owner_id IS NULL)"
+                            : $" AND {alias}.owner_id = $ownerId";
+
+    /// <summary>
+    /// Facts the system newly knows in <c>(since, until]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Transaction clock, deliberately.</b> Not <c>valid_from</c> — a fact learned yesterday about
+    /// 2019 would never surface. Not <c>updated_at</c> — <c>Upsert ON MATCH</c> bumps it on every
+    /// restatement, so restatements would replay as "new" forever.
+    /// </para>
+    /// <para>
+    /// This is also what makes a backfill behave: an import stamps <c>created_at</c> = import time, so
+    /// imported facts appear as new exactly once, in the first delta after the import, which is the
+    /// honest answer — the system newly knows them.
+    /// </para>
+    /// <para>
+    /// Boundary convention, applied without exception across every delta query: strictly
+    /// <c>&gt; $since</c>, inclusively <c>&lt;= $until</c>. One <c>&gt;=</c> where <c>&gt;</c> belongs
+    /// silently duplicates an item across consecutive windows.
+    /// </para>
+    /// </remarks>
+    public static string DeltaNewFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.created_at > datetime($since) AND f.created_at <= datetime($until)
+              AND f.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.created_at ASC LIMIT $limit";
+
+    /// <summary>Facts replaced in the window, with their successor.</summary>
+    public static string DeltaSupersededPairs(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (old:Fact)-[:SUPERSEDED_BY]->(new:Fact)
+            WHERE old.invalidated_at > datetime($since) AND old.invalidated_at <= datetime($until)"
+        + DeltaOwner(hasOwnerFilter, includeShared, "old") + @"
+            RETURN old, new ORDER BY old.invalidated_at ASC LIMIT $limit";
+
+    /// <summary>Facts closed in the window with no successor — retracted rather than replaced.</summary>
+    public static string DeltaInvalidatedFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at > datetime($since) AND f.invalidated_at <= datetime($until)
+              AND NOT (f)-[:SUPERSEDED_BY]->(:Fact)" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.invalidated_at ASC LIMIT $limit";
+
+    /// <summary>
+    /// Facts whose real-world window closed in the window and which are still live on the transaction clock.
+    /// </summary>
+    /// <remarks>
+    /// The <c>invalidated_at IS NULL</c> gate is load-bearing: <c>Supersede</c> stamps
+    /// <b>both</b> clocks, so without it a superseded fact would appear twice — once as a pair and
+    /// once here — and the exactly-once invariant the whole feature rests on would be false.
+    /// </remarks>
+    public static string DeltaExpiredValidity(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.valid_until IS NOT NULL
+              AND f.valid_until > datetime($since) AND f.valid_until <= datetime($until)
+              AND f.invalidated_at IS NULL" + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
+
+    /// <summary>
+    /// Facts that became true during the window, having been known before it.
+    /// </summary>
+    /// <remarks>
+    /// <c>created_at &lt;= $since</c> is what keeps this disjoint from <c>NewFacts</c>: a fact both
+    /// learned and becoming due inside one window belongs in exactly one bucket, and "new" is the more
+    /// informative of the two.
+    /// </remarks>
+    public static string DeltaNewlyDueProspective(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.valid_from IS NOT NULL
+              AND f.valid_from > datetime($since) AND f.valid_from <= datetime($until)
+              AND f.created_at <= datetime($since)
+              AND f.invalidated_at IS NULL
+              AND (f.valid_until IS NULL OR f.valid_until > datetime($until))"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.valid_from ASC LIMIT $limit";
 
     // ── GetSupersessionPredecessorsAsync (30.2 projection) ─────────────
 

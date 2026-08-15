@@ -660,4 +660,40 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
 
         return present;
     }
-}
+
+    /// <inheritdoc/>
+    public async Task<PreferenceDeltaRows> ListChangedInWindowAsync(
+        DateTimeOffset since, DateTimeOffset until, MemoryScope? scope, int maxPerBucket,
+        CancellationToken cancellationToken = default)
+    {
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["since"] = since.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["until"] = until.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["limit"] = maxPerBucket,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            var newCursor = await runner.RunAsync(
+                PreferenceQueries.DeltaNewPreferences(hasOwner, includeShared), parameters).ConfigureAwait(false);
+            var newRecords = await newCursor.ToListAsync().ConfigureAwait(false);
+
+            var pairCursor = await runner.RunAsync(
+                PreferenceQueries.DeltaSupersededPreferences(hasOwner, includeShared), parameters).ConfigureAwait(false);
+            var pairRecords = await pairCursor.ToListAsync().ConfigureAwait(false);
+
+            return new PreferenceDeltaRows
+            {
+                NewPreferences = newRecords.Select(r => MapToPreference(r["p"].As<INode>(), null)).ToList(),
+                SupersededPreferences = pairRecords
+                    .Select(r => new SupersededPreferencePair(
+                        MapToPreference(r["old"].As<INode>(), null),
+                        MapToPreference(r["new"].As<INode>(), null)))
+                    .ToList(),
+            };
+        }, cancellationToken).ConfigureAwait(false) ?? new PreferenceDeltaRows();
+    }}

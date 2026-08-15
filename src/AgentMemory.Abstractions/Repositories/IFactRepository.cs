@@ -231,4 +231,31 @@ public interface IFactRepository
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<SupersededFact>>>(
             new Dictionary<string, IReadOnlyList<SupersededFact>>(StringComparer.Ordinal));
+
+    /// <summary>
+    /// The five fact-change buckets over the half-open window <c>(since, until]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The default THROWS rather than returning an empty result</b>, and that is a deliberate
+    /// difference from the other default interface methods here. An empty delta is a real answer —
+    /// "nothing changed" — so an implementation that cannot compute one must say so rather than
+    /// fabricate the most reassuring possible response. Returning empty would be exactly the fake-null
+    /// this project's measurement discipline forbids, moved down to the API layer.
+    /// </para>
+    /// <para>
+    /// <b>Membership is decided on the transaction clock.</b> Valid time is used only to detect window
+    /// crossings, and both crossing buckets still gate on transaction-clock liveness. Getting this
+    /// backwards is the mistake the design predicts an implementer will make.
+    /// </para>
+    /// </remarks>
+    Task<FactDeltaRows> ListChangedInWindowAsync(
+        DateTimeOffset since,
+        DateTimeOffset until,
+        MemoryScope? scope,
+        int maxPerBucket,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "This IFactRepository implementation does not support delta recall. An empty delta means "
+            + "'nothing changed', so it must not be fabricated by an implementation that cannot compute one.");
 }

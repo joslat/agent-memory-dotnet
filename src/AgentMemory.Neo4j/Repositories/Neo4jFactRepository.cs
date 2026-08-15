@@ -635,6 +635,58 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Five bounded range queries over clocks that already exist. The exactly-once invariant is a
+    /// property of the predicates, not of post-processing: every bucket is disjoint by construction,
+    /// which is what lets the feature be verified without a judge.
+    /// </remarks>
+    public async Task<FactDeltaRows> ListChangedInWindowAsync(
+        DateTimeOffset since,
+        DateTimeOffset until,
+        MemoryScope? scope,
+        int maxPerBucket,
+        CancellationToken cancellationToken = default)
+    {
+        var hasOwner = scope?.OwnerId is not null;
+        var includeShared = scope?.IncludeShared ?? false;
+        var parameters = new Dictionary<string, object?>
+        {
+            ["since"] = since.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["until"] = until.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["limit"] = maxPerBucket,
+        };
+        if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+
+        return await _tx.ReadAsync(async runner =>
+        {
+            async Task<List<Fact>> BucketAsync(string cypher)
+            {
+                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                var records = await cursor.ToListAsync().ConfigureAwait(false);
+                return records.Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
+            }
+
+            var pairsCursor = await runner.RunAsync(
+                FactQueries.DeltaSupersededPairs(hasOwner, includeShared), parameters).ConfigureAwait(false);
+            var pairRecords = await pairsCursor.ToListAsync().ConfigureAwait(false);
+            var pairs = pairRecords
+                .Select(r => new SupersededFactPair(
+                    MapToFact(r["old"].As<INode>(), embedding: null),
+                    MapToFact(r["new"].As<INode>(), embedding: null)))
+                .ToList();
+
+            return new FactDeltaRows
+            {
+                NewFacts = await BucketAsync(FactQueries.DeltaNewFacts(hasOwner, includeShared)).ConfigureAwait(false),
+                SupersededPairs = pairs,
+                InvalidatedFacts = await BucketAsync(FactQueries.DeltaInvalidatedFacts(hasOwner, includeShared)).ConfigureAwait(false),
+                ExpiredValidity = await BucketAsync(FactQueries.DeltaExpiredValidity(hasOwner, includeShared)).ConfigureAwait(false),
+                NewlyDueProspective = await BucketAsync(FactQueries.DeltaNewlyDueProspective(hasOwner, includeShared)).ConfigureAwait(false),
+            };
+        }, cancellationToken).ConfigureAwait(false) ?? new FactDeltaRows();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// One batched query for the whole recalled fact section, anchored on ids the caller already holds.
     /// No owner clause is needed and none is added: <c>SupersedeAsync</c> guards both ends of the edge
     /// with a same-owner check even on the unscoped path, so a chain cannot cross owners — asserted by

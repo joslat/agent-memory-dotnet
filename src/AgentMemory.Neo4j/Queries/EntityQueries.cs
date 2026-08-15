@@ -478,4 +478,24 @@ internal static class EntityQueries
             LIMIT $limit";
     }
 
-}
+
+    // ── Delta recall (30.5) ────────────────────────────────────────────
+
+    /// <summary>
+    /// Entities the system newly knows in <c>(since, until]</c>.
+    /// </summary>
+    /// <remarks>
+    /// Creation is the only change an entity has on this path -- there is no entity supersession or
+    /// invalidation to diff -- so this is one bucket rather than five.
+    /// </remarks>
+    public static string DeltaNewEntities(bool hasOwnerFilter, bool includeShared)
+    {
+        var owner = !hasOwnerFilter ? string.Empty
+            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_id IS NULL)"
+                            : " AND e.owner_id = $ownerId";
+        return @"
+            MATCH (e:Entity)
+            WHERE e.created_at > datetime($since) AND e.created_at <= datetime($until)
+              AND e.invalidated_at IS NULL" + owner + @"
+            RETURN e ORDER BY e.created_at ASC LIMIT $limit";
+    }}

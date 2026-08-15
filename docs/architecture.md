@@ -160,7 +160,7 @@ time (see `docs/reviews/net10-performance-comparison.md`).
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.8.3 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 64 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, etc.), 45 service interfaces (incl. `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 19 configuration types (incl. `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 31 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`) |
+| **Key types** | 70 domain records (Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, etc.), 45 service interfaces (incl. `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 19 configuration types (incl. `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 31 enums (incl. `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`) |
 
 **Namespace structure:**
 ```
@@ -475,6 +475,44 @@ recalled content: they render inside the existing delimit/admission machinery, n
 authority. Beyond the design, the *annotated* line is re-admitted — a source quote is recalled message
 content spliced onto a fact line, so leaving it unchecked would bypass admission for exactly the
 content most worth checking. On failure the item keeps its base line rather than being dropped.
+
+#### 3.2.9 Delta recall: what changed since the last checkpoint (30.5)
+
+The inverse of full recall. An agent resuming work re-receives everything it already processed, and
+until now there was no way to ask for the difference. Every ingredient already existed and was already
+enforced on the live write path — `created_at` stamped on create only, `invalidated_at` stamped
+idempotently, `SUPERSEDED_BY` edges, `valid_from`/`valid_until` — and **nothing read them as a diff**.
+
+`IMemoryRecall.RecallChangedSinceAsync` returns a `MemoryDelta` of eight buckets: new facts, superseded
+pairs (old → new), invalidated-with-no-successor, expired validity, newly-due prospective, new
+preferences, superseded preferences, new entities.
+
+| Invariant | Mechanism |
+|---|---|
+| **Exactly once, by construction** | The window is half-open — strictly `> since`, inclusively `<= until` — in every query without exception, so consecutive deltas partition time exactly |
+| **One clock read** | `until` is read from `IClock` **once** and handed back as `TakenAtUtc`. A write landing during the read falls into the *next* delta rather than being lost to read skew |
+| **Pairs are not also expiries** | Supersession stamps **both** clocks, so the expiry bucket gates on `invalidated_at IS NULL`. Without it one change appears twice and the invariant is quietly false while every presence-checking test still passes |
+| **Novelty is the transaction clock** | Never `updated_at`, which every restatement bumps — restatements would replay as "new" forever |
+| **Truncation is reported** | Per-bucket caps are named in `TruncatedSections` *and* in the rendered text |
+| **A future checkpoint throws** | Returning "nothing changed" for a nonsensical window is a reassuring fabrication |
+| **Owner scope is resolved, not passed through** | `MemoryService` runs the delta through `IMemoryIsolationPolicy` — the assembler, which does this for every other read, is not in this path |
+| **Off is byte-identical** | `AgentFrameworkOptions.InjectDeltaOnSessionResume` defaults false; off means no query, no state-bag read, no message |
+
+**Parity cost: zero.** Ships as the `delta-recall` schema extension — seven RANGE indexes, no labels, no
+relationship types, no properties, `SchemaParityDelta.Empty`. The clocks were already there; the
+extension only makes them seekable. TCK Gold-safe with the extension on: an index changes plans and
+never results, and the new members are called by no bridge endpoint.
+
+**The checkpoint is a caller-held token, not a stored node.** It rides the MAF session's state bag — the
+same serialization seam `WithMemoryIdentity` uses — so nothing in the schema pays for it. Advancing it
+is an **acknowledgement, not a read receipt**: it advances after a turn completes successfully, to the
+delta's own `TakenAtUtc` rather than to "now", and a turn that threw advances nothing. Replaying a
+change set costs tokens; losing one loses knowledge.
+
+Rendered by `MemoryDeltaFormatter` through the same admission check and delimiter as every other
+recalled category, filling the projection layer's reserved `DeltaSummary` slot. The Agent Framework path
+passes its own host-pluggable admission policy in, so a custom policy is not applied everywhere *except*
+the delta. *(See [`docs/extensions/delta-recall.md`](extensions/delta-recall.md).)*
 
 ### 3.3 AgentMemory.Neo4j
 
