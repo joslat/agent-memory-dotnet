@@ -200,9 +200,12 @@ try
             sp.GetRequiredService<IMigrationRunner>(), output).ExecuteAsync(),
         "bootstrap" => await new BootstrapCommand(
             sp.GetRequiredService<ISchemaBootstrapper>(), output).ExecuteAsync(),
+        // 30.14: the registry is resolved here so the owners report runs. Resolved rather than
+        // required, because a host that has not registered extensions still gets the conformance half.
         "schema-check" => await new SchemaCheckCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(),
-            sp.GetRequiredService<IOptions<Neo4jOptions>>(), output).ExecuteAsync(),
+            sp.GetRequiredService<IOptions<Neo4jOptions>>(), output,
+            sp.GetService<AgentMemory.Neo4j.Schema.Extensions.SchemaExtensionRegistry>()).ExecuteAsync(),
         "consolidate" => await new ConsolidateCommand(
             sp.GetRequiredService<IConsolidationService>(), output).ExecuteAsync(cli.HasFlag("apply")),
         "decay" => await new DecayCommand(

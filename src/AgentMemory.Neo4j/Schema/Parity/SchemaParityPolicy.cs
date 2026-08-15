@@ -62,4 +62,93 @@ internal sealed record SchemaParityPolicy(
             ? policy
             : throw new KeyNotFoundException(
                 $"No schema-parity policy registered for upstream version '{upstreamVersion}'. Known: {string.Join(", ", ByVersion.Keys)}.");
+
+    /// <summary>
+    /// This policy plus the divergences declared by the <b>active</b> schema extensions — a pure
+    /// function returning a new record, leaving the shared static policy untouched.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The allowlists above used to be edited by hand when a feature needed a divergence, with no
+    /// machine link between the edit and the feature that justified it and no way to un-edit it if the
+    /// feature was dropped. A delta is owned by its extension and applies only while that extension is
+    /// active, so "which feature is this divergence for?" has an answer the code can give.
+    /// </para>
+    /// <para>
+    /// Two validations happen here rather than at declaration time, because only here is the effective
+    /// combination known: a removal naming a label this policy never listed as upstream-only is a
+    /// <b>stale delta</b> and throws loudly, and an addition colliding with an already-allowed entry is
+    /// R1 re-checked at composition time. Silence on either would let the policy grow entries nobody
+    /// can trace.
+    /// </para>
+    /// </remarks>
+    public SchemaParityPolicy WithExtensions(IEnumerable<Extensions.ISchemaExtension> active)
+    {
+        ArgumentNullException.ThrowIfNull(active);
+
+        var extensions = active.ToList();
+        if (extensions.Count == 0) return this;
+
+        var netOnlyLabels = new HashSet<string>(NetOnlyLabels, StringComparer.Ordinal);
+        var netOnlyRelationshipTypes = new HashSet<string>(NetOnlyRelationshipTypes, StringComparer.Ordinal);
+        var netSupersetProperties = new HashSet<string>(NetSupersetProperties, StringComparer.Ordinal);
+        var upstreamOnlyLabels = new HashSet<string>(UpstreamOnlyLabels, StringComparer.Ordinal);
+        var problems = new List<string>();
+
+        foreach (var extension in extensions)
+        {
+            var delta = extension.ParityDelta;
+
+            foreach (var label in delta.RemoveUpstreamOnlyLabels)
+            {
+                if (!upstreamOnlyLabels.Remove(label))
+                {
+                    problems.Add(
+                        $"extension '{extension.Id}' removes upstream-only label '{label}', which this "
+                        + "policy does not list. The delta is stale — the label was already adopted, or "
+                        + "it never existed upstream.");
+                }
+            }
+
+            Add(problems, netOnlyLabels, delta.AddNetOnlyLabels, extension.Id, "net-only label");
+            Add(problems, netOnlyRelationshipTypes, delta.AddNetOnlyRelationshipTypes, extension.Id,
+                "net-only relationship type");
+            // Superset PROPERTIES are additive and may legitimately be declared by more than one
+            // extension (two features can both write `owner_id`-style scope), so a duplicate here is
+            // not a collision the way a label or relationship type is.
+            netSupersetProperties.UnionWith(delta.AddNetSupersetProperties);
+        }
+
+        if (problems.Count > 0)
+        {
+            throw new AgentMemory.Abstractions.Exceptions.SchemaInitializationException(
+                "Schema-extension parity delta(s) cannot be applied:" + Environment.NewLine
+                + string.Join(Environment.NewLine, problems.Select(p => "  - " + p)),
+                "schema-extension-parity");
+        }
+
+        return this with
+        {
+            UpstreamOnlyLabels = upstreamOnlyLabels,
+            NetOnlyLabels = netOnlyLabels,
+            NetOnlyRelationshipTypes = netOnlyRelationshipTypes,
+            NetSupersetProperties = netSupersetProperties,
+        };
+    }
+
+    private static void Add(
+        List<string> problems, HashSet<string> target, IReadOnlySet<string> additions,
+        string extensionId, string kind)
+    {
+        foreach (var addition in additions)
+        {
+            if (!target.Add(addition))
+            {
+                problems.Add(
+                    $"extension '{extensionId}' adds {kind} '{addition}', which the effective policy "
+                    + "already allows. Either base owns it or another active extension does — a shape "
+                    + "with two owners cannot be reported to one.");
+            }
+        }
+    }
 }

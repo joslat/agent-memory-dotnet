@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Cli.Commands;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Schema.Extensions;
 using Neo4j.Driver;
 using NSubstitute;
 
@@ -51,6 +52,76 @@ public sealed class CliCommandsTests
 
         exit.Should().Be(0);
         _output.ToString().Should().Contain("OK").And.Contain("neo4j");
+    }
+
+    [Fact]
+    public async Task SchemaCheckCommand_WithExtensionRegistry_ReportsOwnersAlongsideConformance()
+    {
+        // 30.14. The two halves answer different questions -- "are the objects present?" and "whose
+        // shape is each of them?" -- and the second is the one nothing could answer before. trace_kind
+        // shipped in migration 0011 with its rationale in a Cypher comment and no owner anywhere.
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        options.Value.Extensions.Add("procedural");
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+
+        var exit = await new SchemaCheckCommand(
+            runner, options, _output, new SchemaExtensionRegistry([new ProceduralSchemaExtension()]))
+            .ExecuteAsync();
+
+        exit.Should().Be(0);
+        _output.ToString().Should()
+            .Contain("policy base 0.5.0")
+            .And.Contain("[procedural v1]")
+            .And.Contain("ReasoningTrace.trace_kind")
+            .And.Contain("owner: procedural")
+            .And.Contain("OK");
+    }
+
+    [Fact]
+    public async Task SchemaCheckCommand_OrphanExtensionMigration_ReturnsOne_ThoughEveryObjectIsPresent()
+    {
+        // The failure only the owners report can produce: the database carries schema applied by a
+        // module this binary does not have. Every index is present, so conformance says OK -- and the
+        // graph still contains shapes nothing can account for.
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+        runner.ReadAsync(
+                Arg.Any<Func<IAsyncQueryRunner, Task<Dictionary<string, string?>>>>(),
+                Arg.Any<CancellationToken>())
+              .Returns(new Dictionary<string, string?>(StringComparer.Ordinal)
+              {
+                  ["ext/arithmetic/0001_derived_fact"] = "2026-08-20T10:00:00Z",
+              });
+
+        var exit = await new SchemaCheckCommand(
+            runner, options, _output, new SchemaExtensionRegistry([new ProceduralSchemaExtension()]))
+            .ExecuteAsync();
+
+        exit.Should().Be(1);
+        _output.ToString().Should().Contain("no owner").And.Contain("arithmetic");
+    }
+
+    [Fact]
+    public async Task SchemaCheckCommand_WithoutRegistry_BehavesExactlyAsBefore()
+    {
+        // SchemaCheckCommand is public API. A host constructing it directly must not start failing on
+        // a check it never asked for, so the two-argument constructor skips the owners report entirely.
+        var options = Options.Create(new Neo4jOptions { EmbeddingDimensions = 1536, Database = "neo4j" });
+        var present = new HashSet<string>(SchemaConformance.ExpectedObjectNames(1536), StringComparer.Ordinal);
+        var runner = Substitute.For<INeo4jTransactionRunner>();
+        runner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<HashSet<string>>>>(), Arg.Any<CancellationToken>())
+              .Returns(present);
+
+        var exit = await new SchemaCheckCommand(runner, options, _output).ExecuteAsync();
+
+        exit.Should().Be(0);
+        _output.ToString().Should().NotContain("owner:");
     }
 
     [Fact]

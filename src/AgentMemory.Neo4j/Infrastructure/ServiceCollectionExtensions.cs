@@ -103,6 +103,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMemoryReranker, NodeDistanceReranker>();
         services.AddScoped<IMemoryReranker, MentionFrequencyReranker>();
 
+        // 30.14. Schema extensions, registered on exactly the reranker principle above: always
+        // present, never active unless Neo4jOptions.Extensions names them. Registration is what makes
+        // an extension *knowable* -- the owners report and the parity validator inspect every
+        // registered extension, active or not, so a declaration that collides with base is caught on a
+        // machine that has never enabled it. Empty Extensions set = base schema, byte-identical.
+        services.AddSingleton<Schema.Extensions.ISchemaExtension, Schema.Extensions.ProceduralSchemaExtension>();
+        services.TryAddSingleton<Schema.Extensions.SchemaExtensionRegistry>();
+
         // Graph query service
         services.TryAddTransient<IGraphQueryService, Neo4jGraphQueryService>();
 

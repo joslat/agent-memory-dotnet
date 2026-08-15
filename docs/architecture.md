@@ -450,7 +450,7 @@ deliberately out of scope. *(CHANGELOG [Unreleased].)*
 | **Purpose** | Persistence — Neo4j repository implementations, Cypher queries, schema management, driver infrastructure |
 | **Dependencies** | Abstractions (project ref), Core (project ref), Neo4j.Driver 6.0.0, Microsoft.Extensions.AI.Abstractions 10.8.3, Microsoft.Extensions.DependencyInjection.Abstractions 10.0.10, Microsoft.Extensions.Logging.Abstractions 10.0.10, Microsoft.Extensions.Options 10.0.10 |
 | **MUST NOT reference** | Microsoft.Agents.* |
-| **Key types** | Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions, `NodeDistanceReranker`/`MentionFrequencyReranker` (`IMemoryReranker` implementations) |
+| **Key types** | Neo4jDriverFactory, Neo4jSessionFactory, Neo4jTransactionRunner, SchemaBootstrapper, MigrationRunner, Neo4jOptions, ServiceCollectionExtensions, `NodeDistanceReranker`/`MentionFrequencyReranker` (`IMemoryReranker` implementations), `ISchemaExtension`/`SchemaExtensionRegistry` (§4.3.1) |
 
 **Rerankers wired into DI.** `AgentMemory.Neo4j` registers two `IMemoryReranker` implementations —
 `NodeDistanceReranker` and `MentionFrequencyReranker` (`Services/`) — as enumerable scoped services in
@@ -466,7 +466,10 @@ options, so `IOptions` reconfiguration works and the default recall path is unch
 A reasoning trace can be **promoted to a reusable procedure** — a capability spanning the Core
 contract and Neo4j persistence: `TraceKind` (`Episode`/`Procedure`) marks it, `trace_kind_idx` (§4.6)
 makes it seekable, migration `0011_trace_kind.cypher` backfills existing databases, and task-similarity
-search takes an opt-in `proceduresOnly` filter (`null` by default, byte-identical Cypher). The
+search takes an opt-in `proceduresOnly` filter (`null` by default, byte-identical Cypher). Its schema is
+owned by the `procedural` **schema extension** (§4.3.1) — a retro-wrap: `0011` stays base-resident and
+activation applies nothing, so the extension exists to give `trace_kind` an owner in the `schema-check`
+report and to prove the abstraction on a shipped feature. The
 load-bearing part is the **retention exemption**: `PruneSessionTraces` prunes by age alone, so without
 the exemption a promoted procedure is deleted by recency and the capability does not exist.
 
@@ -1032,6 +1035,41 @@ CREATE CONSTRAINT migration_version IF NOT EXISTS FOR (m:Migration) REQUIRE m.ve
 
 > **Note:** 13 constraints total — the `migration_version` constraint backs the `MigrationRunner`'s
 > `:Migration` bookkeeping nodes, not a domain type.
+
+#### 4.3.1 Schema extensions and the `ext/` migration namespace
+
+A **schema extension** is a named, versioned, **additive-only** schema module (`ISchemaExtension`,
+`Schema/Extensions/`), registered in DI unconditionally — the `IMemoryReranker` pattern — and activated
+by id through `Neo4jOptions.Extensions`. **The default is the empty set, which is the base schema,
+byte-identical.** An unknown id is rejected at startup listing the known ones; a deployment that asked
+for an extension and silently ran without it is the failure the mechanism exists to prevent. See
+[`docs/extensions/`](extensions/README.md).
+
+Base migrations (`Schema/Migrations/000N_name.cypher`) run first, always. Each *active* extension then
+runs its own scripts from `Schema/Migrations/ext/<id>/000N_name.cypher`, recorded under the namespaced
+version key `ext/<id>/000N_name`.
+
+**Why namespaced rather than a longer linear sequence.** The linear sequence cannot host optional
+modules: two independently-written features each correctly claimed `0012` as "next free after 0011",
+and a database enabling one and later the other would have had two different scripts fighting over one
+key in the unique-constrained `(:Migration {version})` bookkeeping — one silently skipped as "already
+applied", leaving an index missing that nothing could report. A base version key never contains `/`, so
+the existing `migration_version` constraint keeps covering both namespaces and no new constraint was
+needed.
+
+**Schema cost of the system itself: one property.** `(:Migration).extension_id` — null for base, the
+owning extension id otherwise. A property on the existing bookkeeping node rather than a new
+`(:ExtensionMigration)` label, because `:Migration` is not a domain label (it is absent from
+`SchemaConstants.NodeLabels`, so `DotNetSchema.Describe()` never shows it to the parity verifier),
+whereas a new bookkeeping label would be the first ever and would surface in the fresh-database label
+scans Neo4j-side tooling performs.
+
+**Parity and ownership.** `SchemaParityPolicy.WithExtensions(active)` composes each active extension's
+declared `ParityDelta` into an effective policy (a pure function — the shared static policy is never
+mutated); `SchemaParityVerifier.Verify` is unchanged, since it already took the policy as a parameter.
+`agentmemory schema-check` gains an **owners report**: every non-base shape names its owning extension,
+and an orphan — a divergence no active extension declares, or an applied `ext/<id>/…` migration whose
+id this binary does not have registered — exits 1.
 
 ### 4.4 Fulltext Indexes (Implemented in SchemaBootstrapper)
 

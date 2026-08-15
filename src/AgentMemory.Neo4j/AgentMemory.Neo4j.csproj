@@ -29,6 +29,11 @@
        discover them under AppContext.BaseDirectory/Schema/Migrations at runtime. -->
   <ItemGroup>
     <Content Include="Schema\Migrations\*.cypher" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Schema-extension migrations (30.14) live in a per-extension namespace so two optional modules
+         can never collide on a version number. The recursive glob keeps the folder layout
+         (ext/<id>/000N_name.cypher) intact next to the assembly, which is what the runner's namespaced
+         version key is derived from. -->
+    <Content Include="Schema\Migrations\ext\**\*.cypher" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Frozen upstream schema snapshots embedded for the parity compatibility kit (TCK). The canonical

@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Memory;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
+using AgentMemory.Neo4j.Schema.Extensions;
 using AgentMemory.Neo4j.Schema.Parity;
 using Neo4j.Driver;
 
@@ -46,15 +47,48 @@ public sealed class BootstrapCommand(ISchemaBootstrapper bootstrapper, TextWrite
 /// counterpart to <c>bootstrap</c> — distinct from <c>schema-parity</c>, which is a static check that the
 /// .NET schema is compatible with the embedded upstream snapshot.
 /// </summary>
-public sealed class SchemaCheckCommand(
-    INeo4jTransactionRunner txRunner,
-    IOptions<Neo4jOptions> options,
-    TextWriter output)
+public sealed class SchemaCheckCommand
 {
+    private readonly INeo4jTransactionRunner _txRunner;
+    private readonly IOptions<Neo4jOptions> _options;
+    private readonly TextWriter _output;
+    private readonly SchemaExtensionRegistry? _extensions;
+
+    /// <summary>Constructs the command with the schema-extension owners report enabled.</summary>
+    internal SchemaCheckCommand(
+        INeo4jTransactionRunner txRunner,
+        IOptions<Neo4jOptions> options,
+        TextWriter output,
+        SchemaExtensionRegistry? extensions)
+    {
+        _txRunner = txRunner;
+        _options = options;
+        _output = output;
+        _extensions = extensions;
+    }
+
+    /// <summary>Constructs the command without an extension registry; the owners report is skipped.</summary>
+    public SchemaCheckCommand(
+        INeo4jTransactionRunner txRunner,
+        IOptions<Neo4jOptions> options,
+        TextWriter output)
+        : this(txRunner, options, output, extensions: null)
+    {
+    }
+
     public async Task<int> ExecuteAsync(CancellationToken cancellationToken = default)
     {
+        var txRunner = _txRunner;
+        var options = _options;
+        var output = _output;
         var database = options.Value.Database;
         var expected = SchemaConformance.ExpectedObjectNames(options.Value.EmbeddingDimensions);
+
+        // 30.14. The owners report runs FIRST and independently of conformance. The two answer
+        // different questions -- "are the objects present?" versus "whose shape is each of them?" --
+        // and an orphan is a failure even on a database whose indexes are all in place, because it
+        // means schema exists that this binary cannot account for.
+        var ownersFailed = await WriteOwnersReportAsync(cancellationToken).ConfigureAwait(false);
 
         var existing = await txRunner.ReadAsync(async runner =>
         {
@@ -153,7 +187,7 @@ public sealed class SchemaCheckCommand(
         {
             output.WriteLine(
                 $"schema-check: OK — all {expected.Count} expected constraints/indexes are present in database '{database}'.");
-            return 0;
+            return ownersFailed ? 1 : 0;
         }
 
         if (failedOwned.Count > 0)
@@ -200,6 +234,36 @@ public sealed class SchemaCheckCommand(
             output.WriteLine($"  - {name}");
         output.WriteLine("Run 'agentmemory bootstrap' (or 'migrate') to create them.");
         return 1;
+    }
+
+    /// <summary>
+    /// Writes the schema-extension owners report and returns true when a shape has no owner.
+    /// </summary>
+    /// <remarks>
+    /// Skipped entirely when no registry was supplied, so the public two-argument constructor keeps
+    /// behaving exactly as it did — this command is public API and a host constructing it directly must
+    /// not start failing on a check it never asked for.
+    /// </remarks>
+    private async Task<bool> WriteOwnersReportAsync(CancellationToken cancellationToken)
+    {
+        if (_extensions is null) return false;
+
+        var applied = await _txRunner.ReadAsync(async runner =>
+        {
+            var rows = new Dictionary<string, string?>(StringComparer.Ordinal);
+            var cursor = await runner.RunAsync(SchemaQueries.ListAppliedMigrations);
+            foreach (var record in await cursor.ToListAsync())
+            {
+                var version = record["version"].As<string>();
+                if (!string.IsNullOrEmpty(version))
+                    rows[version] = record["appliedAtUtc"].As<string?>();
+            }
+            return rows;
+        }, cancellationToken).ConfigureAwait(false) ?? new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        var report = SchemaOwnersReport.Build(_extensions, _options.Value.Extensions, applied);
+        _output.Write(report.Render());
+        return !report.HasOwners;
     }
 }
 
