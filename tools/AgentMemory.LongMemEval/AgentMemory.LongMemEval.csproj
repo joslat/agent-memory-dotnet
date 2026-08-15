@@ -23,7 +23,13 @@
     here depends on source access.
   -->
   <ItemGroup>
-    <PackageReference Include="AgentEval" Version="0.20.0-beta" />
+    <!--
+      0.22.0-beta is the TypedMemEval release (ADR-026: five embedded corpora, typed outcomes,
+      ITimestampedHistoryInjectableAgent). 0.23.0-beta will supersede it with revised corpora and
+      new ids/hashes, so nothing in this harness hard-codes a corpus SHA-256 or question count —
+      counts and identifiers are read from TypedMemEvalCorpus/TypedMemEvalVerticals at run time.
+    -->
+    <PackageReference Include="AgentEval" Version="0.22.0-beta" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
