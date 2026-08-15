@@ -56,6 +56,17 @@ public sealed record ProjectedItemAnnotation
     /// <summary>e.g. <c>"(since 2023-05-12; previously Globex)"</c>. Null when nothing superseded this item.</summary>
     public string? SupersessionNote { get; init; }
 
+    /// <summary>
+    /// What shape a recalled procedure has, e.g. <c>"(16 steps)"</c>. Null for anything else.
+    /// </summary>
+    /// <remarks>
+    /// Its own field rather than sharing <see cref="SupersessionNote"/>, which is what a first pass
+    /// did: the two say unrelated things, and a later reader debugging supersession would have found
+    /// a step count sitting in a property whose documentation promises a supersession chain. Cheap
+    /// field, honest name.
+    /// </remarks>
+    public string? ProcedureShape { get; init; }
+
     /// <summary>The raw source sentence, NOT pre-wrapped — each surface wraps it its own way.</summary>
     public string? SourceQuote { get; init; }
 

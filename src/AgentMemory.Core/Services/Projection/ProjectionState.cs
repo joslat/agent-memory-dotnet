@@ -138,5 +138,4 @@ internal static class ProjectionSectionKeys
     public const string Facts = "facts";
     public const string Preferences = "preferences";
     public const string Traces = "traces";
-    public const string Messages = "messages";
 }

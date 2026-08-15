@@ -135,6 +135,28 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.Extraction.SameAsThreshold <= o.Extraction.AutoMergeThreshold,
                 "MemoryOptions.Extraction.SameAsThreshold must not exceed AutoMergeThreshold.")
+            // 30.2/30.3. Every other numeric option here is validated; these were not, and a threshold
+            // outside [0,1] is the worst kind of misconfiguration for this feature -- it does not fail,
+            // it silently makes the near-miss marker fire on everything or on nothing, which reads as
+            // "the feature does not work" rather than "the value is wrong".
+            .Validate(
+                o => o.Projection.NearMissThreshold is >= 0 and <= 1,
+                "MemoryOptions.Projection.NearMissThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.Projection.TraceNearMissThreshold is >= 0 and <= 1,
+                "MemoryOptions.Projection.TraceNearMissThreshold must be between 0 and 1.")
+            .Validate(
+                o => o.Projection.MaxSupersessionChain > 0,
+                "MemoryOptions.Projection.MaxSupersessionChain must be positive.")
+            .Validate(
+                o => o.Projection.MaxQuoteLength > 0,
+                "MemoryOptions.Projection.MaxQuoteLength must be positive.")
+            .Validate(
+                o => o.Projection.MaxQuotesPerRecall > 0,
+                "MemoryOptions.Projection.MaxQuotesPerRecall must be positive.")
+            .Validate(
+                o => o.Recall.MinTraceSimilarityScore is null or (>= 0 and <= 1),
+                "MemoryOptions.Recall.MinTraceSimilarityScore must be between 0 and 1 when set.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on

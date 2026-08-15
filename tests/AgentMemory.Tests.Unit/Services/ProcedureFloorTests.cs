@@ -93,7 +93,7 @@ public sealed class ProcedureFloorTests
 
         await new ProcedureShapeProjectionFeature().ApplyAsync(state, CancellationToken.None);
 
-        state.Build().Annotations["t1"].SupersessionNote.Should().Be("(16 steps)");
+        state.Build().Annotations["t1"].ProcedureShape.Should().Be("(16 steps)");
     }
 
     [Fact]
@@ -140,14 +140,19 @@ public sealed class ProcedureFloorTests
     }
 
     [Fact]
-    public async Task TheLengthAppendsToWhateverAnotherFeatureAlreadyWrote()
+    public async Task TheLengthLivesInItsOwnFieldAndLeavesOtherNotesAlone()
     {
+        // Found in review: a first pass wrote the step count into SupersessionNote. The two say
+        // unrelated things, and a later reader debugging supersession would have found a step count in
+        // a property whose documentation promises a supersession chain.
         var state = State(Procedure("t1", "a\nb"));
         state.Annotate("t1", a => a with { SupersessionNote = "(since 2024-01-01; previously X)" });
 
         await new ProcedureShapeProjectionFeature().ApplyAsync(state, CancellationToken.None);
 
-        state.Build().Annotations["t1"].SupersessionNote
-            .Should().Be("(since 2024-01-01; previously X) (2 steps)");
+        var annotation = state.Build().Annotations["t1"];
+        annotation.ProcedureShape.Should().Be("(2 steps)");
+        annotation.SupersessionNote.Should().Be("(since 2024-01-01; previously X)",
+            "another feature's note must survive untouched");
     }
 }

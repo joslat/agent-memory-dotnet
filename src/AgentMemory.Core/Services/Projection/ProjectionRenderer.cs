@@ -63,6 +63,9 @@ internal static class ProjectionRenderer
         if (!string.IsNullOrWhiteSpace(annotation.SupersessionNote))
             builder.Append(' ').Append(annotation.SupersessionNote);
 
+        if (!string.IsNullOrWhiteSpace(annotation.ProcedureShape))
+            builder.Append(' ').Append(annotation.ProcedureShape);
+
         if (!string.IsNullOrWhiteSpace(annotation.SourceQuote))
             builder.Append(" — said: \"").Append(annotation.SourceQuote).Append('"');
 

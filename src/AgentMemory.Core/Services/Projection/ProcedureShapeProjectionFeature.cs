@@ -46,7 +46,7 @@ internal sealed class ProcedureShapeProjectionFeature : IProjectionFeature
 
             state.Annotate(trace.TraceId, annotation => annotation with
             {
-                SupersessionNote = Combine(annotation.SupersessionNote, $"({steps} steps)"),
+                ProcedureShape = $"({steps} steps)",
             });
         }
 
@@ -70,8 +70,4 @@ internal sealed class ProcedureShapeProjectionFeature : IProjectionFeature
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Count(line => line.Length > 0);
     }
-
-    /// <summary>Appends to whatever another feature already wrote rather than overwriting it.</summary>
-    private static string Combine(string? existing, string addition) =>
-        string.IsNullOrWhiteSpace(existing) ? addition : $"{existing} {addition}";
 }
