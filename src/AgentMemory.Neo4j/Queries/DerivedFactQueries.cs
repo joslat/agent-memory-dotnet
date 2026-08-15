@@ -4,7 +4,7 @@ namespace AgentMemory.Neo4j.Queries;
 /// Cypher for the session accountant (30.6): reading a group, and writing what it computed.
 /// </summary>
 /// <remarks>
-/// A derived fact is an ordinary <c>:Fact</c> node carrying <c>kind='derived'</c>. That choice is what
+/// A derived fact is an ordinary <c>:Fact</c> node carrying <c>fact_kind='derived'</c>. That choice is what
 /// buys the whole feature its recall path for free — the existing vector index, budget, owner scoping,
 /// <c>invalidated_at</c> gate and valid-time gate all apply with no changes at all. A
 /// <c>:DerivedFact</c> label would have cost a parity allowlist entry <i>and</i> forfeited every one of
@@ -25,7 +25,7 @@ internal static class DerivedFactQueries
     /// dropping them would leave every group too small to aggregate.
     /// </para>
     /// <para>
-    /// <b><c>kind &lt;&gt; 'derived'</c> keeps the DAG one level deep.</b> Aggregating aggregates would
+    /// <b><c>fact_kind &lt;&gt; 'derived'</c> keeps the DAG one level deep.</b> Aggregating aggregates would
     /// make the invalidation cascade recursive, and a cascade that has to walk an arbitrary-depth chain
     /// inside a supersede statement is a cascade that will eventually be made asynchronous "for
     /// performance" — at which point stale derived values become reachable.
@@ -41,7 +41,7 @@ internal static class DerivedFactQueries
             WHERE f.subject_key = $subjectKey
               AND f.predicate_key = $predicateKey
               AND f.invalidated_at IS NULL
-              AND coalesce(f.kind, '') <> 'derived'" + owner + @"
+              AND coalesce(f.fact_kind, '') <> 'derived'" + owner + @"
             RETURN f
             ORDER BY coalesce(f.valid_from, f.created_at) ASC, f.id ASC
             LIMIT $limit";
@@ -86,7 +86,7 @@ internal static class DerivedFactQueries
     public const string UpsertDerived = @"
             MERGE (f:Fact {derivation_key: $derivationKey})
             ON CREATE SET f.id = $id, f.created_at = datetime($now), f.mention_count = 1
-            SET f.kind = 'derived',
+            SET f.fact_kind = 'derived',
                 f.subject = $subject, f.predicate = $predicate, f.object = $object,
                 f.owner_id = $ownerId,
                 f.confidence = $confidence, f.embedding = $embedding,
@@ -99,7 +99,7 @@ internal static class DerivedFactQueries
             WITH DISTINCT f
             UNWIND $inputFactIds AS inputId
               MATCH (i:Fact {id: inputId})
-              WHERE coalesce(i.kind, '') <> 'derived'
+              WHERE coalesce(i.fact_kind, '') <> 'derived'
               MERGE (f)-[:DERIVED_FROM]->(i)
             RETURN f";
 

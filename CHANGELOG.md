@@ -144,6 +144,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   properties on `:Fact`, **zero labels**. See [`docs/extensions/arithmetic.md`](docs/extensions/arithmetic.md)
   for why the edge earns its allowlist entry over the two parity-free alternatives.
 
+  The marker property is `fact_kind`, **not** `kind`. Upstream already has a `kind` property meaning
+  "audit-node discriminator", and overloading a name whose meaning another implementation owns is the
+  changed-semantics hazard a parity check cannot catch — it compares names, not meanings. The
+  `procedural` extension chose `trace_kind` over `kind` for exactly this reason; this one used `kind`
+  anyway on its first draft, and the parity verifier rejected it as *"upstream caught up to .NET
+  superset"*.
+
   Two binding guards from the TCK audit, both enforced structurally:
 
   - **G1 — the cascade is cardinality-safe.** `OPTIONAL MATCH` plus `WITH DISTINCT` on both sides, so a

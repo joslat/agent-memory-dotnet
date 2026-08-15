@@ -14,11 +14,11 @@ aggregates as ordinary facts.
 
 ## Shape
 
-**No new label.** A derived fact is a `:Fact` carrying `kind='derived'`.
+**No new label.** A derived fact is a `:Fact` carrying `fact_kind='derived'`.
 
 | Piece | Value |
 |---|---|
-| Properties on `:Fact` | `kind`, `derivation_key`, `derivation_operator`, `derivation`, `derived_at` |
+| Properties on `:Fact` | `fact_kind`, `derivation_key`, `derivation_operator`, `derivation`, `derived_at` |
 | Relationship type | `DERIVED_FROM` (Fact → Fact) |
 | Migration | `0001_derived_fact.cypher` — `fact_derivation_key_idx`, `fact_kind_idx` |
 
@@ -47,7 +47,7 @@ MATCH (f:Fact)
 WHERE f.subject_key = $subjectKey
   AND f.predicate_key = $predicateKey
   AND f.invalidated_at IS NULL
-  AND coalesce(f.kind, '') <> 'derived'
+  AND coalesce(f.fact_kind, '') <> 'derived'
 RETURN f
 ORDER BY coalesce(f.valid_from, f.created_at) ASC, f.id ASC
 LIMIT $limit
@@ -58,7 +58,7 @@ members and reports the result as a change. Valid time first, so a fact learned 
 sorts as 2019; the `created_at` fallback matters as much, because most extracted facts carry no valid
 time at all and dropping them would leave every group too small to aggregate.
 
-**`kind <> 'derived'` keeps the DAG one level deep.** Aggregating aggregates would make the cascade
+**`fact_kind <> 'derived'` keeps the DAG one level deep.** Aggregating aggregates would make the cascade
 recursive, and a recursive cascade inside a supersede statement is one that eventually gets moved out of
 the transaction "for performance" — at which point stale derived values become retrievable.
 
@@ -167,7 +167,7 @@ so the cascade cannot be observed by a conformance run.
 | Kind | Entry | Why |
 |---|---|---|
 | Net-only relationship type | `DERIVED_FROM` | The cascade needs graph traversal; see above |
-| Net-superset property | `kind` | Marks computed rather than observed |
+| Net-superset property | `fact_kind` | Marks computed rather than observed. **Not `kind`** — upstream already has a `kind` property meaning "audit-node discriminator", and overloading a name whose meaning another implementation owns is the changed-semantics hazard a parity check cannot catch. The first draft used `kind` and the verifier rejected it |
 | Net-superset property | `derivation_key` | Recompute-in-place identity |
 | Net-superset property | `derivation_operator` | Which arithmetic produced the value |
 | Net-superset property | `derivation` | The inline, checkable provenance string |

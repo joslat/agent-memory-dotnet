@@ -117,7 +117,7 @@ MERGE (c:Conversation {id: $id})
 ## DerivedFactQueries.UpsertDerived
 MERGE (f:Fact {derivation_key: $derivationKey})
             ON CREATE SET f.id = $id, f.created_at = datetime($now), f.mention_count = 1
-            SET f.kind = 'derived',
+            SET f.fact_kind = 'derived',
                 f.subject = $subject, f.predicate = $predicate, f.object = $object,
                 f.owner_id = $ownerId,
                 f.confidence = $confidence, f.embedding = $embedding,
@@ -130,7 +130,7 @@ MERGE (f:Fact {derivation_key: $derivationKey})
             WITH DISTINCT f
             UNWIND $inputFactIds AS inputId
               MATCH (i:Fact {id: inputId})
-              WHERE coalesce(i.kind, '') <> 'derived'
+              WHERE coalesce(i.fact_kind, '') <> 'derived'
               MERGE (f)-[:DERIVED_FROM]->(i)
             RETURN f
 

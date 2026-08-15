@@ -23,4 +23,4 @@
 // Idempotent (IF NOT EXISTS); one statement per transaction, per the runner's contract.
 
 CREATE INDEX fact_derivation_key_idx IF NOT EXISTS FOR (f:Fact) ON (f.derivation_key);
-CREATE INDEX fact_kind_idx IF NOT EXISTS FOR (f:Fact) ON (f.kind);
+CREATE INDEX fact_kind_idx IF NOT EXISTS FOR (f:Fact) ON (f.fact_kind);

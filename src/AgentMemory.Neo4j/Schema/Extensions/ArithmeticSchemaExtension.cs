@@ -7,7 +7,7 @@ namespace AgentMemory.Neo4j.Schema.Extensions;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>No new label.</b> A derived fact is an ordinary <c>:Fact</c> carrying <c>kind='derived'</c>. A
+/// <b>No new label.</b> A derived fact is an ordinary <c>:Fact</c> carrying <c>fact_kind='derived'</c>. A
 /// <c>:DerivedFact</c> label would have cost a label allowlist entry <i>and</i> forfeited free recall,
 /// since every fact query matches <c>:Fact</c> — strictly more parity risk for strictly less function.
 /// </para>
@@ -25,7 +25,7 @@ namespace AgentMemory.Neo4j.Schema.Extensions;
 /// <b>R2 (write-path isolation).</b> Derived facts are written only by <c>UpsertDerivedAsync</c>, which
 /// no upstream-parity surface calls. <b>R3 (base-read neutrality).</b> A derived fact <i>is</i> a fact
 /// and is meant to be recallable — that is not a violation but the design — while the group read that
-/// feeds the accountant excludes them by <c>kind</c>, keeping the derivation DAG one level deep.
+/// feeds the accountant excludes them by <c>fact_kind</c>, keeping the derivation DAG one level deep.
 /// </para>
 /// <para>
 /// <b>The cascade is unconditional, not gated on this extension.</b> If the accountant is switched off
@@ -36,7 +36,15 @@ namespace AgentMemory.Neo4j.Schema.Extensions;
 internal sealed class ArithmeticSchemaExtension : ISchemaExtension
 {
     /// <summary>Marks a fact as computed rather than observed.</summary>
-    internal const string KindProperty = "kind";
+    /// <remarks>
+    /// Named <c>fact_kind</c> and deliberately NOT <c>kind</c>. Upstream already has a <c>kind</c>
+    /// property meaning "audit-node discriminator", and overloading a name whose meaning is shared with
+    /// another implementation is precisely the changed-semantics hazard a parity check cannot catch —
+    /// it compares names, not meanings. The procedural extension chose <c>trace_kind</c> over
+    /// <c>kind</c> for this exact reason; the first draft of this extension used <c>kind</c> anyway and
+    /// the parity verifier rejected it as "upstream caught up to .NET superset".
+    /// </remarks>
+    internal const string KindProperty = "fact_kind";
 
     /// <summary>Recompute-in-place identity: one node per subject × predicate × operator × owner.</summary>
     internal const string DerivationKeyProperty = "derivation_key";

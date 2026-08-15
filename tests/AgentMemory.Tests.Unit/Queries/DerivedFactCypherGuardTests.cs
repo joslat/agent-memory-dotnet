@@ -155,7 +155,7 @@ public sealed class DerivedFactCypherGuardTests
     {
         // Aggregating aggregates would make the cascade recursive, and a recursive cascade inside a
         // supersede statement is one that eventually gets moved out of the transaction.
-        DerivedFactQueries.UpsertDerived.Should().Contain("coalesce(i.kind, '') <> 'derived'");
+        DerivedFactQueries.UpsertDerived.Should().Contain("coalesce(i.fact_kind, '') <> 'derived'");
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class DerivedFactCypherGuardTests
     public void TheGroupReadExcludesDerivedFacts(bool hasOwnerFilter, bool includeShared)
     {
         DerivedFactQueries.GetGroupFacts(hasOwnerFilter, includeShared)
-            .Should().Contain("coalesce(f.kind, '') <> 'derived'");
+            .Should().Contain("coalesce(f.fact_kind, '') <> 'derived'");
     }
 
     [Fact]
