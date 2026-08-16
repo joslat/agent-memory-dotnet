@@ -290,6 +290,15 @@ class AgentMemoryStore(BaseStore):
         wire = self._request("GET", f"/v1/working-memory/{owner}")
         return (wire or {}).get("text")
 
+    def history(self, owner: str) -> list[dict[str, Any]]:
+        """"Why do you believe that?" — provenance rows, invalidated ones included.
+
+        The supersession links are what make an ``as_of`` answer auditable rather than merely
+        surprising: the closed fact is still present, still readable, and still points at what
+        replaced it. A store that overwrote has nothing to walk.
+        """
+        return self._request("GET", f"/v1/history/{owner}") or []
+
     def delta(self, owner: str, since: datetime | str, *, limit: int = 20) -> dict[str, Any]:
         """The resume brief: what changed since ``since``.
 

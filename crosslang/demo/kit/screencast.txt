@@ -1,0 +1,102 @@
+$ python crosslang/demo/kit/preflight.py
+  ✓  host responding                     am-wire/1-draft
+  ✓  prototype label present             the room must be able to see what this is
+  ✓  capability recall.asOf              
+  ✓  capability delta                    
+  ✓  capability workingMemory.get        
+  ✓  capability history                  
+  ✓  write + supersede                   
+  ✓  read back typed                     
+  ✓  as_of March non-empty               {'Acme Corp'}
+  ✓  as_of September non-empty           {'Initech'}
+  ✓  THE BEAT: answers differ            {'Acme Corp'} vs {'Initech'}
+  ✓  working-memory block compiled       
+  ✓  delta reports something             
+  ✓  provenance walk has a closed fact   
+
+READY
+
+$ python crosslang/demo/demo_langgraph.py
+
+──────────────────────────────────────────────────────────────────────────────
+1. Session one, January — the agent stores what it learned  (store.put)
+──────────────────────────────────────────────────────────────────────────────
+  stored 3 facts across 2 owners — as TRIPLES, not opaque documents
+
+──────────────────────────────────────────────────────────────────────────────
+2. It comes back typed  (store.get)
+──────────────────────────────────────────────────────────────────────────────
+  alice · dietary_restriction · vegetarian
+  subject/predicate/object survived the round trip — a blob store returns a blob
+
+──────────────────────────────────────────────────────────────────────────────
+3. June — Alice changes jobs. An update, not an overwrite.
+──────────────────────────────────────────────────────────────────────────────
+  Initech supersedes Acme — the old fact is CLOSED, not deleted
+
+──────────────────────────────────────────────────────────────────────────────
+4. Session two — the resume brief, not a cold start
+──────────────────────────────────────────────────────────────────────────────
+  WORKING-MEMORY BLOCK (compiled, point-read — a top-K cannot starve it):
+    │ Stable facts:
+    │ alice dietary_restriction vegetarian
+    │ alice works_at Initech
+
+  DELTA since 2026-01-01  →  checkpoint 2026-08-16 15:53:04
+    new: 1   superseded: 1   invalidated: 0
+      + alice works_at Initech
+      ~ was "Acme Corp", now "Initech"
+
+──────────────────────────────────────────────────────────────────────────────
+5. THE BEAT — the same query at two instants  (store.search filter={'as_of': …})
+──────────────────────────────────────────────────────────────────────────────
+  as_of 2026-03-17:
+  recalled: 2 item(s)
+    · alice dietary_restriction vegetarian   (owner demo-alice)  [… → now]
+    · alice works_at Acme Corp   (owner demo-alice)  [2026-01-01T00:00:00+00:00 → 2026-08-16T15:53:04.5225227+00:00]
+
+  as_of 2026-09-08:
+  recalled: 2 item(s)
+    · alice dietary_restriction vegetarian   (owner demo-alice)  [… → now]
+    · alice works_at Initech   (owner demo-alice)  [2026-06-30T00:00:00+00:00 → now]
+
+  March → {'Acme Corp'}    September → {'Initech'}
+  ✓ different answers at different instants. No key-value store can do this: the information was never recorded.
+
+──────────────────────────────────────────────────────────────────────────────
+6. Isolation — Bob's fact is not in Alice's search
+──────────────────────────────────────────────────────────────────────────────
+  ✓ nothing from another owner — and the owner rides on the wire, so the client can CHECK that rather than trust it
+
+══════════════════════════════════════════════════════════════════════════════
+Every beat ran and each showed something. Prototype host, draft wire.
+
+$ python crosslang/demo/kit/run_notebook.py
+OK — 7 code cells executed, no exceptions (asserts included).
+Initech supersedes Acme — closed, not deleted
+Stable facts:
+alice dietary_restriction vegetarian
+alice works_at Initech
+since 2026-01-01  →  next checkpoint 2026-08-16 15:53:10
+  + alice works_at Initech
+  ~ was "Acme Corp", now "Initech"
+truncated: nothing
+live               →  {'Initech'}
+as_of 2026-03-17   →  {'Acme Corp'}
+as_of 2026-09-08   →  {'Initech'}
+
+✓ different answers at different instants
+✓ live    alice dietary_restriction vegetarian
+           valid … → now
+           surfaced to a caller 1 time(s)
+
+✓ live    alice works_at Initech
+           valid 2026-06-30T00:00:00+00:00 → now
+           replaces    ← alice works_at Acme Corp
+           surfaced to a caller 1 time(s)
+
+✗ closed  alice works_at Acme Corp
+           valid 2026-01-01T00:00:00+00:00 → 2026-08-16T15:53:09.9318118+00:00
+           closed on the transaction clock at 2026-08-16T15:53:09.9318118+00:00
+           replaced by → alice works_at Initech
+           surfaced to a caller 0 time(s)

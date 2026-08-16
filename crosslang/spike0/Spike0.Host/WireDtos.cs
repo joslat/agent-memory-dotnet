@@ -216,6 +216,33 @@ internal sealed record WireDeltaResponse
     [JsonPropertyName("truncatedSections")] public required IReadOnlyList<string> TruncatedSections { get; init; }
 }
 
+/// <summary>
+/// One provenance row: what this memory is, what replaced it, and where it came from.
+/// </summary>
+/// <remarks>
+/// The demo's "why do you believe that?" walk. The two supersession lists are what make an
+/// <c>as_of</c> answer auditable rather than merely surprising: the closed fact is still here, still
+/// readable, still pointing at the fact that replaced it. A store that overwrote has nothing to walk.
+/// </remarks>
+internal sealed record WireHistoryRow
+{
+    [JsonPropertyName("kind")] public required string Kind { get; init; }
+    [JsonPropertyName("id")] public required string Id { get; init; }
+    [JsonPropertyName("summary")] public required string Summary { get; init; }
+    [JsonPropertyName("ownerId")] public string? OwnerId { get; init; }
+    [JsonPropertyName("status")] public required string Status { get; init; }
+    [JsonPropertyName("createdAtUtc")] public required DateTimeOffset CreatedAtUtc { get; init; }
+    [JsonPropertyName("invalidatedAtUtc")] public DateTimeOffset? InvalidatedAtUtc { get; init; }
+    [JsonPropertyName("validFromUtc")] public DateTimeOffset? ValidFromUtc { get; init; }
+    [JsonPropertyName("validUntilUtc")] public DateTimeOffset? ValidUntilUtc { get; init; }
+    [JsonPropertyName("supersededByIds")] public required IReadOnlyList<string> SupersededByIds { get; init; }
+    [JsonPropertyName("supersedesIds")] public required IReadOnlyList<string> SupersedesIds { get; init; }
+    [JsonPropertyName("sourceMessageIds")] public required IReadOnlyList<string> SourceMessageIds { get; init; }
+
+    /// <summary>How often WE surfaced this — the read audit, not a salience score.</summary>
+    [JsonPropertyName("readAuditCount")] public required int ReadAuditCount { get; init; }
+}
+
 /// <summary>The compiled per-owner working-memory block (Wave C), as the wire carries it.</summary>
 internal sealed record WireWorkingMemory
 {

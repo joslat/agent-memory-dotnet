@@ -110,7 +110,7 @@ app.MapGet("/v1/meta", () => Results.Ok(new
     {
         "recall", "recall.asOf", "isolation.owner",
         // D2's additions: what the LangGraph BaseStore adapter needs to exist at all.
-        "facts.write", "facts.get", "workingMemory.get", "delta",
+        "facts.write", "facts.get", "workingMemory.get", "delta", "history",
     },
 }));
 
@@ -340,6 +340,40 @@ app.MapGet("/v1/working-memory/{ownerId}", async (
             BuiltAtUtc = block.BuiltAtUtc,
             ContentHash = block.ContentHash,
         });
+});
+
+// "Why do you believe that?" — the provenance walk. Includes invalidated rows on purpose: the whole
+// point is that the closed fact is still here and still linked, which is what makes an as-of answer
+// auditable rather than just surprising.
+app.MapGet("/v1/history/{ownerId}", async (
+    string ownerId, IMemoryHistoryService history, CancellationToken ct) =>
+{
+    var rows = await history.GetHistoryAsync(
+        new MemoryHistoryQuery
+        {
+            OwnerId = ownerId,
+            IncludeInvalidated = true,
+            IncludeShared = false,
+            Limit = 50,
+        },
+        ct);
+
+    return Results.Ok(rows.Select(r => new WireHistoryRow
+    {
+        Kind = r.Kind.ToString(),
+        Id = r.Id,
+        Summary = r.Summary,
+        OwnerId = r.OwnerId,
+        Status = r.Status.ToString(),
+        CreatedAtUtc = r.CreatedAtUtc,
+        InvalidatedAtUtc = r.InvalidatedAtUtc,
+        ValidFromUtc = r.ValidFromUtc,
+        ValidUntilUtc = r.ValidUntilUtc,
+        SupersededByIds = r.SupersededByIds,
+        SupersedesIds = r.SupersedesIds,
+        SourceMessageIds = r.SourceMessageIds,
+        ReadAuditCount = r.ReadAuditCount,
+    }).ToList());
 });
 
 // "What changed since you were last here." The resume brief.
