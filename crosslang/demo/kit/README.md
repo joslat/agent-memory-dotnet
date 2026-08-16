@@ -12,7 +12,9 @@ Four artifacts, one job: make a 10-minute meeting go well even when something br
 | [`ONE-PAGER.md`](ONE-PAGER.md) | The printed handout, including the **honest feature table** with the gaps that run our way | from `one-core-analysis.md` §1 + §4 + §5 |
 | [`screencast.txt`](screencast.txt) + [`screencast.py`](screencast.py) | The catastrophic fallback: a real captured transcript, replayed with typing cadence, needing **nothing** to run | replays clean; video still needs a human — see [`RECORDING.md`](RECORDING.md) |
 
-Plus [`preflight.py`](preflight.py), which the run sheet makes mandatory at T-15.
+Plus [`preflight.py`](preflight.py), which the run sheet makes mandatory at T-15, and
+[`test_store_contract.py`](../test_store_contract.py) — the three defects a closing review found in
+the adapter, each red-probed, run first in the rehearsal.
 
 ## The order things run
 

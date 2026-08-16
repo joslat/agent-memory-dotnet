@@ -114,9 +114,21 @@ class AgentMemoryStore(BaseStore):
             raise AgentMemoryStoreError(f"{method} {path} failed: {error}") from error
 
     @staticmethod
-    def _owner(namespace: Sequence[str]) -> str | None:
-        """The owner is the last namespace segment; a bare namespace is unscoped."""
-        return namespace[-1] if namespace else None
+    def _owner(namespace: Sequence[str]) -> str:
+        """The owner is the last namespace segment, e.g. ``("memories", "alice")`` → ``alice``.
+
+        A namespace too short to carry one is an error, not a default. Taking the last segment of
+        ``("memories",)`` would scope every read and write to an owner literally named "memories" --
+        it fails closed rather than leaking, but silently, and the caller would see an empty store
+        with no indication why. Owner isolation is the guarantee this adapter exists to expose;
+        guessing at it is the one thing it must not do.
+        """
+        if len(namespace) < 2:
+            raise ValueError(
+                f"AgentMemoryStore namespaces must carry an owner as their last segment, e.g. "
+                f'("memories", "alice"). Got {tuple(namespace)!r}.'
+            )
+        return namespace[-1]
 
     # ── the typed mapping ─────────────────────────────────────────────
 
@@ -209,19 +221,28 @@ class AgentMemoryStore(BaseStore):
         return self.batch(ops)
 
     def _put(self, op: PutOp) -> None:
-        owner = self._owner(op.namespace)
         if op.value is None:
             raise NotImplementedError(
                 "AgentMemoryStore does not delete. Memory is invalidated, never removed — a fact is "
                 "closed on the transaction clock so as-of recall can still see it, which is exactly "
                 "what a delete would destroy."
             )
+        owner = self._owner(op.namespace)
         self._request("POST", "/v1/facts", self._to_fact(op.key, owner, dict(op.value)))
         return None
 
     def _get(self, op: GetOp) -> Item | None:
         wire = self._request("GET", f"/v1/facts/{op.key}")
         if wire is None:
+            return None
+
+        # The engine's by-id read is deliberately unscoped -- an id is treated as an already-owned
+        # handle, which is a defensible engine-level choice. It is NOT defensible at the store
+        # contract: `get(("memories","alice"), key)` returning Bob's fact would break the namespace
+        # every LangGraph caller assumes, and this adapter's headline claim is owner isolation. So the
+        # namespace is enforced here, on the way out, rather than assumed.
+        owner = self._owner(op.namespace)
+        if wire.get("ownerId") not in (None, owner):
             return None
 
         # The engine's created/updated stamps are not on this draft wire, so `now` stands in. Recorded
@@ -256,7 +277,10 @@ class AgentMemoryStore(BaseStore):
             "sessionId": "langgraph-demo",
             "userId": owner,
             "query": op.query or "",
-            "maxFacts": op.limit,
+            # limit + offset, because the offset is applied client-side below. Asking for `limit` and
+            # then dropping the first `offset` rows would silently return fewer results than the
+            # caller asked for -- and page 2 of a 10-row page would come back with nothing at all.
+            "maxFacts": op.limit + op.offset,
             "asOf": as_of,
             "systemAsOf": system_as_of,
         }

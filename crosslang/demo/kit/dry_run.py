@@ -24,6 +24,7 @@ ROOT = HERE.parent.parent.parent
 
 STEPS: list[tuple[str, list[str], float]] = [
     # (name, argv, the run sheet's budget in seconds)
+    ("store contract tests", [sys.executable, str(HERE.parent / "test_store_contract.py")], 30),
     ("preflight", [sys.executable, str(HERE / "preflight.py")], 30),
     ("demo_langgraph (beats 1-6)", [sys.executable, str(HERE.parent / "demo_langgraph.py")], 120),
     ("notebook, executed", [sys.executable, str(HERE / "run_notebook.py")], 180),

@@ -10,15 +10,12 @@ Reproduce with `python crosslang/demo/kit/dry_run.py`.
 
 | Step | Run 1 | Run 2 | Budget | |
 |---|---:|---:|---:|:-:|
-| preflight | 2.0s | 1.2s | 30s | ✅ |
-| `demo_langgraph.py` — beats 1–6 | 1.8s | 1.3s | 120s | ✅ |
-| notebook, executed end to end | 5.3s | 4.6s | 180s | ✅ |
+| store contract tests | 3.5s | 1.5s | 30s | ✅ |
+| preflight | 3.1s | 1.8s | 30s | ✅ |
+| `demo_langgraph.py` — beats 1–6 | 2.3s | 1.5s | 120s | ✅ |
+| notebook, executed end to end | 5.5s | 4.8s | 180s | ✅ |
 | screencast replay (`--fast`) | 0.1s | 0.1s | 15s | ✅ |
-| **machine time** | **9.2s** | **7.3s** | | |
-
-(An earlier pair on a container that had been up longer measured 13.0s / 8.9s — same shape, same
-verdict. The numbers above are the final run, on the container the committed screencast was recorded
-against.)
+| **machine time** | **14.4s** | **9.6s** | | |
 
 **Twice in a row, clean** — the design's definition of done. The second run is the one that matters:
 it starts with Acme already superseded, re-asserts it, and re-supersedes. Nothing accumulates and
@@ -29,6 +26,18 @@ Machine time is ~13 seconds against a 10-minute budget. **The demo is entirely s
 terminal is never what the room is waiting for. Run 1 is slower than run 2 by the cold JIT and the
 first vector-index touch — expect the *first* thing you run in the room to be the slow one, which is
 another reason preflight runs at T-15 and not at T-0.
+
+## What the closing review caught
+
+Three defects in the adapter, found by reviewing the D2 build rather than by anything failing. All
+three are now covered by `test_store_contract.py`, which runs first in this rehearsal, and **each was
+red-probed**: reverting one fix fails exactly its own test and nothing else.
+
+| Defect | Pre-fix behaviour | Why it mattered |
+|---|---|---|
+| `get()` ignored the namespace | `get(("memories","alice"), key)` returned **Bob's fact** | The engine's by-id read is unscoped by design; the *store contract* is not, and isolation is this adapter's headline claim |
+| `search()` offset ate the limit | asked the host for `limit` rows, then dropped the first `offset` — **page 2 came back empty** | An empty page reads as "no more results" |
+| Ownerless namespace guessed | `("memories",)` scoped to an owner literally named `memories` | Failed closed, but silently: an empty store with no reason given |
 
 ## What the clean database caught
 
