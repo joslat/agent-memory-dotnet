@@ -365,7 +365,10 @@ MATCH (prev:Fact)-[:SUPERSEDED_BY]->(cur:Fact)
             RETURN cur.id AS factId, chain
 
 ## FactQueries.MarkDeduplicated
-MATCH (f:Fact {id: $id}) SET f.confidence = $confidence RETURN f
+MATCH (f:Fact {id: $id})
+            SET f.confidence    = $confidence,
+                f.mention_count = coalesce(f.mention_count, 1) + 1
+            RETURN f
 
 ## FactQueries.MentionCounts
 MATCH (f:Fact)

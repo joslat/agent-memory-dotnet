@@ -286,8 +286,29 @@ internal static class FactQueries
             ORDER BY score DESC
             LIMIT 1";
 
-    /// <summary>Reinforce an existing fact reached by dedup: bump its confidence.</summary>
-    public const string MarkDeduplicated = "MATCH (f:Fact {id: $id}) SET f.confidence = $confidence RETURN f";
+    /// <summary>Reinforce an existing fact reached by dedup: bump its confidence and count the mention.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>mention_count</c> is incremented here for the same reason it is in <see cref="Upsert"/> and
+    /// <see cref="UpsertBatch"/>:</b> arriving by dedup still means the world asserted this fact again,
+    /// only in different words. This statement previously set confidence alone, which made the counter
+    /// depend on which write path ran — exactly what <see cref="UpsertBatch"/>'s comment says it must
+    /// not do.
+    /// </para>
+    /// <para>
+    /// The consequence was not cosmetic. <c>LongTerm.DeduplicateOnCreate</c> defaults to <c>true</c>, and
+    /// a re-asserted triple — including a byte-identical one, which trivially clears the similarity
+    /// threshold — reaches this statement instead of the triple MERGE. So on the single-add API the
+    /// counter never left 1, the working-memory tier (which admits at <c>MinFactMentionCount</c>,
+    /// default 2) could never admit a directly-added fact however often it was re-asserted, and
+    /// <c>MentionFrequencyReranker</c> had no salience signal to rank on.
+    /// </para>
+    /// </remarks>
+    public const string MarkDeduplicated = @"
+            MATCH (f:Fact {id: $id})
+            SET f.confidence    = $confidence,
+                f.mention_count = coalesce(f.mention_count, 1) + 1
+            RETURN f";
 
     // ── SearchByVectorAsync ────────────────────────────────────────────
 
