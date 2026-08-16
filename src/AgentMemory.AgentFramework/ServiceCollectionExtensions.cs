@@ -26,6 +26,20 @@ public static class ServiceCollectionExtensions
         else
             services.AddOptions<AgentFrameworkOptions>();
 
+        // 30.5. The delta options had no validation, like every other numeric option added in this
+        // phase before an end-of-phase review found them. Each misconfigures silently: a zero cap makes
+        // every delta render as fully truncated, a non-positive gap fires a "resume" delta on every
+        // single turn, and a blank state-bag key collides with whatever else is unkeyed.
+        services.AddOptions<AgentFrameworkOptions>()
+            .Validate(o => o.MaxDeltaItemsPerSection > 0,
+                "AgentFrameworkOptions.MaxDeltaItemsPerSection must be positive.")
+            .Validate(o => o.MinimumDeltaGap > TimeSpan.Zero,
+                "AgentFrameworkOptions.MinimumDeltaGap must be positive — a non-positive gap treats "
+                + "every turn as a session resume.")
+            .Validate(o => !string.IsNullOrWhiteSpace(o.DefaultDeltaCheckpointKey),
+                "AgentFrameworkOptions.DefaultDeltaCheckpointKey must not be blank.")
+            .ValidateOnStart();
+
         services.AddOptions<ContextFormatOptions>()
             .Configure<IOptions<AgentFrameworkOptions>>((ctx, af) =>
             {

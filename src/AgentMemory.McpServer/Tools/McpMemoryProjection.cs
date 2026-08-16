@@ -39,9 +39,29 @@ internal static class McpMemoryProjection
             relevantFacts = context.RelevantFacts.Items.Select(Fact).ToList(),
             relevantPreferences = context.RelevantPreferences.Items.Select(Preference).ToList(),
             similarTraces = context.SimilarTraces.Items.Select(Trace).ToList(),
+            // 30.7/30.8. Projected because they are COUNTED: MemoryService includes all three in
+            // TotalItemsRetrieved, so omitting them here would report a client N items retrieved and
+            // hand back a context missing them -- a count that does not match its own content, which is
+            // worse than either the count or the content being wrong alone.
+            //
+            // Empty on every recall that did not enable firing or forgetting, so an unflagged client
+            // sees three empty arrays and nothing else changes.
+            dueFacts = context.DueFacts.Items.Select(Fact).ToList(),
+            expiringFacts = context.ExpiringFacts.Items.Select(Fact).ToList(),
+            // The SUMMARY, never the forgotten facts -- rendering those would undo the forgetting, and
+            // an MCP client is exactly the consumer that would treat them as ordinary memory.
+            forgottenTopics = context.ForgottenTopics.Select(ForgottenTopic).ToList(),
             context.GraphRagContext,
         };
     }
+
+    internal static object ForgottenTopic(ForgottenTopicSummary summary) => new
+    {
+        summary.Topic,
+        summary.Count,
+        summary.OldestUtc,
+        summary.AgedOutUtc,
+    };
 
     internal static object Message(Message message) => new
     {

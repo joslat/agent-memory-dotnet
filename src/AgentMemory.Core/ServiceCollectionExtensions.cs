@@ -157,6 +157,40 @@ public static class ServiceCollectionExtensions
             .Validate(
                 o => o.Recall.MinTraceSimilarityScore is null or (>= 0 and <= 1),
                 "MemoryOptions.Recall.MinTraceSimilarityScore must be between 0 and 1 when set.")
+            // 30.6/30.7/30.8/30.12. Wave B's self-review found six new numeric options shipped with no
+            // validation at all; Wave C then added eight more the same way, and an end-of-phase review
+            // found them the same way. Every one of these misconfigures SILENTLY rather than failing:
+            // a zero budget makes a feature look broken, a negative window inverts a comparison, and a
+            // confidence outside [0,1] propagates into every ranking and dedup computation that reads it.
+            .Validate(
+                o => o.Recall.MaxDueItems >= 0,
+                "MemoryOptions.Recall.MaxDueItems must not be negative.")
+            .Validate(
+                o => o.Recall.ExpiringWindow > TimeSpan.Zero,
+                "MemoryOptions.Recall.ExpiringWindow must be positive.")
+            .Validate(
+                o => o.Recall.DueLookback > TimeSpan.Zero,
+                "MemoryOptions.Recall.DueLookback must be positive.")
+            .Validate(
+                o => o.Recall.TombstoneProbeTopK > 0,
+                "MemoryOptions.Recall.TombstoneProbeTopK must be positive.")
+            .Validate(
+                o => o.AccessTrackingQueueCapacity > 0,
+                "MemoryOptions.AccessTrackingQueueCapacity must be positive.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.MaxDerivedFactsPerBatch > 0,
+                "MemoryOptions.Extraction.DerivedMemory.MaxDerivedFactsPerBatch must be positive.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.MaxGroupFanIn > 1,
+                "MemoryOptions.Extraction.DerivedMemory.MaxGroupFanIn must be greater than 1 — no "
+                + "operator can aggregate fewer than two facts, so a cap of 1 disables the feature "
+                + "while it reads as enabled.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.MaxEnumerationItems > 0,
+                "MemoryOptions.Extraction.DerivedMemory.MaxEnumerationItems must be positive.")
+            .Validate(
+                o => o.Extraction.DerivedMemory.DerivedFactConfidence is >= 0 and <= 1,
+                "MemoryOptions.Extraction.DerivedMemory.DerivedFactConfidence must be between 0 and 1.")
             .ValidateOnStart();
 
         // Bridge sub-options from parent MemoryOptions so services that depend on

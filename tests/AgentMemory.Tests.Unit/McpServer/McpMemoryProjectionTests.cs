@@ -100,4 +100,41 @@ public sealed class McpMemoryProjectionTests
         var names = PropertyNames(projected).ToList();
         names.Should().Contain(["Subject", "Predicate", "Object", "Confidence", "SourceMessageIds"]);
     }
+
+    // ── 30.7/30.8: every counted section is also projected ────────────
+
+    [Fact]
+    public void EverySectionCountedInTotalItemsRetrievedIsAlsoOnTheWire()
+    {
+        // Found by an end-of-phase review. MemoryService counts DueFacts, ExpiringFacts and
+        // ForgottenTopics into TotalItemsRetrieved, and the projection omitted all three — so an MCP
+        // client would have been told N items were retrieved and handed a context missing them. A count
+        // that does not match its own content is worse than either being wrong alone, because a reader
+        // has no way to tell which half to believe.
+        var projected = Invoke("Context", new MemoryContext
+        {
+            SessionId = "s1",
+            AssembledAtUtc = DateTimeOffset.UnixEpoch,
+        });
+
+        var names = PropertyNames(projected).ToList();
+        names.Should().Contain(["dueFacts", "expiringFacts", "forgottenTopics"]);
+    }
+
+    [Fact]
+    public void AForgottenTopicIsProjectedAsASummaryAndNeverAsTheForgottenFacts()
+    {
+        // Rendering the content would undo the forgetting, and an MCP client is exactly the consumer
+        // that would go on to treat those values as ordinary memory.
+        var projected = Invoke("ForgottenTopic", new ForgottenTopicSummary
+        {
+            Topic = "flights",
+            Count = 2,
+            OldestUtc = DateTimeOffset.UnixEpoch,
+            AgedOutUtc = DateTimeOffset.UnixEpoch.AddDays(1),
+        });
+
+        var names = PropertyNames(projected).ToList();
+        names.Should().BeEquivalentTo(["Topic", "Count", "OldestUtc", "AgedOutUtc"]);
+    }
 }

@@ -232,8 +232,13 @@ internal sealed class CoreMemoryTools
         // (a caller must never be able to self-assign ApplicationTrusted and bypass the admission policy's
         // instruction-like-content detection) and stamp ToolDerived, since this fact arrived via a direct
         // tool call rather than the extraction pipeline.
+        // 30.6: derivation keys are reserved for exactly the same reason. A caller who could stamp
+        // fact_kind='derived' plus an invented derivation string would hand the model arithmetic no
+        // accountant ever performed -- wearing the inline provenance that makes it look checked, which
+        // is strictly more persuasive than an unadorned wrong fact.
         var callerMetadata = (ParseMetadata(metadataJson) ?? new Dictionary<string, object>())
-            .WithoutCallerSuppliedTrustLevel();
+            .WithoutCallerSuppliedTrustLevel()
+            .WithoutCallerSuppliedDerivation();
         var fact = new Fact
         {
             FactId = idGenerator.GenerateId(),

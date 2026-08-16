@@ -425,6 +425,51 @@ public sealed class CoreMemoryToolsTests
             Arg.Any<CancellationToken>());
     }
 
+    // ── 30.6: derivation keys are reserved for the same reason ─────────
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedDerivation_IsStripped()
+    {
+        // A caller who could stamp fact_kind='derived' plus an invented derivation string would hand
+        // the model arithmetic no accountant ever performed -- carrying the inline provenance that makes
+        // it look checked, which is strictly more persuasive than an unadorned wrong fact.
+        //
+        // Found by an end-of-phase review: WithoutCallerSuppliedDerivation was written, documented as
+        // enforcing this rule, and called by nothing. The helper existed; the rule did not.
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "user", "total_fish_count", "17",
+            metadataJson:
+                "{\"kind\":\"derived\",\"derivation\":\"12 (a1) + 5 (b2)\",\"operator\":\"Sum\","
+                + "\"input_fact_ids\":[\"a1\",\"b2\"]}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f =>
+                !f.Metadata.IsDerived()
+                && f.Metadata.GetDerivation() == null
+                && f.Metadata.GetInputFactIds().Count == 0),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryAddFact_CallerSuppliedDerivation_OtherMetadataStillPreserved()
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Fact>());
+
+        await CoreMemoryTools.MemoryAddFact(
+            _longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "user", "total_fish_count", "17",
+            metadataJson: "{\"kind\":\"derived\",\"source\":\"crm\"}");
+
+        await _longTermMemory.Received(1).AddFactAsync(
+            Arg.Is<Fact>(f => f.Metadata.ContainsKey("source") && !f.Metadata.IsDerived()),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task MemoryAddFact_NoMetadataSupplied_StillStampsToolDerived()
     {
