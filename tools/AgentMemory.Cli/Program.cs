@@ -168,6 +168,20 @@ try
         Resolve("embedding-dimensions", "1536", "Neo4j:EmbeddingDimensions", "NEO4J_EMBEDDING_DIMENSIONS"),
         out var parsed) ? parsed : 1536;
 
+    // The operator path for extension DDL. Extensions ship their schema as ext/<id>/000N scripts and
+    // MigrationRunner applies exactly the ones Neo4jOptions.Extensions names -- and this block set the
+    // URI, credentials, database and dimensions and never touched Extensions, so `migrate` applied base
+    // migrations only and no supported path existed for the rest. Resolved through the same
+    // CLI > config > env precedence as every other setting.
+    //
+    // Validated BEFORE the host is built: an unknown id should end in "known: ..." on stderr, not a
+    // wrapped exception from inside the DI graph.
+    var extensionsArg = Resolve("extensions", string.Empty, "Neo4j:Extensions", "NEO4J_EXTENSIONS");
+    // Parsed EAGERLY, here, not inside the lambda below: an options-configure lambda runs lazily on
+    // first resolution, so throwing from inside it produces a wrapped exception from the DI graph
+    // instead of one readable line. A typo should end in a correction.
+    var activeExtensions = CliSchemaExtensions.Parse(extensionsArg);
+
     builder.Services.AddNeo4jAgentMemory(
         _ => { },
         o =>
@@ -177,6 +191,8 @@ try
             o.Password = password;
             o.Database = database;
             o.EmbeddingDimensions = dims;
+            if (activeExtensions is not null)
+                o.Extensions = new HashSet<string>(activeExtensions, StringComparer.Ordinal);
         });
     builder.Services.TryAddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
         new StubEmbeddingGenerator(

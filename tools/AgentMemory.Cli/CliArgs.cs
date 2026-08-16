@@ -84,7 +84,8 @@ public static class CliHelp
               agentmemory <command> [options]
 
             COMMANDS:
-              migrate                Apply pending Cypher migrations.
+              migrate                Apply pending Cypher migrations. Base only, unless --extensions
+                                     names schema extensions — see SCHEMA EXTENSIONS below.
               bootstrap              Create schema constraints and indexes.
               schema-check           Verify the LIVE database has every constraint/index the bootstrap
                                      creates (runtime conformance). Exit 1 listing any missing objects.
@@ -163,8 +164,24 @@ public static class CliHelp
               --database <name>      Default neo4j                  (or Neo4j:Database / NEO4J_DATABASE)
               --embedding-dimensions <n>  Default 1536              (or Neo4j:EmbeddingDimensions / NEO4J_EMBEDDING_DIMENSIONS)
 
+            SCHEMA EXTENSIONS (--extensions <id,...>, same precedence as above via
+            Neo4j:Extensions / NEO4J_EXTENSIONS):
+              A schema extension is an additive, named schema module. Its DDL lives in
+              ext/<id>/000N scripts that `migrate` applies ONLY when the extension is
+              activated — so activating one in application code is not enough: SOMEONE
+              MUST RUN `migrate --extensions <id>` against that database, and that
+              someone is whoever owns the deployment's schema.
+              Skipping it does not error. The queries still run and the only symptom is
+              a scan where a seek belonged, which is why this is spelled out here.
+              Available: arithmetic, delta-recall, procedural, working-memory.
+              Empty (the default) is the base schema, byte-identical.
+              Applies to every database-backed command, so `schema-check` reports on the
+              same set `migrate` applied. See docs/extensions/README.md.
+
             EXAMPLES:
               agentmemory migrate --uri bolt://db:7687 --password s3cret
+              agentmemory migrate --extensions arithmetic,delta-recall   # base + those two
+              agentmemory schema-check --extensions arithmetic           # who owns which shape
               agentmemory consolidate            # dry-run report
               agentmemory consolidate --apply    # perform hygiene mutations
               agentmemory decay                  # global prune (all owners)

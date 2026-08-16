@@ -17,6 +17,37 @@ services.AddNeo4jAgentMemory(neo4j =>
 listing the known ones — a deployment that asked for an extension and silently ran without it is the
 failure this mechanism exists to make impossible.
 
+## Who runs the DDL
+
+**Registering an extension in code does not create its schema.** The two are deliberately separate:
+application startup should not be allowed to run DDL against a shared database. So an extension's
+`ext/<id>/000N` scripts are applied by whoever owns the deployment's schema, with the operational CLI:
+
+```bash
+# base only — what `migrate` has always done
+agentmemory migrate --uri bolt://db:7687 --password s3cret
+
+# base + the named extensions' ext/<id>/000N scripts
+agentmemory migrate --uri bolt://db:7687 --password s3cret --extensions arithmetic,delta-recall
+
+# who owns which shape on this database, and is anything missing?
+agentmemory schema-check --extensions arithmetic,delta-recall
+```
+
+`--extensions` resolves through the same precedence as every other connection setting — CLI option >
+`Neo4j:Extensions` > `NEO4J_EXTENSIONS` > empty — and applies to **every** database-backed command, so
+`schema-check` reports on the same set `migrate` applied rather than a different one.
+
+**Forgetting this step does not produce an error**, which is exactly why it has its own section. An
+application that enables `arithmetic` against a database whose `ext/arithmetic/0001` was never applied
+keeps working: the MERGE still converges on one node, the queries still return correct results, and the
+only symptom is a full scan where an index seek belonged. Nothing fails, so nothing gets investigated.
+
+The ordering rule follows from the [namespacing](#why-migrations-are-namespaced) below: base always runs
+first, each `ext/<id>/` namespace is internally linear, and re-running is a no-op. Enabling an extension
+later on a database that has already migrated simply applies that extension's scripts and leaves
+everything else alone.
+
 ## What an extension owns
 
 | Piece | Where it lives |
