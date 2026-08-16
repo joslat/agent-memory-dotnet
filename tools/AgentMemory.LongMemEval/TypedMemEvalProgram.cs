@@ -98,12 +98,18 @@ internal static class TypedMemEvalProgram
                         .ConfigureAwait(false);
                 }
 
+                var assembledResults = new List<ExternalBenchmarkResult>();
                 foreach (var vertical in options.Verticals)
                 {
-                    await RunVerticalAsync(
+                    assembledResults.AddRange(await RunVerticalAsync(
                             vertical, options, answerChatClient, judgeChatClient, deployment, profile)
-                        .ConfigureAwait(false);
+                        .ConfigureAwait(false));
                 }
+
+                // The double-count guard runs over everything this invocation assembled: the
+                // twelve tg probe questions carried into Prospective make any cross-corpus total
+                // a double count, and the detector is upstream's, not a local id comparison.
+                WarnOnSeedOverlap(assembledResults, Console.Out);
             }
             finally
             {
@@ -121,7 +127,7 @@ internal static class TypedMemEvalProgram
         }
     }
 
-    private static async Task RunVerticalAsync(
+    private static async Task<IReadOnlyList<ExternalBenchmarkResult>> RunVerticalAsync(
         TypedMemEvalVertical vertical,
         TypedMemEvalRunOptions options,
         IChatClient answerChatClient,
@@ -187,6 +193,8 @@ internal static class TypedMemEvalProgram
 
         if (results.Count > 1)
             PrintBand(TypedMemEvalRunSet.Summarize(results));
+
+        return results;
     }
 
     private static TypedMemEvalOptions BuildFacade(TypedMemEvalRunOptions options) => new()
@@ -376,6 +384,26 @@ internal static class TypedMemEvalProgram
             ? value
             : throw new InvalidOperationException(
                 $"{name} is required; refusing to create a synthetic TypedMemEval score.");
+
+    /// <summary>
+    /// AgentEval's double-count guard, applied at the one place this verb assembles results across
+    /// verticals: the twelve time-grounded probe questions were carried into
+    /// TypedMemEval-Prospective, so a result set containing both corpora double-counts them in any
+    /// total. <see cref="TypedMemEvalRunSet.DetectSeedOverlap"/> is the upstream authority on the
+    /// corpus identifiers; this method only decides where its warning surfaces.
+    /// </summary>
+    /// <returns>True when the warning was printed — the tests' observable.</returns>
+    internal static bool WarnOnSeedOverlap(
+        IEnumerable<ExternalBenchmarkResult> results, TextWriter output)
+    {
+        if (TypedMemEvalRunSet.DetectSeedOverlap(results) is { } warning)
+        {
+            output.WriteLine($"typedmemeval: WARNING — {warning}");
+            return true;
+        }
+
+        return false;
+    }
 
     internal sealed record TypedMemEvalRunOptions(
         IReadOnlyList<TypedMemEvalVertical> Verticals,
