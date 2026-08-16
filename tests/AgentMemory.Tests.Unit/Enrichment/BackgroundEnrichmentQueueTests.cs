@@ -69,6 +69,169 @@ public sealed class BackgroundEnrichmentQueueTests
 
     // ─── Tests ──────────────────────────────────────────────────────────────
 
+    // ─── Losing work loudly, not quietly (R2) ───────────────────────────────
+
+    /// <summary>
+    /// A full queue drops the oldest item, and says so.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Under <c>DropOldest</c>, <c>TryWrite</c> returns <b>true</b> and discards the oldest queued item.
+    /// Any drop counter keyed on that return value reads zero forever while the queue throws work away
+    /// — so nothing counted, nothing logged, and an operator whose entities silently stopped being
+    /// enriched had nothing to look at.
+    /// </para>
+    /// <para>
+    /// This is the identical defect already found and fixed on <c>MemoryAccessTrackingChannel</c>, where
+    /// the test that caught it asserted a non-zero drop count on a capacity-1 queue and got 0. The same
+    /// assertion is made here, and it got 0 here too.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task AFullQueue_CountsAndReportsWhatItDrops()
+    {
+        // A provider that never returns, so the single worker is occupied and the queue actually fills
+        // rather than draining as fast as it is written.
+        var blocked = new TaskCompletionSource();
+        var service = Substitute.For<IEnrichmentService>();
+        service.EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(async _ => { await blocked.Task; return (EnrichmentResult?)null; });
+
+        var options = new EnrichmentQueueOptions { MaxQueueCapacity = 1, MaxConcurrency = 1 };
+        var sut = CreateSut(service, CreateRepo("e1", "e2", "e3", "e4", "e5"), options);
+
+        // try/finally, not straight-line: an assertion failure would otherwise leave the worker parked
+        // on `blocked` forever and the queue undisposed, which then fails unrelated tests in this class
+        // and buries the real failure under the noise. (Observed exactly that during a red probe.)
+        try
+        {
+            for (var i = 1; i <= 5; i++)
+                await sut.EnqueueAsync($"e{i}");
+
+            await WaitUntilAsync(() => sut.Counters.Dropped > 0,
+                because: "a capacity-1 queue written five times must record drops, not report zero");
+
+            sut.Counters.Dropped.Should().BeGreaterThan(0);
+        }
+        finally
+        {
+            blocked.TrySetResult();
+            await sut.DisposeAsync();
+        }
+    }
+
+    /// <summary>Nothing dropped when the queue never fills — the counter must not cry wolf.</summary>
+    [Fact]
+    public async Task AQueueThatNeverFills_DropsNothing()
+    {
+        // A SUCCESS result, deliberately: a null result is classified transient, so the item would be
+        // re-queued on a delay and the queue would never settle -- which is the retry path working, not
+        // a drop, and it made the first draft of this test hang for its whole timeout.
+        var done = new TaskCompletionSource();
+        var service = Substitute.For<IEnrichmentService>();
+        service.EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(_ => { done.TrySetResult(); return Task.FromResult<EnrichmentResult?>(CreateResult("Entity-e1")); });
+
+        await using var sut = CreateSut(service, CreateRepo("e1"),
+            new EnrichmentQueueOptions { MaxQueueCapacity = 64 });
+
+        await sut.EnqueueAsync("e1");
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => sut.QueueDepth == 0);
+
+        sut.Counters.Dropped.Should().Be(0);
+    }
+
+    /// <summary>
+    /// Shutdown with work still queued records what it abandoned.
+    /// </summary>
+    /// <remarks>
+    /// <c>DisposeAsync</c> previously caught <c>TimeoutException</c> with an empty block, so a drain that
+    /// ran out of time discarded whatever was queued and reported nothing at all. "Enrichment is slow"
+    /// and "enrichment is silently losing work" looked identical from the outside.
+    /// </remarks>
+    [Fact]
+    public async Task ShutdownWithWorkStillQueued_RecordsWhatItAbandons()
+    {
+        var blocked = new TaskCompletionSource();
+        var service = Substitute.For<IEnrichmentService>();
+        service.EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(async _ => { await blocked.Task; return (EnrichmentResult?)null; });
+
+        var sut = CreateSut(service, CreateRepo("e1", "e2", "e3"),
+            new EnrichmentQueueOptions { MaxQueueCapacity = 64, MaxConcurrency = 1 });
+
+        try
+        {
+            await sut.EnqueueAsync("e1");
+            await WaitUntilAsync(() => sut.IsProcessing, because: "the worker must be occupied");
+            await sut.EnqueueAsync("e2");
+            await sut.EnqueueAsync("e3");
+            await WaitUntilAsync(() => sut.QueueDepth == 2, because: "two items must be waiting behind it");
+
+            sut.Dispose();
+
+            sut.Counters.AbandonedOnShutdown.Should().Be(2,
+                "the two queued items will never be enriched, and that must be recorded rather than lost");
+        }
+        finally
+        {
+            // Same reason as above: never leave a worker parked on a TCS that a failed assertion skipped.
+            blocked.TrySetResult();
+            sut.Dispose();
+        }
+    }
+
+    /// <summary>Disposing with an empty queue reports nothing abandoned.</summary>
+    [Fact]
+    public async Task ShutdownWithAnEmptyQueue_AbandonsNothing()
+    {
+        var sut = CreateSut(repo: CreateRepo("e1"));
+        await sut.DisposeAsync();
+
+        sut.Counters.AbandonedOnShutdown.Should().Be(0);
+    }
+
+    /// <summary>
+    /// Synchronous disposal must not throw, and must not fault the worker task.
+    /// </summary>
+    /// <remarks>
+    /// <c>Dispose()</c> used to call <c>_cts.Dispose()</c> immediately after <c>Cancel()</c>, while the
+    /// workers still held that token. A consumer registering a callback on a disposed source throws
+    /// <c>ObjectDisposedException</c> inside the worker, faulting the processing task on a path where
+    /// nothing observes it. Cancellation alone is what stops the workers.
+    /// </remarks>
+    [Fact]
+    public async Task SynchronousDispose_DoesNotThrow_AndLeavesNoUnobservedFault()
+    {
+        var service = Substitute.For<IEnrichmentService>();
+        service.EnrichEntityAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+               .Returns(Task.FromResult<EnrichmentResult?>(null));
+
+        var sut = CreateSut(service, CreateRepo("e1", "e2"));
+        await sut.EnqueueAsync("e1");
+
+        var dispose = () => sut.Dispose();
+        dispose.Should().NotThrow();
+
+        // Give any faulting continuation a chance to surface before the test ends.
+        await Task.Delay(100);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+    }
+
+    /// <summary>Disposing twice is a no-op, by either route.</summary>
+    [Fact]
+    public async Task DisposingTwice_IsSafe()
+    {
+        var sut = CreateSut(repo: CreateRepo("e1"));
+
+        sut.Dispose();
+        var second = async () => await sut.DisposeAsync();
+
+        await second.Should().NotThrowAsync();
+    }
+
     [Fact]
     public async Task EnqueueAsync_SingleEntity_EnrichmentServiceCalled()
     {

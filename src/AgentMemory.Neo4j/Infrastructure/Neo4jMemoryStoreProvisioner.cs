@@ -72,6 +72,12 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
 
     private async Task CreateDatabaseAsync(string database, CancellationToken cancellationToken)
     {
+        // The only method in this file that was missing this, while EnsureStoreAsync,
+        // BootstrapDatabaseAsync and ValidateVectorIndexDimensionsAsync all had it -- and the one where
+        // it matters most, because WAIT below blocks until the database is online. A caller who
+        // cancelled got no cancellation and no indication that the token was being ignored.
+        cancellationToken.ThrowIfCancellationRequested();
+
         // CREATE DATABASE is an administrative command and must run against the system database.
         // WAIT blocks until the database is online, so the subsequent bootstrap can connect.
         // The name must be backtick-quoted: StoreDatabaseNaming yields legal-charset names, but the

@@ -29,6 +29,8 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
     private readonly CancellationTokenSource _cts = new();
     private int _activeCount;
     private bool _disposed;
+    private long _dropped;
+    private long _abandonedOnShutdown;
 
     /// <inheritdoc/>
     public int QueueDepth => _options.Enabled ? _channel.Reader.Count : 0;
@@ -56,7 +58,13 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
             SingleReader = false,
             SingleWriter = false
         };
-        _channel = Channel.CreateBounded<EnrichmentItem>(channelOptions);
+
+        // The itemDropped callback, for the same reason MemoryAccessTrackingChannel needs one: under
+        // DropOldest, TryWrite returns TRUE and silently discards the oldest queued item. A counter
+        // keyed on the return value therefore reads zero forever while the queue throws work away, and
+        // an operator whose entities stopped being enriched has nothing at all to look at. This is the
+        // identical defect already found and fixed on the access-tracking channel; it was still here.
+        _channel = Channel.CreateBounded(channelOptions, (EnrichmentItem dropped) => OnDropped(dropped));
 
         _processingTask = _options.Enabled
             ? StartWorkersAsync(_cts.Token)
@@ -78,6 +86,29 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
         foreach (var id in entityIds)
             _channel.Writer.TryWrite(new EnrichmentItem(id));
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// How many items were dropped because the queue was full, and how many were abandoned unprocessed
+    /// at shutdown. For tests and diagnostics.
+    /// </summary>
+    public (long Dropped, long AbandonedOnShutdown) Counters =>
+        (Interlocked.Read(ref _dropped), Interlocked.Read(ref _abandonedOnShutdown));
+
+    private void OnDropped(EnrichmentItem item)
+    {
+        var dropped = Interlocked.Increment(ref _dropped);
+
+        // First one, then every hundredth: a full queue produces drops continuously, and logging each
+        // would bury the signal in its own noise.
+        if (dropped == 1 || dropped % 100 == 0)
+        {
+            _logger.LogWarning(
+                "Enrichment queue full ({Capacity}); dropped {Dropped} item(s), most recently entity "
+                + "{EntityId}. Those entities keep their un-enriched description. Raise "
+                + "EnrichmentQueueOptions.MaxQueueCapacity or MaxConcurrency if this persists.",
+                _options.MaxQueueCapacity, dropped, item.EntityId);
+        }
     }
 
     private Task StartWorkersAsync(CancellationToken cancellationToken)
@@ -198,14 +229,55 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
         }
     }
 
+    /// <summary>
+    /// Stops accepting work and reports anything still queued. Shared by both dispose paths.
+    /// </summary>
+    /// <returns>The number of items that will never be processed.</returns>
+    /// <remarks>
+    /// Read <b>before</b> cancelling, because after cancellation the workers stop draining and the count
+    /// stops being meaningful. Zero is the normal case and says nothing; a non-zero count is the only
+    /// evidence an operator gets that enrichment was thrown away at shutdown.
+    /// </remarks>
+    private long StopAcceptingAndCountAbandoned()
+    {
+        _channel.Writer.TryComplete();
+        var abandoned = _channel.Reader.Count;
+        if (abandoned > 0)
+            Interlocked.Add(ref _abandonedOnShutdown, abandoned);
+        _cts.Cancel();
+        return abandoned;
+    }
+
     /// <inheritdoc/>
+    /// <remarks>
+    /// Synchronous disposal cannot drain: blocking here would run the workers' async continuations on a
+    /// thread that is waiting for them. So it reports what it is abandoning and returns. Hosts that
+    /// care about the in-flight work should dispose asynchronously, which waits.
+    /// </remarks>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        _cts.Cancel();
-        _channel.Writer.TryComplete();
-        _cts.Dispose();
+
+        var abandoned = StopAcceptingAndCountAbandoned();
+        if (abandoned > 0)
+        {
+            _logger.LogWarning(
+                "Enrichment queue disposed synchronously with {Abandoned} item(s) still queued; they "
+                + "will not be enriched. Dispose asynchronously to drain first.",
+                abandoned);
+        }
+
+        // The CTS is deliberately NOT disposed here. The workers still hold its token, and disposing a
+        // CancellationTokenSource while a consumer is registering a callback on that token throws
+        // ObjectDisposedException inside the worker -- which faults _processingTask on a path where
+        // nothing observes it. Cancellation has already been signalled, and that is what actually stops
+        // them.
+        //
+        // Skipping Dispose costs nothing measurable here: the only unmanaged resource it releases is the
+        // WaitHandle, which is allocated lazily and this class never asks for one (no Token.WaitHandle,
+        // no linked source, no CancelAfter). Trading a real cross-thread race for an unallocated handle
+        // is the right way round. DisposeAsync, which waits for the workers first, still disposes it.
     }
 
     /// <inheritdoc/>
@@ -213,14 +285,38 @@ internal sealed class BackgroundEnrichmentQueue : IBackgroundEnrichmentQueue, ID
     {
         if (_disposed) return;
         _disposed = true;
-        _cts.Cancel();
-        _channel.Writer.TryComplete();
+
+        var queuedAtShutdown = StopAcceptingAndCountAbandoned();
+
         try
         {
             await _processingTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { }
-        catch (TimeoutException) { }
+        catch (OperationCanceledException)
+        {
+            // Expected: cancellation is how the workers are asked to stop.
+        }
+        catch (TimeoutException)
+        {
+            // NOT expected, and previously swallowed in silence. A worker that did not finish inside the
+            // grace period is stuck in a provider call, and whatever it held is lost -- reporting that is
+            // the difference between "enrichment is slow" and "enrichment is silently losing work".
+            _logger.LogWarning(
+                "Enrichment queue did not drain within 5s of shutdown; {Queued} item(s) were still "
+                + "queued and at least one worker was still running. That work is abandoned.",
+                queuedAtShutdown);
+        }
+
+        var (dropped, abandoned) = Counters;
+        if (dropped > 0 || abandoned > 0)
+        {
+            _logger.LogInformation(
+                "Enrichment queue lifetime: {Dropped} item(s) dropped while full, {Abandoned} abandoned "
+                + "at shutdown.", dropped, abandoned);
+        }
+
+        // Safe here, unlike the synchronous path: the workers have either completed or timed out, so
+        // nothing is registering new callbacks on this token.
         _cts.Dispose();
     }
 }
